@@ -70,6 +70,8 @@ const policy = lines('prefix-set L', '  10.0.0.0/8 le 24,', '  0.0.0.0/0 le 32',
 const acl = lines('ipv4 access-list F', ' 10 permit tcp any host 192.0.2.1 eq 22', ' 20 deny ipv4 any any', '!', 'interface GigabitEthernet0/0/0/0', ' ipv4 access-group F ingress', '!')
 /** An access list whose one entry is `entry`, on line 2. */
 const entry = (e: string) => lines('ipv4 access-list F', ` 10 ${e}`)
+/** A bundle with a member link (model 0.5.4). */
+const bundle = lines('interface Bundle-Ether1', ' bundle minimum-active links 2', '!', 'interface GigabitEthernet0/0/0/0', ' bundle id 1 mode active', '!')
 /** A policy naming what `line` defines, if anything: its first line is the policy's. */
 const naming = (condition: string) => lines('route-policy P', `  if ${condition} then`, '    done', '  endif', 'end-policy')
 
@@ -148,7 +150,8 @@ export const probes: ProbeAdapter = {
     'policy-term': { set: policy, negated: lines(policy, 'no route-policy P'), path: ['routingPolicy', 'policies', 'P', 'terms', '1'] },
     'prefix-list-entry': { set: policy, negated: lines(policy, 'no route-policy P', 'no prefix-set L'), path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '1'] },
     'filter-term': { set: acl, negated: lines(acl, 'ipv4 access-list F', ' no 10'), path: ['filters', 'ipv4', 'F', 'terms', '10'] },
-    'filter-attachment': { set: acl, negated: lines(acl, 'interface GigabitEthernet0/0/0/0', ' no ipv4 access-group F ingress'), path: ['interfaces', 'GigabitEthernet0/0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] }
+    'filter-attachment': { set: acl, negated: lines(acl, 'interface GigabitEthernet0/0/0/0', ' no ipv4 access-group F ingress'), path: ['interfaces', 'GigabitEthernet0/0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] },
+    'aggregate-member': { set: bundle, negated: lines(bundle, 'interface GigabitEthernet0/0/0/0', ' no bundle id'), path: ['interfaces', 'GigabitEthernet0/0/0/0', 'aggregate'] }
   },
   malformed: {
     'ipv4-address': { source: lines('interface Loopback0', ' ipv4 address 192.0.2.256 255.255.255.255'), value: '192.0.2.256' },
@@ -162,7 +165,8 @@ export const probes: ProbeAdapter = {
     'prefix-length': { source: lines('prefix-set L', '  10.0.0.0/8 le 33', 'end-set'), value: '33', line: 1 },
     port: { source: entry('permit tcp any any eq 70000'), value: '70000' },
     'filter-prefix': { source: entry('permit ipv4 10.0.0.1/8 any'), value: '10.0.0.1/8' },
-    wildcard: { source: entry('deny ipv4 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' }
+    wildcard: { source: entry('deny ipv4 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' },
+    'min-links': { source: lines('interface Bundle-Ether1', ' bundle minimum-active links 0'), value: '0', line: 2 }
   },
   vrfScoping: {
     delete: { base: routes(), changed: lines(routes(), 'no vrf A'), vrf: 'A' },
@@ -177,7 +181,9 @@ export const probes: ProbeAdapter = {
     'community-set': { source: naming('community matches-any MISSING'), value: 'MISSING', line: 1 },
     'as-path-set': { source: naming('as-path in MISSING'), value: 'MISSING', line: 1 },
     policy: { source: lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', '   route-policy MISSING in'), value: 'MISSING' },
-    filter: { source: lines('interface GigabitEthernet0/0/0/0', ' ipv4 access-group MISSING ingress'), value: 'MISSING' }
+    filter: { source: lines('interface GigabitEthernet0/0/0/0', ' ipv4 access-group MISSING ingress'), value: 'MISSING' },
+    // The bundle a member names is made, as IOS-XR makes it: `bundle id 7` names Bundle-Ether7.
+    aggregate: { source: lines('interface GigabitEthernet0/0/0/0', ' bundle id 7 mode active'), value: 'Bundle-Ether7' }
   },
   // With repeated spaces and a comma inside the quotes, which are the regex's own.
   regex: {

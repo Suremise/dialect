@@ -14,12 +14,16 @@
 //    and one of another dialect is never rendered as if it were the plugin's own;
 // 8. the implicit action (model 0.5.1): a filter that relies on its platform's default for an undecided packet, or
 //    whose default differs from the plugin's, is rendered with a semantic warning, never silently.
+// Model 0.5.4 adds LAG cases to three of them (#107): a member link's membership negated (3), a malformed minimum
+// links (4), and a member naming an aggregate the source never configures (6), which, unlike the other references,
+// configures it (every platform makes the aggregate a channel group or bundle names): the model it leaves has the
+// aggregate, so no `aggregate` resolves to nothing, after the parse and after render → reparse.
 // Every probe source also goes through the five fixture checks (checks.ts), the secrets check among them: a probe
 // source with a secret (a community, the prototype keys used as one) has it checked like any fixture's.
 // A probe a plugin can't run yet (an area it doesn't support) is declared `notApplicable` with why, never left out:
 // the adapter's types make every probe and case a choice. The cases model 0.4.0 added (VLANs, OSPF, BGP), 0.5.0 added
-// (routing policy) and 0.5.1 added (filters) are optional in the types until each plugin's card for that phase gives
-// them: one left out
+// (routing policy), 0.5.1 added (filters) and 0.5.4 added (LAGs) are optional in the types until each plugin's card for
+// that phase gives them: one left out
 // isn't run (probesNotGiven() lists it, and describeConformance() shows it as a skipped test), so an older adapter runs
 // as it did.
 import { fieldPath, filterReliesOnImplicitAction, MODEL_VERSION, modelProblems, statementsOf, type Context, type Device, type PathSegment, type PlatformPlugin, type RegexDialect } from '@dialect/core'
@@ -34,14 +38,14 @@ export type Probe<T> = T | NotApplicable
 
 /** Where a prototype key is used as a name. */
 export type NameUse = 'interface' | 'vrf' | 'community' | 'dns' | 'vlan' | 'bgp-group'
-export type NegationKind = 'address' | 'description' | 'name-server' | 'static-route' | 'community' | 'bgp-neighbor' | 'ospf-interface' | 'policy-term' | 'prefix-list-entry' | 'filter-term' | 'filter-attachment'
-export type MalformedKind = 'ipv4-address' | 'ipv6-address' | 'mask' | 'next-hop' | 'as-number' | 'vlan-id' | 'prefix' | 'prefix-length' | 'port' | 'filter-prefix' | 'wildcard'
+export type NegationKind = 'address' | 'description' | 'name-server' | 'static-route' | 'community' | 'bgp-neighbor' | 'ospf-interface' | 'policy-term' | 'prefix-list-entry' | 'filter-term' | 'filter-attachment' | 'aggregate-member'
+export type MalformedKind = 'ipv4-address' | 'ipv6-address' | 'mask' | 'next-hop' | 'as-number' | 'vlan-id' | 'prefix' | 'prefix-length' | 'port' | 'filter-prefix' | 'wildcard' | 'min-links'
 export type ScopingKind = 'delete' | 'dns' | 'static-route' | 'ospf' | 'bgp'
 /**
  * What an unknown reference names: a term's prefix list, community set or AS-path set, a BGP peer's policy (model
- * 0.5.0), a subinterface's filter (0.5.1).
+ * 0.5.0), a subinterface's filter (0.5.1), a member link's aggregate (0.5.4).
  */
-export type ReferenceKind = 'prefix-list' | 'community-set' | 'as-path-set' | 'policy' | 'filter'
+export type ReferenceKind = 'prefix-list' | 'community-set' | 'as-path-set' | 'policy' | 'filter' | 'aggregate'
 
 /** The name uses and cases model 0.4.0 added: optional in an adapter until its plugin's phase 2 card gives them. */
 export type NameUse04 = 'vlan' | 'bgp-group'
@@ -54,20 +58,24 @@ export type MalformedKind05 = 'prefix' | 'prefix-length'
 /** The cases model 0.5.1 added (filters), as are the filter reference and the implicit-action probe. */
 export type NegationKind051 = 'filter-term' | 'filter-attachment'
 export type MalformedKind051 = 'port' | 'filter-prefix' | 'wildcard'
+/** The cases model 0.5.4 added (LAGs). */
+export type NegationKind054 = 'aggregate-member'
+export type MalformedKind054 = 'min-links'
 
 /** Every key of `K` given, except those of `Later`, which may be left out (`not given yet`). */
 type Choices<K extends string, Later extends K, V> = { readonly [P in Exclude<K, Later>]: V } & { readonly [P in Later]?: V }
 
 /** Each kind in the order the probes run and report them. */
 const NAME_USES: readonly NameUse[] = ['interface', 'vrf', 'community', 'dns', 'vlan', 'bgp-group']
-const NEGATION_KINDS: readonly NegationKind[] = ['address', 'description', 'name-server', 'static-route', 'community', 'bgp-neighbor', 'ospf-interface', 'policy-term', 'prefix-list-entry', 'filter-term', 'filter-attachment']
-const MALFORMED_KINDS: readonly MalformedKind[] = ['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length', 'port', 'filter-prefix', 'wildcard']
+const NEGATION_KINDS: readonly NegationKind[] = ['address', 'description', 'name-server', 'static-route', 'community', 'bgp-neighbor', 'ospf-interface', 'policy-term', 'prefix-list-entry', 'filter-term', 'filter-attachment', 'aggregate-member']
+const MALFORMED_KINDS: readonly MalformedKind[] = ['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length', 'port', 'filter-prefix', 'wildcard', 'min-links']
 const SCOPING_KINDS: readonly ScopingKind[] = ['delete', 'dns', 'static-route', 'ospf', 'bgp']
-const REFERENCE_KINDS: readonly ReferenceKind[] = ['prefix-list', 'community-set', 'as-path-set', 'policy', 'filter']
+const REFERENCE_KINDS: readonly ReferenceKind[] = ['prefix-list', 'community-set', 'as-path-set', 'policy', 'filter', 'aggregate']
 /** The model version each optional case came with, by the name probesNotGiven() gives it; one not here is 0.4.0's. */
 const SINCE: ReadonlyMap<string, string> = new Map([
   ...['negation: policy-term', 'negation: prefix-list-entry', 'malformed: prefix', 'malformed: prefix-length', 'unknown-reference: prefix-list', 'unknown-reference: community-set', 'unknown-reference: as-path-set', 'unknown-reference: policy', 'regex'].map((c): [string, string] => [c, '0.5.0']),
-  ...['negation: filter-term', 'negation: filter-attachment', 'malformed: port', 'malformed: filter-prefix', 'malformed: wildcard', 'unknown-reference: filter', 'implicit-action'].map((c): [string, string] => [c, '0.5.1'])
+  ...['negation: filter-term', 'negation: filter-attachment', 'malformed: port', 'malformed: filter-prefix', 'malformed: wildcard', 'unknown-reference: filter', 'implicit-action'].map((c): [string, string] => [c, '0.5.1']),
+  ...['negation: aggregate-member', 'malformed: min-links', 'unknown-reference: aggregate'].map((c): [string, string] => [c, '0.5.4'])
 ])
 /** Marks an optional case an adapter leaves out: not run, and listed by probesNotGiven(). */
 const NOT_GIVEN: NotApplicable = Object.freeze({ notApplicable: 'not given yet' })
@@ -95,10 +103,10 @@ export function probesNotGiven(adapter: ProbeAdapter): string[] {
   return out
 }
 
-/** probesNotGiven() by the model version that added each case (`0.4.0`, `0.5.0`, `0.5.1`), leaving out a version with none. */
+/** probesNotGiven() by the model version that added each case (`0.4.0`, `0.5.0`, `0.5.1`, `0.5.4`), leaving out a version with none. */
 export function probesNotGivenByModel(adapter: ProbeAdapter): [string, string[]][] {
   const notGiven = probesNotGiven(adapter)
-  return ['0.4.0', '0.5.0', '0.5.1'].map((version): [string, string[]] => [version, notGiven.filter((c) => (SINCE.get(c) ?? '0.4.0') === version)]).filter(([, cases]) => cases.length)
+  return ['0.4.0', '0.5.0', '0.5.1', '0.5.4'].map((version): [string, string[]] => [version, notGiven.filter((c) => (SINCE.get(c) ?? '0.4.0') === version)]).filter(([, cases]) => cases.length)
 }
 
 const USE_NAMES: Record<NameUse, string> = { interface: 'an interface', vrf: 'a VRF', community: 'an SNMP community', dns: 'a DNS name', vlan: 'a VLAN name', 'bgp-group': 'a BGP group' }
@@ -153,15 +161,18 @@ export interface ProbeAdapter {
   /** A source with one SNMP community limited to some clients (an access list, a client list), per access. */
   readonly snmpAccess: Probe<{ readonly 'read-only': string; readonly 'read-write': string }>
   /** Negating a BGP neighbor or an OSPF interface clears it, as negating an address does. */
-  readonly negation: Choices<NegationKind, NegationKind04 | NegationKind05 | NegationKind051, Probe<NegationCase>>
+  readonly negation: Choices<NegationKind, NegationKind04 | NegationKind05 | NegationKind051 | NegationKind054, Probe<NegationCase>>
   /** An AS number out of range (`4294967296`), a VLAN ID out of range (`4095`), as an address is. */
-  readonly malformed: Choices<MalformedKind, MalformedKind04 | MalformedKind05 | MalformedKind051, Probe<MalformedCase>>
+  readonly malformed: Choices<MalformedKind, MalformedKind04 | MalformedKind05 | MalformedKind051 | MalformedKind054, Probe<MalformedCase>>
   /** A change to the VRF's OSPF or BGP stays in it, as a static route change does. */
   readonly vrfScoping: Choices<ScopingKind, ScopingKind04, Probe<ScopingCase>>
   /**
    * Model 0.5.0: a source naming what it never defines (a term's prefix list, community set or AS-path set, a BGP
    * peer's policy; 0.5.1: a subinterface's filter), with `value` the missing name: checked as a malformed value is (in
-   * no model, no statement on its line mapped, flagged), and the model has no name that resolves to nothing.
+   * no model, no statement on its line mapped, flagged), and the model has no name that resolves to nothing. Model
+   * 0.5.4: a member link naming an aggregate the source never configures, `value` its name as the model has it
+   * (IOS-XR's `bundle id 7` names `Bundle-Ether7`): the membership configures it, so the check is only that no name
+   * resolves to nothing, after the parse and after render → reparse.
    */
   readonly unknownReference?: Choices<ReferenceKind, ReferenceKind, Probe<MalformedCase>>
   /** Model 0.5.0: regexes kept as written, and another dialect's never rendered as the plugin's own. */
@@ -484,7 +495,28 @@ export function runProbes(plugin: PlatformPlugin, adapter: ProbeAdapter, { model
   }
 
   // ---- 6. unknown references
-  for (const kind of REFERENCE_KINDS) flagged('unknown-reference', kind, choice<MalformedCase>(adapter.unknownReference, kind))
+  for (const kind of REFERENCE_KINDS) {
+    const c = choice<MalformedCase>(adapter.unknownReference, kind)
+    if (kind !== 'aggregate') flagged('unknown-reference', kind, c)
+    else if (c === NOT_GIVEN) continue
+    else if (isNotApplicable(c)) notApplicable('unknown-reference', kind, c)
+    else {
+      // The aggregate a member names, made as the platforms make it: the model has it, as an aggregate, both ways.
+      const parsed = parse(c.source)
+      const problems = [...errors('parse', parsed)]
+      /** Problems with `model`'s members of the case's aggregate; how many there are. */
+      const members = (step: string, model: Device) => {
+        problems.push(...modelProblems(model).map((d) => `${step} made an invalid model: ${d.message} (${d.field})`))
+        const named = Object.values(model.interfaces ?? {}).filter((i) => i?.aggregate === c.value).length
+        if (named && at(model, ['interfaces', c.value, 'type']) !== 'aggregate') problems.push(`${step}: a member names the aggregate, but the model has no aggregate of that name`)
+        return named
+      }
+      if (!members('parse', parsed.model)) problems.push("parse: no member names the aggregate (the case's membership isn't converted)")
+      members('render → reparse', parse(render(parsed.model).text).model)
+      problems.push(...fixtureChecks(`unknown-reference ${kind}`, c.source))
+      add('unknown-reference', kind, problems)
+    }
+  }
 
   // ---- 7. regexes kept as written
   const regex = adapter.regex

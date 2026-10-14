@@ -143,10 +143,16 @@ export const probes: ProbeAdapter = {
       set: lines(...attached),
       negated: lines(...attached, 'delete interfaces ge-0/0/0 unit 0 family inet filter input'),
       path: ['interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input']
+    },
+    'aggregate-member': {
+      set: lines('set interfaces ae0 aggregated-ether-options lacp active', 'set interfaces ge-0/0/0 ether-options 802.3ad ae0'),
+      negated: lines('set interfaces ae0 aggregated-ether-options lacp active', 'set interfaces ge-0/0/0 ether-options 802.3ad ae0', 'delete interfaces ge-0/0/0 ether-options 802.3ad'),
+      path: ['interfaces', 'ge-0/0/0', 'aggregate']
     }
   },
   malformed: {
     port: { source: lines('set firewall family inet filter F term T from destination-port 70000', 'set firewall family inet filter F term T then accept'), value: '70000', line: 1 },
+    'min-links': { source: lines('set interfaces ae0 aggregated-ether-options minimum-links 0'), value: '0', line: 1 },
     'filter-prefix': { source: lines('set firewall family inet filter F term T from source-address 10.0.0.256/24', 'set firewall family inet filter F term T then accept'), value: '10.0.0.256/24', line: 1 },
     // Junos takes a mask after the slash; one that isn't contiguous is a wildcard the model never approximates.
     wildcard: { source: lines('set firewall family inet filter F term T from source-address 10.0.0.0/255.0.255.0', 'set firewall family inet filter F term T then accept'), value: '10.0.0.0/255.0.255.0', line: 1 },
@@ -172,7 +178,8 @@ export const probes: ProbeAdapter = {
     'community-set': { source: lines('set policy-options policy-statement P term T from community MISSING-COMMUNITY', 'set policy-options policy-statement P term T then accept'), value: 'MISSING-COMMUNITY', line: 1 },
     'as-path-set': { source: lines('set policy-options policy-statement P term T from as-path MISSING-PATH', 'set policy-options policy-statement P term T then accept'), value: 'MISSING-PATH', line: 1 },
     policy: { source: lines('set routing-options autonomous-system 65000', 'set protocols bgp group G neighbor 192.0.2.2 peer-as 65001', 'set protocols bgp group G import MISSING-POLICY'), value: 'MISSING-POLICY', line: 3 },
-    filter: { source: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24', 'set interfaces ge-0/0/0 unit 0 family inet filter input MISSING-FILTER'), value: 'MISSING-FILTER', line: 2 }
+    filter: { source: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24', 'set interfaces ge-0/0/0 unit 0 family inet filter input MISSING-FILTER'), value: 'MISSING-FILTER', line: 2 },
+    aggregate: { source: lines('set interfaces ge-0/0/0 ether-options 802.3ad ae7'), value: 'ae7' }
   },
   regex: {
     source: lines('set policy-options as-path PATH ".* 65000 .*"', 'set policy-options community COMM members "^65000:.*$"'),
@@ -294,10 +301,16 @@ export const hierarchicalProbes: ProbeAdapter = {
       set: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24', ['filter', ['input F']])]]]], inetFilter(sshIn)),
       negated: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24')]]]], inetFilter(sshIn)),
       path: ['interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input']
+    },
+    'aggregate-member': {
+      set: tree(['interfaces', [['ge-0/0/0', [['ether-options', ['802.3ad ae0']]]], ['ae0', [['aggregated-ether-options', [['lacp', ['active']]]]]]]]),
+      negated: tree(['interfaces', ['ge-0/0/0', ['ae0', [['aggregated-ether-options', [['lacp', ['active']]]]]]]]),
+      path: ['interfaces', 'ge-0/0/0', 'aggregate']
     }
   },
   malformed: {
     port: { source: tree(inetFilter(['term T', [['from', ['destination-port 70000']], ['then', ['accept']]]])), value: '70000' },
+    'min-links': { source: tree(['interfaces', [['ae0', [['aggregated-ether-options', ['minimum-links 0']]]]]]), value: '0', line: 4 },
     'filter-prefix': { source: tree(inetFilter(['term T', [['from', ['source-address 10.0.0.256/24']], ['then', ['accept']]]])), value: '10.0.0.256/24' },
     wildcard: { source: tree(inetFilter(['term T', [['from', ['source-address 10.0.0.0/255.0.255.0']], ['then', ['accept']]]])), value: '10.0.0.0/255.0.255.0' },
     prefix: { source: tree(['policy-options', [['prefix-list L', ['10.0.0.256/24']]]]), value: '10.0.0.256/24' },
@@ -341,7 +354,8 @@ export const hierarchicalProbes: ProbeAdapter = {
     'community-set': { source: tree(missing('community MISSING-COMMUNITY')), value: 'MISSING-COMMUNITY' },
     'as-path-set': { source: tree(missing('as-path MISSING-PATH')), value: 'MISSING-PATH' },
     policy: { source: tree(['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', ['import MISSING-POLICY', ['neighbor 192.0.2.2', ['peer-as 65001']]]]]]]]), value: 'MISSING-POLICY' },
-    filter: { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24', ['filter', ['input MISSING-FILTER']])]]]]), value: 'MISSING-FILTER' }
+    filter: { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24', ['filter', ['input MISSING-FILTER']])]]]]), value: 'MISSING-FILTER' },
+    aggregate: { source: tree(['interfaces', [['ge-0/0/0', [['ether-options', ['802.3ad ae7']]]]]]), value: 'ae7' }
   },
   regex: {
     source: tree(['policy-options', ['community COMM members "^65000:.*$"', 'as-path PATH ".* 65000 .*"']]),
