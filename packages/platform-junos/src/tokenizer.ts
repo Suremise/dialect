@@ -59,7 +59,9 @@ export function tokenize(src: string): Token[] {
     return [line, offset - lineStart + 1]
   }
 
-  let i = 0
+  // A byte order mark at the start (a file or clipboard text saved with one) is whitespace, not part of the first word.
+  // It still counts as line 1's first column, as an editor showing the text counts it.
+  let i = src.charCodeAt(0) === 0xfeff ? 1 : 0
   while (i < n) {
     const c = src[i]
     if (isSpace(c)) i++

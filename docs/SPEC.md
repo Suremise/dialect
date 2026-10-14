@@ -20,13 +20,17 @@ product decisions.
     to stderr with their line and column. Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
     unreadable input.
 - **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
-  content security policy blocks remote content in both shells.
+  content security policy blocks remote content in both shells. The web build's allows only its own inlined script
+  and styles, by hash, and no network at all.
 
 ## 2. Stack and repository
 
 - **TypeScript (strict mode)** for the core, the plugins and the UI. Desktop app via **Tauri 2**; the only Rust is
   Tauri's thin, mostly generated shell, and no conversion logic lives there: conversion runs in the webview, from the
   same bundled code as the web build. (Replaces the spike's first Python + PySide6 recommendation.)
+- **UI:** React 19, zustand 5 and **CodeMirror 6** for the editors. The spike planned Monaco, but it needs
+  `unsafe-inline` styles and `blob:` workers, which the web build's CSP doesn't allow, and is 3.1 MB to CodeMirror's
+  0.3 MB (docs/ARCHITECTURE.md, "Editor").
 - **npm workspaces monorepo**, every package under the `@dialect/` scope:
 
   | Folder | Package | What |

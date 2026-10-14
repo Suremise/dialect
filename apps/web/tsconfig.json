@@ -1,4 +1,4 @@
-// Runs in a browser or the desktop app's webview.
+// Runs in a browser or the desktop app's webview. The build config and the tests run on Node: tsconfig.node.json.
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
@@ -11,7 +11,6 @@
     "jsx": "react-jsx"
   },
   "include": [
-    "src/**/*",
-    "tests/**/*"
+    "src/**/*"
   ]
 }

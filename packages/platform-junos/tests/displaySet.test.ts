@@ -168,6 +168,13 @@ describe('the parser', () => {
     ])
   })
 
+  it('ignores a byte order mark at the start, and counts it as a column', () => {
+    expect(setLines('﻿system {\n    host-name r1;\n}\n')).toEqual(['set system host-name r1'])
+    expect(tokenize('﻿version 1;')[0]).toEqual({ kind: 'word', text: 'version', line: 1, column: 2 })
+    // Elsewhere it's a character like any other.
+    expect(setLines('system {\n    host-name ﻿r1;\n}\n')).toEqual(['set system host-name ﻿r1'])
+  })
+
   it('keeps a redacted secret placeholder as a word', () => {
     expect(setLines('system {\n    root-authentication {\n        encrypted-password /* SECRET-DATA */;\n    }\n}\n')).toEqual(['set system root-authentication encrypted-password /* SECRET-DATA */'])
   })
