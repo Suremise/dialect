@@ -121,9 +121,9 @@ export function targetPlugin(id: string): PlatformPlugin {
 }
 
 /**
- * How many set commands a display set holds. A quoted value can hold line breaks (a banner), so one command can be
- * several lines: a line break ends a command only outside quotes, read as Junos's tokenizer reads them (in a quoted
- * string, a backslash escapes the character after it).
+ * How many commands a display set holds: set, deactivate and protect alike. A quoted value can hold line breaks (a
+ * banner), so one command can be several lines: a line break ends a command only outside quotes, read as Junos's
+ * tokenizer reads them (in a quoted string, a backslash escapes the character after it).
  */
 export function countCommands(output: string): number {
   if (output === '') return 0

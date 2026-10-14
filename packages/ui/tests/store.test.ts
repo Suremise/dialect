@@ -53,7 +53,7 @@ describe('the store', () => {
 })
 
 describe('countCommands', () => {
-  it('counts a set command per line, and a quoted line break as part of its command', () => {
+  it('counts a command per line, and a quoted line break as part of its command', () => {
     expect(countCommands('')).toBe(0)
     expect(countCommands('set system host-name r1')).toBe(1)
     expect(countCommands('set system host-name r1\nset system services ssh\ndeactivate system services')).toBe(3)
@@ -69,6 +69,13 @@ describe('countCommands', () => {
     expect(output.split('\n')).toHaveLength(4)
     expect(countCommands(output)).toBe(2)
     expect(sourceLines).toEqual([3, 3, 3, 7])
+  })
+
+  it('counts deactivate and protect lines as commands of their own', () => {
+    useStore.getState().setSource('system {\n    protect: host-name r1;\n    inactive: login {\n        message "one\ntwo";\n    }\n}\n')
+    const { output } = useStore.getState()
+    expect(output).toBe('set system host-name r1\nprotect system host-name r1\nset system login message "one\ntwo"\ndeactivate system login')
+    expect(countCommands(output)).toBe(4)
   })
 })
 

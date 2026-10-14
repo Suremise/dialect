@@ -39,8 +39,9 @@ In the app:
   directly.
 - The display set appears on the right as you go. Click a set line and its statement is marked in the source; click a
   statement and its set lines are marked in the output.
-- Above the output, and in the status bar, is how many set commands there are. A quoted value with line breaks (a
-  login banner) is one command over several lines, so then the line count follows: "2 set commands (4 lines)".
+- Above the output, and in the status bar, is how many commands there are (`set`, `deactivate` and `protect`). A
+  quoted value with line breaks (a login banner) is one command over several lines, so then the line count follows:
+  "2 commands (4 lines)".
 - **Problems** lists the warnings, or the syntax error, with their line and column. Click one to go to it. While there's
   a syntax error there's no output.
 - **Copy output** copies the set commands; **Save output** (Ctrl+S) saves them as `<name>.set`: the desktop app

@@ -72,7 +72,7 @@ export function App({ platform }: { platform: Platform }) {
   const commands = converting ? 0 : countCommands(output)
   const outputCount = converting
     ? plural(outputLines, 'line', 'lines')
-    : `${plural(commands, 'set command', 'set commands')}${commands === outputLines ? '' : ` (${plural(outputLines, 'line', 'lines')})`}`
+    : `${plural(commands, 'command', 'commands')}${commands === outputLines ? '' : ` (${plural(outputLines, 'line', 'lines')})`}`
 
   const sourceMarks = useMemo<LineMark[]>(
     () => [
