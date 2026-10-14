@@ -853,12 +853,27 @@ Read on 2026-10-14; nothing there was changed.
     `scripts/notices` as Hive does for electron-builder's;
   - a hand-written section for material that isn't a package, such as the jcc
     fixtures entry card #3 added;
-  - **repository links normalised to full `https://` URLs**. Hive's generator
+  - **every link a working `https://` URL, or no link.** Hive's generator
     passes shorthand `repository` fields through, so its notices have broken
     links such as `formatjs/formatjs`, `nodeca/argparse` and
-    `git@github.com:formatjs/formatjs`. Dialect's must expand `owner/repo`,
-    `github:owner/repo`, `git@host:owner/repo(.git)`, `git+https://…` and
-    `git://…`, with a unit test for each form.
+    `git@github.com:formatjs/formatjs` (fixed in Hive by its card #788).
+    Dialect's must handle every `repository` form
+    [npm documents](https://docs.npmjs.com/cli/v12/configuring-npm/package-json/#repository):
+    - the string and the object form (`{ type, url, directory }`; with
+      `directory`, link to that folder, e.g. `…/tree/HEAD/<directory>`);
+    - the shortcuts `owner/repo`, `github:owner/repo`, `gist:<id>`,
+      `bitbucket:owner/repo` and `gitlab:owner/repo`;
+    - the URL forms `git+https://…`, `git+ssh://git@host/owner/repo.git`,
+      scp-style `git@host:owner/repo.git`, `git://…`, `ssh://…`, and plain
+      `https://…`/`http://…`, with `.git` and `#commit-ish` suffixes stripped.
+
+    npm's own parser, [hosted-git-info](https://www.npmjs.com/package/hosted-git-info)
+    (10.1.1, ISC; build-only), turns the GitHub, GitLab, Bitbucket and gist
+    forms into browse URLs. Use it, or match its behaviour. When no repository
+    URL can be normalised to `https://`, **fall back to the package's
+    `homepage` if that is `https://`, else give no link: never a broken one.**
+    The same rule applies to the Rust crates' `repository` (and `homepage`)
+    fields from `Cargo.toml`.
 
   The same file is shown in the app's Docs view (card B16).
 - **License check in two categories**, matching the license rule:
@@ -1071,6 +1086,7 @@ those disagreed.
 | Peggy, Ohm | MIT | OK | Only if a grammar library is needed |
 | Chevrotain | Apache-2.0 | OK | Only if a grammar library is needed |
 | semver | ISC | OK | `modelApi` range checks |
+| hosted-git-info 10.1.1 | ISC | OK (build-only) | Notices generator: repository links |
 | Playwright | Apache-2.0 | OK | Web build tests |
 | WebdriverIO, @wdio/tauri-service | MIT | OK | Desktop smoke test |
 | sharp 0.35.5 | Apache-2.0 | **OK (build-only)** | Icon pipeline (card #5) |
@@ -1223,9 +1239,15 @@ Every card's done-when includes: `npm run typecheck`, `npm run lint` and
   `tests/licenses.test.ts` fails on a stale notices file, on a shipped fixture
   package that's GPL, and on a build-only fixture package with no license. It
   passes with a build-only LGPL fixture, which appears in the build-only
-  list. A repository-URL test covers `owner/repo`, `github:owner/repo`,
-  `git@github.com:owner/repo.git`, `git+https://…` and `git://…`, each giving
-  a full `https://` URL. The line-endings test fails on a mixed file. With
+  list. Repository-link tests cover each documented form: the string and
+  object forms (with and without `directory`), `owner/repo`,
+  `github:owner/repo`, `gist:<id>`, `bitbucket:owner/repo`,
+  `gitlab:owner/repo`, `git+https://…`, `git+ssh://git@github.com/owner/repo.git`,
+  `git@github.com:owner/repo.git`, `git://…`, `ssh://…`, plain `https://`, and
+  a `#commit-ish` suffix. Each gives a working `https://` browse URL. A package
+  with an unusable repository falls back to an `https://` homepage, and one
+  with neither gets no link. A test asserts that **every link in the generated
+  `THIRD_PARTY_NOTICES.md` starts with `https://`**. The line-endings test fails on a mixed file. With
   npm 12, a fixture dependency with an unlisted `postinstall` doesn't run
   it.
 
@@ -1327,7 +1349,11 @@ kit.** **M**
   display set works there with open and save. The WebdriverIO smoke test
   passes. The notices list the runtime crates (with `option-ext` as MPL-2.0)
   and the NSIS components, and no proc-macro crate (a test checks that
-  `cssparser-macros` isn't listed). The license check passes.
+  `cssparser-macros` isn't listed). Crate links follow the same rule as npm
+  links: tests cover a crate whose `repository` is a `git+ssh://`/`.git` URL,
+  one with only a `homepage`, and one with neither (no link). The
+  every-link-is-`https://` assertion passes on the full generated file. The
+  license check passes.
 
 **B16. About dialog and Docs view.** **S**
 - *Goal:* the app documents itself and its licenses, as Hive does, in both
