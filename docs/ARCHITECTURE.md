@@ -894,9 +894,9 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   names) and Junos's. The corpus's misses with every plugin registered are listed in `packages/cli/tests/detect.test.ts`
   with why (#58).
 - **Convert suggestions (`names.ts`):** `nameInterface()` names an Ethernet port by its speed, `Port-channel`,
-  `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. A Junos `irb.100`
-  gets `Vlan100` only once the core's convert names an IRB unit on its own (#41): today it names the `irb` interface
-  as a whole.
+  `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. The core's convert
+  names a routed VLAN interface unit by unit (#80, Convert above), describing each unit by the VLAN it routes for, so a
+  Junos `irb.100` is suggested as `Vlan100`, each unit its own row.
 
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
