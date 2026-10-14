@@ -7,7 +7,7 @@
 // before it, as on the device.
 import { fieldPath, isRouteDistinguisher, type Context, type Device, type Diagnostic, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
-import { interfaceName, interfaceType, splitSubinterface } from './names'
+import { interfaceName, interfaceType, isInterfaceName, splitSubinterface } from './names'
 import { BANNER_TYPES, parseTree, unquote, type IosNode } from './tree'
 
 type Obj = { [key: string]: unknown }
@@ -233,6 +233,15 @@ export function parse(text: string, _context: Context): ParseResult {
       claim(fieldPath(...path), node)
       return mapped([model.set(path, node.text.replace(/^\S+\s+/, ''))])
     }
+    if (lw[0] === 'no' && lw[1] === 'description' && w.length === 2) {
+      const path = [...own, 'description']
+      const previous = owners.get(fieldPath(...path))
+      if (!previous) return ignored('no description to remove: nothing to convert')
+      owners.delete(fieldPath(...path))
+      model.remove(path)
+      set(previous, ignored(`removed by line ${line(node)}`))
+      return ignored(`removes the description on line ${line(previous)}: nothing to convert`)
+    }
     if (/^shut(?:d(?:o(?:w(?:n)?)?)?)?$/.test(lw[0]) && w.length === 1) {
       claim(fieldPath(...own, 'enabled'), node)
       return mapped([model.set([...own, 'enabled'], false)])
@@ -331,10 +340,14 @@ export function parse(text: string, _context: Context): ParseResult {
   /** The `ip route vrf V …` statements of each VRF, with their prefix and family, so removing the VRF (or one of its families) removes them. */
   const routeStatements = new Map<string, { readonly node: IosNode; readonly prefix: string; readonly family: 'ipv4' | 'ipv6' }[]>()
 
-  /** `ip route …` / `ipv6 route …`: one next hop of a route. */
-  const mapRoute = (node: IosNode, v6: boolean): StatementDisposition => {
-    const w = node.words
-    let i = 2
+  /** One next hop of a route, by the statement that configured it. */
+  type RouteHop = { readonly node: IosNode; readonly hop: Obj; readonly name?: string }
+  /** Each route's next hops (`instance|prefix`), in order, so `no ip route` can remove some and the rest keep theirs. */
+  const routeHops = new Map<string, { readonly instance: string; readonly prefix: string; readonly v6: boolean; hops: RouteHop[] }>()
+  const hopKey = (hop: Obj) => `${hop.interface ?? ''}|${hop.address ?? ''}|${hop.drop ?? ''}`
+
+  /** The words of an `ip route` / `ipv6 route` from `i` (`vrf V`, the prefix): the route and its next hop, or why not. */
+  const readRoute = (w: readonly string[], i: number, v6: boolean): { instance: string; prefix: string; hop: Obj; name?: string } | { reason?: string } => {
     let instance = 'default'
     if (w[i]?.toLowerCase() === 'vrf' && w[i + 1]) {
       instance = w[i + 1]
@@ -352,7 +365,7 @@ export function parse(text: string, _context: Context): ParseResult {
       prefix = w[i + 1] ? ipv4Prefix(w[i], w[i + 1]) : null
       i += 2
     }
-    if (!prefix) return unsupported()
+    if (!prefix) return {}
 
     const hop: Obj = {}
     let name: string | undefined
@@ -371,29 +384,77 @@ export function parse(text: string, _context: Context): ParseResult {
       } else if (INTEGER.test(word) && hop.preference === undefined && (hop.address !== undefined || hop.interface !== undefined || hop.drop !== undefined) && Number(word) >= 1 && Number(word) <= 255) {
         hop.preference = Number(word)
         i++
-      } else if (!ROUTE_KEYWORDS.has(lower) && hop.address === undefined && hop.interface === undefined && hop.drop === undefined && interfaceName(w, i)) {
+      } else if (!ROUTE_KEYWORDS.has(lower) && hop.address === undefined && hop.interface === undefined && hop.drop === undefined && isInterfaceName(interfaceName(w, i)?.name ?? '')) {
+        // Only a real interface name: a malformed address or a stray word isn't one.
         const n = interfaceName(w, i)!
         if (/^null0$/i.test(n.name)) hop.drop = 'discard'
         else hop.interface = n.name
         i += n.used
-      } else return unsupported(`"${word}" isn't converted yet`)
+      } else return { reason: `"${word}" isn't converted yet` }
     }
+    return { instance, prefix, hop, ...(name !== undefined ? { name } : {}) }
+  }
+
+  /** The model fields of a route's next hops, in order: written (again) from its statements, each mapped to its own. */
+  const writeRoute = (route: { readonly instance: string; readonly prefix: string; hops: RouteHop[] }) => {
+    const routeAt = ['networkInstances', route.instance, 'staticRoutes', route.prefix]
+    model.remove(routeAt)
+    route.hops.forEach((h, index) => {
+      const fields: string[] = []
+      if (route.instance !== 'default') fields.push(model.set(['networkInstances', route.instance, 'type'], 'vrf'))
+      if (h.name !== undefined) fields.push(model.set([...routeAt, 'description'], h.name))
+      for (const [k, v] of Object.entries(h.hop)) fields.push(model.set([...routeAt, 'nextHops', String(index), k], v))
+      set(h.node, mapped(fields))
+    })
+    if (!route.hops.length) {
+      model.removeIfEmpty(['networkInstances', route.instance, 'staticRoutes'])
+      if (route.instance === 'default') model.removeIfEmpty(['networkInstances', 'default'])
+      model.removeIfEmpty(['networkInstances'])
+    }
+  }
+
+  /** `ip route …` / `ipv6 route …`: one next hop of a route. */
+  const mapRoute = (node: IosNode, v6: boolean): StatementDisposition => {
+    const r = readRoute(node.words, 2, v6)
+    if (!('prefix' in r)) return unsupported(r.reason)
+    const { instance, prefix, hop, name } = r
     if (hop.address === undefined && hop.interface === undefined && hop.drop === undefined) return unsupported('no next hop')
 
     const routeAt = ['networkInstances', instance, 'staticRoutes', prefix]
     const existing = model.get([...routeAt, 'description'])
     if (name !== undefined && existing !== undefined && existing !== name) return unsupported(`a second name for ${prefix}`)
 
+    if (instance !== 'default') routeStatements.set(instance, [...(routeStatements.get(instance) ?? []), { node, prefix, family: v6 ? 'ipv6' : 'ipv4' }])
+    const key = `${instance}|${prefix}`
+    const route = routeHops.get(key) ?? { instance, prefix, v6, hops: [] }
+    routeHops.set(key, route)
+    route.hops.push({ node, hop, ...(name !== undefined ? { name } : {}) })
     const fields: string[] = []
-    if (instance !== 'default') {
-      fields.push(model.set(['networkInstances', instance, 'type'], 'vrf'))
-      routeStatements.set(instance, [...(routeStatements.get(instance) ?? []), { node, prefix, family: v6 ? 'ipv6' : 'ipv4' }])
-    }
+    if (instance !== 'default') fields.push(model.set(['networkInstances', instance, 'type'], 'vrf'))
     if (name !== undefined) fields.push(model.set([...routeAt, 'description'], name))
-    const hops = model.object([...routeAt, 'nextHops'])
-    const index = String(Object.keys(hops).length)
+    const index = String(route.hops.length - 1)
     for (const [k, v] of Object.entries(hop)) fields.push(model.set([...routeAt, 'nextHops', index, k], v))
     return mapped(fields)
+  }
+
+  /**
+   * `no ip route [vrf V] P [next hop]` / `no ipv6 route …`: removes that next hop of the route in that VRF (or the global
+   * table), or every one when it names none; the others keep their order.
+   */
+  const removeRoute = (node: IosNode, v6: boolean): StatementDisposition => {
+    const r = readRoute(node.words, 3, v6)
+    if (!('prefix' in r)) return unsupported(r.reason)
+    const route = routeHops.get(`${r.instance}|${r.prefix}`)
+    const any = r.hop.address === undefined && r.hop.interface === undefined && r.hop.drop === undefined
+    const removed = route?.hops.filter((h) => any || hopKey(h.hop) === hopKey(r.hop)) ?? []
+    if (!route || !removed.length) return ignored('no such route: nothing to convert')
+    for (const h of removed) set(h.node, ignored(`removed by line ${line(node)}`))
+    route.hops = route.hops.filter((h) => !removed.includes(h))
+    if (!route.hops.length) routeHops.delete(`${r.instance}|${r.prefix}`)
+    writeRoute(route)
+    const statements = routeStatements.get(r.instance)
+    if (statements) routeStatements.set(r.instance, statements.filter((st) => !removed.some((h) => h.node === st.node)))
+    return ignored(`removes the route on ${linesText(removed.map((h) => line(h.node)))}: nothing to convert`)
   }
 
   // ---- VRFs
@@ -514,6 +575,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const leftOut = unsupported(`in an address family of its VRF that line ${line(node)} removes: left out`)
     for (const m of membership.values()) if (m.vrf === instance) clearAddresses(m.ctx, leftOut, [name])
     const routes = routeStatements.get(instance) ?? []
+    for (const [key, route] of routeHops) if (route.instance === instance && route.v6 === (name === 'ipv6')) routeHops.delete(key)
     for (const r of routes.filter((route) => route.family === name)) {
       set(r.node, leftOut)
       model.remove(['networkInstances', instance, 'staticRoutes', r.prefix])
@@ -550,6 +612,7 @@ export function parse(text: string, _context: Context): ParseResult {
     owners.delete(`vrf ${instance} rd`)
     vrfs.delete(instance)
     routeStatements.delete(instance)
+    for (const [key, route] of routeHops) if (route.instance === instance) routeHops.delete(key)
     model.remove(['networkInstances', instance])
     model.removeIfEmpty(['networkInstances'])
     return ignored(`removes the VRF, its routes and its interfaces' membership and addresses (${linesText(lines.sort((a, b) => a - b))}): nothing to convert`)
@@ -576,7 +639,44 @@ export function parse(text: string, _context: Context): ParseResult {
       const existing = model.get(['system', 'dns', 'servers', key])
       if (existing !== undefined && (existing as Obj).networkInstance !== vrf) return unsupported(`${key} is already a name server in another VRF`)
     }
-    return mapped(keys.map((key) => (vrf === undefined ? model.set(['system', 'dns', 'servers', key], model.get(['system', 'dns', 'servers', key]) ?? {}) : model.set(['system', 'dns', 'servers', key, 'networkInstance'], vrf))))
+    const fields = keys.map((key) => (vrf === undefined ? model.set(['system', 'dns', 'servers', key], model.get(['system', 'dns', 'servers', key]) ?? {}) : model.set(['system', 'dns', 'servers', key, 'networkInstance'], vrf)))
+    for (const key of keys) nameServerStatements.set(key, [...(nameServerStatements.get(key) ?? []), node])
+    nameServerFields.set(node, { keys, fields })
+    return mapped(fields)
+  }
+
+  /** The statements that added each name server, by address, and what each one mapped, so `no ip name-server` can remove them. */
+  const nameServerStatements = new Map<string, IosNode[]>()
+  const nameServerFields = new Map<IosNode, { keys: string[]; fields: string[] }>()
+
+  /** `no ip name-server [vrf V] A [B …]`: removes those servers in that VRF (no VRF: the global table) only. */
+  const removeNameServers = (node: IosNode): StatementDisposition => {
+    const w = node.words
+    let i = 3
+    let vrf: string | undefined
+    if (w[i]?.toLowerCase() === 'vrf' && w[i + 1]) {
+      vrf = vrfName(w[i + 1])
+      i += 2
+    }
+    const keys = w.slice(i).map((a) => (isIpv6(a) ? a.toLowerCase() : a))
+    if (!keys.length || !keys.every((a) => isIpv4(a) || isIpv6(a))) return unsupported()
+    const lines: number[] = []
+    for (const key of keys) {
+      const existing = model.get(['system', 'dns', 'servers', key])
+      if (existing === undefined || (existing as Obj).networkInstance !== vrf) continue
+      for (const added of nameServerStatements.get(key) ?? []) {
+        const entry = nameServerFields.get(added)!
+        const at = fieldPath('system', 'dns', 'servers', key)
+        entry.keys = entry.keys.filter((k) => k !== key)
+        entry.fields = entry.fields.filter((f) => f !== at && !f.startsWith(`${at}.`))
+        set(added, entry.keys.length ? mapped(entry.fields) : ignored(`removed by line ${line(node)}`))
+        lines.push(line(added))
+      }
+      nameServerStatements.delete(key)
+      model.remove(['system', 'dns', 'servers', key])
+      for (const at of [['system', 'dns', 'servers'], ['system', 'dns'], ['system']]) model.removeIfEmpty(at)
+    }
+    return ignored(lines.length ? `removes name servers configured on ${linesText([...new Set(lines)].sort((a, b) => a - b))}: nothing to convert` : 'no such name server in that VRF: nothing to convert')
   }
 
   /** `ip domain list X` / `ip domain-list X`: one search domain, appended in order. */
@@ -676,6 +776,13 @@ export function parse(text: string, _context: Context): ParseResult {
     return mapped(Object.entries(server).map(([k, v]) => model.set([...at, k], v)))
   }
 
+  /**
+   * Every statement about each SNMP community, by name (a Map: names are any string), and the first one not converted:
+   * it may limit or change the community (an access list, a view), so the community is then left out whole.
+   */
+  const communities = new Map<string, { nodes: IosNode[]; unconverted?: IosNode }>()
+
+  // Community names are secrets: no reason here repeats a word of the statement.
   const mapSnmp = (node: IosNode): StatementDisposition => {
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
@@ -683,13 +790,32 @@ export function parse(text: string, _context: Context): ParseResult {
       claim(`snmp ${lw[1]}`, node)
       return mapped([model.set(['system', 'snmp', lw[1]], node.text.replace(/^\S+\s+\S+\s+/, ''))])
     }
-    if (lw[1] === 'community' && (w.length === 3 || (w.length === 4 && (lw[3] === 'ro' || lw[3] === 'rw')))) {
-      const at = ['system', 'snmp', 'communities', unquote(w[2])]
+    if (lw[1] !== 'community' || w.length < 3) return unsupported()
+    const name = unquote(w[2])
+    const state = communities.get(name) ?? { nodes: [] }
+    communities.set(name, state)
+    state.nodes.push(node)
+    if (w.length === 3 || (w.length === 4 && (lw[3] === 'ro' || lw[3] === 'rw'))) {
+      const at = ['system', 'snmp', 'communities', name]
       claim(fieldPath(...at), node, () => model.remove(at))
       return mapped([w.length === 4 ? model.set([...at, 'access'], lw[3] === 'ro' ? 'read-only' : 'read-write') : model.set(at, {})])
     }
-    if (lw[1] === 'community') return unsupported('a view or an access list on the community')
-    return unsupported()
+    state.unconverted ??= node
+    return unsupported('a view or an access list on the community')
+  }
+
+  /** `no snmp-server community X`: removes the community, and every statement about it before (its access list too). */
+  const removeCommunity = (node: IosNode): StatementDisposition => {
+    const name = unquote(node.words[3])
+    const at = ['system', 'snmp', 'communities', name]
+    const state = communities.get(name)
+    if (!state) return ignored('no such community: nothing to convert')
+    communities.delete(name)
+    owners.delete(fieldPath(...at))
+    model.remove(at)
+    for (const up of [['system', 'snmp', 'communities'], ['system', 'snmp'], ['system']]) model.removeIfEmpty(up)
+    for (const n of state.nodes) set(n, ignored(`removed by line ${line(node)}`))
+    return ignored(`removes the community configured on ${linesText(state.nodes.map(line))}: nothing to convert`)
   }
 
   // ---- the top level
@@ -717,6 +843,9 @@ export function parse(text: string, _context: Context): ParseResult {
       claim('domain name', node)
       d = mapped([model.set(['system', 'domainName'], w[w.length - 1])])
     } else if (lw[0] === 'ip' && lw[1] === 'name-server') d = mapNameServers(node)
+    else if (lw[0] === 'no' && lw[1] === 'ip' && lw[2] === 'name-server') d = removeNameServers(node)
+    else if (lw[0] === 'no' && (lw[1] === 'ip' || lw[1] === 'ipv6') && lw[2] === 'route') d = removeRoute(node, lw[1] === 'ipv6')
+    else if (lw[0] === 'no' && lw[1] === 'snmp-server' && lw[2] === 'community' && w.length === 4) d = removeCommunity(node)
     else if (lw[0] === 'ip' && ((lw[1] === 'domain' && lw[2] === 'list') || lw[1] === 'domain-list')) d = mapDomainList(node)
     else if (lw[0] === 'ip' && lw[1] === 'route') d = mapRoute(node, false)
     else if (lw[0] === 'ipv6' && lw[1] === 'route') d = mapRoute(node, true)
@@ -738,6 +867,15 @@ export function parse(text: string, _context: Context): ParseResult {
 
   for (const node of nodes) mapTop(node)
   for (const run of deferred) run()
+
+  // A community with a statement not converted anywhere in the text (an access list, a view) is left out whole: mapped
+  // without it, it would answer clients, or allow access, the source doesn't.
+  for (const [name, state] of communities) {
+    if (!state.unconverted) continue
+    model.remove(['system', 'snmp', 'communities', name])
+    for (const up of [['system', 'snmp', 'communities'], ['system', 'snmp'], ['system']]) model.removeIfEmpty(up)
+    for (const n of state.nodes) if (dispositions[n.id]?.kind === 'mapped') set(n, unsupported(`left out whole: line ${line(state.unconverted)} about the same community isn't converted, and may limit or change it`))
+  }
 
   // A VRF's route targets: one set in the model, so every address family's (each with the VRF-wide ones) must agree as
   // sets (a family with none disagrees with one with some), and none may be left out.
