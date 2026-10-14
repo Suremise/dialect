@@ -402,3 +402,20 @@ describe('convert from another source', () => {
     expect(sameJob({ kind: 'convert', target: 'iosxe' }, { kind: 'convert', source: 'junos', target: 'iosxe' })).toBe(true)
   })
 })
+
+describe("the store placing a render's warnings (#112)", () => {
+  // A term that rejects: IOS-XE writes it as deny and warns at the access list's entry, a line of the output.
+  const FILTER = ['firewall {', '    family inet {', '        filter EDGE {', '            term BLOCK {', '                from {', '                    protocol tcp;', '                }', '                then reject;', '            }', '        }', '    }', '}', ''].join('\n')
+
+  afterEach(() => {
+    useStore.getState().setJob(DISPLAY_SET)
+  })
+
+  it('puts it at its source statement, with its line of the output', () => {
+    useStore.getState().setJob({ kind: 'convert', target: 'iosxe' })
+    useStore.getState().setSource(FILTER, 'filter.conf')
+    const reject = doc().problems.find((p) => p.message.includes('ICMP unreachable is written as deny'))
+    expect(reject).toMatchObject({ severity: 'warning', line: 8 })
+    expect(doc().output.split('\n')[reject!.outputLine! - 1]).toMatch(/^ *(\d+ )?deny tcp/)
+  })
+})

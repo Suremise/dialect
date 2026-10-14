@@ -20,7 +20,8 @@ product decisions.
   - the **offline web build**, one self-contained HTML file opened from disk, for laptops where installing isn't
     allowed;
   - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout: results to stdout, warnings and errors
-    to stderr with their line and column. Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
+    to stderr with their line and column in the config (a warning about a line of the converted output gives that
+    line too, after its message). Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
     unreadable input, 3 a conversion with interfaces left unnamed or other needs-input items unanswered (unless
     `--allow-incomplete`).
 - **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
