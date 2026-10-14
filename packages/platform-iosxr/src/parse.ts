@@ -3,13 +3,15 @@
 // and OSPF and BGP (phase 2, model 0.4.0). Every statement of the tree gets a disposition: `mapped` when everything it says went into the
 // model, `ignored-by-design` with why, or `unsupported` (its text kept in the tree). A statement is mapped only when every
 // option on it is understood: one with an option the model can't hold (`server 192.0.2.1 key 1`) is unsupported as a
-// whole, never half-converted. Route policies and sets are recognised and kept whole (tree.ts), not translated yet.
+// whole, never half-converted. Route policies and sets are kept whole (tree.ts): their simple forms are translated
+// (policy.ts, model 0.5.0), each converted whole or not at all, and a VRF's or BGP peer's route policy names one.
 // Later statements act on earlier ones as on the device: a second setting supersedes the first, and `no …` forms and
 // `vrf V` on an interface clear what they remove. No reason or diagnostic repeats a word of the configuration
 // (AGENTS.md, No secrets in diagnostics): they give line numbers and word positions instead.
-import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Diagnostic, type Bgp, type BgpAddressFamilyName, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, populatedLeaves, type Context, type Device, type Diagnostic, type Bgp, type BgpAddressFamilyName, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { interfaceType, isInterfaceName, splitSubinterface } from './names'
+import { asPathSet, communitySet, prefixSet, readPolicy, RPL_NAME, toPolicy } from './policy'
 import { parseTree, unquote, type XrNode } from './tree'
 
 type Obj = { [key: string]: unknown }
@@ -655,10 +657,10 @@ export function parse(text: string, _context: Context): ParseResult {
    * `ipv6` unicast), with the first route target statement not converted: the VRF's route targets are a whole, so one
    * left out leaves them all out.
    */
-  type VrfState = { readonly definitions: XrNode[]; readonly families: Map<'ipv4' | 'ipv6', RouteTarget[]>; unconverted?: XrNode }
+  type VrfState = { readonly definitions: XrNode[]; readonly families: Map<'ipv4' | 'ipv6', RouteTarget[]>; unconverted?: XrNode; readonly policies: Map<'ipv4' | 'ipv6', Partial<Record<'import' | 'export', { readonly node: XrNode; readonly name: string }>>> }
   const vrfs = new Map<string, VrfState>()
   const vrfOfName = (instance: string): VrfState => {
-    const state = vrfs.get(instance) ?? { definitions: [], families: new Map() }
+    const state = vrfs.get(instance) ?? { definitions: [], families: new Map(), policies: new Map() }
     vrfs.set(instance, state)
     return state
   }
@@ -704,7 +706,15 @@ export function parse(text: string, _context: Context): ParseResult {
             } else routeTarget(value, state, targets, direction, value.words)
           }
         }
-      } else if (child.kind === 'statement' && (lw[0] === 'import' || lw[0] === 'export')) unsupportedTree(child, 'a VRF\'s import or export policy: route policies come later')
+      } else if (child.kind === 'statement' && (lw[0] === 'import' || lw[0] === 'export') && lw[1] === 'route-policy' && w.length === 3 && !child.children.length && RPL_NAME.test(w[2])) {
+        // A VRF's own policy (model 0.5.2): the model's is the VRF's, so it maps once every family's agree.
+        const policies = state.policies.get(family) ?? {}
+        state.policies.set(family, policies)
+        const earlier = policies[lw[0]]
+        if (earlier) set(earlier.node, ignored(`superseded by line ${line(child)}`))
+        policies[lw[0]] = { node: child, name: w[2] }
+        set(child, mapped([]))
+      } else if (child.kind === 'statement' && (lw[0] === 'import' || lw[0] === 'export')) unsupportedTree(child, 'a VRF\'s import or export policy with parameters or options the model doesn\'t have')
       else {
         unsupportedTree(child)
         if (lw.includes('route-target')) state.unconverted ??= child
@@ -1519,13 +1529,14 @@ export function parse(text: string, _context: Context): ParseResult {
       if (child.kind === 'comment') set(child, ignored('a comment'))
       else if (child.children.length || lw[no] !== 'route-policy' || w.length !== 3 + no || !direction) unsupportedTree(child)
       // A policy with parameters (`route-policy P(10) in`) is more than a name.
-      else if (!no && !/^[\w.-]+$/.test(w[1])) set(child, unsupported('a route policy with parameters, which comes with route policies'))
+      else if (!no && !/^[\w.-]+$/.test(w[1])) set(child, unsupported('a route policy with parameters, which the simple form doesn\'t have'))
       else if (no) set(child, unclaim(fieldPath(...af, direction), child, 'route policy', [...af, direction], af.length))
       else {
         claim(fieldPath(...af, direction), child)
         track(instance, child, peerKey(...at), peerKey(...af))
         set(child, mapped([model.set([...af, direction], [w[1]])]))
-        diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.route-policy-name-only', message: `The route policy on line ${line(child)} is converted by its name only: its body isn't converted yet.`, statement: child.id, span: child.span })
+        // The policy it names must be one the text defines and converts: checked once every statement is read.
+        policyRefs.push({ node: child, path: [...af, direction] })
       }
     }
   }
@@ -1624,6 +1635,127 @@ export function parse(text: string, _context: Context): ParseResult {
     }
   }
 
+  // ---- route policies and sets (model 0.5.0, policy.ts)
+
+  /** Route policies, sets and their `no` forms, in text order: converted once every statement is read. */
+  const rpl: XrNode[] = []
+  /** BGP route-policy statements, each naming a policy that must be converted (checked once the policies are). */
+  const policyRefs: { readonly node: XrNode; readonly path: Segments }[] = []
+
+  /**
+   * The routing policy: the last definition of each set and policy, unless a later `no` removes it, each converted
+   * whole or left out whole (`unsupported`, with why). A policy naming a set the text doesn't define, or one that isn't
+   * converted, is left out too. Returns the policies it defines and those it converts.
+   */
+  const buildRoutingPolicy = (): { defined: ReadonlySet<string>; converted: ReadonlySet<string> } => {
+    const size = (n: XrNode) => {
+      const lines = n.span.endLine - n.span.startLine + 1
+      return `${lines} line${lines === 1 ? '' : 's'}`
+    }
+    const current = new Map<string, XrNode>()
+    for (const node of rpl) {
+      const w = node.words
+      if (w[0].toLowerCase() === 'no') {
+        const key = JSON.stringify([w[1].toLowerCase(), w[2]])
+        const earlier = current.get(key)
+        if (!earlier) set(node, ignored('no such route policy or set: nothing to convert'))
+        else {
+          set(earlier, ignored(`removed by line ${line(node)}`))
+          current.delete(key)
+          set(node, ignored('removes a route policy or set: nothing to convert'))
+        }
+        continue
+      }
+      const key = JSON.stringify([w[0].toLowerCase(), w[1]])
+      const earlier = current.get(key)
+      if (earlier) set(earlier, ignored(`replaced by line ${line(node)}`))
+      current.set(key, node)
+    }
+    const prefixFamilies = new Map<string, ('ipv4' | 'ipv6')[]>()
+    const communitySets = new Set<string>()
+    /** Community sets of literal communities only, which a policy may set or add (never a regex). */
+    const literalCommunitySets = new Set<string>()
+    const asPaths = new Set<string>()
+    const defined = new Set<string>()
+    const converted = new Set<string>()
+    const put = (node: XrNode, at: Segments, value: unknown) => {
+      model.set(at, value)
+      return populatedLeaves(value, [...at]).map((l) => l.path)
+    }
+    const rp = ['routingPolicy']
+    for (const node of current.values()) {
+      if (node.kind !== 'set') continue
+      const kind = node.words[0].toLowerCase()
+      const name = node.words[1]
+      if (diagnostics.some((d) => d.statement === node.id && d.severity === 'error')) {
+        set(node, unsupported(`a set for route policies, ${size(node)}, with no end`))
+        continue
+      }
+      if (node.words.length !== 2 || !RPL_NAME.test(name ?? '') || !['prefix-set', 'community-set', 'as-path-set'].includes(kind)) {
+        set(node, unsupported(`a set for route policies, ${size(node)}, kept whole: only prefix, community and AS-path sets with a plain name are converted`))
+        continue
+      }
+      if (kind === 'prefix-set') {
+        const r = prefixSet(node)
+        if (typeof r === 'string') set(node, unsupported(`a prefix set, ${size(node)}, left out whole: ${r}`))
+        else {
+          const families = (['ipv4', 'ipv6'] as const).filter((f) => Object.keys(r[f]).length)
+          set(node, mapped(families.flatMap((f) => put(node, [...rp, 'prefixLists', f, name], { entries: r[f] }))))
+          prefixFamilies.set(name, families)
+        }
+      } else if (kind === 'community-set') {
+        const r = communitySet(node)
+        if (typeof r === 'string') set(node, unsupported(`a community set, ${size(node)}, left out whole: ${r}`))
+        else {
+          set(node, mapped(put(node, [...rp, 'communitySets', name], { type: 'standard', ...(r.regex ? { regexDialect: 'cisco' } : {}), entries: r.entries })))
+          communitySets.add(name)
+          if (!r.regex) literalCommunitySets.add(name)
+        }
+      } else {
+        const r = asPathSet(node)
+        if (typeof r === 'string') set(node, unsupported(`an AS-path set, ${size(node)}, left out whole: ${r}`))
+        else {
+          set(node, mapped(put(node, [...rp, 'asPathSets', name], { regexDialect: 'cisco', entries: r })))
+          asPaths.add(name)
+        }
+      }
+    }
+    for (const node of current.values()) {
+      if (node.kind !== 'policy') continue
+      defined.add(node.words[1])
+      if (diagnostics.some((d) => d.statement === node.id && d.severity === 'error')) {
+        set(node, unsupported(`a route policy, ${size(node)}, with no end`))
+        continue
+      }
+      const read = readPolicy(node)
+      if (typeof read === 'string') {
+        set(node, unsupported(`a route policy, ${size(node)}, left out whole: ${read}`))
+        continue
+      }
+      const missing = !read.names.prefixSets.every((n) => prefixFamilies.has(n)) || !read.names.communitySets.every((n) => communitySets.has(n)) || !read.names.asPathSets.every((n) => asPaths.has(n))
+      if (missing) {
+        set(node, unsupported(`a route policy, ${size(node)}, left out whole: it names a set the configuration doesn't define, or one that isn't converted`))
+        continue
+      }
+      if (!read.names.communitySetters.every((n) => literalCommunitySets.has(n))) {
+        set(node, unsupported(`a route policy, ${size(node)}, left out whole: it sets or adds a community set with a regex, which IOS-XR refuses`))
+        continue
+      }
+      const name = node.words[1]
+      set(node, mapped(put(node, [...rp, 'policies', name], toPolicy(read, (n) => prefixFamilies.get(n) ?? []))))
+      converted.add(name)
+    }
+    return { defined, converted }
+  }
+
+  /** A route-policy statement whose policy isn't converted (or defined) is left out, with its field. */
+  const resolvePolicy = (node: XrNode, path: Segments, name: string) => {
+    if (policies.converted.has(name)) return true
+    model.remove(path)
+    set(node, unsupported(policies.defined.has(name) ? 'names a route policy that isn\'t converted' : 'names a route policy the configuration doesn\'t define'))
+    return false
+  }
+
   // ---- the top level
 
   const mapTop = (node: XrNode): void => {
@@ -1634,8 +1766,8 @@ export function parse(text: string, _context: Context): ParseResult {
       // Its type isn't named: a word of the configuration, it could be a secret's value reused.
       return set(node, unsupported(`a banner, ${size}, kept verbatim`))
     }
-    if (node.kind === 'policy') return set(node, unsupported(`a route policy, ${size}, kept whole: route policies come later`))
-    if (node.kind === 'set') return set(node, unsupported(`a set for route policies, ${size}, kept whole: route policies come later`))
+    // Route policies and sets are converted once the whole text is read: a policy may name a set defined after it.
+    if (node.kind === 'policy' || node.kind === 'set') return void rpl.push(node)
 
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
@@ -1647,6 +1779,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (lw[0] === 'router' && lw[1] === 'bgp') return mapRouterBgp(node)
     if (node.children.length) return unsupportedTree(node)
     if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'ospf') return set(node, removeRouterOspf(node))
+    if (lw[0] === 'no' && (lw[1] === 'route-policy' || /^[a-z][a-z0-9-]*-set$/.test(lw[1])) && w.length === 3) return void rpl.push(node)
     if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'bgp') return set(node, removeRouterBgp(node))
 
     let d: StatementDisposition = unsupported()
@@ -1673,6 +1806,7 @@ export function parse(text: string, _context: Context): ParseResult {
 
   for (const node of nodes) mapTop(node)
   buildRoutes()
+  const policies = buildRoutingPolicy()
 
   // A VRF's route targets: one set in the model, so every address family's must agree (a family with none disagrees
   // with one with some), and none may be left out.
@@ -1698,6 +1832,27 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const t of all) set(t.node, mapped([fieldPath(...at, t.direction)]))
   }
 
+  // A VRF's import and export policies (model 0.5.2): one each way for the VRF, so every family must name the same, and
+  // it must be a policy the text converts. IOS-XR's map filters what the route targets import or export.
+  for (const [instance, state] of vrfs) {
+    for (const direction of ['import', 'export'] as const) {
+      const said = [...state.families.keys()].map((f) => state.policies.get(f)?.[direction])
+      const statements = said.flatMap((p) => (p ? [p.node] : []))
+      if (!statements.length) continue
+      if (said.some((p) => !p) || new Set(said.map((p) => p!.name)).size !== 1) {
+        for (const n of statements) set(n, unsupported('a VRF\'s policy that isn\'t the same in every address family: the model holds one for the VRF'))
+        continue
+      }
+      const name = said[0]!.name
+      if (!policies.converted.has(name)) {
+        for (const n of statements) set(n, unsupported(policies.defined.has(name) ? 'names a route policy that isn\'t converted' : 'names a route policy the configuration doesn\'t define'))
+        continue
+      }
+      const fields = [model.set(['networkInstances', instance, `${direction}Policies`], [name]), model.set(['networkInstances', instance, 'vrfPolicyMode'], 'after-route-targets')]
+      for (const n of statements) set(n, mapped(fields))
+    }
+  }
+
   // A subinterface in a VRF the text doesn't define (or removes) would name a network instance the model doesn't
   // have: its membership and its addresses, which would otherwise land in the global table, are left out.
   for (const { ctx, vrf, node } of membership.values()) {
@@ -1715,6 +1870,12 @@ export function parse(text: string, _context: Context): ParseResult {
       pruneFamily(ctx, family)
     }
     if (!ctx.isSub) pruneMain(ctx)
+  }
+
+  // A BGP peer's route policy names one the text converts, or is left out, before RFC 8212 is said for what's left.
+  for (const ref of policyRefs) {
+    const list = model.get(ref.path)
+    if (dispositions[ref.node.id]?.kind === 'mapped' && Array.isArray(list) && typeof list[0] === 'string') resolvePolicy(ref.node, ref.path, list[0])
   }
 
   buildOspf()

@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.1",
+  "modelVersion": "0.5.2",
   "device": {
     "system": {
       "hostname": "pe1"
@@ -100,6 +100,80 @@
               }
             }
           }
+        }
+      }
+    },
+    "routingPolicy": {
+      "policies": {
+        "IBGP-IN": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "IBGP-OUT": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "TRANSIT-IN": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "TRANSIT-OUT": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "PEER-IN": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "CUST-IN": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "CUST-OUT": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
         }
       }
     }

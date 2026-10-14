@@ -1,6 +1,6 @@
 // @dialect/platform-iosxr: the IOS-XR plugin (B13). The indentation-tree parser with route policies and sets kept whole
-// (tree.ts), mapping into the shared model (parse.ts) and rendering from it (render.ts), for the phase 1 areas and OSPF
-// and BGP, and detect(). Platform-neutral: strings in, strings and plain objects out.
+// (tree.ts), mapping into the shared model (parse.ts) and rendering from it (render.ts), for the phase 1 areas, OSPF
+// and BGP, and RPL's simple forms (policy.ts, renderPolicy.ts), and detect(). Platform-neutral: strings in, strings and plain objects out.
 import type { PlatformPlugin } from '@dialect/core'
 import { detect } from './detect'
 import { describeInterface, nameInterface } from './names'
@@ -16,8 +16,9 @@ export { parseTree, type NodeKind, type XrNode, type XrTree } from './tree'
 const plugin: PlatformPlugin = {
   id: 'iosxr',
   name: 'Cisco IOS-XR',
-  // 0.4.1: its parse fills OSPF and BGP, with BGP's default policy for eBGP (RFC 8212), which a 0.4.0 core doesn't know.
-  modelApi: '>=0.4.1 <1.0.0',
+  // 0.5.2: its parse fills routing policy (0.5.0) and a VRF's own policies (0.5.2), on top of 0.4.1's OSPF and BGP with
+  // BGP's default policy for eBGP (RFC 8212).
+  modelApi: '>=0.5.2 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },
@@ -27,7 +28,8 @@ const plugin: PlatformPlugin = {
     syslog: { parse: 'partial', render: 'partial' },
     snmp: { parse: 'partial', render: 'partial' },
     ospf: { parse: 'partial', render: 'partial' },
-    bgp: { parse: 'partial', render: 'partial' }
+    bgp: { parse: 'partial', render: 'partial' },
+    'routing-policy': { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,

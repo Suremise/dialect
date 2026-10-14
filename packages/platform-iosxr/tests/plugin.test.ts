@@ -58,17 +58,56 @@ describe('nothing is dropped silently', () => {
 describe('route policies and sets', () => {
   const text = readFileSync(join(fixtures, 'policy/route-policy.cfg'), 'utf8')
 
-  it('an unindented policy body, with nested if … endif, stays one unsupported statement, and so does every set', () => {
+  it('an unindented policy body, with nested if … endif, stays one statement, left out whole; its simple sets convert (#79)', () => {
     const result = parse(text)
     const statements = statementsOf(result.tree) as XrNode[]
     expect(statements.map((n) => n.kind)).toEqual(['statement', 'set', 'set', 'policy'])
-    expect(statements.map((n) => result.dispositions[n.id].kind)).toEqual(['mapped', 'unsupported', 'unsupported', 'unsupported'])
-    expect(result.dispositions.L11).toEqual({ kind: 'unsupported', reason: 'a route policy, 11 lines, kept whole: route policies come later' })
-    expect(result.model).toEqual({ system: { hostname: 'pe1' } })
+    expect(statements.map((n) => result.dispositions[n.id].kind)).toEqual(['mapped', 'mapped', 'mapped', 'unsupported'])
+    expect(result.dispositions.L11).toEqual({ kind: 'unsupported', reason: 'a route policy, 11 lines, left out whole: a nested if or an elseif: only flat if blocks are converted' })
+    expect(result.model.routingPolicy?.policies).toBeUndefined()
+    expect(Object.keys(result.model.routingPolicy?.prefixLists?.ipv4 ?? {})).toEqual(['CUSTOMERS'])
   })
 
   it('a reason never names the policy or set: a name can be anything', () => {
-    for (const d of Object.values(parse(text).dispositions)) expect(JSON.stringify(d)).not.toMatch(/CUSTOMER|BLACKHOLE/)
+    for (const d of Object.values(parse(text).dispositions)) expect('reason' in d ? (d.reason ?? '') : '').not.toMatch(/CUSTOMER|BLACKHOLE/)
+  })
+
+  it('every RPL construct beyond the simple forms leaves its policy or set out whole, saying why (#79, fixtures/policy/unsupported)', () => {
+    const result = parse(readFileSync(join(fixtures, 'policy/unsupported.cfg'), 'utf8'))
+    const nested = 'a nested if or an elseif: only flat if blocks are converted'
+    const condition = 'a condition the simple form doesn\'t have (or, not, an inline set, or one said twice)'
+    const statement = 'a statement the simple form doesn\'t have (line 1 of its body)'
+    const community = 'entry 1: a community the model has no form for (a wildcard, a range, dfa-regex or another word)'
+    const asPath = 'entry 1: not an ios-regex (passes-through, length, dfa-regex and the rest aren\'t converted)'
+    const cases: [line: number, construct: string, why: string][] = [
+      [7, 'a nested if', nested],
+      [15, 'elseif', nested],
+      [23, 'parameters', 'a route policy with parameters, or a name IOS-XR\'s simple form doesn\'t have'],
+      [29, 'apply', statement],
+      [33, 'an inline set', condition],
+      [39, 'or', condition],
+      [45, 'not', condition],
+      [51, 'a pass with statements after it', 'a block that passes a route on to later statements, which the model has no flow for'],
+      [60, 'set med igp-cost', statement],
+      [65, 'set next-hop discard', 'a next hop the model has no form for (discard, and the rest)'],
+      [72, 'a statement after done', 'a statement after done or drop, which is never run'],
+      [79, 'a drop before an if', 'a statement for every route before others, which then see none'],
+      [86, 'dfa-regex', community],
+      [90, 'a community wildcard', community],
+      [94, 'a community range', community],
+      [98, 'passes-through', asPath],
+      [102, 'length', asPath],
+      [106, 'an empty prefix set', 'a prefix set with no entries: what a match on it does isn\'t certain'],
+      [109, 'an extcommunity set', 'only prefix, community and AS-path sets with a plain name are converted'],
+      [113, 'a policy naming a set left out', 'it names a set the configuration doesn\'t define, or one that isn\'t converted']
+    ]
+    for (const [line, construct, why] of cases) {
+      const d = result.dispositions[`L${line}`]
+      expect(d, construct).toMatchObject({ kind: 'unsupported' })
+      expect(d.kind === 'unsupported' && d.reason, construct).toMatch(new RegExp(`${why.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
+    }
+    // Only the plain prefix set the policies name is converted; nothing of the rest reaches the model.
+    expect(result.model.routingPolicy).toEqual({ prefixLists: { ipv4: { OK: { entries: { '1': { action: 'permit', prefix: '10.0.0.0/8', minLength: 8, maxLength: 24, form: 'le' } } } } } })
   })
 
   it('an unterminated policy is a syntax error, and takes the rest of the text', () => {
@@ -218,10 +257,23 @@ describe('VRF route targets and route distinguishers', () => {
     expect([result.dispositions.L2, result.dispositions.L3]).toEqual([{ kind: 'unsupported' }, { kind: 'unsupported' }])
   })
 
-  it('a VRF\'s import and export route policies are unsupported, and leave its route targets alone', () => {
-    const result = parse(vrf(' address-family ipv4 unicast', '  import route-policy P', '  import route-target 65000:1'))
-    expect(result.model.networkInstances?.A.routeTargets).toEqual({ import: ['65000:1'] })
-    expect(result.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'a VRF\'s import or export policy: route policies come later' })
+  it('a VRF\'s import and export route policies (model 0.5.2): the same in every family, naming a converted policy, filtering after the route targets', () => {
+    const P = ['route-policy P', '  pass', 'end-policy']
+    const result = parse([vrf(' address-family ipv4 unicast', '  import route-policy P', '  export route-policy P', '  import route-target 65000:1', ' address-family ipv6 unicast', '  import route-policy P', '  export route-policy P', '  import route-target 65000:1'), ...P].join('\n'))
+    expect(result.model.networkInstances?.A).toMatchObject({ routeTargets: { import: ['65000:1'] }, importPolicies: ['P'], exportPolicies: ['P'], vrfPolicyMode: 'after-route-targets' })
+    expect(result.dispositions.L3).toEqual({ kind: 'mapped', fields: ['networkInstances.A.importPolicies', 'networkInstances.A.vrfPolicyMode'] })
+    // A policy in one family only, or another in each, is one the model can't hold for the VRF; and one not defined.
+    const one = parse([vrf(' address-family ipv4 unicast', '  import route-policy P', ' address-family ipv6 unicast', '  import route-target 65000:1'), ...P].join('\n'))
+    expect(one.model.networkInstances?.A.importPolicies).toBeUndefined()
+    expect(one.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'a VRF\'s policy that isn\'t the same in every address family: the model holds one for the VRF' })
+    const missing = parse(vrf(' address-family ipv4 unicast', '  import route-policy P'))
+    expect(missing.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'names a route policy the configuration doesn\'t define' })
+    expect(missing.model.networkInstances?.A).toEqual({ type: 'vrf' })
+    // Rendered under each family, and a Junos source's policy (which replaces its route targets) gets a warning.
+    const rendered = render({ ...result.model, networkInstances: { A: { ...result.model.networkInstances!.A, vrfPolicyMode: 'replaces-route-targets' } } })
+    expect(rendered.text.match(/^ {2}import route-policy P$/gm)).toHaveLength(2)
+    expect(rendered.diagnostics.map((d) => d.code)).toEqual(['iosxr.vrf-policy-mode'])
+    expect(rendered.dispositions['networkInstances.A.vrfPolicyMode']).toMatchObject({ kind: 'not-applicable' })
   })
 
   it('a route distinguisher is BGP\'s on IOS-XR: under router bgp, and unsupported on render without a local AS', () => {

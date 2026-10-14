@@ -157,7 +157,13 @@ product decisions.
   as written and never translated between platforms. Where the target treats a route no term decides differently, it
   says so: IOS/IOS-XE and NX-OS, whose route maps deny such a route, add a final permit sequence for a Junos policy
   that passes it on (BGP's default accepts it), with a semantic warning. A BGP route map the Cisco config never defines
-  isn't converted (IOS then denies every route).
+  isn't converted (IOS then denies every route). **IOS-XR's RPL converts in its simple forms only** (#79): prefix,
+  community and AS-path sets, and route policies that are a flat sequence of `if … then … [else …] endif` blocks and
+  top-level actions; each set and policy is one statement, converted whole or left out whole (nested `if`, `elseif`,
+  `or`, parameters, `apply`, inline sets and elements the model can't hold leave it out). A block that passes a route
+  on to later statements is left out with its policy, as the model's terms accept or reject. A VRF's own import and
+  export route policies (model 0.5.2) convert too, and IOS-XR warns when the source's (Junos) replaces the VRF's route
+  targets, where IOS-XR's filters after them.
 
 ## 5. Configs and test data
 

@@ -1,0 +1,89 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "networkInstances": {
+      "CUST": {
+        "type": "vrf",
+        "routeTargets": {
+          "import": [
+            "65000:10"
+          ]
+        },
+        "importPolicies": [
+          "IMPORT"
+        ],
+        "vrfPolicyMode": "replaces-route-targets"
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "LO": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "192.0.2.0/24",
+                "minLength": 24,
+                "maxLength": 32,
+                "form": "orlonger"
+              }
+            }
+          }
+        }
+      },
+      "asPathSets": {
+        "PEER": {
+          "regexDialect": "junos",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "65001 .*"
+            }
+          }
+        }
+      },
+      "policies": {
+        "IMPORT": {
+          "terms": {
+            "1": {
+              "name": "loopbacks",
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "LO"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "next-policy"
+        },
+        "EXPORT": {
+          "terms": {
+            "1": {
+              "name": "peer",
+              "matches": {
+                "asPathSets": [
+                  "PEER"
+                ]
+              },
+              "actions": {
+                "flow": "reject"
+              }
+            },
+            "2": {
+              "name": "rest",
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "next-policy"
+        }
+      }
+    }
+  }
+}
