@@ -570,10 +570,16 @@ body {
   .target-picker > span {
     display: none;
   }
+  /* Convert: the problems above the interface table, each scrolling, so every control stays reachable. */
+  .app.converting {
+    grid-template-rows: 40px minmax(0, 1fr) minmax(200px, 50%) 24px;
+  }
   .bottom.converting {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
   }
   .bottom.converting .interfaces {
-    display: none;
+    border-left: none;
+    border-top: 1px solid var(--border-subtle);
   }
 }

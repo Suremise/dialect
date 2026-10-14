@@ -80,10 +80,16 @@ function keyed<T>(entries: Iterable<readonly [string, T]>): Record<string, T> {
   return out
 }
 
-/** The model with interfaces renamed by `names` (source → target), as keys and in references. Others are kept. */
+/**
+ * The model with interfaces renamed by `names` (source → target), as keys and in references. Others are kept. Throws
+ * when two interfaces would end up with one name (one would replace the other): convert() refuses such answers first.
+ */
 export function renameInterfaces(model: Device, names: InterfaceMap): Device {
   const has = (name: string) => Object.hasOwn(names, name)
   const keys = new Set(Object.keys(model.interfaces ?? {}))
+  const after = modelInterfaces(model).map((n) => (has(n) ? names[n] : n))
+  // No name in the message: an interface's name can be a secret's value reused (AGENTS.md).
+  if (new Set(after).size !== after.length) throw new Error('Two interfaces would have one name: refused, so neither is lost.')
   const ref = (value: string): string => {
     if (has(value)) return names[value]
     const split = splitReference(value)
@@ -206,24 +212,55 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   const fields = statementFields(parse)
   const answer = (id: string) => (Object.hasOwn(inputs, id) && inputs[id].trim() !== '' ? inputs[id].trim() : undefined)
 
-  // The interfaces, and the user's answers. Two given one target name would become one interface: refused, unanswered.
+  // The interfaces, where each is configured or named, and the user's answers.
   const names = modelInterfaces(parse.model)
   const keys = new Set(Object.keys(parse.model.interfaces ?? {}))
   const refs = references(parse.model)
+  const statements = new Map(
+    names.map((n) => {
+      const referencedAt = new Set(refs.filter((r) => referencedInterface(r.value, keys) === n).map((r) => r.path))
+      return [n, interfaceStatement(parse.tree, fields, n, referencedAt)] as const
+    })
+  )
+  const spans = new Map(statementsOf(parse.tree).map((node) => [node.id, node.span]))
   const answers = new Map(names.map((n) => [n, answer(interfaceInputId(n))]))
+
+  // Two interfaces with one name on the target would become one, the second replacing the first. Every name counts,
+  // the answers and the source names that unanswered interfaces keep: the answers in a clash are refused (unanswered),
+  // which leaves each its source name, and those are distinct. The message gives lines, never names: an interface's
+  // name can be a secret's value reused, and diagnostics reach stderr and logs (AGENTS.md).
   const diagnostics: Diagnostic[] = []
-  const byTarget = new Map<string, string[]>()
-  for (const [n, to] of answers) if (to !== undefined) byTarget.set(to, [...(byTarget.get(to) ?? []), n])
-  for (const [to, from] of byTarget) {
-    if (from.length < 2) continue
-    diagnostics.push({ severity: 'error', category: 'other', code: 'convert.interface-name-taken', message: `${from.length} interfaces are given the one name ${to}: ${from.join(', ')}. Give each its own.` })
-    for (const n of from) answers.set(n, undefined)
+  for (;;) {
+    const byName = new Map<string, string[]>()
+    for (const n of names) {
+      const name = answers.get(n) ?? n
+      byName.set(name, [...(byName.get(name) ?? []), n])
+    }
+    const clashes = [...byName.values()].filter((group) => group.length > 1)
+    if (!clashes.length) break
+    for (const group of clashes) {
+      const where = group.flatMap((n) => {
+        const span = spans.get(statements.get(n) ?? '')
+        return span ? [span] : []
+      })
+      const at = [...new Set(where.map((sp) => sp.startLine))].sort((a, b) => a - b)
+      const lines = at.length ? ` (line${at.length > 1 ? 's' : ''} ${at.join(', ')})` : ''
+      const first = statements.get(group[0])
+      diagnostics.push({
+        severity: 'error',
+        category: 'other',
+        code: 'convert.interface-name-taken',
+        message: `${group.length} interfaces would have one name on ${target.name}${lines}: give each its own.`,
+        ...(where[0] ? { span: where[0] } : {}),
+        ...(first ? { statement: first } : {})
+      })
+      for (const n of group) answers.set(n, undefined)
+    }
   }
   const interfaces = names.map((n): InterfaceName => {
     const port = source.describeInterface?.(n)
     const suggestion = port ? target.nameInterface?.(port) : undefined
-    const referencedAt = new Set(refs.filter((r) => referencedInterface(r.value, keys) === n).map((r) => r.path))
-    const statement = interfaceStatement(parse.tree, fields, n, referencedAt)
+    const statement = statements.get(n)
     const to = answers.get(n)
     return { source: n, inputId: interfaceInputId(n), ...(to !== undefined ? { target: to } : {}), ...(suggestion ? { suggestion } : {}), ...(statement ? { statement } : {}) }
   })
@@ -231,7 +268,8 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
     (i): NeedsInput => ({
       id: i.inputId,
       kind: 'interface-name',
-      message: `Name ${i.source} on ${target.name}.`,
+      // Which interface is said by `statement` and `field`, not in words (a name can be a reused secret).
+      message: `Name this interface on ${target.name}.`,
       ...(keys.has(i.source) ? { field: fieldPath('interfaces', i.source) } : {}),
       ...(i.statement ? { statement: i.statement } : {}),
       ...(i.suggestion ? { suggestions: [i.suggestion] } : {})
@@ -290,7 +328,32 @@ function sourceSide(ledger: CoverageLedger, map: InterfaceMap): Pick<Conversion,
   return { issues: out, links }
 }
 
-/** Reads an interface map: `from,to` lines (`#` starts a comment), or JSON (an object of names). Problems by line. */
+/**
+ * The keys of a JSON text's top-level object, in order, duplicates included (JSON.parse keeps only the last of a
+ * duplicate). The text must already parse.
+ */
+function topLevelKeys(text: string): string[] {
+  const keys: string[] = []
+  const string = /"(?:[^"\\]|\\.)*"/y
+  let depth = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (c === '"') {
+      string.lastIndex = i
+      const token = string.exec(text)![0]
+      i += token.length - 1
+      if (depth === 1 && /^\s*:/.test(text.slice(i + 1))) keys.push(JSON.parse(token) as string)
+    } else if (c === '{' || c === '[') depth++
+    else if (c === '}' || c === ']') depth--
+  }
+  return keys
+}
+
+/**
+ * Reads an interface map: `from,to` lines (`#` starts a comment; `from,` with no name is an interface not named yet,
+ * as `--write-map` writes it), or JSON (an object of names). Problems by line, never quoting a name: a map's names are
+ * a config's, and one can be a secret's value reused (AGENTS.md).
+ */
 export function parseInterfaceMap(text: string): { map: InterfaceMap; problems: string[] } {
   const map: Record<string, string> = Object.create(null) as Record<string, string>
   const problems: string[] = []
@@ -303,26 +366,36 @@ export function parseInterfaceMap(text: string): { map: InterfaceMap; problems: 
       return { map, problems: ['not valid JSON'] }
     }
     if (typeof json !== 'object' || json === null || Array.isArray(json)) return { map, problems: ['the JSON is not an object of interface names'] }
-    for (const [from, to] of Object.entries(json)) {
-      if (typeof to !== 'string' || !to.trim()) problems.push(`${from}: give the target name as a string`)
-      else map[from] = to.trim()
-    }
+    const keys = topLevelKeys(body)
+    const twice = keys.filter((k, i) => keys.indexOf(k) !== i).length
+    if (twice) return { map: Object.create(null) as InterfaceMap, problems: [`the JSON names ${twice === 1 ? 'an interface' : `${twice} interfaces`} twice`] }
+    const notNames = Object.values(json).filter((to) => typeof to !== 'string' || !to.trim()).length
+    if (notNames) problems.push(`${notNames === 1 ? 'a target name is' : `${notNames} target names are`} not a name (give each as a string)`)
+    for (const [from, to] of Object.entries(json)) if (typeof to === 'string' && to.trim()) map[from] = to.trim()
     return { map, problems }
   }
+  const firstLine = new Map<string, number>()
   body.split(/\r\n?|\n/).forEach((raw, i) => {
     const line = raw.replace(/#.*/, '').trim()
     if (!line) return
     const parts = line.split(',').map((p) => p.trim())
-    if (parts.length !== 2 || !parts[0] || !parts[1]) problems.push(`line ${i + 1}: expected from,to`)
-    else if (Object.hasOwn(map, parts[0])) problems.push(`line ${i + 1}: ${parts[0]} is mapped twice`)
-    else map[parts[0]] = parts[1]
+    if (parts.length !== 2 || !parts[0]) problems.push(`line ${i + 1}: expected from,to`)
+    else if (firstLine.has(parts[0])) problems.push(`line ${i + 1}: an interface mapped twice (first on line ${firstLine.get(parts[0])})`)
+    else {
+      firstLine.set(parts[0], i + 1)
+      if (parts[1]) map[parts[0]] = parts[1]
+    }
   })
   return { map, problems }
 }
 
-/** An interface map as `from,to` lines, the format parseInterfaceMap() reads. */
-export function formatInterfaceMap(map: InterfaceMap): string {
-  return Object.entries(map)
-    .map(([from, to]) => `${from},${to}\n`)
+/**
+ * An interface map as `from,to` lines, the format parseInterfaceMap() reads. With `interfaces`, every one of them in
+ * order, for the user to fill in: a name given, else the suggestion marked `# suggested`, else `from,` with no name.
+ */
+export function formatInterfaceMap(map: InterfaceMap, interfaces?: readonly Pick<InterfaceName, 'source' | 'suggestion'>[]): string {
+  if (!interfaces) return Object.entries(map).map(([from, to]) => `${from},${to}\n`).join('')
+  return interfaces
+    .map((i) => (Object.hasOwn(map, i.source) ? `${i.source},${map[i.source]}\n` : i.suggestion ? `${i.source},${i.suggestion} # suggested\n` : `${i.source},\n`))
     .join('')
 }

@@ -147,14 +147,19 @@ error). Interface names are the core's job, not a plugin's, so they never map si
   (`suggestions`): an unanswered interface keeps its source name and stays in `unanswered`;
 - `renameInterfaces(model, map)` renames keys and references (`ge-0/0/0.0` → `GigabitEthernet0/0/0.0`; the IOS-XE
   renderer writes a `.0` reference as the main interface), with null-prototype maps;
-- two interfaces given one name are refused (an error diagnostic, `convert.interface-name-taken`) and left unanswered.
+- two interfaces that would have one name are refused, counting the source names unanswered interfaces keep: the
+  answers in a clash are dropped (an error diagnostic, `convert.interface-name-taken`, with the interfaces' lines), so
+  each keeps its distinct source name and none replaces another. `renameInterfaces()` throws rather than merge two;
+- no message names an interface (needs-input items say which by `statement` and `field`): a name can be a secret's
+  value reused, and messages reach stderr and logs.
 
 `issues` lists, by source statement in tree order, what didn't carry over: `unmapped`, `unsupported` (the source's
 reason), or `not-rendered` (a field the statement filled that the target marked unsupported or left without a
 disposition, found by mapping the render's paths back to the source's names). Shells show them in the source gutter
 and as warnings; a reason is the plugin's words, never the statement's text. `parseInterfaceMap()` reads a map file
-(`from,to` lines with `#` comments, or a JSON object) and says what's wrong by line; `formatInterfaceMap()` writes the
-line form. `interfaceInputs(map)` turns a map into answers.
+(`from,to` lines with `#` comments, `from,` for one not named yet, or a JSON object, refused whole when it names an
+interface twice) and says what's wrong by line, quoting no name; `formatInterfaceMap()` writes the line form, and with
+the conversion's interfaces every one of them to fill in, suggestions marked `# suggested` (the CLI's `--write-map`). `interfaceInputs(map)` turns a map into answers.
 
 ### The registry (`registry.ts`)
 
@@ -431,7 +436,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 
 - `src/cli.ts`: `run(argv, io, version)` parses the arguments, reads the input through `io`, and runs the command
   through the core's registry (`createRegistry([junos, iosxe])`): `display-set` as the Junos plugin's tool, `convert`
-  through the core's `convert()` with the plugins `--from` and `--to` name and the `--map` file's answers. It returns the
+  through the core's `convert()` with the plugins `--from` and `--to` name and the `--map` file's answers (`--write-map`
+  writes every interface to a map file to fill in, through `io.writeFile`). It returns the
   exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 interfaces unnamed without
   `--allow-incomplete`). Diagnostics and convert's issues print as `name:line:column: severity: message`, an issue with
   its plugin's reason only. It never touches `process`, so it can be called directly.

@@ -118,7 +118,9 @@ product decisions.
   the command line (`from,to` lines or a JSON object). A plugin may suggest names (Junos `ge-0/0/0` → IOS
   `GigabitEthernet0/0/0`), shown as suggestions and used only once the user takes them. Until every interface is named,
   the CLI writes no config and exits 3; `--allow-incomplete` writes it anyway, the unnamed interfaces keeping their
-  source names and listed on stderr.
+  source names and their lines listed on stderr. Messages give an interface's line, never its name (a name can be a
+  secret's value reused); `--write-map` writes the names, with suggestions, to a file the user chose. Two interfaces
+  never end up with one name: such answers are refused, never merged.
 
 ## 5. Configs and test data
 

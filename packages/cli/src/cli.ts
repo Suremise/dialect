@@ -1,6 +1,6 @@
 // The dialect command, without the process: run() takes its arguments, input and output, and returns the exit code, so
 // tests can call it directly. bin.ts is the entry the build turns into dist/dialect.mjs.
-import { convert, createRegistry, interfaceInputs, parseInterfaceMap, type ConversionIssue, type Diagnostic, type InterfaceMap, type PlatformPlugin, type Tool } from '@dialect/core'
+import { convert, createRegistry, formatInterfaceMap, interfaceInputs, parseInterfaceMap, type ConversionIssue, type Diagnostic, type InterfaceMap, type PlatformPlugin, type Span, type Tool } from '@dialect/core'
 import iosxe from '@dialect/platform-iosxe'
 import junos from '@dialect/platform-junos'
 
@@ -29,6 +29,7 @@ export const EXIT = { ok: 0, parseError: 1, usage: 2, incomplete: 3 } as const
 export interface Io {
   readFile: (path: string) => Promise<string>
   readStdin: () => Promise<string>
+  writeFile: (path: string, text: string) => Promise<void>
   stdout: (text: string) => void
   stderr: (text: string) => void
 }
@@ -41,14 +42,17 @@ Commands:
   display-set <file|->   Print a hierarchical Junos config as display set commands.
                          Reads the file, or stdin for "-". Writes the set commands to
                          stdout, and warnings and errors to stderr.
-  convert --from <platform> --to <platform> [--map <file>] [--allow-incomplete] <file|->
+  convert --from <platform> --to <platform> [--map <file>] [--write-map <file>]
+          [--allow-incomplete] <file|->
                          Convert a config to another platform's. Writes the converted
                          config to stdout, and what didn't carry over to stderr.
                          Platforms: from ${ids(registry.sources())}; to ${ids(registry.targets())}.
     --map <file>         The interfaces' names on the target: "from,to" lines, or a
                          JSON object ({"ge-0/0/0": "GigabitEthernet0/0/0"}).
+    --write-map <file>   Write every interface to a map file to fill in: the names
+                         given, else the suggestion (marked "# suggested"), else none.
     --allow-incomplete   Write the config even when interfaces have no name on the
-                         target (they keep their source names, listed on stderr).
+                         target (they keep their source names; their lines go to stderr).
 
 Options:
   -h, --help             Show this help.
@@ -94,24 +98,28 @@ async function readInput(io: Io, input: string): Promise<string | null> {
   try {
     return withoutBom(input === '-' ? await io.readStdin() : await io.readFile(input))
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    const reason = code === 'ENOENT' ? 'no such file' : code === 'EISDIR' ? 'is a folder, not a file' : code === 'EACCES' || code === 'EPERM' ? 'permission denied' : (error as Error).message
-    io.stderr(`dialect: can't read ${input === '-' ? '<stdin>' : input}: ${reason}
-`)
+    io.stderr(`dialect: can't read ${input === '-' ? '<stdin>' : input}: ${fileError(error)}\n`)
     return null
   }
 }
 
-/** Where an issue is, and what became of it: the plugin's reason, never the statement's text (a value may be secret). */
-function formatIssue(name: string, issue: ConversionIssue, source: PlatformPlugin, target: PlatformPlugin): string {
-  const where = issue.span ? `${name}:${issue.span.startLine}:${issue.span.startColumn}` : name
-  const what =
-    issue.kind === 'unmapped' ? `not converted: the ${source.name} plugin gave this statement no disposition` : issue.kind === 'unsupported' ? 'not converted' : `not written for ${target.name}`
-  return `${where}: warning: ${what}${issue.reason ? `: ${issue.reason}` : ''}
-`
+/** Why a file couldn't be read or written, in words. */
+function fileError(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'ENOENT' ? 'no such file' : code === 'EISDIR' ? 'is a folder, not a file' : code === 'EACCES' || code === 'EPERM' ? 'permission denied' : (error as Error).message
 }
 
-const CONVERT_VALUE_OPTIONS = ['--from', '--to', '--map']
+/** `name:line:column: ` for a span, else `name: `. */
+const at = (name: string, span: Span | undefined): string => (span ? `${name}:${span.startLine}:${span.startColumn}: ` : `${name}: `)
+
+/** Where an issue is, and what became of it: the plugin's reason, never the statement's text (a value may be secret). */
+function formatIssue(name: string, issue: ConversionIssue, source: PlatformPlugin, target: PlatformPlugin): string {
+  const what =
+    issue.kind === 'unmapped' ? `not converted: the ${source.name} plugin gave this statement no disposition` : issue.kind === 'unsupported' ? 'not converted' : `not written for ${target.name}`
+  return `${at(name, issue.span)}warning: ${what}${issue.reason ? `: ${issue.reason}` : ''}\n`
+}
+
+const CONVERT_VALUE_OPTIONS = ['--from', '--to', '--map', '--write-map']
 
 async function convertCommand(args: string[], io: Io): Promise<number> {
   if (args.includes('-h') || args.includes('--help')) {
@@ -153,8 +161,7 @@ async function convertCommand(args: string[], io: Io): Promise<number> {
     if (text === null) return EXIT.usage
     const read = parseInterfaceMap(text)
     if (read.problems.length) {
-      for (const p of read.problems) io.stderr(`dialect: ${mapFile}: ${p}
-`)
+      for (const p of read.problems) io.stderr(`dialect: ${mapFile}: ${p}\n`)
       return EXIT.usage
     }
     map = read.map
@@ -169,26 +176,36 @@ async function convertCommand(args: string[], io: Io): Promise<number> {
   // A syntax error means the model may be incomplete: print none of it.
   if (!result.render) return EXIT.parseError
   for (const issue of result.issues) io.stderr(formatIssue(name, issue, source, target))
+  // Counts, not names: what's in a map is a config's names, and one can be a secret's value reused (AGENTS.md).
   const known = new Set(result.interfaces.map((i) => i.source))
-  for (const from of Object.keys(map)) if (!known.has(from)) io.stderr(`dialect: warning: ${mapFile}: the config has no interface ${from}
-`)
+  const extra = Object.keys(map).filter((from) => !known.has(from)).length
+  if (extra) io.stderr(`dialect: warning: ${mapFile}: ${extra === 1 ? '1 interface it names is' : `${extra} interfaces it names are`} not in the config\n`)
 
+  const writeMap = values['--write-map']
+  if (writeMap !== undefined) {
+    try {
+      await io.writeFile(writeMap, formatInterfaceMap(map, result.interfaces))
+    } catch (error) {
+      io.stderr(`dialect: can't write ${writeMap}: ${fileError(error)}\n`)
+      return EXIT.usage
+    }
+  }
+
+  // Each unnamed interface by where the config has it, not by name (a name can be a reused secret): --write-map gives
+  // the names, with suggestions, in a file the user chose.
   const unanswered = result.unanswered
   if (unanswered.length) {
-    const names = new Map(result.interfaces.map((i) => [i.inputId, i]))
-    const list = unanswered.map((item) => {
-      const i = names.get(item.id)
-      return `  ${i ? i.source : item.message}${i?.suggestion ? ` (suggested: ${i.suggestion})` : ''}
-`
-    })
+    const spans = new Map(result.ledger.source.statements.map((s) => [s.id, s.span]))
+    const severity = allowIncomplete ? 'warning' : 'error'
+    for (const item of unanswered) io.stderr(`${at(name, item.statement ? spans.get(item.statement) : undefined)}${severity}: ${item.kind === 'interface-name' ? `this interface has no name on ${target.name}` : 'needs input'}\n`)
     const count = unanswered.length === 1 ? '1 interface has' : `${unanswered.length} interfaces have`
+    const them = unanswered.length === 1 ? 'it' : 'them'
+    const how = writeMap !== undefined ? `fill in ${writeMap} and give it with --map` : `give ${them} with --map (--write-map <file> writes every interface, with suggestions, to fill in)`
     if (!allowIncomplete) {
-      io.stderr(`dialect: ${count} no name on ${target.name}. Give ${unanswered.length === 1 ? 'it' : 'them'} with --map, or write the config anyway with --allow-incomplete:
-${list.join('')}`)
+      io.stderr(`dialect: ${count} no name on ${target.name}: ${how}, or write the config anyway with --allow-incomplete.\n`)
       return EXIT.incomplete
     }
-    io.stderr(`dialect: warning: incomplete: ${count} no name on ${target.name}, and keep ${unanswered.length === 1 ? 'its' : 'their'} ${source.name} name:
-${list.join('')}`)
+    io.stderr(`dialect: warning: incomplete: ${count} no name on ${target.name}, and keep${unanswered.length === 1 ? 's its' : ' their'} ${source.name} name${unanswered.length === 1 ? '' : 's'}.\n`)
   }
   io.stdout(result.render.text)
   return EXIT.ok

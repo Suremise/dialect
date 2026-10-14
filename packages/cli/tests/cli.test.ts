@@ -120,7 +120,8 @@ describe('dialect convert', () => {
     'phase1.conf:75:5: warning: not converted: routing protocols come later',
     'phase1.conf:76:9: warning: not converted: routing protocols come later'
   ]
-  const unnamed = ['  ge-0/0/0 (suggested: GigabitEthernet0/0/0)', '  ge-0/0/1 (suggested: GigabitEthernet0/0/1)', '  xe-0/1/0 (suggested: TenGigabitEthernet0/1/0)', '  lo0 (suggested: Loopback0)']
+  // The unnamed interfaces by place (ge-0/0/0, ge-0/0/1, xe-0/1/0, lo0), never by name.
+  const unnamed = (severity: string) => [21, 29, 39, 43].map((line) => `phase1.conf:${line}:5: ${severity}: this interface has no name on Cisco IOS / IOS-XE`)
   const lines = (...parts: string[]) => parts.map((p) => `${p}\n`).join('')
   const convert = (args: string[], input?: string) => dialect(['convert', '--from', 'junos', '--to', 'iosxe', ...args], input, CONVERT)
 
@@ -152,37 +153,72 @@ describe('dialect convert', () => {
     expect(run.stdout).not.toMatch(/ge-0|xe-0|lo0/)
   })
 
-  it('exits 3 and writes no config while interfaces have no name, listing them with suggestions', () => {
+  it('exits 3 and writes no config while interfaces have no name, giving each one\'s place, not its name', () => {
     expect(convert(['phase1.conf'])).toEqual({
       status: 3,
       stdout: '',
-      stderr: lines(...issues, 'dialect: 4 interfaces have no name on Cisco IOS / IOS-XE. Give them with --map, or write the config anyway with --allow-incomplete:', ...unnamed)
+      stderr: lines(
+        ...issues,
+        ...unnamed('error'),
+        'dialect: 4 interfaces have no name on Cisco IOS / IOS-XE: give them with --map (--write-map <file> writes every interface, with suggestions, to fill in), or write the config anyway with --allow-incomplete.'
+      )
     })
     writeFileSync(join(dir, 'partial.csv'), 'ge-0/0/0,GigabitEthernet0/0/0\nge-0/0/1,GigabitEthernet0/0/1\nxe-0/1/0,TenGigabitEthernet0/1/0\n')
     expect(convert(['--map', join(dir, 'partial.csv'), 'phase1.conf'])).toEqual({
       status: 3,
       stdout: '',
-      stderr: lines(...issues, 'dialect: 1 interface has no name on Cisco IOS / IOS-XE. Give it with --map, or write the config anyway with --allow-incomplete:', unnamed[3])
+      stderr: lines(
+        ...issues,
+        unnamed('error')[3],
+        'dialect: 1 interface has no name on Cisco IOS / IOS-XE: give it with --map (--write-map <file> writes every interface, with suggestions, to fill in), or write the config anyway with --allow-incomplete.'
+      )
     })
   })
 
-  it('with --allow-incomplete, writes the config after a warning header listing the unnamed interfaces, and exits 0', () => {
+  it('with --allow-incomplete, writes the config after a warning header giving the unnamed interfaces\' places, and exits 0', () => {
     const run = convert(['--allow-incomplete', 'phase1.conf'])
     expect(run.status).toBe(0)
-    expect(run.stderr).toBe(lines(...issues, 'dialect: warning: incomplete: 4 interfaces have no name on Cisco IOS / IOS-XE, and keep their Junos name:', ...unnamed))
+    expect(run.stderr).toBe(lines(...issues, ...unnamed('warning'), 'dialect: warning: incomplete: 4 interfaces have no name on Cisco IOS / IOS-XE, and keep their Junos names.'))
     expect(run.stdout).toContain('interface ge-0/0/0\n')
     // A suggestion is never used unasked.
     expect(run.stdout).not.toContain('GigabitEthernet0/0/0')
   })
 
-  it('refuses one name for two interfaces, and warns of a map entry the config lacks', () => {
+  it('writes every interface to a map to fill in, with suggestions marked, which --map then reads', () => {
+    const template = join(dir, 'template.csv')
+    writeFileSync(join(dir, 'one.csv'), 'lo0,Loopback9\n')
+    const run = convert(['--map', join(dir, 'one.csv'), '--write-map', template, 'phase1.conf'])
+    expect(run.status).toBe(3)
+    expect(run.stderr).toContain(`no name on Cisco IOS / IOS-XE: fill in ${template} and give it with --map, or write the config anyway with --allow-incomplete.\n`)
+    expect(readFileSync(template, 'utf8')).toBe(
+      'ge-0/0/0,GigabitEthernet0/0/0 # suggested\nge-0/0/1,GigabitEthernet0/0/1 # suggested\nxe-0/1/0,TenGigabitEthernet0/1/0 # suggested\nlo0,Loopback9\n'
+    )
+    const filled = convert(['--map', template, 'phase1.conf'])
+    expect(filled.status).toBe(0)
+    expect(filled.stdout).toBe(expected().replace('Loopback0', 'Loopback9'))
+    expect(convert(['--write-map', join(dir, 'no-folder', 'x.csv'), 'phase1.conf'])).toMatchObject({ status: 2, stderr: expect.stringContaining(`dialect: can't write ${join(dir, 'no-folder', 'x.csv')}: no such file\n`) })
+  })
+
+  it('refuses one name for two interfaces, and an answer that is a name another keeps, losing no interface', () => {
     writeFileSync(join(dir, 'twice.csv'), 'ge-0/0/0,Gi1\nge-0/0/1,Gi1\nxe-0/1/0,Te1\nlo0,Loopback0\nge-9/9/9,Gi9\n')
     const run = convert(['--map', join(dir, 'twice.csv'), 'phase1.conf'])
     expect(run.status).toBe(3)
     expect(run.stdout).toBe('')
-    expect(run.stderr).toContain('phase1.conf: error: 2 interfaces are given the one name Gi1: ge-0/0/0, ge-0/0/1. Give each its own.\n')
-    expect(run.stderr).toContain(`dialect: warning: ${join(dir, 'twice.csv')}: the config has no interface ge-9/9/9\n`)
-    expect(run.stderr).toContain(lines(unnamed[0], unnamed[1]))
+    expect(run.stderr).toContain('phase1.conf:21:5: error: 2 interfaces would have one name on Cisco IOS / IOS-XE (lines 21, 29): give each its own.\n')
+    expect(run.stderr).toContain(`dialect: warning: ${join(dir, 'twice.csv')}: 1 interface it names is not in the config\n`)
+    expect(run.stderr).toContain(lines(...unnamed('error').slice(0, 2)))
+    // Only ge-0/0/0 named, as ge-0/0/1, which ge-0/0/1 keeps: with --allow-incomplete both are still written.
+    writeFileSync(join(dir, 'kept.csv'), 'ge-0/0/0,ge-0/0/1\n')
+    const kept = convert(['--map', join(dir, 'kept.csv'), '--allow-incomplete', 'phase1.conf'])
+    expect(kept.status).toBe(0)
+    expect(kept.stderr).toContain('phase1.conf:21:5: error: 2 interfaces would have one name on Cisco IOS / IOS-XE (lines 21, 29): give each its own.\n')
+    expect(kept.stdout).toContain('interface ge-0/0/0\n description uplink to core\n')
+    expect(kept.stdout).toContain('interface ge-0/0/1.10\n description customer A\n')
+  })
+
+  it('refuses a JSON map that names an interface twice', () => {
+    writeFileSync(join(dir, 'twice.json'), '{"ge-0/0/0":"Gi1","ge-0/0/0":"Gi2"}')
+    expect(convert(['--map', join(dir, 'twice.json'), 'phase1.conf'])).toEqual({ status: 2, stdout: '', stderr: `dialect: ${join(dir, 'twice.json')}: the JSON names an interface twice\n` })
   })
 
   it('exits 2 for a bad or missing map and 1 for a syntax error, and never writes a secret to stderr', () => {
@@ -196,6 +232,22 @@ describe('dialect convert', () => {
     expect(run.status).toBe(0)
     expect(run.stderr).not.toBe('')
     expect(run.stderr).not.toContain(secret)
+  })
+
+  it('never names an interface on stderr: a secret reused as an interface name stays out', () => {
+    // A community's value reused as an interface name, unnamed, then given a name another interface has.
+    const secret = 'SYNTHETIC_SECRET'
+    const src = `snmp {\n    community ${secret} {\n        authorization read-only;\n    }\n}\ninterfaces {\n    ${secret} {\n        description a;\n    }\n    ge-0/0/0 {\n        description b;\n    }\n}\n`
+    const unnamedRun = convert(['--allow-incomplete', '-'], src)
+    expect(unnamedRun.status).toBe(0)
+    expect(unnamedRun.stderr).toContain('<stdin>:7:5: warning: this interface has no name on Cisco IOS / IOS-XE\n')
+    expect(unnamedRun.stderr).not.toContain(secret)
+    for (const map of [`${secret},Gi1\nge-0/0/0,Gi1\n`, `${secret},a\n${secret},b\n`, `{"${secret}":"a","${secret}":"b"}`, `ge-9/9/9,x\n${secret}-other,y\n`]) {
+      writeFileSync(join(dir, 'secret.map'), map)
+      const run = convert(['--map', join(dir, 'secret.map'), '--allow-incomplete', '-'], src)
+      expect(run.stderr).not.toBe('')
+      expect(run.stderr).not.toContain(secret)
+    }
   })
 
   it('exits 2 for usage errors', () => {

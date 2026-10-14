@@ -12,7 +12,9 @@
   each interface on the target: type a name, take the suggestion, or load and save a map file.
 - **Interface names are never guessed.** Every interface needs a name on the target, from a `--map` file (`from,to`
   lines or JSON). Dialect suggests names (`ge-0/0/0` → `GigabitEthernet0/0/0`) but uses none unasked: with interfaces
-  left unnamed, `convert` lists them and exits 3, unless `--allow-incomplete` is given.
+  left unnamed, `convert` gives their lines and exits 3, unless `--allow-incomplete` is given. `--write-map` writes
+  every interface, with suggestions, to a map file to fill in. Two interfaces are never given one name: such names are
+  refused, so neither is lost.
 
 ### Display set
 - **Junos display set**, in the Junos plugin: hierarchical config to the `set` lines Junos prints, with

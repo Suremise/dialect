@@ -451,6 +451,46 @@ describe('convert mode in the web build', () => {
     await expect.poll(() => page.locator('[data-pane=output] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['hostname edge-1'])
   })
 
+  it('refuses a loaded JSON map that names an interface twice, applying none of it', async () => {
+    await openPhase1()
+    writeFileSync(join(dir, 'twice.json'), '{"lo0":"Loopback1","lo0":"Loopback2","ge-0/0/0":"GigabitEthernet1"}')
+    const chooser = page.waitForEvent('filechooser', UI_WAIT)
+    await page.getByRole('button', { name: /^Load map/ }).click()
+    await (await chooser).setFiles(join(dir, 'twice.json'))
+    await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toBe('twice.json: the JSON names an interface twice')
+    expect(await text('interface-count')).toBe('4 of 4 need a name')
+    expect(await interfaceInput('ge-0/0/0').inputValue()).toBe('')
+  })
+
+  it('refuses a name another interface keeps, in the problems panel, by line', async () => {
+    await openPhase1()
+    await interfaceInput('ge-0/0/0').fill('ge-0/0/1')
+    await expect
+      .poll(() => page.locator('.problem.error').allInnerTexts(), UI_WAIT)
+      .toEqual(['2 interfaces would have one name on Cisco IOS / IOS-XE (lines 21, 29): give each its own.\nline 21, column 5'])
+    // Both interfaces are still in the output, under their own names.
+    expect(await outputLines()).toEqual(expect.arrayContaining(['interface ge-0/0/0', 'interface ge-0/0/1.10']))
+  })
+
+  it('keeps the interface table usable in a narrow window (the desktop app\'s smallest)', async () => {
+    await openPhase1()
+    await page.setViewportSize({ width: 720, height: 480 })
+    const table = page.locator('.interfaces')
+    await expect.poll(() => table.isVisible(), UI_WAIT).toBe(true)
+    const input = interfaceInput('xe-0/1/0')
+    await input.scrollIntoViewIfNeeded()
+    expect(await input.isVisible()).toBe(true)
+    // Inside the window, not cut off.
+    const box = (await input.boundingBox())!
+    expect(box.x + box.width).toBeLessThanOrEqual(720)
+    expect(box.y + box.height).toBeLessThanOrEqual(480)
+    await input.fill('TenGigabitEthernet1/1/1')
+    await expect.poll(outputLines, UI_WAIT).toContain('interface TenGigabitEthernet1/1/1')
+    for (const name of ['Use suggestions', 'Load map…', 'Save map']) expect(await page.getByRole('button', { name }).isVisible()).toBe(true)
+    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+  })
+
   it('keeps display set as it was, and Convert in the Docs back button', async () => {
     await openPhase1()
     await page.keyboard.press('F1')
@@ -482,6 +522,8 @@ describe.runIf(Boolean(shots))('screenshots', () => {
     await page.locator('.problem.warning').first().click()
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('3 of 4 need a name')
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert.png`) })
+    await page.setViewportSize({ width: 720, height: 480 })
+    await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert-narrow.png`) })
     writeFileSync(join(shots!, 'size.txt'), `${readFileSync(join(dir, 'dist', 'dialect.html')).length}\n`)
   })
 })

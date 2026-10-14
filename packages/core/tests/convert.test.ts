@@ -100,10 +100,10 @@ describe('convert: interface names', () => {
   it('makes each interface a needs-input item, with the target plugin\'s suggestion and its statement', () => {
     const c = run()
     expect(c.ledger.needsInput).toEqual([
-      { id: 'interface:eth0', kind: 'interface-name', message: 'Name eth0 on Target.', field: 'interfaces.eth0', statement: 'eth0', suggestions: ['Gig0'] },
-      { id: 'interface:lo0', kind: 'interface-name', message: 'Name lo0 on Target.', field: 'interfaces.lo0', statement: 'lo0', suggestions: ['Loopback0'] },
+      { id: 'interface:eth0', kind: 'interface-name', message: 'Name this interface on Target.', field: 'interfaces.eth0', statement: 'eth0', suggestions: ['Gig0'] },
+      { id: 'interface:lo0', kind: 'interface-name', message: 'Name this interface on Target.', field: 'interfaces.lo0', statement: 'lo0', suggestions: ['Loopback0'] },
       // Only referenced: its statement is the route that names it, and the target has no suggestion for a tunnel.
-      { id: 'interface:tun0', kind: 'interface-name', message: 'Name tun0 on Target.', statement: 'route' }
+      { id: 'interface:tun0', kind: 'interface-name', message: 'Name this interface on Target.', statement: 'route' }
     ])
     expect(c.unanswered.map((i) => i.id)).toEqual(['interface:eth0', 'interface:lo0', 'interface:tun0'])
     // Unanswered, they keep their names: a suggestion is never used unasked.
@@ -132,9 +132,43 @@ describe('convert: interface names', () => {
     const c = run({ [interfaceInputId('eth0')]: 'X', [interfaceInputId('lo0')]: 'X', [interfaceInputId('tun0')]: '  ' })
     expect(c.unanswered.map((i) => i.id)).toEqual(['interface:eth0', 'interface:lo0', 'interface:tun0'])
     expect(c.ledger.diagnostics).toEqual([
-      { severity: 'error', category: 'other', code: 'convert.interface-name-taken', message: '2 interfaces are given the one name X: eth0, lo0. Give each its own.' }
+      { severity: 'error', category: 'other', code: 'convert.interface-name-taken', message: '2 interfaces would have one name on Target: give each its own.', statement: 'eth0' }
     ])
     expect(Object.keys(c.model.interfaces ?? {})).toEqual(['eth0', 'lo0'])
+  })
+
+  it("refuses an answer that is a name another interface keeps unanswered, losing no interface's fields", () => {
+    // Only eth0 is answered, with lo0's name: lo0 keeps it, so eth0 would replace it.
+    const c = run(interfaceInputs({ eth0: 'lo0' }))
+    expect(c.ledger.diagnostics.map((d) => d.message)).toEqual(['2 interfaces would have one name on Target: give each its own.'])
+    expect(c.interfaces.every((i) => i.target === undefined)).toBe(true)
+    expect(Object.keys(c.model.interfaces ?? {})).toEqual(['eth0', 'lo0'])
+    expect(populatedLeaves(c.model)).toEqual(populatedLeaves(MODEL))
+    // The same for an interface only referenced (tun0), with the line of the route that names it.
+    const ref = run(interfaceInputs({ eth0: 'tun0', lo0: 'Loopback0' }))
+    expect(ref.ledger.diagnostics.map((d) => [d.message, d.span?.startLine])).toEqual([['2 interfaces would have one name on Target (line 9): give each its own.', 9]])
+    expect(ref.interfaces.map((i) => i.target)).toEqual([undefined, 'Loopback0', undefined])
+    // A swap is two distinct names: allowed.
+    const swap = run(interfaceInputs({ eth0: 'lo0', lo0: 'eth0', tun0: 'Tunnel0' }))
+    expect(swap.ledger.diagnostics).toEqual([])
+    expect(swap.model.interfaces?.lo0).toEqual(MODEL.interfaces?.eth0)
+    expect(swap.model.system?.ntp?.sourceInterface).toBe('lo0.0')
+  })
+
+  it("never names an interface in a message: a name can be a secret's value reused", () => {
+    const secret = 'SYNTHETIC_SECRET'
+    const model: Device = { interfaces: { [secret]: { description: 'x' }, eth9: {} }, system: { snmp: { communities: { [secret]: { access: 'read-only' } } } } }
+    const leaky: PlatformPlugin = { ...source, parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }) }
+    const c = convert(leaky, target, '', { modelVersion: MODEL_VERSION, inputs: interfaceInputs({ [secret]: 'Gi1', eth9: 'Gi1' }) })
+    const messages = [...c.ledger.diagnostics.map((d) => d.message), ...c.ledger.needsInput.map((n) => n.message), ...c.issues.map((i) => i.reason ?? '')]
+    expect(messages.length).toBeGreaterThan(2)
+    expect(messages.join('\n')).not.toContain(secret)
+    expect(parseInterfaceMap(`${secret},a\n${secret},b\n`).problems.join('\n')).not.toContain(secret)
+  })
+
+  it('refuses to rename two interfaces to one name', () => {
+    expect(() => renameInterfaces(MODEL, { eth0: 'lo0' })).toThrow('Two interfaces would have one name')
+    expect(() => renameInterfaces(MODEL, { eth0: 'X', lo0: 'X' })).toThrow('Two interfaces would have one name')
   })
 
   it('renames a key that is __proto__ like any other, leaving Object.prototype alone', () => {
@@ -195,15 +229,34 @@ describe('the interface map file', () => {
   })
 
   it('says what is wrong, by line', () => {
-    expect(parseInterfaceMap('a,b\nc\nd,e,f\n,g\na,c\n').problems).toEqual(['line 2: expected from,to', 'line 3: expected from,to', 'line 4: expected from,to', 'line 5: a is mapped twice'])
-    expect(parseInterfaceMap('{ "a": 1, "b": "" }').problems).toEqual(['a: give the target name as a string', 'b: give the target name as a string'])
+    expect(parseInterfaceMap('a,b\nc\nd,e,f\n,g\na,c\n').problems).toEqual(['line 2: expected from,to', 'line 3: expected from,to', 'line 4: expected from,to', 'line 5: an interface mapped twice (first on line 1)'])
+    expect(parseInterfaceMap('{ "a": 1, "b": "", "c": "Gi1" }')).toEqual({ map: { c: 'Gi1' }, problems: ['2 target names are not a name (give each as a string)'] })
     expect(parseInterfaceMap('{ nope').problems).toEqual(['not valid JSON'])
     expect(parseInterfaceMap('[]').problems).toEqual(['the JSON is not an object of interface names'])
+  })
+
+  it('refuses JSON that names an interface twice, applying none of it', () => {
+    expect(parseInterfaceMap('{"ge-0/0/0":"Gi1","ge-0/0/0":"Gi2"}')).toEqual({ map: {}, problems: ['the JSON names an interface twice'] })
+    expect(parseInterfaceMap('{ "a": "x", "b": "y", "\\u0061": "z", "b": "w" }').problems).toEqual(['the JSON names 2 interfaces twice'])
+    // Keys of nested values, or a key's text inside a string, aren't the map's own.
+    expect(parseInterfaceMap('{ "a": "a\\": \\"b", "b": "c" }')).toEqual({ map: { a: 'a": "b', b: 'c' }, problems: [] })
+  })
+
+  it('reads `from,` as an interface not named yet', () => {
+    expect(parseInterfaceMap('irb,\nlo0,Loopback0\n')).toEqual({ map: { lo0: 'Loopback0' }, problems: [] })
+    expect(parseInterfaceMap('irb,\nirb,X\n').problems).toEqual(['line 2: an interface mapped twice (first on line 1)'])
   })
 
   it('writes the form it reads', () => {
     const map = { 'ge-0/0/0': 'GigabitEthernet0/0/0', lo0: 'Loopback0' }
     expect(formatInterfaceMap(map)).toBe('ge-0/0/0,GigabitEthernet0/0/0\nlo0,Loopback0\n')
     expect(parseInterfaceMap(formatInterfaceMap(map)).map).toEqual(map)
+  })
+
+  it('writes every interface to fill in: names given, suggestions marked as such, and the rest empty', () => {
+    const rows = [{ source: 'ge-0/0/0', suggestion: 'GigabitEthernet0/0/0' }, { source: 'lo0', suggestion: 'Loopback0' }, { source: 'irb' }]
+    const text = formatInterfaceMap({ lo0: 'Loopback9' }, rows)
+    expect(text).toBe('ge-0/0/0,GigabitEthernet0/0/0 # suggested\nlo0,Loopback9\nirb,\n')
+    expect(parseInterfaceMap(text)).toEqual({ map: { 'ge-0/0/0': 'GigabitEthernet0/0/0', lo0: 'Loopback9' }, problems: [] })
   })
 })

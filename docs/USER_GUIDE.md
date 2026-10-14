@@ -109,7 +109,9 @@ or a JSON object:
 ```
 
 A Junos unit becomes a subinterface (`ge-0/0/1` unit 10 → `GigabitEthernet0/0/1.10`); unit 0 is the interface itself.
-Two interfaces can't be given one name.
+Two interfaces can't end up with one name, counting the Junos names that unnamed interfaces keep: Dialect refuses those
+names (an error, with the interfaces' lines) and both stay unnamed, so neither replaces the other. A map that names an
+interface twice is refused whole, in either form.
 
 ## Supported platforms and features
 
@@ -164,9 +166,19 @@ router.conf:74:1: warning: not converted: routing protocols come later
 ```
 
 `--map` gives the interfaces' names on the target (see [Interface names](#interface-names)). While an interface has no
-name, `convert` writes no config: it lists the unnamed interfaces, with suggestions, and exits 3. `--allow-incomplete`
-writes the config anyway, after a warning listing them; they keep their Junos names in the output, so it isn't ready
-for a device. Options can also be written `--from=junos`.
+name, `convert` writes no config: it gives each unnamed interface's line and exits 3. `--allow-incomplete` writes the
+config anyway, after a warning giving their lines; they keep their Junos names in the output, so it isn't ready for a
+device. Options can also be written `--from=junos`.
+
+Messages give an interface's line, never its name: a name could be a password or community string reused, and messages
+end up in terminal and CI logs. To see the names, with suggestions, let `--write-map` write them to a map file:
+
+```
+dialect convert --from junos --to iosxe --write-map names.csv router.conf
+```
+
+It lists every interface: the name you gave, else the suggestion (marked `# suggested`), else none (`irb,`). Check
+it, fill in the rest and give it back with `--map names.csv`; a line with no name is an interface still to name.
 
 ### Exit codes
 

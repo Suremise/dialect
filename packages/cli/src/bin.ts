@@ -1,5 +1,5 @@
 // The dialect command's entry: dist/dialect.mjs, built by vite.config.ts and run by Node 24.
-import { readFile } from 'fs/promises'
+import { readFile, writeFile } from 'fs/promises'
 import { version } from '../package.json'
 import { run } from './cli'
 
@@ -19,6 +19,7 @@ process.exitCode = await run(
   {
     readFile: (path) => readFile(path, 'utf8'),
     readStdin,
+    writeFile: (path, text) => writeFile(path, text, 'utf8'),
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text)
   },

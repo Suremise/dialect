@@ -107,7 +107,7 @@ describe('the store in convert mode', () => {
       { severity: 'warning', message: 'Not converted: routing protocols come later', line: 76, column: 9 }
     ])
     useStore.getState().mergeInterfaceMap({ 'ge-0/0/0': 'Gi1', 'ge-0/0/1': 'Gi1' })
-    expect(useStore.getState().problems[0]).toEqual({ severity: 'error', message: '2 interfaces are given the one name Gi1: ge-0/0/0, ge-0/0/1. Give each its own.' })
+    expect(useStore.getState().problems[0]).toEqual({ severity: 'error', message: '2 interfaces would have one name on Cisco IOS / IOS-XE (lines 21, 29): give each its own.', line: 21, column: 5 })
     useStore.getState().setSource('system {\n    host-name r1\n}\n')
     expect(useStore.getState().output).toBe('')
     expect(useStore.getState().problems.map((p) => p.severity)).toEqual(['error'])
