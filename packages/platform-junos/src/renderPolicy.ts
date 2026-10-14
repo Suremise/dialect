@@ -68,10 +68,10 @@ function validMatch(m: PrefixMatch | undefined): m is PrefixMatch {
 }
 
 /**
- * `policy-options` for the model's routing policy, with every populated leaf's disposition, and the names of the
- * policies written (BGP's references to others are by name only).
+ * `policy-options` for the model's routing policy, with every populated leaf's disposition, the names of the policies
+ * written (BGP's references to others are by name only) and the prefix lists written, with their families (for filters).
  */
-export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { readonly out: Out | null; readonly written: ReadonlySet<string> } {
+export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { readonly out: Out | null; readonly written: ReadonlySet<string>; readonly lists: ReadonlyMap<string, ReadonlySet<'ipv4' | 'ipv6'>> } {
   const { dispositions, diagnostics } = ctx
   const base = ['routingPolicy']
   const skip = (field: Segments, kind: 'unsupported' | 'not-applicable', reason: string) => {
@@ -390,5 +390,5 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
   }
 
   const children = [...lists, ...statements, ...communities, ...asPaths]
-  return { out: children.length ? box('policy-options', children) : null, written }
+  return { out: children.length ? box('policy-options', children) : null, written, lists: writtenLists }
 }

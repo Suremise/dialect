@@ -1,0 +1,2 @@
+set firewall family inet filter F term T from source-prefix-list MISSING
+set firewall family inet filter F term T then accept

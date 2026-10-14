@@ -1,0 +1,260 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "system": {
+      "hostname": "firewall-filters"
+    },
+    "interfaces": {
+      "xe-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.2.3.4": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "FILTER1"
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/1": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "2.2.3.4": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "FILTER2",
+                "output": "FILTER2"
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/2": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "3.2.3.4": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/3": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "4.2.3.4": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/4": {
+        "subinterfaces": {
+          "0": {
+            "ipv6": {
+              "addresses": {
+                "2001:db8::1": {
+                  "prefixLength": 64
+                }
+              }
+            },
+            "filters": {
+              "ipv6": {
+                "input": "FILTER6_1"
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/5": {
+        "subinterfaces": {
+          "0": {
+            "ipv6": {
+              "addresses": {
+                "2001:db8::2": {
+                  "prefixLength": 64
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/6": {
+        "subinterfaces": {
+          "0": {
+            "ipv6": {
+              "addresses": {
+                "2001:db8::3": {
+                  "prefixLength": 64
+                }
+              }
+            },
+            "filters": {
+              "ipv6": {
+                "input": "FILTER6_2"
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/7": {
+        "subinterfaces": {
+          "0": {
+            "ipv6": {
+              "addresses": {
+                "2001:db8::4": {
+                  "prefixLength": 64
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/8": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "5.2.3.4": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8::5": {
+                  "prefixLength": 64
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "FILTER1"
+              },
+              "ipv6": {
+                "input": "FILTER6_1"
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "FILTER1": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "TERM",
+              "matches": {
+                "sourcePrefixes": [
+                  "1.2.3.6/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        },
+        "FILTER2": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "TERM",
+              "matches": {
+                "sourcePrefixes": [
+                  "1.2.3.6/32",
+                  "1.2.3.5/32"
+                ]
+              },
+              "actions": {
+                "action": "reject"
+              }
+            }
+          }
+        },
+        "FILTER_UNUSED": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "TERM",
+              "matches": {
+                "sourcePrefixes": [
+                  "1.2.3.6/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      },
+      "ipv6": {
+        "FILTER6_1": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "TERM",
+              "matches": {
+                "protocols": [
+                  6
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        },
+        "FILTER6_2": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "TERM",
+              "matches": {
+                "protocols": [
+                  17
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

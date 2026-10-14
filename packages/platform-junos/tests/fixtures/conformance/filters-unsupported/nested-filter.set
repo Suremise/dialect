@@ -1,0 +1,3 @@
+set firewall family inet filter CHILD term T then accept
+set firewall family inet filter F term NESTED filter CHILD
+set firewall family inet filter F term REST then discard

@@ -22,6 +22,14 @@
   keyboard focus shows.
 
 ### Convert
+- **Junos firewall filters convert:** `firewall family inet` and `inet6` filters (and the older `firewall filter`),
+  with their terms' conditions (addresses and prefix lists by source, destination or either, protocol and
+  next-header, ports and ranges by number or name, ICMP types and codes, DSCP and traffic class, TCP established,
+  initial and flags, fragments) and actions (accept, discard, reject, next term, count, log), and the filter each
+  unit applies in and out. A term converts whole or not at all, and when leaving one out could change what a later
+  term decides, the whole filter is listed as not converted, with the units applying it. Converting to Junos warns
+  where the filter's end differs (a Cisco ACL's deny) or the filter relies on it. Policers, routing-instance
+  forwarding, input and output lists and filters of other families aren't converted yet.
 - **Cisco IOS / IOS-XE routing policy converts:** prefix lists (IPv4 and IPv6), community lists (standard, expanded and
   numbered), AS-path access lists and route maps, and BGP neighbors' route maps now carry the policy itself, not only
   its name. Regexes are kept as written and never translated between platforms. A route map converts sequence by

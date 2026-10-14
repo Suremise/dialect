@@ -29,7 +29,7 @@ describe('semantic warnings, each from a saved model', () => {
   const files = readdirSync(dir).filter((f) => f.endsWith('.model.json'))
 
   it('has one for each semantic warning the render raises', () => {
-    expect(files.map((f) => f.replace('.model.json', '')).sort()).toEqual(['ebgp-default-policy', 'ospf-enabled-by-network', 'policy-fall-through'])
+    expect(files.map((f) => f.replace('.model.json', '')).sort()).toEqual(['ebgp-default-policy', 'filter-implicit-action', 'ospf-enabled-by-network', 'policy-fall-through'])
   })
   for (const file of files) {
     const code = `junos.${file.replace('.model.json', '')}`
