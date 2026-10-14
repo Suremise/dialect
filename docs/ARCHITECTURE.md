@@ -515,7 +515,8 @@ The third Cisco platform, built like the NX-OS plugin (its code copied, not impo
   more), the right one scores highest.
 - **Tests:** as the other Cisco plugins': hand-written fixtures per area through the kit (`tests/fixtures/<area>`,
   `policy` among them), chosen corpus files against expected models in `tests/corpus/`, and every file of
-  `fixtures/public/iosxr` through the kit's checks.
+  `fixtures/public/iosxr` through the kit's checks. Its probe adapter (`tests/probes.ts`, #51) gives every probe in
+  IOS-XR syntax, except the prototype keys as an interface name, which IOS-XR can't have (a name is a type and numbers).
 - **For BGP (B10), not yet:** IOS-XR applies RFC 8212 to eBGP, so a neighbor with no route policy in a direction sends
   and accepts nothing. A converted eBGP neighbor will need an explicit `route-policy … in` and `out` (a pass-all policy
   where the source had none), or it comes up and exchanges no routes.
