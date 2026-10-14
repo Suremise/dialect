@@ -147,8 +147,10 @@ export function secretValues(text: string): string[] {
   const out = new Set<string>()
   for (const pattern of SECRETS)
     for (const m of text.matchAll(pattern)) {
-      // A quote at either end isn't the secret's, as the kit takes it: `"comes"`, or `"comes` cut short.
-      const value = m[m.length - 1].replace(/^"+/, '').replace(/"+$/, '')
+      // A quote at either end isn't the secret's, as the kit takes it: `"comes"`, or `"comes` cut short. Nor is
+      // whitespace at either end: a quote opened after a secret turns `key "later"` into `key "later ""`, whose quoted
+      // value is `later ` (a reason ending in `later` doesn't hold that), and a shorter value is the stricter check.
+      const value = m[m.length - 1].replace(/^"+/, '').replace(/"+$/, '').trim()
       if (value.length >= 4) out.add(value)
     }
   return [...out]

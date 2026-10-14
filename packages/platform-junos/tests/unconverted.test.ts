@@ -43,6 +43,22 @@ describe('reasons for what isn\'t converted', () => {
       }
   })
 
+  it('never hold a quoted key, with a quote opened after it as the kit tries it', () => {
+    // The kit's broken copy turns `key "later"` into `key "later ""`: the quoted value it finds there is `later `.
+    const texts = [
+      lines('set class-of-service interfaces ge-0/0/0 unit 0', 'set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 authentication md5 1 key "later"'),
+      lines('class-of-service {', '    interfaces {', '        ge-0/0/0 {', '            unit 0;', '        }', '    }', '}', 'protocols {', '    ospf {', '        area 0.0.0.0 {', '            interface ge-0/0/0.0 {', '                authentication {', '                    md5 1 key "later";', '                }', '            }', '        }', '    }', '}')
+    ]
+    for (const text of texts) {
+      const result = parse(text)
+      expect(checkSecrets(plugin, text, ['later'], { allowances: [], configTools: ['display-set'] }).leaks, text).toEqual([])
+      const secrets = checkFixture(plugin, { name: 'later', source: text, expectedModel: result.model }, { allowances: [], configTools: ['display-set'] }).find((r) => r.check === 'secrets')
+      expect(secrets?.status, text).toBe('passed')
+    }
+    expect(secretValues('set protocols ospf area 0 interface ge-0/0/0.0 authentication md5 1 key "later ""')).toEqual(['later'])
+    expect(secretValues('set security ike policy P pre-shared-key ascii-text "psk value"')).toEqual(['psk value'])
+  })
+
   it('find the configuration\'s secrets as the kit does, four characters or more', () => {
     const text = lines(
       'set snmp community "comes" authorization read-only',
