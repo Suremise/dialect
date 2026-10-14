@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dialect icon concepts</title>
+<style>
+  :root { --text: #18181B; --muted: #52525B; --page: #FAFAFA; --rule: #E4E4E7; --light: #F3F4F6; --dark: #1F2937; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 48px; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); background: var(--page); }
+  main { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 0 0 2px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  section { border-top: 1px solid var(--rule); padding: 20px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .swatch { display: flex; align-items: flex-end; gap: 20px; padding: 16px; border-radius: 10px; flex: 1 1 460px; overflow-x: auto; }
+  .swatch.light { background: var(--light); }
+  .swatch.dark { background: var(--dark); color: #E5E7EB; }
+  figure { margin: 0; text-align: center; font-size: 12px; }
+  figure img { display: block; margin: 0 auto 6px; }
+  .note { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dialect icon concepts</h1>
+  <p class="note">Each concept at 256, 64, 32 and 16 px on a light and a dark background. 256 and 64 use the master SVG; 32 and 16 use the simplified small SVG (flat fill, thicker strokes), as the final build script will.</p>
+
+  <section>
+    <h2>A · Dialogue (rose, rounded square)</h2>
+    <p>Two speech bubbles, one saying something and the other answering it: one config, said again in another dialect.</p>
+    <div class="row" data-concept="a-dialogue"></div>
+  </section>
+
+  <section>
+    <h2>B · Braces to block (violet, circle)</h2>
+    <p>A curly brace opening onto indented lines: brace-structured config read out as a flat, indented block.</p>
+    <div class="row" data-concept="b-braces"></div>
+  </section>
+
+  <section>
+    <h2>C · Swap (emerald, diamond)</h2>
+    <p>Two opposing arrows in a diamond: a two-way translation, either direction, at a glance.</p>
+    <div class="row" data-concept="c-swap"></div>
+  </section>
+</main>
+<script>
+  for (const row of document.querySelectorAll('[data-concept]')) {
+    const name = row.dataset.concept
+    for (const bg of ['light', 'dark']) {
+      const box = document.createElement('div')
+      box.className = 'swatch ' + bg
+      for (const size of [256, 64, 32, 16]) {
+        const fig = document.createElement('figure')
+        const img = document.createElement('img')
+        img.src = size <= 32 ? name + '-small.svg' : name + '.svg'
+        img.width = img.height = size
+        img.alt = name + ' at ' + size + ' px'
+        fig.append(img, size + ' px')
+        box.append(fig)
+      }
+      row.append(box)
+    }
+  }
+</script>
+</body>
+</html>

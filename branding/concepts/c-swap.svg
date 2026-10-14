@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="emerald" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6EE7B7"/>
+      <stop offset="0.55" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16302A"/>
+      <stop offset="1" stop-color="#0B1A16"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <polygon points="256,22 490,256 256,490 22,256" fill="url(#emerald)" stroke="url(#emerald)" stroke-width="24" stroke-linejoin="round"/>
+  <polygon points="256,48 464,256 256,464 48,256" fill="none" stroke="url(#gloss)" stroke-width="6" stroke-linejoin="round" opacity="0.6"/>
+  <polygon points="256,96 416,256 256,416 96,256" fill="url(#inner)" stroke="#0B1A16" stroke-width="16" stroke-linejoin="round"/>
+  <polyline points="176,226 334,226" fill="none" stroke="#34D399" stroke-width="28" stroke-linecap="round"/>
+  <polyline points="300,192 334,226 300,260" fill="none" stroke="#34D399" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="336,290 178,290" fill="none" stroke="#6EE7B7" stroke-width="28" stroke-linecap="round"/>
+  <polyline points="212,256 178,290 212,324" fill="none" stroke="#6EE7B7" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

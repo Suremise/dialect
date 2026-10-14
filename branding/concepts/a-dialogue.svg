@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="rose" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FDA4AF"/>
+      <stop offset="0.55" stop-color="#FB7185"/>
+      <stop offset="1" stop-color="#E11D48"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E1D25"/>
+      <stop offset="1" stop-color="#1C1117"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#rose)"/>
+  <rect x="44" y="44" width="424" height="424" rx="98" fill="none" stroke="url(#gloss)" stroke-width="6" opacity="0.6"/>
+  <rect x="76" y="76" width="360" height="360" rx="78" fill="url(#inner)" stroke="#1C1117" stroke-width="16"/>
+  <path d="M160,116 H260 A40,40 0 0 1 300,156 V206 A40,40 0 0 1 260,246 H206 L138,294 L160,246 A40,40 0 0 1 120,206 V156 A40,40 0 0 1 160,116 Z" fill="#FDA4AF" stroke="#FDA4AF" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="170" cy="181" r="13" fill="#1C1117"/>
+  <circle cx="210" cy="181" r="13" fill="#1C1117"/>
+  <circle cx="250" cy="181" r="13" fill="#1C1117"/>
+  <path d="M252,220 H352 A40,40 0 0 1 392,260 V310 A40,40 0 0 1 352,350 L374,398 L306,350 H252 A40,40 0 0 1 212,310 V260 A40,40 0 0 1 252,220 Z" fill="#FB7185" stroke="#1C1117" stroke-width="18" stroke-linejoin="round"/>
+  <line x1="252" y1="270" x2="352" y2="270" stroke="#1C1117" stroke-width="16" stroke-linecap="round"/>
+  <line x1="252" y1="302" x2="318" y2="302" stroke="#1C1117" stroke-width="16" stroke-linecap="round"/>
+</svg>

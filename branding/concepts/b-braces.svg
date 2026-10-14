@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="violet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C4B5FD"/>
+      <stop offset="0.55" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#251C35"/>
+      <stop offset="1" stop-color="#140F1E"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="236" fill="url(#violet)"/>
+  <circle cx="256" cy="256" r="214" fill="none" stroke="url(#gloss)" stroke-width="6" opacity="0.6"/>
+  <circle cx="256" cy="256" r="180" fill="url(#inner)" stroke="#140F1E" stroke-width="16"/>
+  <path d="M198,164 C168,164 160,178 160,204 V226 C160,244 152,256 134,256 C152,256 160,268 160,286 V308 C160,334 168,348 198,348" fill="none" stroke="#C4B5FD" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="238" y1="196" x2="364" y2="196" stroke="#A78BFA" stroke-width="30" stroke-linecap="round"/>
+  <line x1="276" y1="256" x2="376" y2="256" stroke="#C4B5FD" stroke-width="30" stroke-linecap="round"/>
+  <line x1="276" y1="316" x2="342" y2="316" stroke="#C4B5FD" stroke-width="30" stroke-linecap="round"/>
+</svg>
