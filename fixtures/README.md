@@ -46,9 +46,9 @@ Files per platform and area (a file counts under every area in its `areas`). Gen
 | vpn \* | – | 2 | – | – |
 | ha \* | 2 | 3 | 2 | 1 |
 | qos \* | 1 | 1 | 1 | 1 |
-| whole \* | 20 | 12 | 7 | 9 |
+| whole \* | 16 | 16 | 7 | 9 |
 | pairs \* | 44 | – | – | – |
-| **files** | 223 | 121 | 74 | 66 |
+| **files** | 219 | 125 | 74 | 66 |
 
 Every platform has at least one file in every phase 1 area. **Gaps and thin spots:**
 
@@ -56,8 +56,9 @@ Every platform has at least one file in every phase 1 area. **Gaps and thin spot
 - **IOS-XR VLANs:** IOS-XR has no VLAN database; the two files are l2vpn bridge-domain configs. **IOS-XR static routes** (2) and **NX-OS VRFs** (2) are thin.
 - **NX-OS whole devices:** 7, of which only one (racc `n9k1`) is a real capture; the CML sandbox's `dist-sw01` is a lab build, but a complete one (vPC, HSRP, SVIs).
 - **Not covered:** EIGRP on Junos (it doesn't exist) and IOS-XR; EVPN-VXLAN on IOS/IOS-XE and IOS-XR; NAT and security on NX-OS and IOS-XR; MPLS on NX-OS; IKE/IPsec on Junos except inside the SRX and MNHA whole configs.
-- **Junos form:** 173 set, 49 hierarchical, 1 mixed. Set form dominates because Batfish writes most of its Junos tests that way; the `pairs/` folder has each config in both forms.
+- **Junos form:** 173 set, 45 hierarchical, 1 mixed. Set form dominates because Batfish writes most of its Junos tests that way; the `pairs/` folder has each config in both forms.
 - **IOS vs IOS-XE** aren't separated: most Batfish IOS tests run on both. The racc captures and netcanon files are IOS-XE (CSR1000v, Cat8000v).
+- **Batfish's `example-juniper` network** keeps four of its routers in IOS (12.4), not Junos: `as2core1`, `as2dept1`, `as2dist1` and `as3border1` are under `public/iosxe/whole/` as `batfish__example-juniper_*.cfg`, beside `networks/example`'s different versions of the same routers (`batfish__as2core1.cfg`…). Its Junos router, `as1border1`, is in `public/junos/whole/`.
 
 ## Sources
 
