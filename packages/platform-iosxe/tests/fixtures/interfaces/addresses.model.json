@@ -1,0 +1,63 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "access-r2"
+    },
+    "interfaces": {
+      "GigabitEthernet0/0/0": {
+        "type": "ethernet",
+        "description": "Uplink to core",
+        "mtu": 9000,
+        "enabled": true,
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": { "prefixLength": 30, "primary": true },
+                "198.51.100.1": { "prefixLength": 24 }
+              },
+              "mtu": 1500
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8:0:1::1": { "prefixLength": 64 }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/1": {
+        "type": "ethernet",
+        "description": "Trunk to access switch",
+        "vlanTagging": true,
+        "subinterfaces": {
+          "100": {
+            "description": "Users",
+            "vlanId": 100,
+            "ipv4": { "addresses": { "203.0.113.1": { "prefixLength": 25 } } }
+          },
+          "200": {
+            "vlanId": 200,
+            "enabled": false,
+            "ipv4": { "addresses": { "203.0.113.129": { "prefixLength": 25 } } }
+          }
+        }
+      },
+      "Loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": { "ipv4": { "addresses": { "192.0.2.255": { "prefixLength": 32 } } } }
+        }
+      },
+      "Port-channel1": {
+        "type": "aggregate",
+        "description": "Bundle with no members yet"
+      },
+      "GigabitEthernet0/0/2": {
+        "type": "ethernet",
+        "enabled": false
+      }
+    }
+  }
+}
