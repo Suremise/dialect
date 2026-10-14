@@ -1,0 +1,19 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "leaf-6",
+      "ntp": {
+        "servers": {
+          "192.0.2.123": {
+            "prefer": true,
+            "networkInstance": "management"
+          },
+          "198.51.100.123": {},
+          "ntp.example.net": {}
+        },
+        "sourceInterface": "mgmt0"
+      }
+    }
+  }
+}

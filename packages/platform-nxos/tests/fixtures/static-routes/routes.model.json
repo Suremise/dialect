@@ -1,0 +1,58 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "leaf-5"
+    },
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "192.0.2.1"
+              },
+              "1": {
+                "address": "198.51.100.1",
+                "preference": 250
+              }
+            }
+          },
+          "10.0.0.0/8": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "172.16.0.0/12": {
+            "description": "to-dc",
+            "nextHops": {
+              "0": {
+                "interface": "Ethernet1/1",
+                "address": "192.0.2.9",
+                "tag": 100,
+                "preference": 20
+              }
+            }
+          },
+          "192.168.0.0/16": {
+            "nextHops": {
+              "0": {
+                "interface": "Ethernet1/2",
+                "tag": 5
+              }
+            }
+          },
+          "2001:db8:100::/48": {
+            "nextHops": {
+              "0": {
+                "address": "2001:db8::1"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

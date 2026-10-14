@@ -1,0 +1,406 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "sbx-ao",
+      "snmp": {
+        "contact": "DevNet-Sandbox",
+        "location": "Always-On-Sandbox",
+        "communities": {
+          "DevNetSandboxReadSNMP": {
+            "access": "read-only"
+          },
+          "DevNetSandboxWriteSNMP": {
+            "access": "read-write"
+          }
+        }
+      },
+      "ntp": {
+        "servers": {
+          "172.16.0.1": {}
+        },
+        "sourceInterface": "mgmt0"
+      }
+    },
+    "networkInstances": {
+      "management": {
+        "type": "vrf",
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "10.10.20.254"
+              }
+            }
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "Vlan1": {
+        "type": "vlan"
+      },
+      "Vlan100": {
+        "type": "vlan",
+        "description": "mgmt svi - DEMO PLEASE DON'T TOUCH",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.100.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan101": {
+        "type": "vlan",
+        "description": "prod svi - DEMO PLEASE DON'T TOUCH",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.101.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan102": {
+        "type": "vlan",
+        "description": "dev svi - DEMO PLEASE DON'T TOUCH",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.102.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan103": {
+        "type": "vlan",
+        "description": "test svi - DEMO PLEASE DON'T TOUCH",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.103.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan104": {
+        "type": "vlan",
+        "description": "security svi - DEMO PLEASE DON'T TOUCH",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.104.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan105": {
+        "type": "vlan",
+        "description": "iot svi - DEMO PLEASE DON'T TOUCH",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.105.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "port-channel11": {
+        "type": "aggregate"
+      },
+      "Ethernet1/1": {
+        "type": "ethernet"
+      },
+      "Ethernet1/2": {
+        "type": "ethernet"
+      },
+      "Ethernet1/3": {
+        "type": "ethernet"
+      },
+      "Ethernet1/4": {
+        "type": "ethernet"
+      },
+      "Ethernet1/5": {
+        "type": "ethernet",
+        "description": "L3 Link",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.1.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet1/6": {
+        "type": "ethernet"
+      },
+      "Ethernet1/7": {
+        "type": "ethernet"
+      },
+      "Ethernet1/8": {
+        "type": "ethernet"
+      },
+      "Ethernet1/9": {
+        "type": "ethernet"
+      },
+      "Ethernet1/10": {
+        "type": "ethernet"
+      },
+      "Ethernet1/11": {
+        "type": "ethernet"
+      },
+      "Ethernet1/12": {
+        "type": "ethernet"
+      },
+      "Ethernet1/13": {
+        "type": "ethernet"
+      },
+      "Ethernet1/14": {
+        "type": "ethernet"
+      },
+      "Ethernet1/15": {
+        "type": "ethernet"
+      },
+      "Ethernet1/16": {
+        "type": "ethernet"
+      },
+      "Ethernet1/17": {
+        "type": "ethernet"
+      },
+      "Ethernet1/18": {
+        "type": "ethernet"
+      },
+      "Ethernet1/19": {
+        "type": "ethernet"
+      },
+      "Ethernet1/20": {
+        "type": "ethernet"
+      },
+      "Ethernet1/21": {
+        "type": "ethernet"
+      },
+      "Ethernet1/22": {
+        "type": "ethernet"
+      },
+      "Ethernet1/23": {
+        "type": "ethernet"
+      },
+      "Ethernet1/24": {
+        "type": "ethernet"
+      },
+      "Ethernet1/25": {
+        "type": "ethernet"
+      },
+      "Ethernet1/26": {
+        "type": "ethernet"
+      },
+      "Ethernet1/27": {
+        "type": "ethernet"
+      },
+      "Ethernet1/28": {
+        "type": "ethernet"
+      },
+      "Ethernet1/29": {
+        "type": "ethernet"
+      },
+      "Ethernet1/30": {
+        "type": "ethernet"
+      },
+      "Ethernet1/31": {
+        "type": "ethernet"
+      },
+      "Ethernet1/32": {
+        "type": "ethernet"
+      },
+      "Ethernet1/33": {
+        "type": "ethernet"
+      },
+      "Ethernet1/34": {
+        "type": "ethernet"
+      },
+      "Ethernet1/35": {
+        "type": "ethernet"
+      },
+      "Ethernet1/36": {
+        "type": "ethernet"
+      },
+      "Ethernet1/37": {
+        "type": "ethernet",
+        "description": "Configured by NETCONF"
+      },
+      "Ethernet1/38": {
+        "type": "ethernet"
+      },
+      "Ethernet1/39": {
+        "type": "ethernet"
+      },
+      "Ethernet1/40": {
+        "type": "ethernet"
+      },
+      "Ethernet1/41": {
+        "type": "ethernet"
+      },
+      "Ethernet1/42": {
+        "type": "ethernet"
+      },
+      "Ethernet1/43": {
+        "type": "ethernet"
+      },
+      "Ethernet1/44": {
+        "type": "ethernet"
+      },
+      "Ethernet1/45": {
+        "type": "ethernet"
+      },
+      "Ethernet1/46": {
+        "type": "ethernet"
+      },
+      "Ethernet1/47": {
+        "type": "ethernet"
+      },
+      "Ethernet1/48": {
+        "type": "ethernet"
+      },
+      "Ethernet1/49": {
+        "type": "ethernet"
+      },
+      "Ethernet1/50": {
+        "type": "ethernet"
+      },
+      "Ethernet1/51": {
+        "type": "ethernet"
+      },
+      "Ethernet1/52": {
+        "type": "ethernet"
+      },
+      "Ethernet1/53": {
+        "type": "ethernet"
+      },
+      "Ethernet1/54": {
+        "type": "ethernet"
+      },
+      "Ethernet1/55": {
+        "type": "ethernet"
+      },
+      "Ethernet1/56": {
+        "type": "ethernet"
+      },
+      "Ethernet1/57": {
+        "type": "ethernet"
+      },
+      "Ethernet1/58": {
+        "type": "ethernet"
+      },
+      "Ethernet1/59": {
+        "type": "ethernet"
+      },
+      "Ethernet1/60": {
+        "type": "ethernet"
+      },
+      "Ethernet1/61": {
+        "type": "ethernet"
+      },
+      "Ethernet1/62": {
+        "type": "ethernet"
+      },
+      "Ethernet1/63": {
+        "type": "ethernet"
+      },
+      "Ethernet1/64": {
+        "type": "ethernet"
+      },
+      "mgmt0": {
+        "type": "management",
+        "description": "DO NOT TOUCH CONFIG ON THIS INTERFACE",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.10.20.95": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "loopback1": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.0.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "loopback30": {
+        "type": "loopback",
+        "description": "My Learning Lab Loopback"
+      },
+      "loopback98": {
+        "type": "loopback",
+        "description": "Configured using OpenConfig Model",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.98.98.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "loopback99": {
+        "type": "loopback",
+        "description": "Full intf config via NETCONF",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.99.99.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

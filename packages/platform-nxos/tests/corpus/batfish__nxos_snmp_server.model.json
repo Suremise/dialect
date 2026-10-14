@@ -1,0 +1,17 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_snmp_server",
+      "snmp": {
+        "communities": {
+          "SECRETcommunity1": {
+            "access": "read-only"
+          }
+        },
+        "contact": "Give us a call at 867-5309",
+        "location": "The midnight train going anywhere"
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_vrf"
+    },
+    "networkInstances": {
+      "management": {
+        "type": "vrf",
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "1.2.3.4"
+              }
+            }
+          }
+        }
+      },
+      "vrf1": {
+        "type": "vrf",
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "1.2.3.4"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

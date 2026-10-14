@@ -239,6 +239,71 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
   parse (no error, a complete ledger, a stable round trip).
 
+## NX-OS plugin (`@dialect/platform-nxos`, B12)
+
+The second Cisco platform, built like the IOS / IOS-XE plugin (its code copied, not imported: plugins don't depend on
+each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.2.0 <1.0.0'`), with `detect`,
+`parse` and `render`.
+
+- **The tree (`tree.ts`):** as IOS's, nested by NX-OS's two-space indents; `!Command:` and `!Time:` headers are
+  comments. Banners (`banner motd|exec <d>…<d>`) are kept whole as one atomic statement; an unterminated one is an
+  error diagnostic. NX-OS has no certificate chains in its running config.
+- **Parse (`parse.ts`):** `hostname` and `switchname`, `ip domain-name`, DNS (`ip name-server A [B …] [use-vrf V]`,
+  `ip domain-list`), interfaces (`Ethernet1/1`, `port-channel10`, `loopback0`, `Vlan10`, `mgmt0`; type from the name,
+  `mgmt0` as `management`), subinterfaces with `encapsulation dot1q`, addresses with a prefix length or a dotted mask,
+  `secondary` for IPv4 and IPv6 alike (one primary per family, as NX-OS keeps it: a second primary replaces the first),
+  `vrf context X` (a VRF, with its `ip route`/`ipv6 route` inside), static routes (interface, next hop, `name`, `tag`,
+  distance, `Null0`), `ntp server … [prefer] [use-vrf V]` and `source-interface`, `logging server H [level] [port P]
+  [use-vrf V] [facility F]` and `source-interface`, and `snmp-server community` (`group network-operator|network-admin`
+  or `ro`/`rw`), `location` and `contact`. As in the IOS plugin, a statement with an option the model can't hold
+  (`key`, `track`, `secure`, a next hop in another VRF) is `unsupported` as a whole. A route's next-hop interface must
+  be an interface name: a malformed address or a stray word makes the route unsupported.
+  - **Later statements act on earlier ones, as on the device.** A second setting supersedes the first; the same route
+    next hop again is an edit of it (NX-OS keys a route by its prefix, interface and next hop). `no` forms of every
+    setting the parser maps remove it and mark what they removed: `no hostname`, `no ip domain-name`,
+    `no ip domain-list X`, `no ip name-server … [use-vrf V]` (only in the VRF it names, no VRF and `default` alike),
+    `no ip|ipv6 route P [next hop]` (at the top or in a `vrf context`; every next hop when it names none),
+    `no vrf context X` (with its routes), `no description`, `no mtu`, `no encapsulation dot1q` (the parent's
+    `vlanTagging` goes with the last tag), `no ip|ipv6 address [A/L]`, `no vrf member`, `no ntp server X`,
+    `no ntp|logging source-interface`, `no logging server X`, `no snmp-server community X`,
+    `no snmp-server contact|location`, `no feature X`. `vrf member` and `ip address dhcp` clear the addresses before
+    them.
+  - **VRF membership:** model 0.2 can't place an interface in a VRF, so `vrf member V` is `unsupported`, and an
+    address on an interface in a VRF is left out (`unsupported`) rather than put in the global table. `mgmt0` is always
+    in the management VRF: its `vrf member management` is `ignored-by-design`, said by its type.
+  - **`feature` lines:** one a converted statement needs (`interface-vlan` for Vlan interfaces, `tunnel` for Tunnel
+    interfaces; `features.ts`) is `ignored-by-design`, since the render writes it back whenever it is needed. Every
+    other feature turns on a service the model doesn't hold, and is `unsupported`.
+  - **`switchport`:** `no switchport` is `ignored-by-design` on a port with IP configuration (the render writes it back
+    with it) and `unsupported` on one without, which the model can't call routed. `switchport` and its options are
+    `unsupported` (Layer 2 comes later).
+  - **SNMP communities:** a community with any statement not converted, anywhere in the text (an access list in any
+    form, `use-ipv4acl … use-ipv6acl …` on one line included; a group other than network-operator or network-admin;
+    `no snmp-server community X …` removing part of it), is left out whole, every statement about it `unsupported`,
+    rather than mapped with access it may not have.
+  - **No secrets in reasons:** no disposition reason or diagnostic repeats a word of the config (AGENTS.md); they give
+    line numbers and word positions instead ("word 5 isn't converted yet", "an address in the VRF of line 4"), so a
+    secret reused as a VRF, a route name or an option stays out too. The kit's secrets check runs on every fixture and
+    corpus file.
+  - Keys come from the configuration (`vrf context __proto__`), so the model is built with own properties only, and
+    per-name bookkeeping uses `Map`s.
+- **Render (`render.ts`):** every leaf of model 0.2 gets a disposition; a later version's fields get none, for the
+  ledger to report. The text relies on no switch default: it writes each `feature` a written statement needs before it,
+  and `switchport` or `no switchport` on every Ethernet and port-channel interface (`no switchport` with an address or
+  subinterfaces). Each VRF is a `vrf context` with its routes inside; `mgmt0` gets `vrf member management`. What NX-OS
+  can't write is `unsupported` with why: subinterface 0's own description or shutdown, an address family's MTU, an
+  NTP server's version, a `reject` route, a route's metric, and an SNMP community limited to some clients (left out
+  whole, with a warning that doesn't name it). With several addresses and no primary, the first becomes primary, with
+  a warning.
+- **Detect (`detect.ts`):** counts NX-OS's own signs (`feature`, `vrf context`, `vrf member`, `use-vrf`, prefix-length
+  addresses, `switchname`, `version 9.3(3)`, `!Command: show running-config`, RANCID's `cisco-nx`) and discounts IOS's
+  (dotted masks, `end`, `service timestamps`, `vrf definition`), IOS-XR's and Junos's. Over the corpus, wherever either
+  plugin is sure (0.4 or more), the right one of NX-OS and IOS-XE scores higher.
+- **Tests:** the same layout as the IOS plugin's: hand-written fixtures per area through the kit
+  (`tests/fixtures/<area>`, with expected models and renders), chosen corpus files against expected models in
+  `tests/corpus/`, and every file of `fixtures/public/nxos` through the kit's checks. `plugin.test.ts` also checks
+  every render of the fixtures and the corpus for a missing `feature` line, with its own table of what needs one.
+
 ## TypeScript
 
 `tsconfig.base.json` holds Hive's settings (strict, ES2023, `module: ESNext`, `moduleResolution: bundler`,

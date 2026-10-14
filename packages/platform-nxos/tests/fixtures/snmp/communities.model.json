@@ -1,0 +1,21 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "leaf-8",
+      "snmp": {
+        "contact": "noc@example.net",
+        "location": "Rack 4, Room 101",
+        "communities": {
+          "PLACEHOLDER-RO": {
+            "access": "read-only"
+          },
+          "PLACEHOLDER-RW": {
+            "access": "read-write"
+          },
+          "PLACEHOLDER-PLAIN": {}
+        }
+      }
+    }
+  }
+}

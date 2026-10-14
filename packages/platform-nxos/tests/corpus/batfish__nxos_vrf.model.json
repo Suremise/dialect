@@ -1,0 +1,64 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_vrf"
+    },
+    "interfaces": {
+      "Ethernet1/1": {
+        "type": "ethernet",
+        "enabled": true
+      },
+      "Ethernet1/2": {
+        "type": "ethernet",
+        "enabled": true
+      },
+      "Ethernet1/3": {
+        "type": "ethernet",
+        "enabled": true
+      },
+      "Ethernet1/4": {
+        "type": "ethernet",
+        "enabled": true
+      },
+      "Ethernet1/5": {
+        "type": "ethernet",
+        "enabled": true
+      },
+      "Ethernet1/6": {
+        "type": "ethernet",
+        "enabled": true
+      },
+      "Ethernet1/7": {
+        "type": "ethernet",
+        "enabled": true,
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.7.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet1/8": {
+        "type": "ethernet",
+        "enabled": true
+      }
+    },
+    "networkInstances": {
+      "vrf1": {
+        "type": "vrf"
+      },
+      "vrf3": {
+        "type": "vrf"
+      },
+      "management": {
+        "type": "vrf"
+      }
+    }
+  }
+}
