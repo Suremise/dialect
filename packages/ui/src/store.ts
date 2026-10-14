@@ -1,6 +1,8 @@
 // The UI's state: the source config, its display set result, the theme and transient notices. Display set runs
-// synchronously on every change: it parses a 300 KB config in a few tens of milliseconds.
-import { displaySet, type DisplaySetResult } from '@dialect/platform-junos'
+// synchronously on every change, as the Junos plugin's tool in the core's registry: it parses a 300 KB config in a few
+// tens of milliseconds.
+import { createRegistry, type Tool } from '@dialect/core'
+import junos from '@dialect/platform-junos'
 import { create } from 'zustand'
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
@@ -32,9 +34,10 @@ export interface State {
   source: string
   /** The opened file's name, or null for pasted or typed text. */
   sourceName: string | null
-  result: DisplaySetResult
   /** The set lines as one text, without a trailing newline. */
   output: string
+  /** The 1-based source line of each output line, for linking the panes. */
+  sourceLines: readonly number[]
   problems: Problem[]
   theme: ThemeChoice
   reveal: Reveal | null
@@ -61,13 +64,28 @@ function storedTheme(): ThemeChoice {
   }
 }
 
-function derive(source: string): Pick<State, 'result' | 'output' | 'problems'> {
-  const result = displaySet(source)
-  if (!result.ok) return { result, output: '', problems: [{ severity: 'error', ...result.error }] }
+function displaySetTool(): Tool {
+  const found = createRegistry([junos])
+    .tools()
+    .find((t) => t.plugin.id === 'junos' && t.tool.id === 'display-set')
+  if (!found) throw new Error('The Junos plugin has no display set tool.')
+  return found.tool
+}
+
+const displaySet = displaySetTool()
+
+function derive(source: string): Pick<State, 'output' | 'sourceLines' | 'problems'> {
+  const result = displaySet.run(source)
   return {
-    result,
-    output: result.lines.map((line) => line.text).join('\n'),
-    problems: result.warnings.map((w) => ({ severity: 'warning', message: w.message, line: w.line, column: w.column }))
+    output: result.text.endsWith('\n') ? result.text.slice(0, -1) : result.text,
+    sourceLines: result.sourceLines ?? [],
+    // Display set gives errors and warnings only, each at a point.
+    problems: result.diagnostics.map((d) => ({
+      severity: d.severity === 'error' ? 'error' : 'warning',
+      message: d.message,
+      line: d.span?.startLine ?? 1,
+      column: d.span?.startColumn ?? 1
+    }))
   }
 }
 
