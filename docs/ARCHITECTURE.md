@@ -1463,16 +1463,21 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `as-path A "R"` is `asPathSets.A`, one permit entry, Junos's dialect; a later one replaces it, as any single setting.
   **A list or community converts whole or not at all:** a malformed or host-bits prefix, `apply-path`, `invert-match`,
   a regex whose start doesn't say its kind, or literal members of another kind beside a regex leaves every statement of
-  it `unsupported`, so a term naming it can't match other routes than on the device. `as-path-group` comes later.
+  it `unsupported`, so a term naming it can't match other routes than on the device. `as-path-group G as-path N "R"`
+  (#94) is `asPathSets.G` too, a permit entry per AS path in the order first given (a later regex for N replacing an
+  earlier), Junos's dialect; Junos names AS paths and groups apart and the model in one namespace, so a name both use
+  converts as neither, and a group from the dynamic database (`dynamic-db`) or with no AS paths isn't converted.
   `policy-statement P` is `policies.P`, `fallThrough: 'next-policy'` (Junos's: on to the next policy, then the
   protocol's default). Its terms are keyed from 1 in order, named terms by their first statement of the
   configuration's own (a group's statements come first, expand.ts, so one adding to a term doesn't move it), and the
   policy's own `from` and `then`, outside any term, last as its unnamed term, as Junos evaluates it. `from`:
   `prefix-list`, `prefix-list-filter L exact|orlonger|longer` (`prefixListMatch`, one way per term), `route-filter P
   exact|orlonger|longer|upto /N|prefix-length-range /A-/B` (`routeFilters` by position, with their `form`),
-  `community`, `as-path`, `protocol` (`direct` is `connected`), `neighbor`, `tag`, `family inet|inet6`. `then`: `accept`,
-  `reject`, `next term`, `next policy` (the `flow`), `local-preference`, `metric` (the `med`), `community
-  add|set|delete C` (by `sets`), `as-path-prepend "A B"`, `next-hop A|self` and `tag`; each single setting settles by
+  `community`, `as-path`, `as-path-group`, `protocol` (`direct` is `connected`), `neighbor`, `tag`, `family
+  inet|inet6`. `then`: `accept`, `reject`, `next term`, `next policy` (the `flow`), `local-preference`, `metric` (the
+  `med`), `community add|set|delete C` (by `sets`, in order: `community set [ A B ]` is one action with a list, which
+  set form writes as a line each, and sets the route's communities to all of them), `as-path-prepend "A B"`,
+  `next-hop A|self` and `tag`; each single setting settles by
   rank, then order, as everywhere, and a value a list already has is `ignored-by-design`. **The per-term rule:** a term
   with a statement that isn't converted (a `to` condition, `color`, `preference`, `through`, an `upto` filter of a
   list…) or that names a list, community or AS path that isn't is `unsupported` whole; so is a term Junos reads another
@@ -1561,12 +1566,19 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   naming for one family a list the model has for both. A community is one permit entry of members and Junos regexes
   (`members [ … ]`, regexes always quoted, a 4-byte AS with its `L`): more entries, a deny, a regex of another dialect
   (never translated) or one whose start says another kind than the set's `type` leave it out whole; a `type` beside
-  literal members only is `not-applicable`. An AS path is one Junos regex (`as-path-group` comes later). A policy's
+  literal members only is `not-applicable`. An AS-path set of one permit entry is an `as-path`, of several (a Cisco
+  `ip as-path access-list`) an `as-path-group` whose AS paths are named for the set and the position (`G-10`), as the
+  model keeps no names for them; a term names each by its kind, and one naming both kinds is `unsupported`, as how
+  Junos takes them together isn't certain. A deny, or no entry, leaves the set out. **Literal communities in an
+  action** (`values`, Cisco's `set community 65000:1`) get a community of the term's own, `<policy>-<term>-<add|set|
+  delete>` (a number added while another community has the name), written only with the term; back from Junos they're a
+  named set. Each community action is one line with every community it names (`community set [ RM-10-set A ]`), the
+  made-up one first. A policy's
   terms are written in order, by name, an unnamed one (a route map's sequence) under its key (`term 10`) unless it's
   the last, which is the policy's own `from` and `then`; a route filter in its source's form where that is one of
   Junos's, else from its lengths (Cisco's `ge`/`le` as `upto` or `prefix-length-range`, the `form` then
   `not-applicable`). **The per-term rule:** a term Junos can't say whole (a list, community or AS path not written,
-  literal communities in an action, community actions of two kinds, route filters with prefix lists, nested route
+  a literal community Junos can't write, community actions of two kinds, route filters with prefix lists, nested route
   filters or `longer` lists that longest match reads otherwise, both a next hop and `self`) is `unsupported`, field by
   field, and when `termSkipSafe()` doesn't allow leaving it out, so is every field of its policy. `fallThrough` is
   `not-applicable`, and `reject` (a route map's implicit deny, RPL's drop) raises `junos.policy-fall-through` naming the

@@ -1,3 +1,0 @@
-set policy-options as-path-group G as-path ONE "^64500$"
-set policy-options policy-statement P term T from as-path-group G
-set policy-options policy-statement P term T then accept

@@ -1,0 +1,4 @@
+set policy-options as-path TRANSIT "^64500 .*"
+set policy-options as-path-group TRANSIT as-path ONE "^64501 .*"
+set policy-options policy-statement P term T from as-path TRANSIT
+set policy-options policy-statement P term T then accept
