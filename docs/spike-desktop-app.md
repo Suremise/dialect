@@ -18,7 +18,9 @@ in [Original comparison (superseded)](#original-comparison-superseded).
   [Desktop app stack](#desktop-app-stack).
 - **Conventions from Hive** (the user's own MIT TypeScript app): its
   TypeScript settings, oxlint, Vitest, Windows CI, generated third-party
-  notices, line-endings test, icon pipeline and agent docs. See
+  notices (with a license check over all dependencies), line-endings test,
+  one-SVG icon approach (via `tauri icon`, not Hive's LGPL-dependent sharp) and
+  agent docs. See
   [Conventions adopted from Hive](#conventions-adopted-from-hive).
 - **Licensing:** the whole project is MIT. Every library this report mentions
   is checked in [License check](#license-check).
@@ -683,8 +685,9 @@ history in [Original comparison (superseded)](#original-comparison-superseded)):
 
 ### Monorepo layout
 
-npm workspaces (npm 11, as Hive uses; no extra tool), one `package.json` per
-package, all under the `@dialect/` scope:
+npm workspaces (npm 12, pinned; see the install-scripts note in
+[Conventions adopted from Hive](#conventions-adopted-from-hive)), one
+`package.json` per package, all under the `@dialect/` scope:
 
 ```
 packages/
@@ -713,7 +716,7 @@ the product name and branding stay vendor-free, as decided.
 | `core`, `platform-*` | Source packages, compiled by whichever shell bundles them. Typechecked with `tsc --noEmit` per package | Inside the three products below |
 | `cli` | Vite library build into one ES module, run by Node 24 | `dialect` command (npm package or a zip with a `.cmd` launcher; a Node single-executable build can come later) |
 | `ui` + `apps/web` | Vite + [vite-plugin-singlefile](https://www.npmjs.com/package/vite-plugin-singlefile) (2.3.3, MIT), which inlines all JS and CSS into one HTML file | `dialect.html`: open from disk (`file://`), no server, no install. Open via a file picker or drag and drop, save as a download |
-| `ui` + `apps/desktop` | Vite for the frontend, `tauri build` for the shell ([@tauri-apps/cli](https://www.npmjs.com/package/@tauri-apps/cli) 2.12.2, MIT OR Apache-2.0) | NSIS `-setup.exe` and/or MSI ([Windows installer docs](https://v2.tauri.app/distribute/windows-installer/)), code-signed |
+| `ui` + `apps/desktop` | Vite for the frontend, `tauri build` for the shell ([@tauri-apps/cli](https://www.npmjs.com/package/@tauri-apps/cli) 2.12.2, MIT OR Apache-2.0) | NSIS `-setup.exe` only ([Windows installer docs](https://v2.tauri.app/distribute/windows-installer/)), code-signed. **No MSI:** Tauri builds it with WiX 3 (MS-RL), and the MSI includes WiX's `WixUtilExtension` |
 
 The conversion runs **in the webview**, from the same bundled TypeScript as the
 web build, so desktop and browser behave the same. The Rust side only opens
@@ -731,6 +734,15 @@ the OS on Windows 10 (April 2018 and later) and Windows 11. The installer's
 (~1.8 MB), `offlineInstaller` (~127 MB, no internet needed) or `fixedVersion`
 (~180 MB). Use the default; the web build covers machines where installing
 isn't allowed.
+
+**NSIS installer licenses.** Tauri's bundler (tauri-bundler 2.10.2, read from
+its source on 2026-10-14) downloads NSIS 3.13 and its `nsis_tauri_utils.dll`
+plug-in (MIT OR Apache-2.0, per the repo's two license files). NSIS itself and
+its `System`, `nsDialogs`, `StartMenu` and `NSISdl` plug-ins are zlib/libpng
+licensed. Tauri's default **LZMA** compression embeds NSIS's LZMA module,
+which is CPL-1.0 with a linking exception. Set
+`bundle.windows.nsis.compression` to **`"zlib"`** so that the installer stub
+is zlib/libpng only. The installer gets larger, but no CPL code ships.
 
 **Parser approach:** hand-written tokenizers and tree builders, no parser
 library (see [Parser approach](#parser-approach)).
@@ -755,8 +767,29 @@ recommend WebdriverIO with [@wdio/tauri-service](https://www.npmjs.com/package/@
 (1.5.0, MIT), which works on Windows. Keep desktop end-to-end tests to a smoke
 test: the logic is the same code the web build tests.
 
-**Build machine:** Node 24 and npm 11 for everything; Rust (stable) and the
-MSVC build tools only for `tauri build`.
+**Build machine:** Node 24 (MIT) with npm 12 (Artistic-2.0; a tool, not
+shipped) for everything. Rust (stable, MIT OR Apache-2.0) and the Microsoft
+C++ build tools only for `tauri build`. The C++ tools are under Microsoft's
+proprietary license: a build toolchain, nothing of it is in our repo, and
+what it links into the exe is the normal Windows runtime.
+
+**The Tauri crates themselves aren't all MIT/Apache/BSD/ISC.** I resolved the
+crate graph of a Tauri 2.12.3 app with the dialog and fs plugins
+(`cargo metadata`, Windows x64, 2026-10-14). 249 crates ship in the exe, and
+25 of them have licenses outside the README's list:
+- **MPL-2.0** (weak copyleft per file): `cssparser`, `cssparser-macros`,
+  `dtoa-short`, `selectors` (via tauri-utils' HTML handling) and `option-ext`.
+- **Unicode-3.0**: 18 ICU4X crates (`icu_*`, `zerovec`, `yoke`, `tinystr`…).
+- **Zlib**: `foldhash` and `zlib-rs`.
+
+None of these are GPL, LGPL or AGPL. MPL-2.0 lets you ship unmodified files in
+a larger work under other terms, but it requires that their source be
+available and their notices kept. Since Tauri was decided on, these come with
+it. Whether the allowlist should be widened (Zlib, Unicode-3.0, and MPL-2.0
+for unmodified third-party crates) is **for the user to decide**: see
+[Open questions](#open-questions-for-the-user). The Tauri CLI's own graph (578
+crates, a build tool) adds `colored` (MPL-2.0), `webpki-roots`
+(CDLA-Permissive-2.0), BSL-1.0, CC0 and Unlicense-or-MIT crates.
 
 ### Conventions adopted from Hive
 
@@ -793,16 +826,40 @@ Read on 2026-10-14; nothing there was changed.
     in `scripts/notices` as Hive does for electron-builder's;
   - keep a hand-written section for material that isn't a package, such as
     the jcc fixtures entry card #3 added.
-  Plus a license allowlist: the check fails on any shipped package that isn't
-  MIT, Apache-2.0, BSD or ISC.
+  Plus a **license allowlist check over everything installed, not only what
+  ships**. That means the whole npm tree, production, dev and optional
+  platform packages alike (`npm ls --all --json` plus each package's
+  `license`), and the whole Cargo graph, normal and build dependencies (with
+  [cargo-deny](https://crates.io/crates/cargo-deny) 0.20.2, MIT OR Apache-2.0,
+  `cargo deny check licenses`). It fails on anything outside the allowlist
+  unless an exception records the package, its license, why, and who decided.
+  It would have caught sharp's LGPL `libvips` (below).
 - **Line-endings unit test** (`tests/lineEndings.test.ts`): no text file mixes
   endings or has a lone CR. Our `.gitattributes` already forces LF (card #3),
   which this test backs up.
-- **Icon pipeline** (`scripts/build-icons.mjs`: an SVG master rendered to PNG
-  and ICO with [sharp](https://www.npmjs.com/package/sharp), Apache-2.0, and
-  [png-to-ico](https://www.npmjs.com/package/png-to-ico), MIT). For the Tauri
-  bundle, `tauri icon` also takes an SVG master and writes every size the
-  bundler needs. Card #5 reuses this.
+- **Icon pipeline: adopt the idea (one SVG master, generated sizes), not
+  Hive's tools.** Hive's `scripts/build-icons.mjs` renders with
+  [sharp](https://www.npmjs.com/package/sharp), and sharp's license chain on
+  Windows x64 is:
+  - `sharp` 0.35.5: Apache-2.0;
+  - its native package `@img/sharp-win32-x64` 0.35.5: **Apache-2.0 AND
+    LGPL-3.0-or-later**;
+  - which contains `@img/sharp-libvips-win32-x64` 1.3.4, the libvips DLLs:
+    **LGPL-3.0-or-later**.
+
+  So the sharp pipeline is **not allowed under the current decision**, pending
+  the user's decision on build-only tools (asked through the Assistant).
+  `png-to-ico` 3.0.2 (MIT; its dependencies `pngjs` MIT and `minimist` MIT) is
+  fine on its own.
+  **Permissive alternative: `tauri icon`** (Tauri CLI 2.12.2, MIT OR
+  Apache-2.0; npm's prebuilt `@tauri-apps/cli-win32-x64-msvc` has the same
+  license). Its source says it takes "a squared PNG or SVG file with
+  transparency" and writes every PNG and ICO size the bundler needs. It
+  renders SVG with `resvg`/`usvg` (MIT OR Apache-2.0) and `tiny-skia`
+  (BSD-3-Clause), and writes with `image` and `png` (MIT OR Apache-2.0) and
+  `ico` (MIT). Its whole graph is in the note on Tauri crates above. Its
+  output also covers the web build's favicon. Card #5 should use it rather
+  than sharp, unless the user allows LGPL build tools.
 - **Agent and decision docs:** `AGENTS.md` as the single agent guide, with
   `CLAUDE.md` containing only `@AGENTS.md`. `docs/SPEC.md` is the source of
   truth for product decisions (it takes over the workspace note's decisions)
@@ -810,8 +867,19 @@ Read on 2026-10-14; nothing there was changed.
 - **`CHANGELOG.md`** with an **Unreleased** section on top, merged with
   `merge=union` in `.gitattributes` (for that file only), and semver 0.x
   until the model and plugin API are stable.
-- **npm 11 install scripts** are blocked by default; approve the few that need
-  one in `package.json` (`allowScripts`), as Hive does for esbuild.
+- **Install scripts: use npm 12's default deny.** Hive's AGENTS.md says npm 11
+  blocks install scripts by default; that's not what npm 11 does. In npm
+  11.17–11.x, `allowScripts` only skips packages explicitly set to `false`;
+  unreviewed ones still run and get an advisory warning
+  ([rebuild.js, v11.17.0](https://github.com/npm/cli/blob/v11.17.0/workspaces/arborist/lib/arborist/rebuild.js)).
+  **npm 12.0.0** (2026-07-08) made it default-deny: only packages set to
+  `true` run their scripts
+  ([#9424](https://github.com/npm/cli/pull/9424); approvals are managed with
+  `npm install-scripts …` since #9629). So: pin npm 12 (`"packageManager":
+  "npm@12.2.0"` and `engines.npm: ">=12"`), install it in CI before `npm ci`
+  (Node 24 bundles npm 11), and list the few packages whose scripts must run
+  (e.g. esbuild) as `true` in `allowScripts`. B1 checks that an unlisted
+  package's script doesn't run.
 
 **Doesn't carry over (Electron-only):**
 - **electron-builder** → `tauri build` makes the installers.
@@ -885,6 +953,10 @@ app and the web build; only the file open and save calls differ.
 
 The whole project is MIT. Allowed: MIT, Apache-2.0, BSD and ISC (Apache-2.0
 also needs its NOTICE text kept). Not allowed: GPL, LGPL, AGPL or no license.
+Licenses that are neither (MPL-2.0, Zlib, Unicode-3.0, CPL, MS-RL and
+others) are marked for the user's decision or avoided. The verdicts apply to
+build and dev tools as well as to what ships; toolchains (Node, npm, Rust, the
+C++ build tools) and the OS's WebView2 are marked as tools.
 "Use" says what we'd do with it. Licenses were checked on 2026-10-14 against
 GitHub's license detection, the npm registry, or the files themselves where
 those disagreed.
@@ -913,24 +985,59 @@ those disagreed.
 | ntc-templates | Apache-2.0 (from its LICENSE file; GitHub doesn't detect it) | OK | Not needed |
 | nimaster/JUNOS_TO_CISCO_HYBRID_ACL_CONVERSION | Apache-2.0 | OK | Reference only |
 | Lark (Python) | MIT | OK | Not usable from TypeScript |
+| ANTLR (Batfish's grammar tool) | BSD-3-Clause | OK | Not needed (hand-written parser) |
+| tree-sitter | MIT | OK | Not used (no Junos grammar) |
+| PyO3 | MIT OR Apache-2.0 (Apache-2.0 per GitHub) | OK | Not used (was for wrapping jcc) |
+| gNMI (openconfig/gnmi) | Apache-2.0 | OK | Not used (device API) |
+| FastAPI (netcanon's web UI) | MIT | OK | Not used |
+| Vendor migration tools (I2J, Nexus Migration Tool, SoX, Cisco Secure Firewall Migration Tool, FortiConverter, Expedition) | proprietary or gone | **Not allowed** as code; not used | Context only |
 | **Stack: TypeScript** | Apache-2.0 | OK | Build tool |
 | **Tauri 2** (`@tauri-apps/cli`, `@tauri-apps/api`, plugin-dialog, plugin-fs, plugin-updater) | MIT OR Apache-2.0 | OK (take MIT) | Desktop shell |
 | Vite | MIT | OK | Bundler |
+| @vitejs/plugin-react | MIT | OK | Bundler plugin |
+| esbuild (used by Vite) | MIT | OK | Build tool |
+| Node.js | MIT | OK | CLI runtime, build |
+| npm | Artistic-2.0 | OK as a tool (not a library, not shipped) | Package manager |
+| Rust toolchain | MIT OR Apache-2.0 | OK | Builds the Tauri shell |
+| Microsoft C++ build tools | Microsoft proprietary | OK as a toolchain (not in the repo) | Needed by `tauri build` |
+| WebView2 runtime | Microsoft proprietary, part of Windows | OK as a system component; not redistributed with the default bootstrapper (`offlineInstaller`/`fixedVersion` would redistribute it under Microsoft's terms) | Desktop app's webview |
+| **Tauri runtime crates** shipped in the exe (249) | mostly MIT/Apache; also MPL-2.0 (5), Unicode-3.0 (18), Zlib (2) | **MPL-2.0, Unicode-3.0 and Zlib: user decision** (see the stack section) | Desktop app |
+| **Tauri CLI crates** (578, build tool) | as above, plus MPL-2.0 (`colored`), CDLA-Permissive-2.0, BSL-1.0, CC0, Unlicense OR MIT | **User decision**, as above | `tauri build`, `tauri icon` |
+| NSIS 3.13 + `System`/`nsDialogs`/`StartMenu`/`NSISdl` plug-ins | zlib/libpng | OK as zlib/libpng (not on the README list: covered by the same user decision) | Installer |
+| NSIS LZMA compression module | CPL-1.0 with a linking exception | **Avoid:** use `"compression": "zlib"` | Not used |
+| nsis_tauri_utils | MIT OR Apache-2.0 | OK | Installer plug-in |
+| WiX Toolset 3 (`WixUtilExtension`) | MS-RL | **Not allowed** (reciprocal) | No MSI |
+| cargo-deny | MIT OR Apache-2.0 | OK | License check (build only) |
+| GitHub Actions `actions/checkout`, `actions/setup-node` | MIT | OK | CI |
 | vite-plugin-singlefile | MIT | OK | Offline web build |
 | Vitest | MIT | OK | Unit tests |
 | oxlint | MIT | OK | Lint |
+| ESLint, typescript-eslint | MIT | OK | Not used (no TypeScript 7 support) |
+| Prettier | MIT | OK | Not used (convention) |
 | React, react-dom, zustand | MIT | OK | UI |
-| Monaco editor | MIT | OK | Editors |
+| Monaco editor (incl. its Monarch tokenizers) | MIT | OK | Editors |
+| Hive (`D:\Development\HIVE\hive`) | MIT, same copyright holder | OK | Conventions and scripts to copy |
+| Python standard library (the spike prototype only) | PSF-2.0 | Not a dependency: the prototype is our own throwaway code and is deleted after the port | Reference |
+| Azure Artifact Signing, OV certificates | services, not libraries | — | Code signing, if the user chooses |
 | CodeMirror 6, @codemirror/merge | MIT | OK | Fallback editor |
 | Peggy, Ohm | MIT | OK | Only if a grammar library is needed |
 | Chevrotain | Apache-2.0 | OK | Only if a grammar library is needed |
 | semver | ISC | OK | `modelApi` range checks |
 | Playwright | Apache-2.0 | OK | Web build tests |
 | WebdriverIO, @wdio/tauri-service | MIT | OK | Desktop smoke test |
-| sharp | Apache-2.0 | OK | Icon build (not shipped) |
-| png-to-ico | MIT | OK | Icon build (not shipped) |
+| sharp 0.35.5 | Apache-2.0 | OK on its own | — |
+| `@img/sharp-win32-x64` 0.35.5 (sharp's native part) | Apache-2.0 AND LGPL-3.0-or-later | **Not allowed** (pending the user's decision on build-only tools) | Not used: `tauri icon` instead |
+| `@img/sharp-libvips-win32-x64` 1.3.4 (libvips DLLs) | LGPL-3.0-or-later | **Not allowed** (same) | Not used |
+| png-to-ico 3.0.2 (+ pngjs, minimist) | MIT | OK | Optional, not needed with `tauri icon` |
+| resvg, usvg, image, png | MIT OR Apache-2.0 | OK | Inside `tauri icon` |
+| tiny-skia | BSD-3-Clause | OK | Inside `tauri icon` |
+| ico | MIT | OK | Inside `tauri icon` |
 | cargo-about | Apache-2.0 per GitHub | OK | Rust crate notices (build only) |
-| Electron | MIT | OK | Not used (alternative, history) |
+| Electron (incl. its built-in `original-fs` module) | MIT | OK | Not used (alternative, history) |
+| electron-builder, electron-updater, @electron/asar | MIT | OK | Not used (Electron-only, Hive) |
+| Electron Forge, Squirrel.Windows | MIT | OK | Not used (history) |
+| MSIX | packaging format, not a library | — | Not used |
+| *History only:* .NET 10, WPF | MIT | OK | Superseded |
 | *History only:* PySide6 / Qt | LGPL-3.0 (or GPL / commercial) | **Not allowed** | Superseded stack |
 | *History only:* PyInstaller | GPL-2.0 with a bootloader exception | **Not allowed** as a dependency | Superseded packaging |
 | *History only:* Nuitka | AGPL-3.0 per GitHub | **Not allowed** | Superseded packaging |
@@ -1011,136 +1118,273 @@ These were open questions in the first version of this report.
    signing (and who pays for the certificate), installer vs web build first,
    and whether the CLI is published.
 7. **Third-party plugins:** OK to leave out of v1 as recommended?
+8. **License allowlist beyond MIT/Apache/BSD/ISC.** Tauri, which was decided
+   on, ships MPL-2.0 (5 crates, unmodified), Unicode-3.0 and Zlib crates, and
+   its tools add CDLA-Permissive-2.0, BSL-1.0, CC0 and NSIS's zlib/libpng.
+   Suggested: allow these permissive ones, and MPL-2.0 for unmodified
+   third-party crates with their notices and a source pointer. Also: may
+   build-only tools that never ship be LGPL (sharp's libvips)? Suggested: no,
+   since `tauri icon` covers the icons. The README's contributing rules
+   (card #3) should then be updated to match.
 
 ## Suggested follow-up build cards
 
-Not created on the board; the user picks what gets built. Numbered B1… so they
-aren't confused with board cards. Sizes as above: **S** ≈ 1–2 weeks, **M** ≈
-3–6 weeks, **L** ≈ 2–3 months (judgement, not measurement). Card #5 (icons) is
-already on the board and reuses Hive's icon pipeline.
+Not created on the board; the user picks what gets built. They're numbered
+B1… so they aren't confused with board cards, and listed in a workable order.
+Sizes as above: **S** ≈ 1–2 weeks, **M** ≈ 3–6 weeks, **L** ≈ 2–3 months
+(judgement, not measurement). Card #5 (icons) is already on the board. Under
+the current decision it should use `tauri icon`, not Hive's sharp pipeline
+(see [Conventions adopted from Hive](#conventions-adopted-from-hive)).
 
 **Core interfaces stable** means B2 is merged and the plugin interface, the
 model's v0 shape and the ledger API haven't changed for a card or two. Cards
-marked ◆ need that first. Cards in different groups that touch different
-packages can run in parallel in separate worktrees once it holds. Cards that
-add to the model (B9's interface map, B10, B11) also touch `packages/core`, so
-they don't run alongside each other or alongside other core changes.
+marked ◆ need that first. Cards that touch different packages can run in
+parallel in separate worktrees once it holds. Cards that add to the model
+(B9's interface map, B10, B11, B12, B13) also touch `packages/core`. They
+don't run alongside each other's core changes: each merges its core part
+first, or they take turns.
+
+Every card's done-when includes: `npm run typecheck`, `npm run lint` and
+`npm test` pass locally and in CI, and the license checks pass.
 
 ### Group A: repo and core (in order, one at a time)
 
 **B1. Monorepo scaffold, with Hive's conventions.** **S**
-- *Files:* root `package.json` (npm workspaces), `tsconfig*.json`,
-  `.oxlintrc.json`, `vitest.config.ts`, `.github/workflows/ci.yml`,
-  `scripts/licenses.mjs` + `thirdPartyNotices.mjs` + `licenseText.mjs`,
-  `tests/lineEndings.test.ts`, `tests/licenses.test.ts`, `tests/tempDir.ts`,
-  `AGENTS.md`, `CLAUDE.md`, `docs/SPEC.md`, `docs/ARCHITECTURE.md`,
-  `CHANGELOG.md`, `.gitattributes` (adds `CHANGELOG.md merge=union`), and an
-  empty package stub per workspace in the layout above.
-- *Scope:* Hive's TypeScript settings, oxlint with `--deny-warnings`, no
-  Prettier, Vitest, Windows CI (typecheck, lint, tests). The generated notices
-  keep the hand-written jcc entry and enforce the license allowlist. SPEC.md
-  takes over the recorded decisions.
-- *Done when:* `npm ci`, `npm run typecheck`, `npm run lint` and `npm test`
-  pass locally and in CI on an empty skeleton, and the notices and
-  line-endings tests fail on a deliberately broken input.
+- *Goal:* an empty, fully checked repo that every later card builds in.
+- *Files:* root `package.json` (npm workspaces, `packageManager: npm@12.2.0`,
+  `allowScripts`), `tsconfig*.json`, `.oxlintrc.json`, `vitest.config.ts`,
+  `.github/workflows/ci.yml`, `scripts/licenses.mjs`,
+  `scripts/thirdPartyNotices.mjs`, `scripts/licenseText.mjs`,
+  `scripts/licenseAllowlist.mjs`, `tests/lineEndings.test.ts`,
+  `tests/licenses.test.ts`, `tests/tempDir.ts`, `AGENTS.md`, `CLAUDE.md`,
+  `docs/SPEC.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md`, `.gitattributes`
+  (adds `CHANGELOG.md merge=union`), and a stub `package.json` + `src/index.ts`
+  per workspace in the layout above.
+- *Scope:* Hive's TypeScript settings, oxlint `--deny-warnings`, no Prettier,
+  Vitest. Windows CI on Node 24 that installs npm 12, then runs `npm ci`,
+  typecheck, lint and tests. Generated notices that keep the hand-written jcc
+  entry. The license allowlist over the whole npm tree (prod, dev, optional)
+  with a recorded-exceptions list. SPEC.md takes over the recorded decisions.
+  No product code.
+- *Needs:* nothing.
+- *Done when:* the checks pass on the empty skeleton, locally and in CI.
+  `tests/licenses.test.ts` fails on a stale notices file and on a fixture
+  package with a GPL license. The line-endings test fails on a mixed file.
+  With npm 12, a fixture dependency with an unlisted `postinstall` doesn't
+  run it.
 
 **B2. Core v0: shared model, coverage ledger, plugin interface, conformance
 kit.** **M**
+- *Goal:* the contracts every plugin and shell builds on, frozen as v0.
 - *Files:* `packages/core`, `packages/conformance`.
-- *Scope:* `PlatformPlugin`, `ParseResult`/`RenderResult`, the dispositions,
-  `MODEL_VERSION` and the `modelApi` check in the registry, the phase 1 model
-  types, the ledger's two completeness checks, warnings and needs-input items,
-  and display-only spans. The conformance kit includes the two counterexample
-  negative tests.
-- *Done when:* the negative tests catch both deliberately incomplete stubs,
-  and a stub plugin passes the kit. After this the core interfaces are frozen
-  for v0.
+- *Scope:* `PlatformPlugin`, `ParseResult`/`RenderResult`, statement and
+  field dispositions, `MODEL_VERSION` and the registry's `modelApi` check
+  (semver), the phase 1 model types (system, interfaces/subinterfaces/
+  addresses, static routes, NTP, syslog, SNMP), the ledger's two
+  completeness checks, warnings, needs-input items, display-only spans, and
+  JSON (de)serialisation with `modelVersion`. The conformance kit runs a
+  plugin's fixtures through the four checks.
+- *Needs:* B1.
+- *Done when:* the kit's two counterexample negative tests (the single-line
+  `system { host-name r1; services { ssh; } }` mapper and the `multihop.ttl`
+  renderer, also as a later-minor field) are caught. A stub plugin passes the
+  kit. The registry rejects a plugin with an out-of-range `modelApi`, with a
+  message naming both versions. `packages/core` imports no Node or DOM API
+  (a lint rule or test checks it).
 
 ### Group B: Junos (`packages/platform-junos`)
 
 **B3. Junos tree parser + display set, ported from the prototype.** **S**
+- *Goal:* production display set in TypeScript, replacing `spike/`.
+- *Files:* `packages/platform-junos` (tokenizer, tree, flattener, `tools()`
+  entry), its `tests/` and `tests/fixtures/display-set/`. Delete `spike/`.
+  Update the jcc entry in the notices if fixture files are copied in.
 - *Scope:* port the tokenizer, tree and flattener of
-  `spike/display_set/junos_set.py` to TypeScript; expose display set through
-  `tools()`. Tests: the prototype's 12 self-test cases, plus jcc's 22 fixtures
-  (cleaned up first, attributed) with config_8, 15 and 16 corrected to
-  Juniper's documented `deactivate` order. Delete `spike/` once the port
-  passes.
-- *Needs:* B1. The parser and display set don't need the model; wiring into
-  `tools()` needs B2's interface (a few lines, can follow B2).
-- *Done when:* all fixtures and self-test cases pass, and errors come with
-  line and column.
+  `spike/display_set/junos_set.py`; parse errors with line and column;
+  warnings for unknown tags and dropped annotations. Expose display set
+  through `tools()`.
+- *Needs:* B1; B2 for the `tools()` wiring only (the parser can start
+  before).
+- *Done when:* the prototype's 12 self-test cases pass as Vitest tests. All
+  22 jcc fixture pairs pass, after being cleaned up per the README and
+  attributed, with config_8, 15 and 16 corrected to Juniper's documented
+  `deactivate` order. Every jcc failure case in this report has a test.
+  `spike/` is gone.
 
-◆ **B4. Junos plugin: map tree → model, phase 1 areas**, including
-apply-groups expansion. **M**
-- *Needs:* B2, B3. *Done when:* phase 1 fixtures pass the conformance kit.
+◆ **B4. Junos plugin: map tree → model, phase 1 areas.** **M**
+- *Goal:* Junos parses into the shared model with every statement accounted
+  for.
+- *Files:* `packages/platform-junos` (mapper, renderer for phase 1,
+  `detect()`), `tests/fixtures/<area>/`.
+- *Scope:* phase 1 areas; `apply-groups` expansion, including `<*>`
+  wildcards and `apply-groups-except`, before mapping; `interface-range`;
+  units and families; ELS only. Rendering Junos from the model for the same
+  areas, so the reverse direction and round-trip work.
+- *Needs:* B2, B3.
+- *Done when:* at least one cleaned-up fixture per phase 1 area passes the
+  conformance kit's four checks, including round-trip. A fixture with
+  unsupported statements shows them as `unsupported` in the ledger, not
+  missing.
 
 ### Group C: shells (`packages/cli`, `packages/ui`, `apps/web`, `apps/desktop`)
 
 **B5. CLI: display set.** **S**
-- *Files:* `packages/cli`. *Needs:* B3.
-- *Scope:* `dialect display-set FILE|-`, with errors to stderr and exit codes;
-  `convert` added in B8.
-- *Done when:* tested on the fixtures through the CLI.
+- *Goal:* display set from the command line.
+- *Files:* `packages/cli`.
+- *Scope:* `dialect display-set <file|->` to stdout. Errors go to stderr with
+  line and column; exit codes are 0 ok, 1 parse error, 2 usage. Built into one
+  ES module run by Node 24. `convert` is **not** in this card (B9 adds it).
+- *Needs:* B3.
+- *Done when:* tests run the built CLI on the display-set fixtures and an
+  invalid input, and check stdout, stderr and exit codes.
 
 **B6. UI + offline web build: display set mode.** **S–M**
-- *Files:* `packages/ui`, `apps/web`. *Needs:* B3.
-- *Scope:* React + zustand + Monaco; source and output panes;
-  open/paste/save/copy; warnings panel; a single-file build with
-  vite-plugin-singlefile (Monaco workers inlined, or the CodeMirror fallback);
-  Playwright tests against the built file.
-- *Done when:* `dialect.html` opened from disk with no network converts a
-  fixture, on Windows 11 and, if possible, on a locked-down work laptop
-  (risk 8).
+- *Goal:* the display-set tool in a browser, from one HTML file with nothing
+  installed.
+- *Files:* `packages/ui`, `apps/web`.
+- *Scope:* React + zustand + Monaco; source and output panes; open (picker,
+  drag and drop), paste, save (download), copy; the warnings panel; a
+  single-file build with vite-plugin-singlefile, with Monaco's workers inlined
+  or the CodeMirror 6 fallback; a strict CSP meta tag (no network).
+- *Needs:* B3.
+- *Done when:* Playwright opens the built `dialect.html` from `file://` with
+  the network blocked, converts a fixture and checks the output and a parse
+  error's warning. The file's size is recorded in the card's report. The
+  Monaco-or-CodeMirror decision is recorded in `docs/ARCHITECTURE.md`. A
+  manual try on a locked-down work laptop is reported, or listed as not done.
 
-**B7. Desktop app: Tauri 2 shell.** **S**
-- *Files:* `apps/desktop` (incl. `src-tauri`). *Needs:* B6, card #5's icons.
-- *Scope:* Tauri 2 wrapping `packages/ui`; open and save dialogs through
-  Tauri's dialog and fs plugins with narrow capabilities; a strict CSP; an
-  NSIS installer with the default WebView2 mode; a `signCommand` hook (signing
-  itself waits for the user's certificate decision); the notices cover Rust
-  crates and NSIS components; a WebdriverIO smoke test.
+**B7. Desktop app: Tauri 2 shell and installer.** **S**
+- *Goal:* an installable Windows app around the same UI.
+- *Files:* `apps/desktop` (incl. `src-tauri`, `tauri.conf.json`,
+  capabilities), `deny.toml` (cargo-deny), and the notices script's additions
+  for Rust crates and NSIS components.
+- *Scope:* Tauri 2 wrapping `packages/ui`. Open and save through the dialog
+  and fs plugins, scoped to the files the user picks. A strict CSP. An NSIS
+  installer only, with `compression: "zlib"` and the default WebView2 mode. A
+  `signCommand` hook (signing itself waits for the user's certificate
+  decision). Icons from card #5. `cargo deny check licenses` in CI with the
+  allowlist the user settles (open question 8). A WebdriverIO smoke test.
+- *Needs:* B6, card #5, and an answer to open question 8 (or recorded
+  exceptions).
 - *Done when:* the installer installs and runs on a clean Windows 11 VM, and
-  display set works in it.
+  display set works there with open and save. The WebdriverIO smoke test
+  passes. The notices list the Rust crates and NSIS components. cargo-deny
+  passes.
 
 ### Group D: conversion (needs the core interfaces stable)
 
 ◆ **B8. First Cisco plugin (IOS-XE suggested): parse and render, phase 1
 areas.** **M**
-- *Files:* `packages/platform-iosxe`. *Needs:* B2. Can run in parallel with
-  B4 and the shells.
-- *Done when:* phase 1 fixtures pass the conformance kit, including
-  round-trip.
+- *Goal:* IOS-XE in and out of the shared model for phase 1.
+- *Files:* `packages/platform-iosxe`.
+- *Scope:* the indentation tree with `!` separators; banners and certificate
+  chains as atomic statements; mapping and rendering for phase 1 (dotted
+  mask ↔ prefix length, subinterfaces with `encapsulation dot1Q`, NTP,
+  logging, SNMP); `detect()`.
+- *Needs:* B2. Can run in parallel with B3–B7.
+- *Done when:* at least one cleaned-up fixture per phase 1 area passes the
+  conformance kit's four checks. A banner and a certificate chain each come
+  through as one atomic `unsupported` statement.
 
-◆ **B9. Convert mode end to end + interface-name mapping UI.** **S**
-- *Files:* `packages/ui`, `packages/cli` (`convert`), plus small additions to
-  `packages/core` (the interface map type). *Needs:* B4, B6, B8.
+◆ **B9. Convert mode end to end + interface-name mapping.** **S**
+- *Goal:* Junos → IOS-XE conversion usable in all three products.
+- *Files:* `packages/ui` (Convert mode, mapping table, source↔output
+  highlighting), `packages/cli` (`dialect convert --from junos --to iosxe
+  [--map file]`), `packages/core` (the interface-map type and its use in the
+  ledger's needs-input items).
+- *Needs:* B4, B5, B6, B7, B8.
 - *Done when:* a Junos phase 1 fixture converts to IOS-XE in the CLI, the web
-  build and the desktop app, with the warnings panel and source↔output
-  highlighting.
+  build (Playwright) and the desktop app (smoke test). Unmapped statements
+  show in the source gutter and the warnings panel. An interface map given in
+  the UI or as a `--map` file changes the output names. The CLI exits
+  non-zero when needs-input items are unanswered, unless `--allow-incomplete`
+  is given.
 
-◆ **B10. Phase 2 areas (VLANs, OSPF, BGP basics) for both plugins.** **M**
-- *Files:* `packages/core` (model fields), `platform-junos`, `platform-iosxe`.
-  Touches core, so not in parallel with other core changes.
+◆ **B10. Phase 2 areas: VLANs, OSPF, BGP basics, for Junos and IOS-XE.** **M**
+- *Goal:* the routing basics both ways.
+- *Files:* `packages/core` (model fields), `packages/platform-junos`,
+  `packages/platform-iosxe`.
+- *Scope:* VLANs and access/trunk ports; OSPF single area, then multi-area;
+  BGP neighbors, groups/peer-groups, simple import/export references. Policy
+  bodies are placeholders with warnings (B11). Semantic warnings for the
+  defaults that differ (OSPF `network` statements vs per-interface, default
+  BGP import/export behaviour).
+- *Needs:* B9.
+- *Done when:* fixtures for each area pass the conformance kit for both
+  plugins. Each semantic warning in the scope has a fixture that raises it.
+  BGP policy references come out as placeholders plus a warning, never
+  dropped.
 
-◆ **B11. Phase 3 areas (policy, firewall filters ↔ ACLs).** **M–L**
-- *Files:* as B10. After B10.
+◆ **B11. Phase 3 areas: prefix lists, policy ↔ route-maps, firewall filters ↔
+ACLs.** **M–L**
+- *Goal:* the policy and filter translation, where most of the value and risk
+  is.
+- *Files:* as B10.
+- *Scope:* prefix-lists; simple policy-statements ↔ route-maps (match prefix
+  list, set local-pref/community, accept/reject); firewall filter terms ↔
+  extended ACLs (L3/L4 match, accept/discard/reject, count/log), including
+  the implicit discard ↔ implicit deny difference. Anything more complex is
+  reported as `unsupported`, per term.
+- *Needs:* B10.
+- *Done when:* fixtures pass the conformance kit for both plugins, including
+  a negative case per unsupported construct (nested policy, `next term`,
+  unsupported match conditions) that the ledger reports per term. The
+  implicit-deny warning has a fixture.
 
-◆ **B12. NX-OS plugin** (**M**) and **B13. IOS-XR plugin** (**M–L**,
-including the RPL tokenizer).
-- *Files:* `packages/platform-nxos`, `packages/platform-iosxr`. Each is its own
-  card. They can run in parallel with each other once the model areas they
-  render exist.
+◆ **B12. NX-OS plugin.** **M**
+- *Goal:* NX-OS as a second Cisco platform.
+- *Files:* `packages/platform-nxos` (+ model fields in `packages/core` only if
+  needed).
+- *Scope:* the areas the model has at the time (phase 1 at least); `feature`
+  lines on render; `vrf context`; `mgmt0` in the `management` VRF; explicit
+  `switchport`/`no switchport`.
+- *Needs:* B2 (phase 1); B10/B11 for those areas.
+- *Done when:* fixtures pass the conformance kit for every area the plugin
+  claims in `capabilities`. A render that would need a `feature` line without
+  emitting it fails a test.
 
-**Optional / later**
-- **B14. Reverse display set (set → hierarchical):** our own schema loader from
-  Juniper/yang (**M**). `packages/platform-junos`. Only if open question 4
-  says yes.
-- **B15. Benchmark against netcanon (optional):** run netcanon outside the repo
-  on the phase 1 fixtures, and compare what it drops or flags with our
-  ledger. A report, not a dependency. **S**
+◆ **B13. IOS-XR plugin.** **M–L**
+- *Goal:* IOS-XR as a Cisco platform, including its policy language.
+- *Files:* `packages/platform-iosxr` (+ model fields in `packages/core` only if
+  needed).
+- *Scope:* the indentation tree plus a delimiter-aware tokenizer for RPL
+  (`route-policy … end-policy`, `*-set … end-set`, `if … endif`); until a
+  policy's sub-parser handles it, each policy or set is one atomic
+  `unsupported` statement. Phase 1 areas, then RPL for the simple cases B11
+  defines. eBGP neighbors get a policy plus a warning (RFC 8212 behaviour).
+- *Needs:* B2 (phase 1); B11 for RPL.
+- *Done when:* fixtures pass the conformance kit for every area the plugin
+  claims. An unindented RPL body stays one statement (never split). An eBGP
+  neighbor without a policy raises the warning.
 
-**What can run in parallel:** B1 → B2 run one at a time. After B2: B3 → B4
-(Junos), B8 (IOS-XE) and B5, B6 → B7 (shells, which need only B3) can run in
-separate worktrees. B9 joins them, and B10 and B11 run in order because they
-touch the core. B12 and B13 run in parallel with each other once the areas they
-need are in the model.
+### Optional / later
+
+**B14. Reverse display set (set → hierarchical).** **M**
+- *Goal:* turn `set` lines back into hierarchical config, faithfully.
+- *Files:* `packages/platform-junos` (schema loader, reverse flattener), a
+  generated schema data file, and a notices entry for Juniper/yang
+  (Apache-2.0).
+- *Scope:* only if open question 4 says yes. A schema from Juniper/yang for
+  one pinned Junos release, used to tell keywords from names and lists from
+  leaves.
+- *Needs:* B3.
+- *Done when:* the jcc fixtures round-trip (hierarchical → set →
+  hierarchical) to the same tree. The report's `unit 0` and `vlan-id-list`
+  cases come out right. Unknown statements are an error, not a guess.
+
+**B15. Benchmark against netcanon (optional).** **S**
+- *Goal:* an outside comparison of what we and netcanon drop or flag.
+- *Files:* `docs/benchmarks/netcanon.md` (the report) only. netcanon runs
+  outside the repo; nothing of it is added.
+- *Scope:* phase 1 fixtures through netcanon and through Dialect; per area,
+  what each converts, flags or drops.
+- *Needs:* B9.
+- *Done when:* `docs/benchmarks/netcanon.md` lists both tools' results per
+  fixture and area, with netcanon's version and the date, and names any case
+  where Dialect drops something silently (each one becomes a bug card).
+
+**What can run in parallel:** B1 → B2 run one at a time. After B2, three
+lanes can run in separate worktrees: B3 → B4 (Junos), B8 (IOS-XE), and
+B5, B6 → B7 (shells, which need only B3). B9 joins them. B10 → B11 run in
+order. B12 and B13 can run in parallel with each other and alongside B10/B11,
+taking turns on `packages/core`. B14 can run any time after B3.
