@@ -35,7 +35,9 @@ export function describeConformance(plugin: PlatformPlugin, fixturesDir: string 
         const results = checkFixture(plugin, fixture, { modelVersion, allowances, ...(configTools ? { configTools } : {}) })
         for (const r of results) for (const a of r.allowed ?? []) used.add(a.allowance)
         for (const r of results) {
-          it.skipIf(r.status === 'skipped')(r.check, () => {
+          // Leaves the round trip left out are in the test's name, so none is left out unseen.
+          const name = r.deferred?.length ? `${r.check}, keys left to the user: ${r.deferred.join(', ')}` : r.check
+          it.skipIf(r.status === 'skipped')(name, () => {
             expect(r.problems, r.problems.join('\n')).toEqual([])
           })
         }
