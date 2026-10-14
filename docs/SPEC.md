@@ -119,6 +119,14 @@ product decisions.
   ethernet-switching` and IRB, converted from model 0.4), not the older non-ELS syntax, which shows as `unsupported`. Both the hierarchical and
   the set form are read, and `apply-groups` and `interface-range` are expanded before mapping. SRX security zones,
   policies and NAT come later: until then they show as `unsupported` in the ledger, never dropped.
+- **Routing policy (phase 3, model 0.5):** prefix lists, community and AS-path sets and policies convert **term by
+  term**: a term converts whole or not at all, and when leaving one out could change what a later term sees, the whole
+  policy is left out. A regular expression is never translated between dialects, a policy's fall-through (Junos goes
+  on to the next policy, Cisco rejects) is kept with the model and a target whose fall-through differs says so, and
+  where a platform reads the same words another way (Junos matches route filters by longest match) the term isn't
+  converted rather than converted wrongly. Junos converts `policy-options` (prefix lists, communities, AS paths and
+  policy-statements) and resolves BGP `import` and `export` to them (#76); `vrf-import` and `vrf-export` wait for a
+  place in the model (#83).
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
   With all four plugins registered (#50), the CLI and the app convert from any of them to any other.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,
@@ -127,7 +135,10 @@ product decisions.
   `GigabitEthernet0/0/0`), shown as suggestions and used only once the user takes them. Every target suggests a name
   for an aggregate: Junos `aeN` ↔ Cisco `Port-channel(N+1)`, NX-OS `port-channel(N+1)`, IOS-XR `Bundle-Ether(N+1)`,
   the number kept between Cisco platforms. A plugin describes an aggregate (PortName) by its number counted from 1, as
-  Cisco does, so no target needs to know the source. Until every interface is named,
+  Cisco does, so no target needs to know the source. **IRB units are named one by one** (#80): a routed VLAN interface
+  with several units (Junos `irb.100`, `irb.200`) is a row per unit, each becoming its own interface on a target with
+  one per VLAN; the target suggests Junos `irb.N` ↔ Cisco `VlanN` (IOS-XE, NX-OS; IOS-XR not yet), and SVIs named as
+  units (`Vlan100` → `irb.100`) become units of one interface. Until every interface is named,
   the CLI writes no config and exits 3; `--allow-incomplete` writes it anyway, the unnamed interfaces keeping their
   source names and their lines listed on stderr. Messages give an interface's line, never its name (a name can be a
   secret's value reused); `--write-map` writes the names, with suggestions, to a file the user chose. Two interfaces

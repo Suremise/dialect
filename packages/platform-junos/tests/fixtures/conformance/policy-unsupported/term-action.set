@@ -1,0 +1,4 @@
+set policy-options policy-statement P term KEEP from protocol static
+set policy-options policy-statement P term KEEP then accept
+set policy-options policy-statement P term PREF then preference 100
+set policy-options policy-statement P term PREF then accept

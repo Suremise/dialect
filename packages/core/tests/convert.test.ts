@@ -391,3 +391,137 @@ describe('the interface map file', () => {
     expect(parseInterfaceMap(text)).toEqual({ map: { 'ge-0/0/0': 'GigabitEthernet0/0/0', lo0: 'Loopback9' }, problems: [] })
   })
 })
+
+describe('convert: routed VLAN interfaces named unit by unit (#80)', () => {
+  /** Junos's `irb` with three units, each routing for its VLAN; OSPF and a static route name units. */
+  const irb: Device = {
+    interfaces: {
+      irb: {
+        type: 'irb-or-svi',
+        mtu: 9000,
+        subinterfaces: {
+          '100': { routedVlan: 100, ipv4: { addresses: { '10.1.0.1': { prefixLength: 24 } } } },
+          '200': { routedVlan: 200, description: 'voice' },
+          '300': { routedVlan: 300 }
+        }
+      },
+      lo0: {}
+    },
+    vlans: { '100': {}, '200': {}, '300': {} },
+    networkInstances: { default: { staticRoutes: { '0.0.0.0/0': { nextHops: { '0': { interface: 'irb.200' } } } }, ospf: { areas: { '0.0.0.0': { interfaces: { 'irb.100': { passive: true } } } } } } }
+  }
+
+  it('names each unit of a routed VLAN interface as its own row, and any other interface whole', () => {
+    expect(modelInterfaces(irb)).toEqual(['irb.100', 'irb.200', 'irb.300', 'lo0'])
+    // A routed VLAN interface with only unit 0 (a Cisco SVI) is one row, as is any other interface with units.
+    expect(modelInterfaces({ interfaces: { Vlan10: { type: 'irb-or-svi', subinterfaces: { '0': { routedVlan: 10 } } }, eth0: { subinterfaces: { '0': {}, '5': {} } } } })).toEqual(['Vlan10', 'eth0'])
+  })
+
+  it('makes each unit its own interface\'s unit 0, carrying the interface\'s own leaves, and renames references to units', () => {
+    const renamed = renameInterfaces(irb, { 'irb.100': 'Vlan100', 'irb.200': 'Vlan200', 'irb.300': 'Vlan300' })
+    expect(renamed.interfaces).toEqual({
+      Vlan100: { type: 'irb-or-svi', mtu: 9000, subinterfaces: { '0': irb.interfaces!.irb.subinterfaces!['100'] } },
+      Vlan200: { type: 'irb-or-svi', mtu: 9000, subinterfaces: { '0': { routedVlan: 200, description: 'voice' } } },
+      Vlan300: { type: 'irb-or-svi', mtu: 9000, subinterfaces: { '0': { routedVlan: 300 } } },
+      lo0: {}
+    })
+    expect(renamed.networkInstances?.default.staticRoutes?.['0.0.0.0/0'].nextHops?.['0'].interface).toBe('Vlan200.0')
+    expect(Object.keys(renamed.networkInstances?.default.ospf?.areas?.['0.0.0.0'].interfaces ?? {})).toEqual(['Vlan100.0'])
+  })
+
+  it('keeps a unit with no answer in its interface, with the interface\'s own leaves', () => {
+    const renamed = renameInterfaces(irb, { 'irb.100': 'Vlan100' })
+    expect(Object.keys(renamed.interfaces ?? {})).toEqual(['Vlan100', 'irb', 'lo0'])
+    expect(renamed.interfaces?.irb).toEqual({ type: 'irb-or-svi', mtu: 9000, subinterfaces: { '200': irb.interfaces!.irb.subinterfaces!['200'], '300': { routedVlan: 300 } } })
+    expect(renamed.networkInstances?.default.staticRoutes?.['0.0.0.0/0'].nextHops?.['0'].interface).toBe('irb.200')
+  })
+
+  it('makes Cisco SVIs units of one target interface, the SVI\'s description and state moving to its unit', () => {
+    const svis: Device = {
+      interfaces: {
+        Vlan100: { type: 'irb-or-svi', description: 'users', enabled: false, subinterfaces: { '0': { routedVlan: 100 } } },
+        Vlan200: { type: 'irb-or-svi', subinterfaces: { '0': { routedVlan: 200, description: 'own' } } }
+      },
+      vlans: { '100': {}, '200': {} },
+      networkInstances: { default: { ospf: { areas: { '0.0.0.0': { interfaces: { Vlan100: {}, 'Vlan200.0': {} } } } } } }
+    }
+    const renamed = renameInterfaces(svis, { Vlan100: 'irb.100', Vlan200: 'irb.200' })
+    expect(renamed.interfaces).toEqual({ irb: { type: 'irb-or-svi', subinterfaces: { '100': { routedVlan: 100, description: 'users', enabled: false }, '200': { routedVlan: 200, description: 'own' } } } })
+    expect(Object.keys(renamed.networkInstances?.default.ospf?.areas?.['0.0.0.0'].interfaces ?? {})).toEqual(['irb.100', 'irb.200'])
+  })
+
+  it('refuses units of one target from SVIs whose own leaves differ, two rows at one unit, and a whole interface at a unit\'s', () => {
+    const svis: Device = { interfaces: { Vlan100: { type: 'irb-or-svi', mtu: 1500, subinterfaces: { '0': { routedVlan: 100 } } }, Vlan200: { type: 'irb-or-svi', mtu: 9000, subinterfaces: { '0': { routedVlan: 200 } } } } }
+    expect(() => renameInterfaces(svis, { Vlan100: 'irb.100', Vlan200: 'irb.200' })).toThrow('Two interfaces would have one name')
+    expect(() => renameInterfaces(irb, { 'irb.100': 'Vlan100', 'irb.200': 'Vlan100' })).toThrow('Two interfaces would have one name')
+    expect(() => renameInterfaces(irb, { 'irb.100': 'Vlan100', lo0: 'Vlan100' })).toThrow('Two interfaces would have one name')
+  })
+
+  it('converts per-unit answers: each unit its own needs-input item, issues and links found through the unit', () => {
+    const sviTarget: PlatformPlugin = {
+      id: 'svi',
+      name: 'SVI target',
+      modelApi: '>=0.4.0 <1.0.0',
+      capabilities: {},
+      nameInterface: (port) => (port.type === 'irb-or-svi' ? `Vlan${port.numbers[0]}` : undefined),
+      render: (model) => ({ text: '', diagnostics: [], dispositions: Object.fromEntries(populatedLeaves(model).map((l): [string, FieldDisposition] => [l.path, l.path.endsWith('.mtu') ? { kind: 'unsupported', reason: 'no MTU' } : { kind: 'rendered', span: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 2 } }])) })
+    }
+    const dispositions: Record<string, StatementDisposition> = {
+      mtu: { kind: 'mapped', fields: [fieldPath('interfaces', 'irb', 'mtu')] },
+      u100: { kind: 'mapped', fields: [fieldPath('interfaces', 'irb', 'subinterfaces', '100', 'routedVlan')] }
+    }
+    const irbSource: PlatformPlugin = {
+      id: 'irb',
+      name: 'IRB source',
+      modelApi: '>=0.4.0 <1.0.0',
+      capabilities: {},
+      parse: () => ({ tree: [{ id: 'mtu', label: 'irb mtu 9000' }, { id: 'u100', label: 'irb unit 100' }], model: irb, dispositions, diagnostics: [] })
+    }
+    const before = convert(irbSource, sviTarget, '', { modelVersion: MODEL_VERSION })
+    expect(before.interfaces.map((i) => [i.source, i.suggestion ?? null, i.statement ?? null])).toEqual([
+      ['irb.100', 'Vlan100', 'u100'],
+      ['irb.200', 'Vlan200', null],
+      ['irb.300', 'Vlan300', null],
+      ['lo0', null, null]
+    ])
+    expect(before.unanswered.map((n) => n.field)).toEqual([fieldPath('interfaces', 'irb', 'subinterfaces', '100'), fieldPath('interfaces', 'irb', 'subinterfaces', '200'), fieldPath('interfaces', 'irb', 'subinterfaces', '300'), fieldPath('interfaces', 'lo0')])
+    const after = convert(irbSource, sviTarget, '', { modelVersion: MODEL_VERSION, inputs: interfaceInputs({ 'irb.100': 'Vlan100', 'irb.200': 'Vlan200', 'irb.300': 'Vlan300', lo0: 'Loopback0' }) })
+    // The MTU each SVI couldn't write is the irb's `mtu` statement's issue, found back through the placement.
+    expect(after.issues).toEqual([{ statement: 'mtu', kind: 'not-rendered', reason: 'no MTU' }])
+    expect(after.links.map((l) => l.statement)).toEqual(['u100'])
+  })
+})
+
+describe('convert: an interface with an empty subinterfaces collection (#80, round 2)', () => {
+  // `subinterfaces: {}` is configured with nothing in it: a leaf of its own, which no rename may drop.
+  const model: Device = { interfaces: { e0: { description: 'x', subinterfaces: {} } } }
+
+  it('keeps it through a rename that changes nothing and one that renames the interface', () => {
+    expect(renameInterfaces(model, {}).interfaces).toEqual({ e0: { description: 'x', subinterfaces: {} } })
+    expect(renameInterfaces(model, { e0: 'Gig0' }).interfaces).toEqual({ Gig0: { description: 'x', subinterfaces: {} } })
+    expect(populatedLeaves(renameInterfaces(model, { e0: 'Gig0' })).map((l) => l.path)).toEqual([fieldPath('interfaces', 'Gig0', 'description'), fieldPath('interfaces', 'Gig0', 'subinterfaces')])
+  })
+
+  it('accounts for it in the ledger after a confirmed rename: rendered, linked to its statement, or unrendered and an issue', () => {
+    const dispositions: Record<string, StatementDisposition> = {
+      d: { kind: 'mapped', fields: [fieldPath('interfaces', 'e0', 'description')] },
+      s: { kind: 'mapped', fields: [fieldPath('interfaces', 'e0', 'subinterfaces')] }
+    }
+    const from: PlatformPlugin = { id: 'from', name: 'From', modelApi: '>=0.1.0 <1.0.0', capabilities: {}, parse: () => ({ tree: [{ id: 'd', label: 'd' }, { id: 's', label: 's' }], model, dispositions, diagnostics: [] }) }
+    const to = (skip: boolean): PlatformPlugin => ({
+      id: 'to',
+      name: 'To',
+      modelApi: '>=0.1.0 <1.0.0',
+      capabilities: {},
+      render: (m) => ({ text: 'x\n', diagnostics: [], dispositions: Object.fromEntries(populatedLeaves(m).filter((l) => !(skip && l.path.endsWith('.subinterfaces'))).map((l): [string, FieldDisposition] => [l.path, { kind: 'rendered', span: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 2 } }])) })
+    })
+    const inputs = interfaceInputs({ e0: 'Gig0' })
+    const written = convert(from, to(false), '', { modelVersion: MODEL_VERSION, inputs })
+    expect(written.ledger.complete).toBe(true)
+    expect(written.links.map((l) => l.statement)).toEqual(['d', 's'])
+    const dropped = convert(from, to(true), '', { modelVersion: MODEL_VERSION, inputs })
+    expect(dropped.ledger.complete).toBe(false)
+    expect(dropped.ledger.target?.unrendered.map((f) => f.path)).toEqual([fieldPath('interfaces', 'Gig0', 'subinterfaces')])
+    expect(dropped.issues).toEqual([{ statement: 's', kind: 'not-rendered', reason: 'the target plugin gave it no disposition' }])
+  })
+})

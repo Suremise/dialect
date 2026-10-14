@@ -199,6 +199,25 @@ describe('dialect convert', () => {
     expect(convert(['--write-map', join(dir, 'no-folder', 'x.csv'), 'phase1.conf'])).toMatchObject({ status: 2, stderr: expect.stringContaining(`dialect: can't write ${join(dir, 'no-folder', 'x.csv')}: no such file\n`) })
   })
 
+  it('names IRB units one by one (#80): --write-map lists each unit with its Vlan suggested, and --map converts each to its SVI', () => {
+    const irb = join(dir, 'irb.conf')
+    writeFileSync(irb, [100, 200, 300].flatMap((n) => [`set interfaces irb unit ${n} family inet address 10.${n / 100}.0.1/24`, `set vlans v${n} vlan-id ${n}`, `set vlans v${n} l3-interface irb.${n}`]).join('\n') + '\n')
+    const template = join(dir, 'irb.csv')
+    expect(convert(['--write-map', template, irb]).status).toBe(3)
+    expect(readFileSync(template, 'utf8')).toBe('irb.100,Vlan100 # suggested\nirb.200,Vlan200 # suggested\nirb.300,Vlan300 # suggested\n')
+    const run = convert(['--map', template, irb])
+    expect(run).toMatchObject({ status: 0, stderr: '' })
+    for (const n of [100, 200, 300]) expect(run.stdout).toContain(`interface Vlan${n}\n ip address 10.${n / 100}.0.1 255.255.255.0\n`)
+    // A unit the map leaves out stays unnamed: its place is given, and no config is written.
+    writeFileSync(join(dir, 'irb-partial.csv'), 'irb.100,Vlan100\nirb.300,Vlan300\n')
+    const partial = convert(['--map', join(dir, 'irb-partial.csv'), irb])
+    expect(partial.status).toBe(3)
+    expect(partial.stderr).toContain('dialect: 1 interface has no name on Cisco IOS / IOS-XE')
+    // The whole irb, named as one interface, is a name the config doesn't have: its units are named one by one.
+    writeFileSync(join(dir, 'irb-whole.csv'), 'irb,Vlan100\n')
+    expect(convert(['--map', join(dir, 'irb-whole.csv'), irb]).stderr).toContain('1 interface it names is not in the config')
+  })
+
   it('refuses one name for two interfaces, and an answer that is a name another keeps, losing no interface', () => {
     writeFileSync(join(dir, 'twice.csv'), 'ge-0/0/0,Gi1\nge-0/0/1,Gi1\nxe-0/1/0,Te1\nlo0,Loopback0\nge-9/9/9,Gi9\n')
     const run = convert(['--map', join(dir, 'twice.csv'), 'phase1.conf'])

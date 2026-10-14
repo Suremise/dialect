@@ -1,0 +1,43 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "groups": {
+            "G": {
+              "peerAs": 64500,
+              "exportPolicies": [
+                "A"
+              ]
+            }
+          },
+          "neighbors": {
+            "192.0.2.2": {
+              "group": "G"
+            }
+          },
+          "localAs": 65000,
+          "ebgpDefaultPolicy": {
+            "import": "accept"
+          }
+        }
+      }
+    },
+    "routingPolicy": {
+      "policies": {
+        "A": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,35 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "routingPolicy": {
+      "communitySets": {
+        "A": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65000:1"
+              ]
+            }
+          }
+        },
+        "B": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65000:2"
+              ]
+            }
+          }
+        }
+      },
+      "policies": {
+        "P": {
+          "fallThrough": "next-policy"
+        }
+      }
+    }
+  }
+}
+

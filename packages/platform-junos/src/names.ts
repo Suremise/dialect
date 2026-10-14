@@ -61,11 +61,15 @@ export function describeInterface(name: string): PortName | undefined {
 }
 
 /**
- * The Junos name for a port another plugin described, as a suggestion (convert never takes it silently). Only
- * aggregates so far, as the user decided: a described aggregate is counted from 1 (Cisco's `Port-channelN`,
- * `port-channelN` and `Bundle-EtherN` as written), Junos's `ae` from 0, so N is `ae(N-1)`. Undefined for anything else.
+ * The Junos name for a port another plugin described, as a suggestion (convert never takes it silently), as the user
+ * decided: a described aggregate is counted from 1 (Cisco's `Port-channelN`, `port-channelN` and `Bundle-EtherN` as
+ * written), Junos's `ae` from 0, so N is `ae(N-1)`; a routed VLAN interface, described by its VLAN's ID (Cisco's
+ * `Vlan100`), is the IRB unit of that number, `irb.100` (#80). Undefined for anything else.
  */
 export function nameInterface(port: PortName): string | undefined {
-  if (port.type !== 'aggregate' || port.numbers.length !== 1 || !Number.isInteger(port.numbers[0]) || port.numbers[0] < 1) return undefined
-  return `ae${port.numbers[0] - 1}`
+  const [n] = port.numbers
+  if (port.numbers.length !== 1 || !Number.isInteger(n)) return undefined
+  if (port.type === 'irb-or-svi' || port.type === 'vlan') return n >= 1 && n <= 4094 ? `irb.${n}` : undefined
+  if (port.type !== 'aggregate' || n < 1) return undefined
+  return `ae${n - 1}`
 }

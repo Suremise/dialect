@@ -51,9 +51,9 @@ export const displaySetTool: JunosTool = {
 export const junos: PlatformPlugin = {
   id: 'junos',
   name: 'Junos',
-  // 0.4.1: its parse fills VLANs, switch ports, routed VLANs, OSPF and BGP (0.4.0) and BGP's eBGP default policy
-  // (0.4.1), which an older core doesn't know. Minor versions only add, so every 0.x from there.
-  modelApi: '>=0.4.1 <1.0.0',
+  // 0.5.0: its parse fills routing policy (0.5.0), beside VLANs, switch ports, routed VLANs, OSPF and BGP (0.4.0) and
+  // BGP's eBGP default policy (0.4.1), which an older core doesn't know. Minor versions only add, so every 0.x from there.
+  modelApi: '>=0.5.0 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },
@@ -64,7 +64,8 @@ export const junos: PlatformPlugin = {
     snmp: { parse: 'partial', render: 'partial' },
     vlans: { parse: 'partial', render: 'partial' },
     ospf: { parse: 'partial', render: 'partial' },
-    bgp: { parse: 'partial', render: 'partial' }
+    bgp: { parse: 'partial', render: 'partial' },
+    'routing-policy': { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,

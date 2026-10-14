@@ -13,3 +13,4 @@ set protocols bgp group EBGP neighbor 192.0.2.10 peer-as 4294967296
 set protocols bgp local-as 65100
 set protocols bgp log-updown
 set routing-options autonomous-system 65001
+set policy-options policy-statement IN term ALL then accept
