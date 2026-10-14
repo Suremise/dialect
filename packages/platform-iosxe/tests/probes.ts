@@ -10,10 +10,10 @@ const iface = (...children: string[]) => lines('interface GigabitEthernet1', ...
 
 export const IOSXE_PROBES: ProbeAdapter = {
   prototypeKeys: {
-    // The key as a community, a VRF (with a route in it) and a DNS name (a search domain, a name server's VRF), in one
-    // text: a community value is a secret wherever else it appears.
-    source: (key) => lines(`snmp-server community ${key} RO`, ...vrf(key), `ip route vrf ${key} 10.0.0.0 255.0.0.0 192.0.2.1`, `ip domain list ${key}`, `ip name-server vrf ${key} 192.0.2.53`),
-    uses: { interface: { notApplicable: 'IOS names an interface by its type and number (GigabitEthernet1): no prototype name is one' }, vrf: true, community: true, dns: true }
+    // The key as a community, a VRF (with a route in it), a DNS name (a search domain, a name server's VRF) and a VLAN's
+    // name, in one text: a community value is a secret wherever else it appears.
+    source: (key) => lines(`snmp-server community ${key} RO`, ...vrf(key), `ip route vrf ${key} 10.0.0.0 255.0.0.0 192.0.2.1`, `ip domain list ${key}`, `ip name-server vrf ${key} 192.0.2.53`, 'vlan 10', ` name ${key}`),
+    uses: { interface: { notApplicable: 'IOS names an interface by its type and number (GigabitEthernet1): no prototype name is one' }, vrf: true, community: true, dns: true, vlan: true }
   },
   // Each community limited by an access list, before and after a statement that opens it: either order must leave it
   // out (or limited), never open.
@@ -33,7 +33,8 @@ export const IOSXE_PROBES: ProbeAdapter = {
     'ipv6-address': { source: iface(' ipv6 address dead::beef::1/64'), value: 'dead::beef::1' },
     mask: { source: iface(' ip address 192.0.2.1 255.0.255.0'), value: '255.0.255.0' },
     // Letter-led, so it can't pass for an interface name either (the numeric one is in plugin.test.ts).
-    'next-hop': { source: 'ipv6 route 2001:db8::/32 dead::beef::bad', value: 'dead::beef::bad' }
+    'next-hop': { source: 'ipv6 route 2001:db8::/32 dead::beef::bad', value: 'dead::beef::bad' },
+    'vlan-id': { source: iface(' switchport mode access', ' switchport access vlan 4095'), value: '4095' }
   },
   vrfScoping: {
     delete: { base: scoped, changed: lines(scoped, 'no vrf definition A'), vrf: 'A' },

@@ -336,8 +336,8 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.3.0 <1.0.0'`, for model 0.3's VRF membership, route distinguishers and route targets), with `detect`,
-`parse` and `render`.
+`modelApi: '>=0.4.0 <1.0.0'`, for model 0.4's VLANs, switch ports and routed VLANs), with `detect`, `parse`, `render`
+and `nameInterface`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
   statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
@@ -394,8 +394,32 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     secret). The warning is the parse's: only it can tell the source had no definition, which a model from another
     platform can't say. A render writes `vrf definition V` with the address families its routes need, as for any VRF.
     When a later `no ip route` removes its last route, nothing names it, and it goes too.
-- **Render (`render.ts`):** gives every leaf of model 0.3 a disposition (DNS as one `ip name-server` line per server)
-  and leaves a later version's fields without one, so the ledger reports them. Each VRF is a `vrf definition` before
+  - **VLANs, switch ports and VLAN interfaces (#62, model 0.4):** `vlan N` (or a list, `vlan 100,3000`, `vlan 10-20`)
+    is a VLAN, with a single VLAN's `name` (one word); `no vlan N` removes it and its name, but IOS keeps its default
+    VLANs (1, 1002 to 1005). `switchport` on a main interface is its `switching` (bare, an empty one): `mode access` or
+    `trunk` (a later mode the model doesn't have, `dynamic auto|desirable`, `dot1q-tunnel` or `private-vlan …`, is
+    `unsupported` and still supersedes the one before it, so a negotiated port never becomes a forced trunk), `access
+    vlan`, `trunk native vlan`, and `trunk allowed vlan` read as the device does: a list, `all`, `none`
+    or `except` replaces the list (the earlier statements `ignored-by-design`, superseded), `add` and `remove` change it,
+    from every VLAN when it has none yet. The list is kept as IDs in order, a run of two or more as a range
+    (`10,11,12` is `10-12`). `trunk encapsulation dot1q` is `ignored-by-design` (the model's only one). The `no` forms
+    remove their setting, and `no switchport` every switch port setting before it; it stays `unsupported` itself (the
+    model has no routed-port setting). A malformed VLAN ID or list is `unsupported` and changes nothing. `interface
+    VlanN` is of type `irb-or-svi`, routing for VLAN N on subinterface `0` (`routedVlan`); a `Vlan` subinterface or a
+    switch port setting on one is `unsupported`. A VLAN a port or VLAN interface uses that the text doesn't define (a
+    switch in VTP server mode keeps its VLANs out of its configuration) is kept with no name, mapped by the first
+    statement using it, with a parse warning, `iosxe.vlan-created`, naming it by `field` only; VLAN 1, which IOS always
+    has, gets none. A VLAN `no vlan` deleted (and no later `vlan` defines again) isn't brought back: its ports are
+    inactive and its VLAN interface down on the device, which the model can't say, so a switch port using it is left
+    out whole (its `switchport` statements `unsupported`) and so is its VLAN interface, with its addresses. A
+    `switchport access vlan` creates a VLAN that doesn't exist, one deleted before too, where it is read, as IOS does:
+    it stays when the port moves on to another VLAN or becomes routed, until a later `no vlan` deletes it again.
+- **Render (`render.ts`):** gives every leaf of model 0.3, and of 0.4's VLANs, switch ports and routed VLANs, a
+  disposition (DNS as one `ip name-server` line per server) and leaves the rest (OSPF, BGP, a later version's fields)
+  without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,
+  and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then
+  its mode, as `show running-config` orders them (an empty allowed list as `none`); a routed VLAN is rendered by the
+  interface's name, `interface VlanN`, and is `unsupported` on an interface of another name or a subinterface. Each VRF is a `vrf definition` before
   the interfaces, with its `rd` and its route targets VRF-wide (the model's are the VRF's), and the address families
   its interfaces' addresses and routes need (IPv4 also for a VRF with an RD or route targets); an interface's
   `vrf forwarding V` comes before its addresses, which it would otherwise clear, and `ip route vrf V` after. `type`
@@ -410,7 +434,12 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
   parse (no error, a complete ledger, a stable round trip). `tests/probes.ts` is its adapter for the kit's probes
-  (#55): every probe runs, but a prototype key as an interface name, which IOS can't say.
+  (#55): every probe runs, but a prototype key as an interface name, which IOS can't say; of model 0.4's cases, a VLAN
+  name and a malformed VLAN ID so far.
+- **Convert suggestions (`names.ts`):** `nameInterface()` names an Ethernet port by its speed, `Port-channel`,
+  `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. A Junos `irb.100`
+  gets `Vlan100` only once the core's convert names an IRB unit on its own (#41): today it names the `irb` interface
+  as a whole.
 
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 

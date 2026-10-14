@@ -1,0 +1,63 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "ios-native-vlan"
+    },
+    "interfaces": {
+      "Ethernet1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.1.1.1": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet2": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "2.2.2.2": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        },
+        "switching": {
+          "mode": "trunk",
+          "nativeVlan": 3
+        }
+      },
+      "Ethernet3": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "3.3.3.3": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        },
+        "switching": {
+          "mode": "trunk"
+        }
+      }
+    },
+    "vlans": {
+      "3": {}
+    }
+  }
+}
+

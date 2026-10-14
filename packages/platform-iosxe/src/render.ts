@@ -1,9 +1,10 @@
-// The shared model → IOS / IOS-XE text, for the phase 1 areas. Every populated leaf of model 0.3 gets a disposition:
-// `rendered` with the line it went to, `unsupported` with why (IOS can't say it, or this renderer can't yet), or
-// `not-applicable` (IOS implies it). Fields of a later model version are left without one, so the ledger reports them
-// as unrendered rather than this renderer claiming them. VRFs are defined (`vrf definition`) before the interfaces in
+// The shared model → IOS / IOS-XE text, for the phase 1 areas and model 0.4's VLANs, switch ports and VLAN interfaces.
+// Every populated leaf of those areas gets a disposition: `rendered` with the line it went to, `unsupported` with why
+// (IOS can't say it, or this renderer can't yet), or `not-applicable` (IOS implies it). Fields of areas it doesn't
+// render yet (OSPF, BGP) or of a later model version are left without one, so the ledger reports them as unrendered
+// rather than this renderer claiming them. VLANs come first, then VRFs; VRFs are defined (`vrf definition`) before the interfaces in
 // them, and an interface's `vrf forwarding` comes before its addresses, which it would otherwise clear.
-import { fieldPath, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
+import { fieldPath, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
 import { lengthMask } from './addresses'
 import { SEVERITIES } from './parse'
 
@@ -17,6 +18,12 @@ const IOS_SEVERITY: Readonly<Record<string, string>> = Object.fromEntries(Object
  * main interface.
  */
 const ref = (name: string) => name.replace(/\.0$/, '')
+
+/** An entry of a trunk's allowed VLANs: an ID (`10`) or a range (`20-30`, first below last), from 1 to 4094. */
+const isVlanRange = (entry: string) => {
+  const m = /^([1-9]\d*)(?:-([1-9]\d*))?$/.exec(entry)
+  return m !== null && isVlanId(Number(m[1])) && (m[2] === undefined || (isVlanId(Number(m[2])) && Number(m[1]) < Number(m[2])))
+}
 
 /** A word IOS reads back as one: quoted when it has a space in it. */
 const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
@@ -73,6 +80,30 @@ export function render(model: Device, _context: Context): RenderResult {
         emit(`${line} ${address}`, ...fields)
       }
     }
+  }
+
+  // ---- VLANs: before the switch ports and VLAN interfaces that use them
+
+  emptyContainer(model.vlans, ['vlans'])
+  for (const [id, vlan] of Object.entries(model.vlans ?? {})) {
+    const at = ['vlans', id]
+    if (!isVlanId(Number(id)) || String(Number(id)) !== id) {
+      skipAll(vlan, at, 'not a VLAN ID from 1 to 4094')
+      continue
+    }
+    if (id === '1') {
+      // IOS always has VLAN 1, the default, and can't rename it.
+      if (isEmpty(vlan)) skip(at, 'not-applicable', 'IOS always has VLAN 1')
+      else skipAll(vlan, at, 'IOS can\'t rename VLAN 1 or describe it')
+      continue
+    }
+    separator()
+    emit(`vlan ${id}`, ...(isEmpty(vlan) ? [at] : []))
+    if (vlan.name !== undefined) {
+      if (/^\S+$/.test(vlan.name)) emit(` name ${vlan.name}`, [...at, 'name'])
+      else skip([...at, 'name'], 'unsupported', 'IOS VLAN names are one word')
+    }
+    if (vlan.description !== undefined) skip([...at, 'description'], 'unsupported', 'IOS VLANs have a name but no description')
   }
 
   // ---- VRF definitions: before the interfaces in them
@@ -133,12 +164,19 @@ export function render(model: Device, _context: Context): RenderResult {
     if (iface.vlanTagging !== undefined) skip([...at, 'vlanTagging'], 'not-applicable', 'IOS tags each subinterface (encapsulation dot1Q)')
     emptyContainer(iface.subinterfaces, [...at, 'subinterfaces'])
 
-    const hasOwn = iface.description !== undefined || iface.enabled !== undefined || iface.mtu !== undefined || main !== undefined
+    // A VLAN interface says the VLAN it routes for by its name: `interface Vlan10` routes for VLAN 10.
+    const routed = main?.routedVlan
+    const routedField = [...at, 'subinterfaces', '0', 'routedVlan']
+    const named = routed !== undefined && iface.type === 'irb-or-svi' && isVlanId(routed) && new RegExp(`^(?:Vlan|Vl)0*${routed}$`, 'i').test(name)
+    if (routed !== undefined && !named) skip(routedField, 'unsupported', 'IOS routes a VLAN on the interface named for it (VlanN for VLAN N), and this one isn\'t')
+
+    const hasOwn = iface.description !== undefined || iface.enabled !== undefined || iface.mtu !== undefined || iface.switching !== undefined || main !== undefined
     if (hasOwn || !subs.some(([index]) => index !== '0')) {
       separator()
-      emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []))
+      emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []), ...(named ? [routedField] : []))
       if (iface.description !== undefined) emit(` description ${iface.description}`, [...at, 'description'])
       if (iface.mtu !== undefined) emit(` mtu ${iface.mtu}`, [...at, 'mtu'])
+      if (iface.switching !== undefined) renderSwitching(iface, at)
       if (main) {
         const sub = [...at, 'subinterfaces', '0']
         if (isEmpty(main)) skip(sub, 'not-applicable', 'IOS has no unit 0 of its own: the main interface is it')
@@ -155,10 +193,37 @@ export function render(model: Device, _context: Context): RenderResult {
       const subAt = [...at, 'subinterfaces', index]
       separator()
       emit(`interface ${name}.${index}`, ...(isEmpty(sub) ? [subAt] : []))
+      if (sub.routedVlan !== undefined) skip([...subAt, 'routedVlan'], 'unsupported', 'IOS routes a VLAN on its own Vlan interface, not on a subinterface')
       if (sub.description !== undefined) emit(` description ${sub.description}`, [...subAt, 'description'])
       if (sub.vlanId !== undefined) emit(` encapsulation dot1Q ${sub.vlanId}`, [...subAt, 'vlanId'])
       if (renderMembership(sub, subAt)) renderAddresses(sub, subAt)
       if (sub.enabled !== undefined) emit(sub.enabled ? ' no shutdown' : ' shutdown', [...subAt, 'enabled'])
+    }
+  }
+
+  /** A switch port, in the order `show running-config` gives it: the VLANs, then the mode. */
+  function renderSwitching(iface: Interface, at: Segments) {
+    const s = iface.switching!
+    const sw = [...at, 'switching']
+    if (iface.type === 'irb-or-svi') {
+      skipAll(s, sw, 'a VLAN interface routes: IOS can\'t make it a switch port')
+      return
+    }
+    emit(' switchport', ...(isEmpty(s) ? [sw] : []))
+    const vlan = (value: number | undefined, leaf: string, line: string) => {
+      if (value === undefined) return
+      if (isVlanId(value)) emit(`${line} ${value}`, [...sw, leaf])
+      else skip([...sw, leaf], 'unsupported', 'not a VLAN ID from 1 to 4094')
+    }
+    vlan(s.accessVlan, 'accessVlan', ' switchport access vlan')
+    vlan(s.nativeVlan, 'nativeVlan', ' switchport trunk native vlan')
+    if (s.allowedVlans !== undefined) {
+      if (s.allowedVlans.every(isVlanRange)) emit(` switchport trunk allowed vlan ${s.allowedVlans.length ? s.allowedVlans.join(',') : 'none'}`, [...sw, 'allowedVlans'])
+      else skip([...sw, 'allowedVlans'], 'unsupported', 'not a list of VLAN IDs and ranges from 1 to 4094')
+    }
+    if (s.mode !== undefined) {
+      if (s.mode === 'access' || s.mode === 'trunk') emit(` switchport mode ${s.mode}`, [...sw, 'mode'])
+      else skip([...sw, 'mode'], 'unsupported', 'not a switch port mode IOS has')
     }
   }
 

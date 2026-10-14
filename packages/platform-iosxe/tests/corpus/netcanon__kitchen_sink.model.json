@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.4.0",
   "device": {
     "system": {
       "hostname": "kitchensink-rtr01",
@@ -110,14 +110,44 @@
         }
       }
     },
+    "vlans": {
+      "10": {
+        "name": "USERS"
+      },
+      "20": {
+        "name": "SERVERS"
+      },
+      "30": {
+        "name": "VOICE"
+      },
+      "40": {
+        "name": "GUESTS"
+      }
+    },
     "interfaces": {
       "Port-channel1": {
         "type": "aggregate",
-        "description": "Uplink to core (LACP)"
+        "description": "Uplink to core (LACP)",
+        "switching": {
+          "mode": "trunk",
+          "nativeVlan": 10,
+          "allowedVlans": [
+            "10",
+            "20",
+            "30",
+            "40"
+          ]
+        }
       },
       "Port-channel2": {
         "type": "aggregate",
-        "description": "Server bond (LACP passive)"
+        "description": "Server bond (LACP passive)",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "20"
+          ]
+        }
       },
       "Loopback0": {
         "type": "loopback",
@@ -168,26 +198,62 @@
       "GigabitEthernet0/0/1": {
         "type": "ethernet",
         "description": "Access port — desk pool A",
+        "switching": {
+          "mode": "access",
+          "accessVlan": 10
+        },
         "enabled": true
       },
       "TenGigabitEthernet1/0/1": {
         "type": "ethernet",
         "description": "LACP member to core (Po1)",
+        "switching": {
+          "mode": "trunk",
+          "nativeVlan": 10,
+          "allowedVlans": [
+            "10",
+            "20",
+            "30",
+            "40"
+          ]
+        },
         "enabled": true
       },
       "TenGigabitEthernet1/0/2": {
         "type": "ethernet",
         "description": "LACP member to core (Po1)",
+        "switching": {
+          "mode": "trunk",
+          "nativeVlan": 10,
+          "allowedVlans": [
+            "10",
+            "20",
+            "30",
+            "40"
+          ]
+        },
         "enabled": true
       },
       "TenGigabitEthernet1/0/3": {
         "type": "ethernet",
         "description": "Server bond member (Po2)",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "20"
+          ]
+        },
         "enabled": true
       },
       "TenGigabitEthernet1/0/4": {
         "type": "ethernet",
         "description": "Server bond member (Po2)",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "20"
+          ]
+        },
         "enabled": true
       },
       "TenGigabitEthernet1/0/5": {
@@ -196,10 +262,10 @@
         "enabled": false
       },
       "Vlan10": {
-        "type": "vlan",
-        "description": "Users SVI",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 10,
             "ipv4": {
               "addresses": {
                 "192.168.10.1": {
@@ -215,13 +281,14 @@
               }
             }
           }
-        }
+        },
+        "description": "Users SVI"
       },
       "Vlan20": {
-        "type": "vlan",
-        "description": "Servers SVI",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 20,
             "ipv4": {
               "addresses": {
                 "192.168.20.1": {
@@ -230,13 +297,14 @@
               }
             }
           }
-        }
+        },
+        "description": "Servers SVI"
       },
       "Vlan30": {
-        "type": "vlan",
-        "description": "Voice SVI",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 30,
             "ipv4": {
               "addresses": {
                 "192.168.30.1": {
@@ -245,13 +313,14 @@
               }
             }
           }
-        }
+        },
+        "description": "Voice SVI"
       },
       "Vlan40": {
-        "type": "vlan",
-        "description": "Guests SVI",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 40,
             "ipv4": {
               "addresses": {
                 "192.168.40.1": {
@@ -260,7 +329,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Guests SVI"
       },
       "GigabitEthernet0": {
         "type": "ethernet",
@@ -282,3 +352,4 @@
     }
   }
 }
+

@@ -39,7 +39,8 @@ export function interfaceType(name: string): InterfaceType | undefined {
   const kind = m[1].toLowerCase()
   if (/^lo(?:opback)?$/.test(kind)) return 'loopback'
   if (/^po(?:rt-channel)?$/.test(kind)) return 'aggregate'
-  if (/^vl(?:an)?$/.test(kind)) return 'vlan'
+  // A VLAN interface routes for the VLAN of its number (model 0.4.0).
+  if (/^vl(?:an)?$/.test(kind)) return 'irb-or-svi'
   if (/^tu(?:nnel)?$/.test(kind)) return 'tunnel'
   if (ETHERNET.test(kind)) return 'ethernet'
   return undefined
@@ -60,7 +61,8 @@ const ETHERNET_NAMES: Readonly<Record<number, string>> = {
 
 /**
  * IOS's name for a port another platform described, as a suggestion: Ethernet by its speed and numbers
- * (`GigabitEthernet0/0/0`, a channel as `:n`), `Port-channel`, `Loopback`, `Tunnel` and `Vlan` by their number, and
+ * (`GigabitEthernet0/0/0`, a channel as `:n`), `Port-channel`, `Loopback` and `Tunnel` by their number, `Vlan` by its
+ * VLAN's ID (a `vlan` or `irb-or-svi` port), and
  * `GigabitEthernet0` for management port 0. Undefined when IOS has no likely name (an Ethernet port of unknown speed,
  * Port-channel 0, which IOS doesn't have).
  */
@@ -75,7 +77,8 @@ export function nameInterface(port: PortName): string | undefined {
   if (port.type === 'aggregate') return n[0] >= 1 ? `Port-channel${n[0]}` : undefined
   if (port.type === 'loopback') return `Loopback${n[0]}`
   if (port.type === 'tunnel') return `Tunnel${n[0]}`
-  if (port.type === 'vlan') return `Vlan${n[0]}`
+  // A routed VLAN interface is described by its VLAN's ID: Junos `irb.100` for VLAN 100 is `Vlan100`.
+  if (port.type === 'vlan' || port.type === 'irb-or-svi') return n[0] >= 1 && n[0] <= 4094 ? `Vlan${n[0]}` : undefined
   if (port.type === 'management') return n[0] === 0 ? 'GigabitEthernet0' : undefined
   return undefined
 }

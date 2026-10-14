@@ -1,0 +1,78 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "edge-sw01"
+    },
+    "networkInstances": {
+      "Mgmt-intf": {
+        "type": "vrf",
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "10.10.20.254"
+              }
+            }
+          }
+        }
+      }
+    },
+    "vlans": {
+      "2": {
+        "name": "ank_vlan2"
+      },
+      "999": {
+        "name": "edge-transit"
+      }
+    },
+    "interfaces": {
+      "Loopback0": {
+        "type": "loopback",
+        "description": "to",
+        "enabled": false
+      },
+      "GigabitEthernet0/0": {
+        "type": "ethernet",
+        "description": "to port3.sandbox-backend",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "Mgmt-intf",
+            "ipv4": {
+              "addresses": {
+                "10.10.20.172": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/1": {
+        "type": "ethernet",
+        "description": "to GigabitEthernet0/1.edge-firewall01",
+        "switching": {
+          "accessVlan": 999,
+          "mode": "access"
+        }
+      },
+      "GigabitEthernet0/2": {
+        "type": "ethernet",
+        "description": "to GigabitEthernet0/0/0/1.core-rtr01",
+        "switching": {
+          "accessVlan": 999,
+          "mode": "access"
+        }
+      },
+      "GigabitEthernet0/3": {
+        "type": "ethernet",
+        "description": "to GigabitEthernet0/0/0/1.core-rtr02",
+        "switching": {
+          "accessVlan": 999,
+          "mode": "access"
+        }
+      }
+    }
+  }
+}
+
