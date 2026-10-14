@@ -25,6 +25,53 @@ Juniper Networks or Cisco Systems.
 
 Dialect works offline: it sends nothing anywhere and keeps no logs of your configs.
 
+## Tabs and menus
+
+The desktop app and the web build look and work the same: a menu bar at the top, a strip of tabs below it, and the tab
+you're on below that.
+
+- **One tab per job.** **File → New Tab…** (Ctrl+T), or **+** at the end of the tab strip, asks what you're doing:
+  **Display set (Junos)**, or **Convert: Junos → Cisco IOS / IOS-XE**. Each tab keeps its own source, output,
+  problems, interface names and undo history, so several configs can be open at once. New platforms and tools appear
+  in this list as Dialect gains them.
+- **A tab's title** is its file name and job, such as `phase1.conf → IOS-XE` (`Untitled` until you open a file). A
+  dot after it means its output hasn't been saved since it last changed. Hover over it for the file's full path (the
+  desktop app) or name.
+- **Closing a tab**: its **×**, a middle-click, **File → Close Tab** (Ctrl+W) or Delete on the focused tab. If its
+  output hasn't been saved, Dialect asks first: **Save and close**, **Close without saving**, or **Cancel**.
+- **The Docs pages** (User Guide, Release Notes, License, Third-Party Notices) each open in a tab of their own, beside
+  your conversions. Asking for a page that's already open shows its tab.
+- **When you start Dialect again**, your tabs come back with their jobs and file names, but **never their configs**:
+  configs can hold passwords and keys, and Dialect doesn't keep them anywhere, not even in the browser's storage. A
+  reopened tab says which file it had, with a **Reopen** button to load it again. Docs tabs come back as they were.
+
+The menus:
+
+- **File:** New Tab…, Open…, Save Output, Save Output As…, Close Tab, and in the desktop app **Exit** (it asks first if
+  a tab's output hasn't been saved). The web build has no Exit: close its browser tab instead.
+- **Edit:** Undo and Redo (in the source you were editing), Copy Output, and Paste (replaces the source with the
+  clipboard's text).
+- **View:** System Theme, Light Theme and Dark Theme. The theme follows your system's light or dark setting until you
+  choose one.
+- **Window:** every open tab, the current one ticked, then Next Tab and Previous Tab.
+- **Help:** User Guide (F1), Release Notes, License, Third-Party Notices and About Dialect.
+
+The keyboard works as in other Windows apps: **Alt** or **F10** moves to the menu bar, the arrow keys move along it and
+through a menu, Enter runs an item and Esc goes back. In the tab strip, the arrow keys move between tabs.
+
+| Shortcut | Desktop app | Web build |
+|---|---|---|
+| New tab | Ctrl+T | Alt+T |
+| Open a file in this tab | Ctrl+O | Ctrl+O |
+| Save output, save as | Ctrl+S, Ctrl+Shift+S | Ctrl+S, Ctrl+Shift+S |
+| Close tab | Ctrl+W | Alt+W |
+| Next, previous tab | Ctrl+Tab, Ctrl+Shift+Tab (or Ctrl+PgDn, Ctrl+PgUp) | Alt+PgDn, Alt+PgUp |
+| Tab 1 to 9 | Ctrl+1 … Ctrl+9 | Alt+1 … Alt+9 |
+| User guide | F1 | F1 |
+
+A browser keeps Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+1…9 for its own tabs, so the web build shows the Alt keys in its
+menus. Both work in the desktop app.
+
 ## Display set (Junos)
 
 Turning a hierarchical Junos config into `set` commands: opening or pasting a config, reading the output, inactive
@@ -33,8 +80,8 @@ is [below](#display-set).
 
 In the app:
 
-- **Open…** (Ctrl+O) picks a file (the desktop app shows the Windows Open dialog, the web build the browser's file
-  picker), or drop a file anywhere in the window. **Paste** replaces the source with the clipboard's text (if the
+- **Open…** (Ctrl+O) picks a file for this tab (the desktop app shows the Windows Open dialog, the web build the
+  browser's file picker), or drop a file anywhere in the window. **Paste** replaces the source with the clipboard's text (if the
   browser doesn't allow that, click in the source pane and press Ctrl+V). You can also type or edit the source
   directly.
 - The display set appears on the right as you go. Click a set line and its statement is marked in the source; click a
@@ -45,9 +92,8 @@ In the app:
 - **Problems** lists the warnings, or the syntax error, with their line and column. Click one to go to it. While there's
   a syntax error there's no output.
 - **Copy output** copies the set commands; **Save output** (Ctrl+S) saves them as `<name>.set`: the desktop app
-  asks where, in the Windows Save dialog, and the web build downloads the file.
-- The theme follows your system's light or dark setting. The button at the top right switches between light, dark
-  and the system's.
+  asks where, in the Windows Save dialog, the first time, then saves there again until you choose **File → Save Output
+  As…**; the web build downloads the file each time.
 
 The output is what `show configuration | display set` prints on the device:
 
@@ -74,8 +120,8 @@ Nothing is dropped silently. Every line of the source is either converted, left 
 as not converted, and every setting is either written or marked as one IOS-XE can't say (a `reject` route, say). These
 are listed as warnings, by line, with the reason.
 
-In the app, choose **Convert** at the top, next to Display set, and the target platform beside it. Then open, drop or
-paste a Junos config as in display set. The IOS-XE config appears on the right as you type. Below, the **Problems**
+In the app, open a convert tab (**File → New Tab…**, then **Convert: Junos → Cisco IOS / IOS-XE**); the target
+platform can be changed at the top of the tab. Then open, drop or paste a Junos config as in display set. The IOS-XE config appears on the right as you type. Below, the **Problems**
 panel lists what didn't carry over. The same lines are marked in the source's gutter, with the reason on hover, and
 clicking a problem shows its line. The **Interfaces** table lists every interface to name (see below). Moving the
 cursor in one pane marks the matching lines in the other. Copy output and Save output work as in display set; a saved
@@ -196,7 +242,7 @@ it, fill in the rest and give it back with `--map names.csv`; a line with no nam
 
 ## About and Docs
 
-**Help**, at the top right, opens the Docs view at one of its pages, or About:
+The **Help** menu opens one of the Docs pages, each in a tab of its own, or About:
 
 - **User Guide** (also F1): this guide.
 - **Release Notes**: what changed in each version.
@@ -205,8 +251,8 @@ it, fill in the rest and give it back with `--map names.csv`; a line with no nam
   license and full license text, and the installer's components. Where one is offered under a choice of licenses, its
   entry says which one Dialect uses: MIT where it is offered, otherwise the first one Dialect may ship under.
 
-The Docs view takes the place of the source and output panes; **← Display set** or Esc goes back, and opening a file
-does too. A link to another of these documents opens it there. A web link opens in your browser (the desktop app's
+A Docs tab lists the other pages beside its own; a page or a link to another of these documents opens that page's tab
+(or shows it, if it's open). Your conversion tabs stay as they were. A web link opens in your browser (the desktop app's
 default browser, or a new tab in the web build): the only time Dialect leads online, and only when you click one.
 
 **About Dialect** shows the version, which build it is (desktop app or web build), the WebView2 or browser version and

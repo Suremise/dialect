@@ -2,7 +2,7 @@
 
 How the code fits together. Product decisions are in [SPEC.md](SPEC.md); the reasoning behind the design is in the
 spike report ([spike-desktop-app.md](spike-desktop-app.md)). This describes the repo as built so far: B1's scaffold, B2's core contracts,
-B3 and B4's Junos plugin, B8's IOS / IOS-XE plugin and B9's convert mode.
+B3 and B4's Junos plugin, B8's IOS / IOS-XE plugin, B9's convert mode, and B12 and B13's NX-OS and IOS-XR plugins.
 Each card that adds code updates the part it changes.
 
 ## Packages
@@ -13,6 +13,8 @@ packages/
   conformance/      @dialect/conformance    dev-only: Vitest conformance kit + negative tests for plugins
   platform-junos/   @dialect/platform-junos tree parser, display set tool, map/render
   platform-iosxe/   @dialect/platform-iosxe indentation-tree parser, map/render for phase 1, detect
+  platform-nxos/    @dialect/platform-nxos  indentation-tree parser (banners whole), map/render for phase 1, detect
+  platform-iosxr/   @dialect/platform-iosxr indentation-tree parser (route policies, sets, banners whole), map/render for phase 1, detect
   cli/              @dialect/cli            Node CLI: display-set and convert, files and stdin/stdout
   ui/               @dialect/ui             React UI shared by both shells
 apps/
@@ -21,8 +23,8 @@ apps/
 docs/  scripts/  tests/  branding/
 ```
 
-`core` and `conformance` hold B2's contracts (below), and `platform-iosxe` and `platform-junos` are the plugins built on them (below); the
-other packages are stubs for now. Packages are **source packages**: their `exports` point at
+`core` and `conformance` hold B2's contracts (below), and `platform-junos`, `platform-iosxe`, `platform-nxos` and
+`platform-iosxr` are the plugins built on them (below); `cli`, `ui` and the two apps use them. Packages are **source packages**: their `exports` point at
 TypeScript, and whichever shell bundles them compiles them (Vite, from group C). Nothing is emitted by `tsc`, which
 only checks.
 
@@ -437,6 +439,87 @@ VRF membership, route distinguishers and route targets), with `detect`, `parse` 
   `tests/corpus/`, and every file of `fixtures/public/nxos` through the kit's checks. `plugin.test.ts` also checks
   every render of the fixtures and the corpus for a missing `feature` line, with its own table of what needs one.
 
+## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
+
+The third Cisco platform, built like the NX-OS plugin (its code copied, not imported). Its default export is the
+`PlatformPlugin` (`id: 'iosxr'`, `modelApi: '>=0.3.0 <1.0.0'`, for model 0.3's VRF membership and route targets), with
+`detect`, `parse` and `render`.
+
+- **The tree (`tree.ts`):** as NX-OS's, nested by IOS-XR's one-space indents; `!` lines are separators and `!!`
+  headers comments. Three bodies are delimited, not indented, and each is kept whole, verbatim, as one atomic statement
+  with no children, never split: a **route policy** (`route-policy NAME` … `end-policy`, its `if … then … elseif …
+  else … endif` blocks and `#` comments inside, whether its body is indented or not), a **set** (any `*-set …`:
+  `prefix-set`, `community-set`, `as-path-set`, `rd-set`, `extcommunity-set rt`, `large-community-set`, `tag-set` …
+  `end-set`) and a **banner** (any delimiter, `^C` as one). A policy or set opens only at the top level: `route-policy
+  P in` inside `router bgp` is a reference. An unterminated one is an error diagnostic (`iosxr.unterminated-policy`,
+  `-set`, `-banner`) and takes the rest of the text.
+- **Parse (`parse.ts`):** `hostname`; `domain name`, `domain [vrf V] name-server A` (one server a statement),
+  `domain list`; interfaces (`GigabitEthernet0/0/0/0`, `TenGigE…`, `Bundle-Ether1`, `Loopback0`, `MgmtEth0/RP0/CPU0/0`;
+  type from the name), subinterfaces with `encapsulation dot1q`, `ipv4 address A M|A/L [secondary]` (one primary, a
+  second replaces it) and `ipv6 address A/L` (all alike: IPv6 has no primary on IOS-XR), `vrf V`, `shutdown`,
+  `description`, `mtu`; `vrf X` with its route targets; `router static` with `address-family ipv4|ipv6 unicast` and
+  `vrf V` inside, routes with an interface, next hop, distance, `tag` and `description`, `Null0` as discard; the `ntp`
+  block (`server [vrf V] A [prefer] [version N]`, `source IF`, also on one line after `ntp`); `logging A [vrf V]
+  [severity S] [port P]` and `logging source-interface IF`; `snmp-server community [clear] NAME [RO|RW]`, `contact`
+  and `location`. As in the other Cisco plugins, a statement with an option the model can't hold (`key`, `track`,
+  `bfd`, `route-tag`, `link-local`, a next hop in another VRF) is `unsupported` as a whole, and so is every statement
+  the plugin doesn't know with everything inside it. `interface X.N l2transport` is Layer 2, unsupported whole, and so
+  is a later `interface X.N` for it.
+  - **Later statements act on earlier ones, as on the device**, as in the NX-OS plugin: a second setting supersedes the
+    first, the same route next hop again is an edit, and the `no` forms of every setting it maps remove it
+    (`no hostname`, `no domain name|list|[vrf V] name-server` (that VRF only), `no description|mtu|encapsulation
+    dot1q|ipv4 address [A M]|ipv6 address A/L|vrf`, `no server|source` in `ntp`, `no logging A [vrf V]|source-interface`,
+    `no snmp-server community|contact|location`, `no vrf X` with its routes), and so do the scopes of `router static`:
+    `no router static`, and inside it `no vrf V` and `no address-family ipv4|ipv6 unicast` (in a VRF's too) remove
+    every route in that scope and no other. A route line is matched by prefix and next hop alone, so `no P hop …`
+    removes a line that wasn't converted (`… track 2`) too.
+  - **An edit that isn't converted still replaces what it edits.** IOS-XR keys NTP servers and syslog hosts by address
+    and VRF: a later statement for the same server, converted or not, replaces the earlier one, so `server A key 1`
+    after `server A` leaves the server out rather than mapped without its key; a second VRF for the same address is a
+    server the address-keyed model can't hold, and `unsupported`; `no server [vrf V] A` and `no logging A [vrf V]`
+    remove it only in the VRF they name (no VRF and `default` alike). An address edited to add a `route-tag` replaces
+    the primary (or the same IPv4 secondary or IPv6 address) the same way.
+  - **Numbers in IOS-XR's ranges only:** a VLAN ID from 1 to 4094, an MTU from 64 to 65535, a route tag up to
+    4294967295, a port up to 65535; anything else (or a number too long to be exact) is `unsupported`, never mapped
+    rounded, and the render checks a model's the same way.
+  - **VRF membership:** `vrf V` on an interface is the subinterface's `networkInstance` (subinterface `0` for a main
+    interface), and clears the addresses before it, as on the device; `no vrf` returns it to the global table. A VRF
+    the text never defines (`vrf X` at the top), or removes, would name a network instance the model doesn't have: the
+    membership and the interface's addresses are then `unsupported` rather than put in the global table.
+  - **Route targets:** IOS-XR sets them per address family, one per line (`import route-target V`) or listed in a
+    block (`import route-target` with a value a line). As NX-OS, they map only when every unicast family's agree, as
+    sets in each direction, and are all `unsupported` when one isn't converted (`stitching`, an asdot AS `1.10:12`).
+    Other families (`ipv4 multicast`, `flowspec`) and a VRF's import and export route policies are `unsupported`.
+  - **Route distinguishers** are BGP's on IOS-XR (`router bgp N` → `vrf X` → `rd`), so they stay `unsupported` with the
+    rest of `router bgp`, and the render can't write one (it would need the AS, which the model doesn't hold).
+  - **SNMP communities:** one with any statement not converted, anywhere (an access list in any form, `IPv4 ACL`,
+    `IPv6 ACL` or a bare ACL; `SystemOwner` or `SDROwner`; `no snmp-server community X …` removing part of it), is left
+    out whole. An `encrypted` community doesn't carry over and is `unsupported`.
+  - **No secrets in reasons**, value-free as in the NX-OS plugin; route policies and sets are never named, and nor is a
+    banner's type, which could be a secret's value reused.
+    Keys come from the configuration, so the model is built with own properties only, and bookkeeping uses `Map`s.
+- **Render (`render.ts`):** `show running-config`'s shape, one-space indents and `!` closing each block. Every leaf of
+  model 0.3 gets a disposition; a later version's fields get none. VRFs come first (`vrf X` with its route targets in
+  the block form under both `address-family ipv4 unicast` and `ipv6 unicast`), then interfaces (`vrf V` before the
+  addresses, IPv4 with a dotted mask), `router static` (the global table, then each VRF), the `ntp` block, `logging`
+  hosts (each with its VRF, `vrf default` for the global table) and SNMP. A network instance with only routes isn't
+  written as `vrf X`: its routes say it. What IOS-XR can't write is `unsupported` with why: a route distinguisher, a
+  `virtual-router`, a membership in a VRF the model doesn't have (with the interface's addresses), subinterface 0's
+  own description or shutdown, an address family's MTU, a syslog facility per host, an NTP version outside 1–4, a
+  `reject` route, a route's metric, and an SNMP community limited to some clients (left out whole, with a warning that
+  doesn't name it). With several IPv4 addresses and no primary, the first becomes primary, with a warning.
+- **Detect (`detect.ts`):** counts IOS-XR's own signs (RANCID's `cisco-xr`, `!! IOS XR Configuration`, `ipv4
+  address`, four-part interface names, `Bundle-Ether`, `MgmtEth`, `router static`, `end-policy`, `end-set`, `domain …`,
+  `logging A vrf V`, `import|export route-target`) and discounts IOS's (`ip address`, `ip access-list`, `ip route`,
+  `vrf definition`), NX-OS's and Junos's. Over the corpus, wherever any of the three Cisco plugins is sure (0.4 or
+  more), the right one scores highest.
+- **Tests:** as the other Cisco plugins': hand-written fixtures per area through the kit (`tests/fixtures/<area>`,
+  `policy` among them), chosen corpus files against expected models in `tests/corpus/`, and every file of
+  `fixtures/public/iosxr` through the kit's checks.
+- **For BGP (B10), not yet:** IOS-XR applies RFC 8212 to eBGP, so a neighbor with no route policy in a direction sends
+  and accepts nothing. A converted eBGP neighbor will need an explicit `route-policy … in` and `out` (a pass-all policy
+  where the source had none), or it comes up and exchanges no routes.
+
 ## TypeScript
 
 `tsconfig.base.json` holds Hive's settings (strict, ES2023, `module: ESNext`, `moduleResolution: bundler`,
@@ -626,25 +709,60 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 
 The React UI both shells share: `<App platform={…} />`, where `Platform` (`src/platform.ts`) is the shell's file and
 clipboard access (open, open a dropped file, save, read and write the clipboard), which build it is (`kind`, `version`)
-and how it opens a web link (`openLink`). Open and save take what the file holds (`FileKind`: a config, or an interface
+and how it opens a web link (`openLink`). Two parts are optional, for a shell that can do them: `saveTextTo` writes
+again to a path an earlier save returned (the desktop app; a download can't be written to again), and `exit` quits
+(File → Exit, the desktop app only). Open and save take what the file holds (`FileKind`: a config, or an interface
 map), so the shells offer the right file types. The UI never touches files itself: even a dropped file is read by the shell,
 from the drop event's data. Both shells take the version from the root `package.json` (a named JSON import, so only
 that field is bundled).
 
-- `src/store.ts`: one zustand store, with the mode (display set or convert), the convert target, the source text and
-  its name, the interface map, what the source gives in the mode (the output, the linked lines as source/output pairs,
-  the problems, and in convert the interface rows), the theme choice, and requests to reveal a place in an editor. Both
-  modes go through the core's registry (`createRegistry([junos, iosxe])`), as the CLI does: display set as the Junos
-  plugin's tool (its problems from the result's diagnostics, its links from `sourceLines`), convert as the core's
-  `convert()` from Junos to the target (its problems from the ledger's diagnostics and `issues`, its links from
-  `links` and the statements' spans, its rows from `interfaces`). Both run synchronously on every change (config_22,
-  316 KB, parses in tens of milliseconds). The interface map is kept while the source is edited and dropped when
-  another file opens or the target changes, so no name carries over to other ports unasked.
-- `src/App.tsx`: the title bar (the mode switch, convert's target, and the actions: Open, Paste, Copy output, Save
-  output, Help, the theme), the source and output panes, the problems panel (and in convert, the interface table beside
-  it) and the status bar. A file dropped anywhere opens, even on an editor: the drop is handled
-  in the capture phase, so CodeMirror doesn't insert it, and `platform.openDropped()` reads it. Moving the cursor in one pane marks the matching lines in the other, through
-  the store's links.
+The window is a menu bar, a tab strip and the current tab's page (juniper-decisions: UI shell), the same in both shells.
+
+- `src/store.ts`: one zustand store of **tabs**, each a conversion or a Docs page, and which is shown; the theme
+  choice, the notice, requests to reveal a place in a tab's editor, and the open dialogs (the new tab picker, closing a
+  tab or exiting with unsaved output). A conversion tab holds its **job** (`{ kind: 'tool', tool: 'junos.display-set' }`
+  or `{ kind: 'convert', target: 'iosxe' }`), its source and file name, its interface map, what the source gives with
+  the job (the output, the linked lines as source/output pairs, the problems, and in convert the interface rows), the
+  output as last saved (unsaved while the output differs) and where it was saved. Jobs come from the core's registry
+  (`createRegistry([junos, iosxe])`), as the CLI's do: `jobs()` lists every plugin's tools, then convert from Junos to
+  every target, so a new plugin or tool shows up in the new tab picker unasked. A tool runs generically (its problems
+  from the result's diagnostics, its links from `sourceLines`); convert is the core's `convert()` from Junos to the
+  target (its problems from the ledger's diagnostics and `issues`, its links from `links` and the statements' spans,
+  its rows from `interfaces`). Each runs synchronously on every change (config_22, 316 KB, parses in tens of
+  milliseconds). The store's actions act on the tab shown. The interface map is kept while the source is edited and
+  dropped when another file opens or the target changes, so no name carries over to other ports unasked.
+- `src/session.ts`: what the next start gets back, in `localStorage` (`dialect.session`): each tab's job and file name,
+  or its Docs page, and which was shown. **Never a config's contents**, the output or the interface names: configs
+  hold secrets, and browser storage is plain text in the user's profile. A restored conversion tab has no source and
+  offers to reopen its file (`reopen`). Nothing is kept in IndexedDB or sessionStorage; the web tests check all three.
+- `src/commands.ts`: every command the menus and the shortcuts run, with its keybinding, in one registry (Hive's
+  `commands.ts`): `createCommands(platform)` (Exit only with `platform.exit`), `matchKey()` for the window's keydown
+  handler (after the editors, so CodeMirror keeps Undo, Redo and its search keys), and `keysOf()`, which puts a
+  command's browser-safe keys (`webKeys`: Alt+T, Alt+W, Alt+1…9, Alt+PgDn) first in the web build, since a browser
+  keeps Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+1…9 for its own tabs.
+- `src/actions.ts`: what the commands and buttons do with the shell: open, drop and paste into a tab (a new display set
+  tab when a Docs tab shows), load an interface map, copy and save a tab's output (Save output writes to the earlier
+  save's path where the shell can, Save output as always asks), Exit, and Edit's Undo and Redo on the tab's editor
+  last focused (`editor/views.ts` keeps each tab's editors). The shell answers later, so each action takes the tab it
+  started in and the store's `loadSource` and `mergeInterfaceMap` put the answer there, even if another tab is shown by
+  then; if that tab has been closed, the answer goes nowhere and a notice says so (`tests/actions.test.ts`).
+- `src/App.tsx`: the menu bar, the tab strip, every tab's page (a conversion's or a Docs page's, all mounted, the others
+  hidden, so each tab's editors keep their text and undo history), the status bar for the tab shown and the dialogs. A
+  file dropped anywhere opens, even on an editor: the drop is handled in the capture phase, so CodeMirror doesn't
+  insert it, and `platform.openDropped()` reads it.
+- `src/components/MenuBar.tsx`: File, Edit, View, Window (each open tab, the current one ticked) and Help, every item a
+  command from the registry with its shortcut. WAI-ARIA's menubar pattern: `menubar`, `menu`, `menuitem` and
+  `menuitemradio` (the theme, the tabs) with `aria-checked`; Alt or F10 moves to the bar and back, the arrow keys,
+  Home and End move, Enter or Space runs, Esc closes a menu and then leaves the bar, handing the focus back to where it
+  was: inside an editor's shadow root, the editor itself (the focus event's composed path, not its host). A menu stays
+  inside the window and scrolls (the Window menu with many tabs).
+- `src/components/TabStrip.tsx`: a `tablist` of the tabs (title, an unsaved dot, ×, the path on hover), "+" for a new
+  tab, middle-click and Delete to close, the arrow keys, Home and End to move; it scrolls sideways in a narrow window
+  and keeps the current tab in view. `Dialogs.tsx`: the new tab picker (from `jobs()`) and the questions before closing
+  a tab or exiting with unsaved output. `ConversionView.tsx`: a conversion tab's page: its toolbar (the job, convert's
+  target, Open, Paste, Copy output, Save output, and a Reopen bar for a restored tab), the source and output panes and
+  the problems panel (and in convert, the interface table beside it). Moving the cursor in one pane marks the matching
+  lines in the other, through the tab's links.
 - `src/components/InterfaceTable.tsx`: convert's interface table: each interface with its name on the target, the
   suggestion as the input's placeholder and a Use button, Use suggestions, and Load map… / Save map in the CLI's map
   format (the core's `parseInterfaceMap()` and `formatInterfaceMap()`).
@@ -654,15 +772,19 @@ that field is bundled).
 - `src/help/` (B16, Hive's Docs view and About dialog): `docs.ts` bundles `docs/USER_GUIDE.md`, `CHANGELOG.md`,
   `LICENSE` and `THIRD_PARTY_NOTICES.md` with Vite's `?raw`; `Markdown.tsx` renders one with marked, cleans it with
   DOMPurify, gives headings GitHub's ids and keeps every link from navigating the page (another bundled document
-  opens in the view, `#heading` scrolls, `https://` goes to `platform.openLink`); `DocsView.tsx` takes the place of
-  the panes; `AboutDialog.tsx` shows the version, the build and the engine (`engine.ts`: `navigator.userAgentData`'s
-  full version where there is one, else the user agent string); `HelpMenu.tsx` opens them (F1: the guide, Esc: back);
-  `state.ts` is their own small store. `tests/help.test.ts` fails when a bundled document isn't the committed file, so
+  opens its tab, `#heading` scrolls, `https://` goes to `platform.openLink`); `DocsView.tsx` is a Docs tab's page, the
+  list of pages beside it (each opens or shows that page's tab); `AboutDialog.tsx` shows the version, the build, the
+  engine and the OS (`engine.ts`: `navigator.userAgentData` where it tells, else the user agent string); `state.ts`
+  holds whether About is open. The Help menu and F1 are commands (`commands.ts`). `tests/help.test.ts` fails when a bundled document isn't the committed file, so
   with the license check the app's notices are always the current ones. The rendered HTML stays inside the CSP: no
   inline styles or scripts (DOMPurify drops scripts and handlers; marked writes none), so the web build's hash-only
   policy is unchanged. The notices are most of the web build's size: about 1.1 MB in all.
-- `src/styles/help.css`: the menu, the Docs view, the Markdown pages and the About dialog, imported by `app.css`.
-- `src/styles/app.css`: Hive's surface and text colours, and the violet accent from `branding/theme-tokens.css`.
+- `src/styles/help.css`: the Docs view, the Markdown pages, the About dialog and the tab dialogs, imported by
+  `app.css`.
+- `src/styles/app.css`: Hive's surface and text colours, and the violet accent from `branding/theme-tokens.css`, with
+  the layout, the menu bar and the tab strip. Every control is visibly one: buttons, tabs, menus and inputs have an
+  edge (`--border-control`, 3:1 at least on every surface, which `tests/contrast.test.ts` checks), the current tab
+  has the accent on top and joins its page, and focus rings are the accent's (`--focus-ring`, `npm run contrast`).
   `[data-theme]` on `<html>` picks light or dark; the app follows the system unless the user picks one (kept in
   `localStorage` when the browser allows it).
 
@@ -713,11 +835,14 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
 - **Rust:** `src-tauri/src/main.rs` only opens the window and adds the dialog, fs and opener plugins. Conversion runs
   in the webview, from the same TypeScript as the web build.
 - **The Platform** (`src/desktopPlatform.ts`): Open and Save output use `@tauri-apps/plugin-dialog`'s open and save
-  dialogs, then `@tauri-apps/plugin-fs` to read or write that path. A dropped file is read from the drop event, as in
+  dialogs, then `@tauri-apps/plugin-fs` to read or write that path; an opened file's path is the tab's tooltip, and a
+  saved one's is where Save output writes again this session (`saveTextTo`, in the fs scope the dialog gave it).
+  `exit` closes the window through `@tauri-apps/api/window`. A dropped file is read from the drop event, as in
   the web build: the window sets `dragDropEnabled: false`, so the page gets the HTML drop and the UI hands it to
   `openDropped`. The clipboard is WebView2's clipboard API. `openLink` (a Docs link) is `@tauri-apps/plugin-opener`'s
   `openUrl`, which starts the default browser.
-- **Capabilities** (`src-tauri/capabilities/default.json`): `dialog:allow-open`, `dialog:allow-save`,
+- **Capabilities** (`src-tauri/capabilities/default.json`): `core:window:allow-close` (File → Exit closes the only
+  window, which quits the app), `dialog:allow-open`, `dialog:allow-save`,
   `fs:allow-read-text-file` and `fs:allow-write-text-file`, with no fs scope: the dialog plugin adds each file the user
   picks to the fs scope, so the page can read or write those files and no other (the smoke test checks
   `C:\Windows\win.ini` is refused). `opener:allow-open-url` with the scope `https://*` (the opener's glob, whose `*`
@@ -734,9 +859,11 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
 - **Tests:** `tests/desktop.test.ts` (in `npm test`) checks the Platform with the plugins mocked, and the config and
   capability above. `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
   (`tauri build --no-bundle`), starts it from the build output through tauri-driver and Edge WebDriver, drops a
-  fixture and checks its display set, opens About and each Docs page, then checks that the CSP refuses an inline
+  fixture and checks its display set, opens About and each Docs page in its tab, converts in a tab of its own and
+  switches back through the Window menu, then checks that the CSP refuses an inline
   script, a remote image and a fetch (WebDriver's own scripts aren't subject to the CSP, so it checks what the page
-  does), that the fs plugin refuses a file nobody picked and that the opener refuses anything but https. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
+  does), that the fs plugin refuses a file nobody picked and that the opener refuses anything but https, and last that
+  File → Exit (past the unsaved output question) ends the app's process. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
   `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs tauri-driver
   (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver matching the installed WebView2 (from
   `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`), through `MSEDGEDRIVER` or `PATH`.

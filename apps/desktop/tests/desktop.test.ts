@@ -1,4 +1,5 @@
-// The desktop app's own code without building it: the Platform over the dialog and fs plugins (mocked), and the Tauri
+// The desktop app's own code without building it: the Platform over the dialog, fs and opener plugins and the window API
+// (mocked), and the Tauri
 // config and capability that make the app what the card asks for (an NSIS installer only, per user, zlib; a strict CSP;
 // file access only through what the user picks). The built app is tested by the smoke test (e2e/).
 import { readFileSync } from 'fs'
@@ -8,9 +9,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const dialog = vi.hoisted(() => ({ open: vi.fn(), save: vi.fn() }))
 const fs = vi.hoisted(() => ({ readTextFile: vi.fn(), writeTextFile: vi.fn() }))
 const opener = vi.hoisted(() => ({ openUrl: vi.fn() }))
+const appWindow = vi.hoisted(() => ({ close: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => dialog)
 vi.mock('@tauri-apps/plugin-fs', () => fs)
 vi.mock('@tauri-apps/plugin-opener', () => opener)
+vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => appWindow }))
 
 const { baseName, desktopPlatform, FILTERS } = await import('../src/desktopPlatform')
 
@@ -23,10 +26,10 @@ beforeEach(() => {
 })
 
 describe('the desktop platform', () => {
-  it('opens the file the user picks, by its name', async () => {
+  it('opens the file the user picks, by its name, with its path for the tab', async () => {
     dialog.open.mockResolvedValue('C:\\Users\\me\\configs\\edge-1.conf')
     fs.readTextFile.mockResolvedValue('system { host-name edge-1; }\n')
-    expect(await desktopPlatform.openFile()).toEqual({ name: 'edge-1.conf', text: 'system { host-name edge-1; }\n' })
+    expect(await desktopPlatform.openFile()).toEqual({ name: 'edge-1.conf', text: 'system { host-name edge-1; }\n', path: 'C:\\Users\\me\\configs\\edge-1.conf' })
     expect(dialog.open).toHaveBeenCalledWith(expect.objectContaining({ multiple: false, directory: false }))
     expect(fs.readTextFile).toHaveBeenCalledWith('C:\\Users\\me\\configs\\edge-1.conf')
   })
@@ -37,15 +40,26 @@ describe('the desktop platform', () => {
     expect(fs.readTextFile).not.toHaveBeenCalled()
   })
 
-  it('saves to the path the user picks, suggesting the name; writes nothing when they cancel', async () => {
+  it('saves to the path the user picks, suggesting the name, and says where; writes nothing when they cancel', async () => {
     dialog.save.mockResolvedValue('D:\\out\\edge-1.set')
-    await desktopPlatform.saveText('edge-1.set', 'set system host-name edge-1\n')
+    expect(await desktopPlatform.saveText('edge-1.set', 'set system host-name edge-1\n')).toEqual({ path: 'D:\\out\\edge-1.set' })
     expect(dialog.save).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: 'edge-1.set' }))
     expect(fs.writeTextFile).toHaveBeenCalledWith('D:\\out\\edge-1.set', 'set system host-name edge-1\n')
     dialog.save.mockResolvedValue(null)
     fs.writeTextFile.mockClear()
-    await desktopPlatform.saveText('edge-1.set', 'x')
+    expect(await desktopPlatform.saveText('edge-1.set', 'x')).toBeNull()
     expect(fs.writeTextFile).not.toHaveBeenCalled()
+  })
+
+  it('saves again to a path a save gave, without a dialog', async () => {
+    await desktopPlatform.saveTextTo!('D:\\out\\edge-1.set', 'set system host-name edge-2\n')
+    expect(dialog.save).not.toHaveBeenCalled()
+    expect(fs.writeTextFile).toHaveBeenCalledWith('D:\\out\\edge-1.set', 'set system host-name edge-2\n')
+  })
+
+  it('exits by closing its window (File → Exit)', async () => {
+    await desktopPlatform.exit!()
+    expect(appWindow.close).toHaveBeenCalledOnce()
   })
 
   it('offers config files, or interface maps (CSV or JSON) when it opens or saves one', async () => {
@@ -111,9 +125,10 @@ describe('the Tauri config', () => {
     expect(config.app.windows.map((w: { dragDropEnabled: boolean }) => w.dragDropEnabled)).toEqual([false])
   })
 
-  it('lets the page open and save only through the dialogs, with no fs scope of its own, and open https links only', () => {
+  it('lets the page open and save only through the dialogs, with no fs scope of its own, open https links only, and close its window', () => {
     expect(capability.windows).toEqual(['main'])
     expect(capability.permissions).toEqual([
+      'core:window:allow-close',
       'dialog:allow-open',
       'dialog:allow-save',
       'fs:allow-read-text-file',

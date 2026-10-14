@@ -1,34 +1,18 @@
 // Convert mode's interface table: every interface the source names, and its name on the target. None is renamed
 // silently: a row stays unnamed (and the output keeps the source name) until the user types a name, takes the
 // suggestion, or loads a map. Maps load and save as `from,to` lines or JSON, the CLI's --map format.
-import { formatInterfaceMap, parseInterfaceMap } from '@dialect/core'
+import { formatInterfaceMap } from '@dialect/core'
+import { loadInterfaceMap } from '../actions'
 import type { Platform } from '../platform'
-import { SOURCE_PLUGIN, targetPlugin, useStore } from '../store'
+import { SOURCE_PLUGIN, targetPlugin, useStore, type ConversionTab } from '../store'
 import { CheckIcon, OpenIcon, SaveIcon, WarningIcon } from './Icons'
 
-export function InterfaceTable({ platform }: { platform: Platform }) {
-  const interfaces = useStore((s) => s.interfaces)
-  const interfaceMap = useStore((s) => s.interfaceMap)
-  const targetId = useStore((s) => s.targetId)
-  const { setInterfaceName, takeSuggestions, mergeInterfaceMap, revealAt, notify } = useStore.getState()
-  const target = targetPlugin(targetId)
+export function InterfaceTable({ tab, platform }: { tab: ConversionTab; platform: Platform }) {
+  const { interfaces, interfaceMap } = tab
+  const { setInterfaceName, takeSuggestions, revealAt, notify } = useStore.getState()
+  const target = targetPlugin(tab.job.kind === 'convert' ? tab.job.target : '')
   const unnamed = interfaces.filter((i) => i.target === undefined)
   const suggestible = unnamed.filter((i) => i.suggestion)
-
-  const loadMap = async (): Promise<void> => {
-    try {
-      const file = await platform.openFile('interface-map')
-      if (!file) return
-      const { map, problems } = parseInterfaceMap(file.text)
-      if (problems.length) return notify('error', `${file.name}: ${problems[0]}${problems.length > 1 ? ` (and ${problems.length - 1} more)` : ''}`)
-      mergeInterfaceMap(map)
-      const known = new Set(useStore.getState().interfaces.map((i) => i.source))
-      const extra = Object.keys(map).filter((name) => !known.has(name)).length
-      notify('info', `Loaded ${file.name}.${extra ? ` ${extra} of its interfaces aren't in this config.` : ''}`)
-    } catch (e) {
-      notify('error', `Couldn't open the map: ${(e as Error).message}`)
-    }
-  }
 
   const saveMap = async (): Promise<void> => {
     try {
@@ -49,7 +33,7 @@ export function InterfaceTable({ platform }: { platform: Platform }) {
           <button className="btn small" onClick={takeSuggestions} disabled={suggestible.length === 0} title="Name every unnamed interface as suggested">
             Use suggestions
           </button>
-          <button className="btn small" onClick={() => void loadMap()} title="Load names from a map file: from,to lines, or JSON">
+          <button className="btn small" onClick={() => void loadInterfaceMap(platform, tab.id)} title="Load names from a map file: from,to lines, or JSON">
             <OpenIcon /> Load map…
           </button>
           <button className="btn small" onClick={() => void saveMap()} disabled={Object.keys(interfaceMap).length === 0} title="Save the names as a map file (from,to lines), for next time or the command line">

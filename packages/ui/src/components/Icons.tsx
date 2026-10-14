@@ -62,3 +62,15 @@ export const CheckIcon = () => (
     <path d="m3 8.5 3 3 7-7" />
   </Icon>
 )
+
+export const CloseIcon = () => (
+  <Icon>
+    <path d="M4 4l8 8M12 4l-8 8" />
+  </Icon>
+)
+
+export const PlusIcon = () => (
+  <Icon>
+    <path d="M8 3v10M3 8h10" />
+  </Icon>
+)

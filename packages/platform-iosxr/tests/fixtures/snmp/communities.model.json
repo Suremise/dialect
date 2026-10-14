@@ -1,0 +1,19 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "snmp": {
+        "communities": {
+          "PLACEHOLDER-RO": {
+            "access": "read-only"
+          },
+          "PLACEHOLDER-RW": {
+            "access": "read-write"
+          }
+        },
+        "contact": "noc@example.net",
+        "location": "rack 1"
+      }
+    }
+  }
+}

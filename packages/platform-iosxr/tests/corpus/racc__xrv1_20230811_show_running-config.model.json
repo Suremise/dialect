@@ -1,0 +1,96 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "SANDBOX-XR-CISCO",
+      "snmp": {
+        "communities": {
+          "public": {
+            "access": "read-only"
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "Loopback100": {
+        "type": "loopback",
+        "description": "***TEST LOOPBACK****",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.1.1.100": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "Loopback555": {
+        "type": "loopback",
+        "description": "PRUEBA_KV"
+      },
+      "MgmtEth0/RP0/CPU0/0": {
+        "type": "management",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.10.20.175": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "enabled": false
+      },
+      "GigabitEthernet0/0/0/1": {
+        "type": "ethernet",
+        "description": "Configured by Ansible"
+      },
+      "GigabitEthernet0/0/0/2": {
+        "type": "ethernet",
+        "description": "Configured by Ansible"
+      },
+      "GigabitEthernet0/0/0/3": {
+        "type": "ethernet",
+        "description": "test",
+        "enabled": false
+      },
+      "GigabitEthernet0/0/0/4": {
+        "type": "ethernet",
+        "enabled": false
+      },
+      "GigabitEthernet0/0/0/5": {
+        "type": "ethernet",
+        "enabled": false
+      },
+      "GigabitEthernet0/0/0/6": {
+        "type": "ethernet",
+        "enabled": false
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "10.10.20.254"
+              },
+              "1": {
+                "interface": "MgmtEth0/RP0/CPU0/0",
+                "address": "10.10.20.254"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

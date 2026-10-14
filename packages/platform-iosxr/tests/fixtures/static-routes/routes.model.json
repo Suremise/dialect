@@ -1,0 +1,57 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "192.0.2.254"
+              },
+              "1": {
+                "address": "198.51.100.254",
+                "preference": 200
+              }
+            }
+          },
+          "10.0.0.0/8": {
+            "description": "summary discard",
+            "nextHops": {
+              "0": {
+                "drop": "discard",
+                "tag": 100
+              }
+            }
+          },
+          "192.0.2.128/25": {
+            "nextHops": {
+              "0": {
+                "interface": "GigabitEthernet0/0/0/0",
+                "address": "192.0.2.1"
+              }
+            }
+          },
+          "::/0": {
+            "nextHops": {
+              "0": {
+                "address": "2001:db8::1"
+              }
+            }
+          }
+        }
+      },
+      "CUST-A": {
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "203.0.113.62"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

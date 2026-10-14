@@ -1,0 +1,51 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "xr-no-route"
+    },
+    "interfaces": {
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.2.1": {
+                  "prefixLength": 23
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.2.129": {
+                  "prefixLength": 23
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "10.0.0.0/24": {
+            "nextHops": {
+              "0": {
+                "address": "10.0.0.1"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

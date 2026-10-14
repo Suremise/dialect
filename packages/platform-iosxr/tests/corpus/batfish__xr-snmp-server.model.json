@@ -1,0 +1,12 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "xr-snmp-server",
+      "snmp": {
+        "contact": "hello there",
+        "location": "magical place"
+      }
+    }
+  }
+}

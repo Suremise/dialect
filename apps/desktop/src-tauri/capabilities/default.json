@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window opens and saves the files the user picks (the dialog plugin adds each picked file to the fs plugin's scope, which has no other paths), and opens https links from the Docs in the browser.",
+  "description": "The main window opens and saves the files the user picks (the dialog plugin adds each picked file to the fs plugin's scope, which has no other paths), opens https links from the Docs in the browser, and closes its window for File → Exit.",
   "windows": [
     "main"
   ],
   "permissions": [
+    "core:window:allow-close",
     "dialog:allow-open",
     "dialog:allow-save",
     "fs:allow-read-text-file",

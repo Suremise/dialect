@@ -1,0 +1,37 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "bundle-ether-subif"
+    },
+    "interfaces": {
+      "Bundle-Ether500": {
+        "type": "aggregate",
+        "mtu": 9216,
+        "subinterfaces": {
+          "2": {
+            "vlanId": 2
+          }
+        },
+        "vlanTagging": true
+      },
+      "TenGigE0/1": {
+        "type": "ethernet"
+      },
+      "Bundle-Ether600": {
+        "type": "aggregate",
+        "enabled": false,
+        "mtu": 9216,
+        "subinterfaces": {
+          "3": {
+            "vlanId": 3
+          }
+        },
+        "vlanTagging": true
+      },
+      "TenGigE0/2": {
+        "type": "ethernet"
+      }
+    }
+  }
+}
