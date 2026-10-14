@@ -334,7 +334,8 @@ B4). Plugins take and return strings and plain objects only.
   `ignored-by-design` (with a reason) or `unsupported`.
 - **Field dispositions:** `rendered` (with its output span), `unsupported`, or `not-applicable` (with a reason).
 - **Diagnostics** have a severity, and optionally a category (`syntax`, `semantic`), a code, a span, a statement and a
-  field. Semantic warnings are diagnostics with `category: 'semantic'`.
+  field. Semantic warnings are diagnostics with `category: 'semantic'`. A parse's span is in the source and a
+  render's in its output; in a conversion, convert() moves the render's to `outputSpan` (#112), below.
 - **Needs-input items** are what the user must supply (an interface's name on the target, a secret that won't carry
   over), answered through `context.inputs` by id.
 
@@ -395,7 +396,16 @@ needs-input items (a key, a password, IOS-XR's eBGP policy, a Junos VRF's RD and
 a field with no span carry only a `field` of the renamed model. `convert()` maps that back to the source's names
 (`sourcePathOf()`, as for issues) and sets `statement` to the first source statement, in tree order, that filled the
 field or a leaf under it, else its nearest ancestor's below the model's top level (`statementAt()`), so shells give
-the item's line. One the plugin placed itself, or a diagnostic with a span, is left as it is. `unanswered` holds every
+the item's line. One the plugin placed itself is left as it is.
+
+**A render's span is the output's** (#112). A renderer gives a diagnostic about a line it wrote (IOS-XE's and NX-OS's
+policy and ACL warnings, IOS-XR's) that line as its `span`, but shells read a diagnostic's `span` as a place in the
+source. So `convert()` moves it to `outputSpan`, in `render.diagnostics` and the ledger alike, and finds the
+diagnostic's statement from its `field` as for a placeless one: in a conversion, every `span` is the source's. The CLI
+prints such a warning at its statement's line with `(output line N)` after the message; the app puts it at its
+statement's line, gives `output line N` beside it, and marks that line in the output's issue gutter (clicking a
+problem with no source line goes to its output line). Placing the warning in the shells by `render.diagnostics` instead
+was turned down: it leaves `span` meaning two things in one ledger, and a warning would lose its source line. `unanswered` holds every
 item the render raised, answered or not: a plugin raises one only while it has no answer it can use, so an answer in a
 form it doesn't take leaves the item asked (and shells say the answer wasn't taken).
 
@@ -1848,7 +1858,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   writes every interface to a map file to fill in, through `io.writeFile`). It returns the
   exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 needs-input items unanswered without
   `--allow-incomplete`). Diagnostics and convert's issues print as `name:line:column: severity: message`, an issue with
-  its plugin's reason only, and a diagnostic with no span at its `statement`'s. It never touches `process`, so it can
+  its plugin's reason only, a diagnostic with no span at its `statement`'s, and a render's with `(output line N)` after
+  the message (#112). It never touches `process`, so it can
   be called directly.
 - `src/answers.ts` (#105): the answers file, for every needs-input item but interface names. `parseAnswers()` reads
   `"id" = answer` lines (the id a JSON string, as ids hold any character; the answer the rest of the line, trimmed) or

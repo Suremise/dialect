@@ -269,6 +269,18 @@ describe('dialect convert', () => {
     }
   })
 
+  it("prints a render's warning at its source statement's line, with its line of the output (#112)", () => {
+    const src = ['firewall {', '    family inet {', '        filter EDGE {', '            term BLOCK {', '                from {', '                    protocol tcp;', '                }', '                then reject;', '            }', '        }', '    }', '}', ''].join('\n')
+    const run = dialect(['convert', '--from', 'junos', '--to', 'iosxe', '-'], src)
+    expect(run.status, run.stderr).toBe(0)
+    const output = run.stdout.split('\n')
+    const warning = run.stderr.split('\n').find((l) => l.includes('ICMP unreachable is written as deny'))
+    // At `then reject;` (line 8), not at the access list's entry, which is a line of the output.
+    const [, line, out] = /^<stdin>:(\d+):\d+: warning: .* \(output line (\d+)\)$/.exec(warning ?? '') ?? []
+    expect(line, run.stderr).toBe('8')
+    expect(output[Number(out) - 1]).toMatch(/^ *(\d+ )?deny tcp/)
+  })
+
   it.each([
     ['nxos', 'iosxr', 'hostname n1\n', 'hostname n1'],
     ['iosxr', 'nxos', 'hostname x1\n', 'hostname x1'],

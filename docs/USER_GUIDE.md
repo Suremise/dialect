@@ -139,7 +139,9 @@ converted says why, even one Dialect doesn't read at all ("logical systems come 
 In the app, open a convert tab (**File → New Tab…**, then **Convert**, with the platform to convert from and the one
 to convert to); both can be changed at the top of the tab. Then open, drop or paste the config as in display set. The target platform's config appears on the right as you type. Below, the **Problems**
 panel lists what didn't carry over. The same lines are marked in the source's gutter, with the reason on hover, and
-clicking a problem shows its line. The **Interfaces** table lists every interface to name (see below). Moving the
+clicking a problem shows its line. A warning about the converted config itself (a filter term written as `deny` where
+the source rejected, say) is at the source line it came from, and also gives its line of the output, which is marked
+in the output's gutter. The **Interfaces** table lists every interface to name (see below). Moving the
 cursor in one pane marks the matching lines in the other. Copy output and Save output work as in display set; a saved
 conversion is named after the source with the target's name (`edge-1.conf` → `edge-1.iosxe`).
 
@@ -377,6 +379,9 @@ It prints the converted config to stdout, and to stderr what didn't carry over, 
 router.conf:66:9: warning: not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards
 router.conf:74:1: warning: not converted: routing protocols come later
 ```
+
+A warning about the converted config itself is at the source line it came from, with its line of the output after
+the message: `router.conf:8:17: warning: A term that rejects … (output line 2)`.
 
 `--map` gives the interfaces' names on the target (see [Interface names](#interface-names)), and `--answers` the rest
 of what the target needs: keys, passwords, an IOS-XR route policy for an eBGP neighbor, a Junos VRF's route

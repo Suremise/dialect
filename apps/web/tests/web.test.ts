@@ -506,6 +506,22 @@ describe('convert mode in the web build', () => {
     await expect.poll(() => tab().locator('[data-pane=source] .cm-issue-warning[title^="Not converted"]').count(), UI_WAIT).toBe(3)
   })
 
+  it("shows a render's warning at its source statement, and marks its line of the output (#112)", async () => {
+    await openPage()
+    await newTab(CONVERT_JOB)
+    // A term that rejects: IOS-XE writes it as deny and warns at the access list's entry.
+    await typeSource('firewall {\n    family inet {\n        filter EDGE {\n            term BLOCK {\n                from {\n                    protocol tcp;\n                }\n                then reject;\n            }\n        }\n    }\n}\n')
+    const problem = tab().locator('.problem.warning', { hasText: 'ICMP unreachable is written as deny' })
+    await expect.poll(() => problem.locator('.problem-place').innerText(), UI_WAIT).toMatch(/^line 8, column 17; output line \d+$/)
+    // The output's gutter marks its line, saying why on hover.
+    const marker = tab().locator('[data-pane=output] .cm-issue-warning[title^="A term that rejects"]')
+    await expect.poll(() => marker.count(), UI_WAIT).toBe(1)
+    expect(await tab().locator('[data-pane=output] .cm-mark-warning', { hasText: 'deny tcp' }).count()).toBe(1)
+    // Clicking it goes to the source statement.
+    await problem.click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('                then reject;')
+  })
+
   it('links an output line to its source statement, and back', async () => {
     await openPhase1()
     await tab().getByRole('button', { name: 'Use suggestions' }).click()

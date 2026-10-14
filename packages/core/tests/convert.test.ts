@@ -240,7 +240,13 @@ describe('convert: issues and the parse', () => {
       const placed = Object.fromEntries(c.unanswered.filter((n) => n.kind !== 'interface-name').map((n) => [n.id, n.statement]))
       expect(placed).toEqual({ 'key:desc': 'eth0-desc', 'key:lo0': 'lo0', 'rd:blue': undefined, given: 'host' })
       expect(c.ledger.needsInput.find((n) => n.id === 'key:desc')?.statement).toBe('eth0-desc')
-      expect(c.ledger.diagnostics.map((d) => d.statement)).toEqual(['eth0-desc', undefined])
+      // One at an output line keeps it as its outputSpan, never as a span, which is the source's (#112).
+      const output = { startLine: 1, startColumn: 1, endLine: 1, endColumn: 2 }
+      expect(c.ledger.diagnostics.map((d) => [d.statement, d.span, d.outputSpan])).toEqual([
+        ['eth0-desc', undefined, undefined],
+        ['eth0-desc', undefined, output]
+      ])
+      expect(c.render!.diagnostics[1]).toEqual({ severity: 'warning', message: 'at an output line', field: c.render!.diagnostics[1].field, statement: 'eth0-desc', outputSpan: output })
     }
     // The plugin asks again for what it can't use: an answer it doesn't take leaves the item unanswered.
     const rejected = convert(source, asking, 'config', { modelVersion: MODEL_VERSION, inputs: { 'key:desc': 'not taken' } })
