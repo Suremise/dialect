@@ -16,7 +16,7 @@
 // 5. no secret: none of the fixture's secret values is in a diagnostic, needs-input item, ledger reason, tool
 //    diagnostic, tool report (a tool's text, unless it is a config tool's) or thrown error, on the fixture or on broken copies of it (secrets.ts). Skipped for a fixture with none.
 // An error a step reports fails its check even when its output matches: a plugin that says it failed isn't conformant.
-import { buildLedger, fieldPath, ledgerProblems, MODEL_VERSION, modelProblems, pathSegments, populatedLeaves, termSkipSafe, type Context, type Device, type ParseResult, type PlatformPlugin, type RenderResult, type SyntaxNode } from '@dialect/core'
+import { buildLedger, fieldPath, filterTermSkipSafe, ledgerProblems, MODEL_VERSION, modelProblems, pathSegments, populatedLeaves, termSkipSafe, type Context, type Device, type ParseResult, type PlatformPlugin, type RenderResult, type SyntaxNode } from '@dialect/core'
 import type { SecretAllowance } from './allowances'
 import { checkSecrets, describeLeak, findSecrets, type SecretsOptions } from './secrets'
 
@@ -130,7 +130,11 @@ function withoutEmptied(model: unknown, emptied: ReadonlySet<string>, at: readon
   return out
 }
 
-/** A term's identity, from a field path under it (`routingPolicy.policies.P.terms.T…`), or null for any other path. */
+/**
+ * A term's identity, from a field path under it, as the JSON of its own path's segments: a policy's
+ * (`routingPolicy.policies.P.terms.T…`, model 0.5.0) or a filter's (`filters.ipv4.F.terms.T…`, 0.5.1). Null for any
+ * other path.
+ */
 function termOf(path: string): string | null {
   let s: ReturnType<typeof pathSegments>
   try {
@@ -138,25 +142,25 @@ function termOf(path: string): string | null {
   } catch {
     return null
   }
-  return s.length >= 5 && s[0] === 'routingPolicy' && s[1] === 'policies' && s[3] === 'terms' ? JSON.stringify([s[2], s[4]]) : null
+  const policy = s[0] === 'routingPolicy' && s[1] === 'policies'
+  const filter = s[0] === 'filters' && (s[1] === 'ipv4' || s[1] === 'ipv6')
+  return s.length >= 5 && (policy || filter) && s[3] === 'terms' ? JSON.stringify(s.slice(0, 5)) : null
 }
 
 /**
- * The per-term rule (model 0.5.0; docs/ARCHITECTURE.md): a policy term is converted whole or not at all, and one left
- * out leaves the rest of its policy converted only when termSkipSafe() says later terms still see the same routes.
+ * The per-term rule (model 0.5.0, filters since 0.5.1; docs/ARCHITECTURE.md): a policy's or filter's term is converted
+ * whole or not at all, and one left out leaves the rest converted only when termSkipSafe() (filterTermSkipSafe())
+ * says later terms still see the same routes (packets).
  * - Parse: the statements that make up a term (the smallest subtree holding every statement that maps into it, widened
  *   while its parent maps nothing outside that term) are mapped or ignored by design, none unsupported, when anything
  *   of the term reaches the model. A term the parse leaves out whole isn't in the model, so its safety is the parser's
  *   to judge (it knows the term's actions): it can't be checked here.
  * - Render: a term's leaves are all `unsupported` or none is; a term left out whose skip isn't safe leaves every leaf of
- *   its policy `unsupported` (its `fallThrough` aside, which may also be `not-applicable`).
+ *   its policy or filter `unsupported` (its `fallThrough` or `implicitAction` aside, which may be `not-applicable`).
  */
 export function termProblems(parsed: ParseResult, rendered?: RenderResult, model: Device = parsed.model): string[] {
   const out: string[] = []
-  const show = (term: string) => {
-    const [policy, key] = JSON.parse(term) as [string, string]
-    return fieldPath('routingPolicy', 'policies', policy, 'terms', key)
-  }
+  const show = (term: string) => fieldPath(...(JSON.parse(term) as string[]))
 
   // ---- parse: statements, by the terms their mapped fields are in
   const parent = new Map<SyntaxNode, SyntaxNode | undefined>()
@@ -220,20 +224,27 @@ export function termProblems(parsed: ParseResult, rendered?: RenderResult, model
   // ---- render: fields, term by term
   if (!rendered) return out
   const kind = (path: string) => (Object.hasOwn(rendered.dispositions, path) ? rendered.dispositions[path].kind : undefined)
-  for (const [name, policy] of Object.entries(model.routingPolicy?.policies ?? {})) {
-    if (!policy?.terms) continue
+  /** Every policy and filter, with what its terms decide, whether a term's skip is safe, and its platform default's leaf. */
+  const ordered: { at: string[]; terms: Record<string, unknown> | undefined; whole: unknown; safe: (key: string) => boolean; byDefault: string; what: 'policy' | 'filter'; sees: string }[] = [
+    ...Object.entries(model.routingPolicy?.policies ?? {}).map(([name, policy]) => ({ at: ['routingPolicy', 'policies', name], terms: policy?.terms, whole: policy, safe: (key: string) => termSkipSafe(policy, key), byDefault: 'fallThrough', what: 'policy' as const, sees: 'routes' })),
+    ...(['ipv4', 'ipv6'] as const).flatMap((family) =>
+      Object.entries(model.filters?.[family] ?? {}).map(([name, filter]) => ({ at: ['filters', family, name], terms: filter?.terms, whole: filter, safe: (key: string) => filterTermSkipSafe(filter, key), byDefault: 'implicitAction', what: 'filter' as const, sees: 'packets' }))
+    )
+  ]
+  for (const { at, terms, whole, safe, byDefault, what, sees } of ordered) {
+    if (!terms) continue
     const unsafe: string[] = []
-    for (const key of Object.keys(policy.terms)) {
-      const kinds = populatedLeaves(policy.terms[key], ['routingPolicy', 'policies', name, 'terms', key]).map((l) => kind(l.path))
-      const term = fieldPath('routingPolicy', 'policies', name, 'terms', key)
+    for (const key of Object.keys(terms)) {
+      const kinds = populatedLeaves(terms[key], [...at, 'terms', key]).map((l) => kind(l.path))
+      const term = fieldPath(...at, 'terms', key)
       if (!kinds.includes('unsupported')) continue
       if (kinds.some((k) => k !== 'unsupported')) out.push(`render converted part of a term: some of ${term}'s fields are unsupported and some aren't`)
-      if (!termSkipSafe(policy, key)) unsafe.push(term)
+      if (!safe(key)) unsafe.push(term)
     }
     if (!unsafe.length) continue
-    const fallThrough = fieldPath('routingPolicy', 'policies', name, 'fallThrough')
-    const converted = populatedLeaves(policy, ['routingPolicy', 'policies', name]).filter((l) => kind(l.path) === 'rendered' || (kind(l.path) === 'not-applicable' && l.path !== fallThrough))
-    if (converted.length) out.push(`render left out ${unsafe.join(', ')}, which later terms would see routes differently without, but converted the rest of the policy: the whole policy is unsupported instead (${converted.map((l) => l.path).join(', ')})`)
+    const platformDefault = fieldPath(...at, byDefault)
+    const converted = populatedLeaves(whole, at).filter((l) => kind(l.path) === 'rendered' || (kind(l.path) === 'not-applicable' && l.path !== platformDefault))
+    if (converted.length) out.push(`render left out ${unsafe.join(', ')}, which later terms would see ${sees} differently without, but converted the rest of the ${what}: the whole ${what} is unsupported instead (${converted.map((l) => l.path).join(', ')})`)
   }
   return out
 }

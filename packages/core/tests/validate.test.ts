@@ -1,7 +1,7 @@
 // modelProblems(), isRouteDistinguisher(), isVlanId(), isAsNumber() and model 0.5.0's isIpAddress(), parsePrefix(),
 // communityType() and isPositionKey(): what a model must hold beyond its types (validate.ts).
 import { describe, expect, it } from 'vitest'
-import { communityType, deserializeModel, fieldPath, isAsNumber, isIpAddress, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, populatedLeaves, serializeModel, type CommunityType, type Device, type PrefixMatchForm, type RegexDialect } from '../src'
+import { communityType, deserializeModel, fieldPath, isAsNumber, isIpAddress, isPortRange, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, populatedLeaves, serializeModel, type CommunityType, type Device, type PrefixMatchForm, type RegexDialect } from '../src'
 
 describe('isRouteDistinguisher', () => {
   it('takes the three forms: ASN:nn, IP:nn and ASN4:nn, at their bounds', () => {
@@ -471,5 +471,103 @@ describe('modelProblems, model 0.5.0', () => {
       ['model.number', at('policies', 'P', 'terms', '1', 'actions', 'localPreference')],
       ['model.as-number', at('policies', 'P', 'terms', '1', 'actions', 'asPathPrepend')]
     ])
+  })
+})
+
+describe('isPortRange (model 0.5.1)', () => {
+  it('takes a port or a range, first below last, from 0 to 65535', () => {
+    for (const ok of ['0', '22', '65535', '1024-65535', '0-1']) expect(isPortRange(ok), ok).toBe(true)
+    for (const bad of ['', '65536', '-1', '22-22', '100-20', '01', '1-2-3', '1024-', '-80', 'ssh', ' 22', '22 ']) expect(isPortRange(bad), bad).toBe(false)
+    expect(isPortRange(22)).toBe(false)
+  })
+})
+
+describe('modelProblems, model 0.5.1', () => {
+  const CANARY = 'CANARY_SECRET'
+  const problems = (device: Device) => {
+    const found = modelProblems(device)
+    expect(found.every((d) => d.severity === 'error' && !d.message.includes(CANARY))).toBe(true)
+    return found.map((d) => [d.code, d.field])
+  }
+  const at = (...path: string[]) => fieldPath('filters', ...path)
+
+  it('finds nothing wrong in filters in the model\'s forms, applied in their family', () => {
+    const device: Device = {
+      interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { filters: { ipv4: { input: 'EDGE', output: 'EDGE' }, ipv6: { input: 'EDGE6' } } } } } },
+      routingPolicy: { prefixLists: { ipv4: { MGMT: {} } } },
+      filters: {
+        ipv4: {
+          EDGE: {
+            description: 'edge',
+            implicitAction: 'discard',
+            terms: {
+              '1': { name: 'ssh', matches: { sourcePrefixLists: ['MGMT'], destinationPrefixes: ['192.0.2.1/32'], protocols: [6], destinationPorts: ['22'], sourcePorts: ['1024-65535'] }, actions: { action: 'accept', count: 'ssh', log: true } },
+              '2': { matches: { protocols: [1], icmpTypes: [8, 0], icmpCodes: [0] }, actions: { action: 'accept' } },
+              '3': { matches: { protocols: [6], tcpEstablished: true, tcpFlags: { set: ['syn'], clear: ['ack'] }, prefixes: ['10.0.0.0/8'], prefixLists: ['MGMT'], ports: ['80', '443'] }, actions: { action: 'next-term', count: 'web' } },
+              '4': { matches: { fragment: 'non-initial', dscp: [0, 46, 63] }, actions: { action: 'reject' } },
+              '5': { actions: { action: 'discard' } }
+            }
+          }
+        },
+        ipv6: { EDGE6: { implicitAction: 'deny', terms: { '10': { matches: { sourcePrefixes: ['2001:db8::/32'], protocols: [58] }, actions: { action: 'accept' } } } } }
+      }
+    }
+    expect(problems(device)).toEqual([])
+  })
+
+  it('reports a filter with no implicit action, a term with no action, keys that aren\'t positions, and values out of range', () => {
+    const loose = JSON.parse(
+      '{"filters":{"ipv4":{"F":{"terms":{"01":{"actions":{"action":"accept"}},"1":{"actions":{}},"2":{"matches":{"protocols":[256],"icmpTypes":[-1],"icmpCodes":[1.5],"dscp":[64],"sourcePorts":["65536"],"destinationPorts":["80-80"],"ports":["ssh"],"tcpFlags":{"set":["SYN"],"clear":["ack"]},"fragment":"all"},"actions":{"action":"permit"}}}},"G":{"implicitAction":"reject"}}}}'
+    ) as Device
+    const term = (key: string, ...leaf: string[]) => at('ipv4', 'F', 'terms', key, ...leaf)
+    expect(problems(loose)).toEqual([
+      ['model.implicit-action', at('ipv4', 'F', 'implicitAction')],
+      ['model.position', at('ipv4', 'F', 'terms', '01')],
+      ['model.filter-action', term('1', 'actions', 'action')],
+      ['model.filter-action', term('2', 'actions', 'action')],
+      ['model.number', term('2', 'matches', 'protocols')],
+      ['model.port-range', term('2', 'matches', 'sourcePorts')],
+      ['model.port-range', term('2', 'matches', 'destinationPorts')],
+      ['model.port-range', term('2', 'matches', 'ports')],
+      ['model.number', term('2', 'matches', 'icmpTypes')],
+      ['model.number', term('2', 'matches', 'icmpCodes')],
+      ['model.number', term('2', 'matches', 'dscp')],
+      ['model.tcp-flags', term('2', 'matches', 'tcpFlags', 'set')],
+      ['model.fragment', term('2', 'matches', 'fragment')],
+      ['model.implicit-action', at('ipv4', 'G', 'implicitAction')]
+    ])
+  })
+
+  it('reports prefixes not in CIDR form or of the other family, and prefix lists the family doesn\'t have', () => {
+    const device: Device = {
+      routingPolicy: { prefixLists: { ipv4: { V4: {} }, ipv6: { V6: {} } } },
+      filters: {
+        ipv4: { F: { implicitAction: 'discard', terms: { '1': { matches: { sourcePrefixes: ['10.0.0.1/8'], destinationPrefixes: ['2001:db8::/32'], prefixes: [CANARY], sourcePrefixLists: ['V4'], destinationPrefixLists: ['V6'], prefixLists: [CANARY] }, actions: { action: 'accept' } } } } },
+        ipv6: { F6: { implicitAction: 'deny', terms: { '1': { matches: { sourcePrefixes: ['10.0.0.0/8'], sourcePrefixLists: ['V6'] }, actions: { action: 'accept' } } } } }
+      }
+    }
+    const term = (family: string, name: string, leaf: string) => at(family, name, 'terms', '1', 'matches', leaf)
+    expect(problems(device)).toEqual([
+      ['model.prefix', term('ipv4', 'F', 'sourcePrefixes')],
+      ['model.prefix', term('ipv4', 'F', 'destinationPrefixes')],
+      ['model.prefix', term('ipv4', 'F', 'prefixes')],
+      ['model.unknown-prefix-list', term('ipv4', 'F', 'destinationPrefixLists')],
+      ['model.unknown-prefix-list', term('ipv4', 'F', 'prefixLists')],
+      ['model.prefix', term('ipv6', 'F6', 'sourcePrefixes')]
+    ])
+  })
+
+  it('reports a subinterface applying a filter the model doesn\'t have in that family', () => {
+    const device: Device = {
+      interfaces: { e1: { subinterfaces: { '0': { filters: { ipv4: { input: 'F', output: 'F6' }, ipv6: { input: 'F', output: CANARY } } } } } },
+      filters: { ipv4: { F: { implicitAction: 'discard' } }, ipv6: { F6: { implicitAction: 'deny' } } }
+    }
+    const attached = (family: string, direction: string) => fieldPath('interfaces', 'e1', 'subinterfaces', '0', 'filters', family, direction)
+    expect(problems(device)).toEqual([
+      ['model.unknown-filter', attached('ipv4', 'output')],
+      ['model.unknown-filter', attached('ipv6', 'input')],
+      ['model.unknown-filter', attached('ipv6', 'output')]
+    ])
+    expect(problems({ interfaces: device.interfaces }).map(([code]) => code)).toEqual(Array(4).fill('model.unknown-filter'))
   })
 })
