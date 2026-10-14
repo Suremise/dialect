@@ -701,6 +701,11 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     in|out` (a later one each way replaces the earlier, and the `no` forms take it off) are its subinterface's
     `filters`, resolved once the text is read: one naming a list that isn't converted, or the text doesn't define
     (IOS then lets every packet through), is `unsupported`.
+  - **No secrets in reasons (#57):** no disposition reason or diagnostic repeats a word of the config (AGENTS.md):
+    they give line numbers and word positions instead ("word 6 isn't converted yet", "a second name for the route named
+    on line 3", "a server of line 1 in another VRF"), and a certificate chain is "a certificate chain, N lines", without
+    its trustpoint's name, so a secret reused as a route word or name, a name server, an NTP or logging option or a
+    trustpoint stays out. A banner's type, a fixed keyword, is the one word a reason gives.
 - **Render (`render.ts`):** gives every leaf of model 0.3 and of 0.4's areas a disposition (DNS as one
   `ip name-server` line per server) and leaves a later version's fields without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,
   and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then

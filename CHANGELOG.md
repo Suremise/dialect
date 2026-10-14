@@ -22,6 +22,8 @@
   keyboard focus shows.
 
 ### Convert
+- **IOS-XE messages no longer quote the config:** a statement that isn't converted says which word, by its position, or
+  which line, never the word itself, so a password or community reused there doesn't show up in a warning or log.
 - **Cisco IOS / IOS-XE and NX-OS VRF import and export maps convert** with the VRF's route targets, as the policies
   they name. A Cisco map filters what the route targets import or export, where Junos `vrf-import` and `vrf-export`
   replace them: converting a Junos VRF policy to IOS-XE or NX-OS warns.

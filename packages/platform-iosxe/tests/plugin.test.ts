@@ -37,7 +37,7 @@ describe('nothing is dropped silently', () => {
     expect(nodes[0]).toMatchObject({ kind: 'banner', text: banner.join('\n'), children: [] })
     expect(result.dispositions[nodes[0].id]).toEqual({ kind: 'unsupported', reason: 'a login banner, 5 lines, kept verbatim' })
     expect(nodes[1]).toMatchObject({ kind: 'certificate-chain', text: chain.join('\n'), children: [] })
-    expect(result.dispositions[nodes[1].id]).toEqual({ kind: 'unsupported', reason: 'certificate chain TP-1, 4 lines, kept verbatim' })
+    expect(result.dispositions[nodes[1].id]).toEqual({ kind: 'unsupported', reason: 'a certificate chain, 4 lines, kept verbatim' })
     // The interface inside the banner is banner text, not configuration.
     expect(result.model).toEqual({ system: { hostname: 'r1' } })
   })
@@ -45,7 +45,7 @@ describe('nothing is dropped silently', () => {
   it('a statement with an option the model can\'t hold is unsupported as a whole, not half-converted', () => {
     const result = parse('ntp server 192.0.2.1 key 1\nip name-server 192.0.2.53 2.3.4.5 use-vrf management')
     expect(result.model).toEqual({})
-    expect(Object.values(result.dispositions)).toEqual([{ kind: 'unsupported', reason: '"key" isn\'t converted yet' }, { kind: 'unsupported', reason: '"use-vrf" isn\'t converted yet' }])
+    expect(Object.values(result.dispositions)).toEqual([{ kind: 'unsupported', reason: 'word 4 isn\'t converted yet' }, { kind: 'unsupported', reason: 'word 5 isn\'t an address' }])
   })
 
   it('a later setting supersedes an earlier one, as on the device', () => {
@@ -57,18 +57,45 @@ describe('nothing is dropped silently', () => {
   })
 })
 
+describe('reasons say where, never a word of the config (AGENTS.md, No secrets in diagnostics)', () => {
+  it('a community reused as a route word, a route name, a name server, an NTP or logging option and a trustpoint never reaches a message', () => {
+    const secret = 'CANARY-COMMUNITY'
+    const text = [
+      `snmp-server community ${secret} RO`,
+      `ip route 10.0.0.0 255.0.0.0 192.0.2.1 ${secret}`,
+      'ip route 10.1.0.0 255.255.0.0 192.0.2.1 name first',
+      `ip route 10.1.0.0 255.255.0.0 192.0.2.2 name ${secret}`,
+      `ip name-server 192.0.2.53 ${secret}`,
+      `ntp server 192.0.2.1 ${secret}`,
+      `logging host 192.0.2.9 ${secret}`,
+      `crypto pki certificate chain ${secret}`,
+      ' certificate self-signed 01',
+      '  30820330',
+      '  quit'
+    ].join('\n')
+    const result = parse(text)
+    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: 'word 6 isn\'t converted yet' })
+    expect(result.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'a second name for the route named on line 3' })
+    expect(result.dispositions.L5).toEqual({ kind: 'unsupported', reason: 'word 4 isn\'t an address' })
+    expect(result.dispositions.L6).toEqual({ kind: 'unsupported', reason: 'word 4 isn\'t converted yet' })
+    expect(result.dispositions.L7).toEqual({ kind: 'unsupported', reason: 'word 4 isn\'t converted yet' })
+    expect(result.dispositions.L8).toEqual({ kind: 'unsupported', reason: 'a certificate chain, 4 lines, kept verbatim' })
+    expect(checkSecrets(plugin, text, [secret], { allowances: [] }).leaks).toEqual([])
+  })
+})
+
 describe('DNS', () => {
   it('a server already named in another VRF is unsupported: the model keys servers by address alone', () => {
     const result = parse('ip name-server vrf A 192.0.2.53\nip name-server 192.0.2.53 192.0.2.54')
     expect(result.model.system?.dns).toEqual({ servers: { '192.0.2.53': { networkInstance: 'A' } } })
-    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: '192.0.2.53 is already a name server in another VRF' })
+    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: 'a server of line 1 in another VRF: the model keys name servers by address alone' })
   })
 
   it('a statement with a malformed IPv6 server is unsupported as a whole, with no server added', () => {
     for (const bad of ['2001:db8:::53', '2001:db8:1:2:3:4:5:6:']) {
       const result = parse(`ip name-server 192.0.2.53 ${bad}`)
       expect(result.model, bad).toEqual({})
-      expect(result.dispositions.L1).toEqual({ kind: 'unsupported', reason: `"${bad}" isn't converted yet` })
+      expect(result.dispositions.L1).toEqual({ kind: 'unsupported', reason: 'word 4 isn\'t an address' })
     }
   })
 
