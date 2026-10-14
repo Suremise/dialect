@@ -1,0 +1,9 @@
+// The repo-wide tests, the scripts' type imports and the Vitest config, on Node. Each workspace package has its own
+// tsconfig.json (npm run typecheck checks them all).
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["tests/**/*", "vitest.config.ts"]
+}

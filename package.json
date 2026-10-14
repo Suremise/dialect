@@ -1,0 +1,36 @@
+{
+  "name": "dialect",
+  "version": "0.0.0",
+  "description": "Dialect: translates network device configs between vendor dialects (desktop app, offline web build and CLI).",
+  "author": "Darren Marshall",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@12.2.0",
+  "engines": {
+    "node": ">=24",
+    "npm": ">=12"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && npm run typecheck --workspaces --if-present",
+    "lint": "oxlint --deny-warnings packages apps tests scripts vitest.config.ts",
+    "test": "vitest run",
+    "licenses": "node scripts/licenses.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "contrast": "node scripts/check-contrast.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "hosted-git-info": "^10.1.1",
+    "oxlint": "^1.88.0",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
+  },
+  "allowScripts": {}
+}

@@ -1,0 +1,17 @@
+// Runs in a browser or the desktop app's webview.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [],
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "src/**/*",
+    "tests/**/*"
+  ]
+}

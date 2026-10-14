@@ -1,0 +1,16 @@
+// Runs on Node 24.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023"
+    ],
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*",
+    "tests/**/*"
+  ]
+}

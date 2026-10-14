@@ -1,0 +1,14 @@
+{
+  "name": "@dialect/conformance",
+  "version": "0.0.0",
+  "description": "Dev-only: the Vitest conformance kit every platform plugin's fixtures run through, with its negative tests.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  }
+}

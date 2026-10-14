@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "oxc", "unicorn"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    // Style preferences, not bugs (as in Hive).
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "no-underscore-dangle": "off"
+  },
+  "ignorePatterns": ["out/**", "dist/**", "node_modules/**", "**/tests/fixtures/**", "branding/out/**", "spike/**"]
+}

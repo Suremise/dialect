@@ -1,0 +1,14 @@
+{
+  "name": "@dialect/desktop",
+  "version": "0.0.0",
+  "description": "The Tauri 2 desktop shell: windows, file dialogs and file access around the shared UI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  }
+}

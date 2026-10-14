@@ -30,3 +30,7 @@
 *.msi binary
 *.dmg binary
 *.wasm binary
+
+# Two branches' new Unreleased entries both stay when they merge (as in Hive). Union keeps both versions of a changed
+# line without warning, so use it for nothing else.
+CHANGELOG.md merge=union

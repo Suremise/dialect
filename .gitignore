@@ -3,6 +3,9 @@
 .hive/
 .agents/
 
+# Personal, machine-specific agent notes (AGENTS.md).
+CLAUDE.local.md
+
 # Python
 __pycache__/
 *.py[cod]
