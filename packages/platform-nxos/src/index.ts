@@ -16,8 +16,9 @@ export { parseTree, type NxNode, type NxTree, type NodeKind } from './tree'
 const plugin: PlatformPlugin = {
   id: 'nxos',
   name: 'Cisco NX-OS',
-  // 0.4.0: its parse fills VLANs, switch ports, SVIs, OSPF and BGP, which a 0.3 core doesn't know.
-  modelApi: '>=0.4.0 <1.0.0',
+  // 0.4.1: its parse fills VLANs, switch ports, SVIs, OSPF and BGP, with BGP's default policy for eBGP, which a 0.4.0
+  // core doesn't know.
+  modelApi: '>=0.4.1 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },

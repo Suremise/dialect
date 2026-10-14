@@ -25,7 +25,7 @@ const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url))
 
 describe('nothing is dropped silently', () => {
   it('unknown statements, and everything inside them, are unsupported with their text kept', () => {
-    const result = parse('router ospf 1\n area 0\n  interface GigabitEthernet0/0/0/0\nhostname r1')
+    const result = parse('router isis 1\n net 49.0001.0000.0000.0001.00\n  interface GigabitEthernet0/0/0/0\nhostname r1')
     expect(result.dispositions.L1).toEqual({ kind: 'unsupported' })
     expect(result.dispositions.L2).toEqual({ kind: 'unsupported' })
     expect(result.dispositions.L3).toEqual({ kind: 'unsupported' })
@@ -224,10 +224,13 @@ describe('VRF route targets and route distinguishers', () => {
     expect(result.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'a VRF\'s import or export policy: route policies come later' })
   })
 
-  it('a route distinguisher is BGP\'s on IOS-XR: unsupported in router bgp, and unsupported on render', () => {
-    const result = parse('vrf A\nrouter bgp 65000\n vrf A\n  rd 65000:1')
-    expect(result.model).toEqual({ networkInstances: { A: { type: 'vrf' } } })
-    expect(result.dispositions.L4).toEqual({ kind: 'unsupported' })
+  it('a route distinguisher is BGP\'s on IOS-XR: under router bgp, and unsupported on render without a local AS', () => {
+    const text = 'vrf A\nrouter bgp 65000\n vrf A\n  rd 65000:1'
+    const result = parse(text)
+    expect(result.model).toEqual({ networkInstances: { A: { type: 'vrf', routeDistinguisher: '65000:1', bgp: { localAs: 65000 } }, default: { bgp: { localAs: 65000 } } } })
+    expect(result.dispositions.L4).toEqual({ kind: 'mapped', fields: ['networkInstances.A.routeDistinguisher'] })
+    expect(roundTrips(text)).toEqual([])
+    expect(parse('vrf A\nrouter bgp 65000\n vrf A\n  rd auto').dispositions.L4).toMatchObject({ kind: 'unsupported' })
     const rendered = render({ networkInstances: { A: { type: 'vrf', routeDistinguisher: '65000:1' }, default: { routeDistinguisher: '65000:2' } } })
     expect(rendered.text).toBe('vrf A\n!\n')
     expect(rendered.dispositions['networkInstances.A.routeDistinguisher']).toEqual({ kind: 'unsupported', reason: 'IOS-XR sets a VRF\'s route distinguisher under router bgp, whose AS the model doesn\'t hold' })

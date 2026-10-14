@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.0",
+  "modelVersion": "0.4.1",
   "device": {
     "system": {
       "hostname": "border-1"
@@ -18,6 +18,10 @@
                 "ipv4-unicast": {}
               }
             }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "accept",
+            "export": "accept"
           }
         }
       },
@@ -45,6 +49,7 @@
               "multihop": {
                 "ttl": 2
               },
+              "authentication": true,
               "addressFamilies": {
                 "ipv4-unicast": {
                   "importPolicies": [
@@ -62,6 +67,10 @@
                 "ipv6-unicast": {}
               }
             }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "accept",
+            "export": "accept"
           }
         }
       }

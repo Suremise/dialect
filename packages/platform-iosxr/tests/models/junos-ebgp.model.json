@@ -1,0 +1,18 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 65000,
+          "ebgpDefaultPolicy": { "import": "accept", "export": "accept" },
+          "neighbors": {
+            "198.51.100.1": { "peerAs": 64512, "addressFamilies": { "ipv4-unicast": {} } },
+            "198.51.100.5": { "peerAs": 64513, "importPolicies": ["FROM-PEER"], "addressFamilies": { "ipv4-unicast": {} } },
+            "192.0.2.2": { "peerAs": 65000, "addressFamilies": { "ipv4-unicast": {} } }
+          }
+        }
+      }
+    }
+  }
+}
