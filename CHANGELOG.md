@@ -28,7 +28,8 @@
 - **The web build**, `dialect.html`: display set in a browser, from one file opened from disk, with nothing installed
   and no network. Open a file, drop one or paste, and see the display set as you type, with warnings and syntax errors
   in a problems panel, linked lines between source and output, copy and save, and light and dark themes in Dialect's
-  violet.
+  violet. The output is counted in commands (set, deactivate and protect), so a multi-line banner counts once, with
+  its lines said too.
 - **The desktop app** for Windows: the same display set in its own window, from a per-user installer (no admin rights
   needed). Open and save with the Windows dialogs or drop a file on the window; the app can touch only the files you
   pick and reaches no network. Unsigned for now, so SmartScreen may warn.

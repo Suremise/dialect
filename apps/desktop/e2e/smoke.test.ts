@@ -113,7 +113,7 @@ describe('the desktop app', () => {
       .filter(Boolean)
       .join('\n')
     await expect.poll(() => paneText('output'), UI_WAIT).toBe(expected)
-    expect(await testIdText('output-summary')).toBe('3 set lines')
+    expect(await testIdText('output-summary')).toBe('3 commands')
   })
 
   it('runs under a CSP that blocks inline scripts and the network', async () => {
