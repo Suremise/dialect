@@ -19,7 +19,8 @@
 //   filter F ipv4|ipv6 | filter F seq N accept|discard|reject|next-term [protocol P] [dport R] [source A/L]
 //     [destination A/L] [source-wildcard A W]   (a filter's implicit action is the stub's own, deny)
 //   interface N filter-in F
-//   interface N member A (a member link of aggregate A, which it makes, as IOS does) | interface A min-links K
+//   interface N member A (a member link of aggregate A, aggK with K from 1 to 4096, which it makes, as IOS does)
+//   interface A min-links K
 //   no prefix-list L seq N, no policy P term N, no filter F seq N, no interface N filter-in, no interface N member)
 //
 // A policy term is converted whole or not at all (the per-term rule): a term with a line the stub can't take is left out
@@ -183,6 +184,8 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
         if (w[0] === 'prefix-list' || w[0] === 'community-set' || w[0] === 'as-path-set' || w[0] === 'policy') return policyStatement(w)
         if (w[0] === 'filter') return filterStatement(w)
         if (w[0] === 'interface' && w[2] === 'member' && w.length === 4) {
+          const number = /^agg(\d+)$/.exec(w[3])
+          if (!number || bounded(number[1], 1, 4096, bug.has('malformed')) === null) return unsupported('not an aggregate numbered from 1 to 4096')
           // The aggregate a member names is made, as IOS makes the Port-channel a channel group names.
           const made = bug.has('aggregate') ? [] : [put(['interfaces', w[3], 'type'], 'aggregate')]
           return mapped(put(['interfaces', w[1], 'aggregate'], w[3]), ...made)
@@ -625,7 +628,9 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'filter-prefix': { source: 'filter F ipv4\nfilter F seq 10 accept source 10.0.0.1/8', value: '10.0.0.1/8' },
     wildcard: { source: 'filter F ipv4\nfilter F seq 10 accept source-wildcard 10.0.0.0 0.255.0.255', value: '0.255.0.255' },
     // Zero, the bound a careless reader misses: no links up would leave the aggregate always down, or never.
-    'min-links': { source: 'interface agg1\ninterface agg1 min-links 0', value: '0', line: 2 }
+    'min-links': { source: 'interface agg1\ninterface agg1 min-links 0', value: '0', line: 2 },
+    // Past the highest number an aggregate takes (#110).
+    'aggregate-number': { source: 'interface e1\ninterface e1 member agg4097', value: 'agg4097', line: 2 }
   },
   vrfScoping: {
     delete: { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A', vrf: 'A' },

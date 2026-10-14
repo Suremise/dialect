@@ -20,6 +20,8 @@ const bgpScoped = lines('vrf context A', 'vrf context B', 'router bgp 65000', ' 
 
 /** An access list with entries. */
 const acl = (...entries: string[]) => lines('ip access-list F', ...entries)
+/** A port-channel with a member link (model 0.5.4). */
+const lag = lines('feature lacp', 'interface port-channel1', '  lacp min-links 2', 'interface Ethernet1/1', '  channel-group 1 mode active')
 /** A route map with one sequence and what it says. */
 const routeMap = (...children: string[]) => lines('route-map M permit 10', ...children)
 
@@ -61,7 +63,9 @@ export const NXOS_PROBES: ProbeAdapter = {
     'policy-term': { set: routeMap('  set tag 1'), negated: lines(routeMap('  set tag 1'), 'no route-map M permit 10'), path: ['routingPolicy', 'policies', 'M', 'terms', '10'] },
     'prefix-list-entry': { set: 'ip prefix-list L seq 5 permit 10.0.0.0/8', negated: lines('ip prefix-list L seq 5 permit 10.0.0.0/8', 'no ip prefix-list L seq 5'), path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '5'] },
     'filter-term': { set: acl('  10 permit tcp any any eq 22'), negated: lines(acl('  10 permit tcp any any eq 22'), acl('  no 10')), path: ['filters', 'ipv4', 'F', 'terms', '10'] },
-    'filter-attachment': { set: lines(acl('  10 permit ip any any'), iface('  ip address 192.0.2.1/24', '  ip access-group F in')), negated: lines(acl('  10 permit ip any any'), iface('  ip address 192.0.2.1/24', '  ip access-group F in', '  no ip access-group F in')), path: ['interfaces', 'Ethernet1/1', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] }
+    'filter-attachment': { set: lines(acl('  10 permit ip any any'), iface('  ip address 192.0.2.1/24', '  ip access-group F in')), negated: lines(acl('  10 permit ip any any'), iface('  ip address 192.0.2.1/24', '  ip access-group F in', '  no ip access-group F in')), path: ['interfaces', 'Ethernet1/1', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] },
+    // Model 0.5.4: a member link taken out of its channel group.
+    'aggregate-member': { set: lag, negated: lines(lag, '  no channel-group'), path: ['interfaces', 'Ethernet1/1', 'aggregate'] }
   },
   malformed: {
     'ipv4-address': { source: iface('  ip address 999.1.1.1/24'), value: '999.1.1.1' },
@@ -76,7 +80,10 @@ export const NXOS_PROBES: ProbeAdapter = {
     port: { source: acl('  10 permit tcp any any eq 70000'), value: '70000' },
     'filter-prefix': { source: acl('  10 permit ip 999.1.1.0/24 any'), value: '999.1.1.0/24' },
     // Non-contiguous: never approximated as a prefix.
-    wildcard: { source: acl('  10 permit ip 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' }
+    wildcard: { source: acl('  10 permit ip 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' },
+    // Model 0.5.4: no links, and a channel group past the highest (#110).
+    'min-links': { source: lines('feature lacp', 'interface port-channel1', '  lacp min-links 0'), value: '0', line: 3 },
+    'aggregate-number': { source: lines('interface Ethernet1/1', '  channel-group 4097'), value: '4097', line: 2 }
   },
   vrfScoping: {
     delete: { base: scoped, changed: lines(scoped, 'no vrf context A'), vrf: 'A' },
@@ -94,7 +101,9 @@ export const NXOS_PROBES: ProbeAdapter = {
     'as-path-set': { source: routeMap('  match as-path NOPE'), value: 'NOPE' },
     policy: { source: lines('router bgp 65000', '  neighbor 192.0.2.2', '    remote-as 65001', '    address-family ipv4 unicast', '      route-map NOPE in'), value: 'NOPE' },
     // Model 0.5.1: an interface applying an access list the text never defines.
-    filter: { source: iface('  ip address 192.0.2.1/24', '  ip access-group NOPE in'), value: 'NOPE' }
+    filter: { source: iface('  ip address 192.0.2.1/24', '  ip access-group NOPE in'), value: 'NOPE' },
+    // Model 0.5.4: the port-channel a channel group names is made, as NX-OS makes it.
+    aggregate: { source: lines('feature lacp', 'interface Ethernet1/1', '  channel-group 7 mode active'), value: 'port-channel7' }
   },
   // Model 0.5.1: an access list, which ends in NX-OS's implicit deny.
   implicitAction: { source: acl('  10 permit tcp any any eq 22') },

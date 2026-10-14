@@ -39,6 +39,8 @@ const bgp = (...children: string[]) => lines('router bgp 65000', ...children)
 const acl = (...entries: string[]) => lines('ip access-list extended F', ...entries)
 /** A route map with one sequence and what it says. */
 const routeMap = (...children: string[]) => lines('route-map M permit 10', ...children)
+/** A Port-channel with a member link (model 0.5.4). */
+const lag = lines('interface Port-channel1', ' port-channel min-links 2', 'interface GigabitEthernet1', ' channel-group 1 mode active')
 const ospf = (...children: string[]) => lines('interface GigabitEthernet1', ' ip address 192.0.2.1 255.255.255.0', 'router ospf 1', ' network 192.0.2.0 0.0.0.255 area 0', ...children)
 
 export const IOSXE_PROBES: ProbeAdapter = {
@@ -65,7 +67,9 @@ export const IOSXE_PROBES: ProbeAdapter = {
     'policy-term': { set: routeMap(' set tag 1'), negated: lines(routeMap(' set tag 1'), 'no route-map M permit 10'), path: ['routingPolicy', 'policies', 'M', 'terms', '10'] },
     'prefix-list-entry': { set: 'ip prefix-list L seq 5 permit 10.0.0.0/8', negated: lines('ip prefix-list L seq 5 permit 10.0.0.0/8', 'no ip prefix-list L seq 5'), path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '5'] },
     'filter-term': { set: acl(' 10 permit tcp any any eq 22'), negated: lines(acl(' 10 permit tcp any any eq 22'), acl(' no 10')), path: ['filters', 'ipv4', 'F', 'terms', '10'] },
-    'filter-attachment': { set: lines(acl(' 10 permit ip any any'), iface(' ip access-group F in')), negated: lines(acl(' 10 permit ip any any'), iface(' ip access-group F in', ' no ip access-group F in')), path: ['interfaces', 'GigabitEthernet1', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] }
+    'filter-attachment': { set: lines(acl(' 10 permit ip any any'), iface(' ip access-group F in')), negated: lines(acl(' 10 permit ip any any'), iface(' ip access-group F in', ' no ip access-group F in')), path: ['interfaces', 'GigabitEthernet1', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] },
+    // Model 0.5.4: a member link taken out of its channel group.
+    'aggregate-member': { set: lag, negated: lines(lag, ' no channel-group'), path: ['interfaces', 'GigabitEthernet1', 'aggregate'] }
   },
   malformed: {
     'ipv4-address': { source: iface(' ip address 999.1.1.1 255.255.255.0'), value: '999.1.1.1' },
@@ -80,7 +84,10 @@ export const IOSXE_PROBES: ProbeAdapter = {
     port: { source: acl(' 10 permit tcp any any eq 70000'), value: '70000' },
     'filter-prefix': { source: acl(' 10 permit ip host 999.1.1.1 any'), value: '999.1.1.1' },
     // Non-contiguous: never approximated as a prefix.
-    wildcard: { source: acl(' 10 permit ip 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' }
+    wildcard: { source: acl(' 10 permit ip 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' },
+    // Model 0.5.4: no links, and a channel group past the highest (#110).
+    'min-links': { source: lines('interface Port-channel1', ' port-channel min-links 0'), value: '0', line: 2 },
+    'aggregate-number': { source: iface(' channel-group 4097 mode active'), value: '4097', line: 2 }
   },
   vrfScoping: {
     delete: { base: scoped, changed: lines(scoped, 'no vrf definition A'), vrf: 'A' },
@@ -97,7 +104,9 @@ export const IOSXE_PROBES: ProbeAdapter = {
     'as-path-set': { source: routeMap(' match as-path 99'), value: '99' },
     policy: { source: bgp(' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  neighbor 192.0.2.2 route-map NOPE in'), value: 'NOPE' },
     // Model 0.5.1: an interface applying an access list the text never defines.
-    filter: { source: iface(' ip address 192.0.2.1 255.255.255.0', ' ip access-group NOPE in'), value: 'NOPE' }
+    filter: { source: iface(' ip address 192.0.2.1 255.255.255.0', ' ip access-group NOPE in'), value: 'NOPE' },
+    // Model 0.5.4: the Port-channel a channel group names is made, as IOS makes it.
+    aggregate: { source: iface(' channel-group 7 mode active'), value: 'Port-channel7' }
   },
   // Model 0.5.1: an access list, which ends in IOS's implicit deny.
   implicitAction: { source: acl(' 10 permit tcp any any eq 22') },
