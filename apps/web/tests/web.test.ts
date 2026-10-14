@@ -621,6 +621,29 @@ describe('tabs and the menu bar in the web build', () => {
     await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → Display set', line: 'set system host-name r1' })
   })
 
+  it("keeps Tab inside the new tab picker, through every control in order, both ways, wrapping at its ends", async () => {
+    await openPage()
+    await menu('File', 'New Tab…')
+    const picker = page.getByRole('dialog', { name: 'New tab' })
+    await picker.waitFor(UI_WAIT)
+    /** The focused control, by its label or text. */
+    const at = (): Promise<string> => page.evaluate(() => { const el = document.activeElement as HTMLElement; return (el.getAttribute('aria-label') ?? el.querySelector('.picker-label')?.textContent ?? el.textContent ?? '').trim() })
+    const order = ['Display set (Junos)', 'Convert from', 'Convert to', 'Convert: Junos → Cisco IOS / IOS-XE', 'Cancel']
+    await expect.poll(at, UI_WAIT).toBe(order[0])
+    for (const next of [...order.slice(1), order[0]]) {
+      await page.keyboard.press('Tab')
+      await expect.poll(at, UI_WAIT).toBe(next)
+    }
+    for (const previous of [order[4], order[3], order[2], order[1], order[0]]) {
+      await page.keyboard.press('Shift+Tab')
+      await expect.poll(at, UI_WAIT).toBe(previous)
+    }
+    // The case the trap missed: back from a list goes to the list before it, not to Cancel.
+    await picker.getByRole('combobox', { name: 'Convert to' }).focus()
+    await page.keyboard.press('Shift+Tab')
+    await expect.poll(at, UI_WAIT).toBe('Convert from')
+  })
+
   it('converts between any two platforms, chosen in the new tab picker and then in the tab', async () => {
     await openPage()
     await menu('File', 'New Tab…')

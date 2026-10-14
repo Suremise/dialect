@@ -6,6 +6,9 @@ import { DOCS } from '../help/docs'
 import type { Platform } from '../platform'
 import { convertJob, isUnsaved, SOURCE_PLUGIN, SOURCES, TARGETS, tabTitle, targetsFor, sourcePlugin, toolJobs, useStore, type ConversionTab } from '../store'
 
+/** What Tab moves through in a dialog, in document order. */
+const TABBABLE = 'button:not(:disabled), select:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])'
+
 function Modal({ title, onCancel, children, className }: { title: string; onCancel: () => void; children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const back = useRef<Element | null>(document.activeElement)
@@ -24,8 +27,8 @@ function Modal({ title, onCancel, children, className }: { title: string; onCanc
       e.stopPropagation()
       onCancel()
     } else if (e.key === 'Tab') {
-      // The focus stays in the dialog.
-      const items = [...(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])]
+      // The focus stays in the dialog: past its last control to its first, and back, through every one it has.
+      const items = [...(ref.current?.querySelectorAll<HTMLElement>(TABBABLE) ?? [])]
       const at = items.indexOf(document.activeElement as HTMLElement)
       if (e.shiftKey ? at <= 0 : at === items.length - 1) {
         e.preventDefault()
