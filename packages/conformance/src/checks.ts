@@ -1,0 +1,85 @@
+// The conformance kit's four checks on one fixture, as plain functions (no Vitest), so the kit's own negative tests can
+// assert what they report. suite.ts runs them as Vitest tests over a plugin's fixture folder.
+//
+// For a fixture `<case>.<ext>` (source) + `<case>.model.json` (expected model) + optionally `<case>.rendered.<ext>`
+// (expected render):
+// 1. parse → no error, and the model equals the expected model;
+// 2. render → no error, and the text equals the expected render (when the fixture has one; skipped when it has none
+//    and the render reported no error);
+// 3. render → reparse → no error, and the same model (round-trip stability);
+// 4. the coverage ledger is complete: every statement of the parse and every populated field of the render has a
+//    disposition (core's ledger.ts, which doesn't trust the plugin's own count).
+// An error a step reports fails its check even when its output matches: a plugin that says it failed isn't conformant.
+import { isDeepStrictEqual } from 'node:util'
+import { buildLedger, ledgerProblems, MODEL_VERSION, type Context, type Device, type PlatformPlugin } from '@dialect/core'
+
+/** One fixture, already read (fixtures.ts reads them from disk). */
+export interface Fixture {
+  /** `<area>/<case>`, for reports. */
+  readonly name: string
+  readonly source: string
+  readonly expectedModel: Device
+  /** The expected render, when the fixture has one. */
+  readonly expectedRender?: string
+}
+
+export type CheckName = 'parse' | 'render' | 'round-trip' | 'ledger'
+
+/** One check's outcome: passed, failed with what was wrong, or skipped with why. */
+export interface CheckResult {
+  readonly check: CheckName
+  readonly status: 'passed' | 'failed' | 'skipped'
+  readonly problems: readonly string[]
+}
+
+const lf = (text: string) => text.replace(/\r\n?/g, '\n')
+
+/** Where two models differ, as paths: `a.b: expected 1, got 2`. At most `limit` lines. */
+export function modelDifferences(expected: unknown, actual: unknown, limit = 20): string[] {
+  const out: string[] = []
+  const walk = (e: unknown, a: unknown, at: string) => {
+    if (out.length >= limit || isDeepStrictEqual(e, a)) return
+    const isObj = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v)
+    if (isObj(e) && isObj(a)) {
+      for (const k of new Set([...Object.keys(e as object), ...Object.keys(a as object)])) walk((e as Record<string, unknown>)[k], (a as Record<string, unknown>)[k], at ? `${at}.${k}` : k)
+      return
+    }
+    out.push(`${at || '(model)'}: expected ${JSON.stringify(e)}, got ${JSON.stringify(a)}`)
+  }
+  walk(expected, actual, '')
+  return out
+}
+
+/** The four checks on `fixture` with `plugin`, against the core's model version (tests pass another). */
+export function checkFixture(plugin: PlatformPlugin, fixture: Fixture, { modelVersion = MODEL_VERSION }: { modelVersion?: string } = {}): CheckResult[] {
+  const context: Context = { modelVersion }
+  const result = (check: CheckName, problems: string[]): CheckResult => ({ check, status: problems.length ? 'failed' : 'passed', problems })
+  const skipped = (check: CheckName, why: string): CheckResult => ({ check, status: 'skipped', problems: [why] })
+  if (!plugin.parse || !plugin.render) {
+    const missing = `the plugin has no ${!plugin.parse ? 'parse' : 'render'}()`
+    return (['parse', 'render', 'round-trip', 'ledger'] as const).map((c) => result(c, [missing]))
+  }
+
+  // An error a step reports fails its check, whatever its output matches: warnings and info don't.
+  const errors = (step: string, r: { diagnostics: readonly { severity: string; message: string }[] }) => r.diagnostics.filter((d) => d.severity === 'error').map((d) => `${step} error: ${d.message}`)
+
+  const parsed = plugin.parse(fixture.source, context)
+  const checks: CheckResult[] = [result('parse', [...errors('parse', parsed), ...modelDifferences(fixture.expectedModel, parsed.model)])]
+
+  const rendered = plugin.render(parsed.model, context)
+  const renderErrors = errors('render', rendered)
+  checks.push(
+    fixture.expectedRender === undefined && !renderErrors.length
+      ? skipped('render', 'the fixture has no expected render')
+      : result('render', [
+          ...renderErrors,
+          ...(fixture.expectedRender === undefined || lf(rendered.text) === lf(fixture.expectedRender) ? [] : [`rendered text differs from the expected render:\n--- expected\n${lf(fixture.expectedRender)}\n--- got\n${lf(rendered.text)}`])
+        ])
+  )
+
+  const reparsed = plugin.parse(rendered.text, context)
+  checks.push(result('round-trip', [...errors('reparse', reparsed), ...modelDifferences(parsed.model, reparsed.model).map((d) => `render → reparse changed the model: ${d}`)]))
+
+  checks.push(result('ledger', ledgerProblems(buildLedger(parsed, rendered))))
+  return checks
+}

@@ -1,0 +1,14 @@
+interfaces {
+    ge-0/0/0 {
+        description "uplink to core";
+        unit 0 {
+            family inet {
+                address 192.0.2.1/24;
+                address 198.51.100.1/25;
+            }
+        }
+    }
+    ge-0/0/1 {
+        disable;
+    }
+}
