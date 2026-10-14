@@ -120,9 +120,9 @@ These are public test files, so nothing in them was changed or removed, but flag
 1. Check the license at the root of the source repository, at the commit you take from. If the file says it comes from somewhere else, check that origin instead.
 2. Copy the file unchanged: read it from git (`git cat-file blob <commit>:<path>`) rather than a checkout that may have converted line endings. Clone into a scratch folder outside this repository, and never run the source's scripts or build tools.
 3. Put it under `public/<platform>/<area>/<source>__<name>.<ext>`. CRLF files: LF copy in `public/`, original in `originals/`. Configs inside a lab topology: extract one node's configuration as above, and keep the topology in `originals/topologies/`.
-4. Add its manifest entry (all fields above, the full commit SHA, scan flags), and its license to `LICENSES/` if the source is new. Add a row to the sources table.
+4. Add its manifest entry (all fields above, the full commit SHA, scan flags), and its license to `LICENSES/` if the source is new, with its NOTICE file if it has one (also recorded in `FIXTURE_NOTICES` in `scripts/fixtureLicenses.mjs`). Add a row to the sources table.
 5. Run `node fixtures/verify.mjs --coverage` and update the coverage table and gaps above.
 
 ## Third-party notices
 
-Fixtures don't ship in the app or its installers, so `LICENSES/` is their attribution and they aren't in `THIRD_PARTY_NOTICES.md`. The notices generator should still know about `fixtures/` later: exclude it from shipped components, but check that every source in `manifest.json` has its license in `LICENSES/` (as `verify.mjs` does) and include them if fixtures ever ship, e.g. as samples.
+Fixtures don't ship in the app or its installers, so `LICENSES/` is their attribution and they aren't in `THIRD_PARTY_NOTICES.md` (copied, not shipped: `docs/SPEC.md` §3). `npm run licenses` and `tests/fixtures.test.ts` check, with `scripts/fixtureLicenses.mjs`, that every source in `manifest.json` has a license on the shipped allowlist and its text in `LICENSES/`, that a source with a NOTICE file (recorded in `FIXTURE_NOTICES` there when it is added) has it too, and that `LICENSES/` holds nothing else. If fixtures ever ship, e.g. as samples, they move into the notices.

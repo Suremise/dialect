@@ -4,9 +4,10 @@ Two kinds of hand-written material for `THIRD_PARTY_NOTICES.md`.
 
 ## Other material
 
-Entries for `THIRD_PARTY_NOTICES.md` that aren't npm packages: copied or adapted code, test data, and (from B7) the
-installer's components. `scripts/thirdPartyNotices.mjs` lists them in `OTHER` and adds each file, as written, under
-"Other material".
+Entries for `THIRD_PARTY_NOTICES.md` for material that ships but isn't an npm package: copied or adapted code, and (from
+B7) the installer's components. `scripts/thirdPartyNotices.mjs` lists them in `OTHER` and adds each file, as written,
+under "Other material". Copied material that doesn't ship, such as the test configs in `fixtures/`, gets no entry: its
+license texts in `fixtures/LICENSES/` are its attribution (`docs/SPEC.md`, License).
 
 Add an entry in the same commit that brings the material in, as a new file here and a line in `OTHER`. Give:
 

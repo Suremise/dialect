@@ -192,8 +192,12 @@ each workspace's `typecheck` script.
 - `scripts/licensePolicy.mjs` judges each package's SPDX expression against its category's list (`SHIPPED_ALLOWED`
   or `OPEN_SOURCE`), with the recorded `EXCEPTIONS`.
 - `scripts/licenseText.mjs` keeps the text steps pure: line endings, whether to rewrite a file, and what changed.
+- `scripts/fixtureLicenses.mjs` checks the copied, not shipped fixtures: every source in `fixtures/manifest.json` has
+  a license on the shipped allowlist and its text in `fixtures/LICENSES/`, with its NOTICE file when `FIXTURE_NOTICES`
+  records one, and nothing else is in that folder. `fixtures/verify.mjs` checks the files against the manifest.
 
-`--check` writes nothing and fails on a stale file or a broken rule; `tests/licenses.test.ts` checks the same.
+`--check` writes nothing and fails on a stale file or a broken rule; `tests/licenses.test.ts` checks the same, and
+`tests/fixtures.test.ts` the fixtures.
 
 ## The Junos plugin (`packages/platform-junos`)
 

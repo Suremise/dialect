@@ -44,6 +44,7 @@ npm test               # Vitest: tests/ and each package's tests/
 npm run licenses       # regenerate THIRD_PARTY_NOTICES.md and docs/BUILD_ONLY_PACKAGES.md (-- --check: only check)
 npm run icons          # regenerate branding/out/ from the SVG masters
 npm run contrast       # check the theme tokens against WCAG AA
+npm run fixtures       # check fixtures/ against its manifest and print the coverage table (npm test runs it too)
 ```
 
 CI (`.github/workflows/ci.yml`, Windows, Node 24 with npm 12) runs typecheck, lint, the tests and the license check on

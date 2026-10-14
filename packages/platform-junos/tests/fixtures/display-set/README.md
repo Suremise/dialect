@@ -6,8 +6,9 @@ line, in order.
 
 - **Source:** [saidvandeklundert/juniper-config-converter](https://github.com/saidvandeklundert/juniper-config-converter)
   (MIT, Copyright (c) 2023 saidvandeklundert), `crates/jcc/tests/data/`, commit
-  `d4574088266a100aafa37dfe79b85e478bfecec9`. The untouched copies are in `fixtures/public/junos/pairs/`; the
-  attribution and license text are in `scripts/notices/jcc.md` and `THIRD_PARTY_NOTICES.md`.
+  `d4574088266a100aafa37dfe79b85e478bfecec9`. The untouched copies are in `fixtures/public/junos/pairs/`, with their
+  provenance in `fixtures/manifest.json`. They are copied, not shipped (`docs/SPEC.md` §3), so their attribution is the
+  license text in `fixtures/LICENSES/juniper-config-converter.MIT.txt`, not `THIRD_PARTY_NOTICES.md`.
 - **Generated, not hand-edited:** `../../cleanFixtures.ts` makes these files from the public copies, and a test fails
   if they differ from what it gives. After changing the cleaner, regenerate them with
   `DIALECT_WRITE_FIXTURES=1 npx vitest run packages/platform-junos`.
