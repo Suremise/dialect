@@ -1,0 +1,9 @@
+// The core's tests, on Node (they read the package's own sources to check it stays platform-neutral).
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "tests/**/*"]
+}

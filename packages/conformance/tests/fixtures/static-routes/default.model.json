@@ -1,0 +1,22 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": { "address": "192.0.2.254" },
+              "1": { "address": "192.0.2.253" }
+            }
+          },
+          "203.0.113.0/24": {
+            "nextHops": {
+              "0": { "address": "198.51.100.126" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

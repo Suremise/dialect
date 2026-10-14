@@ -1,0 +1,4 @@
+system {
+    host-name r1;
+    domain-name example.net;
+}
