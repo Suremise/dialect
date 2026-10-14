@@ -15,7 +15,7 @@ import { interfaceType, isInterfaceName, splitSubinterface } from './names'
 import { readEntry } from './filters'
 import { asPathSet, communitySet, prefixSet, readPolicy, RPL_NAME, toPolicy } from './policy'
 import { parseTree, unquote, type XrNode } from './tree'
-import { unconvertedReason } from './unconverted'
+import { secretValues, unconvertedReason } from './unconverted'
 
 type Obj = { [key: string]: unknown }
 type Segments = readonly string[]
@@ -2161,10 +2161,11 @@ export function parse(text: string, _context: Context): ParseResult {
   }
 
   // Every statement left out says why: one its mapper had nothing more to say about, by the keywords of the top-level
-  // statement it is in (unconverted.ts).
+  // statement it is in (unconverted.ts), in words no secret of the configuration is in.
+  const secrets = secretValues(text)
   const explain = (node: XrNode, top: readonly string[]) => {
     const d = dispositions[node.id]
-    if (d?.kind === 'unsupported' && !d.reason) set(node, unsupported(unconvertedReason(top)))
+    if (d?.kind === 'unsupported' && !d.reason) set(node, unsupported(unconvertedReason(top, secrets)))
     for (const child of node.children) explain(child, top)
   }
   for (const node of nodes) explain(node, node.words.map((x) => x.toLowerCase()))

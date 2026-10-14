@@ -22,7 +22,7 @@ import { ignored, mapped, unsupported, type Mutable } from './dispositions'
 import { filterMapper } from './filters'
 import { policyMapper } from './policy'
 import { readConfig, startsWith } from './statements'
-import { unconvertedReason } from './unconverted'
+import { secretValues, unconvertedReason } from './unconverted'
 
 /** The model's syslog severities by Junos's names; `any` is every severity, so down to debug. `none` has no match. */
 export const SEVERITIES: Readonly<Record<string, SyslogSeverity>> = {
@@ -1103,9 +1103,11 @@ export function parse(text: string, _context: Context): ParseResult {
   settleProtocols(settled.policies)
   settleAggregates()
 
-  // Every statement left out says why: one its mapper had nothing more to say about, by its keywords (unconverted.ts).
+  // Every statement left out says why: one its mapper had nothing more to say about, by its keywords (unconverted.ts),
+  // in words no secret of the configuration is in.
+  const secrets = secretValues(text)
   results.forEach((r, i) => {
-    if (r.kind === 'unsupported' && !r.reason) results[i] = unsupported(unconvertedReason(statements[i].words))
+    if (r.kind === 'unsupported' && !r.reason) results[i] = unsupported(unconvertedReason(statements[i].words, secrets))
   })
 
   return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics, ...diagnostics] }

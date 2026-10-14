@@ -1,7 +1,7 @@
 // Why a statement isn't converted, when the mapper found nothing more particular to say: every `unsupported` statement
 // has a reason (#109), so the ledger never shows a bare "not converted". The reason comes from the keywords of the
 // top-level statement it is in, and is one of the fixed texts below: never a word of the configuration, as a value can
-// be a secret.
+// be a secret. Nor one a secret of it is (#114): see unconvertedReason().
 
 const LOGGING = 'logging to the console, the buffer, terminals or an archive, and logging options (facility, prefix, events), come later: the model has remote syslog hosts'
 const AAA = 'users, task groups and AAA come later'
@@ -89,11 +89,59 @@ const SNMP: Readonly<Record<string, string>> = {
   group: 'SNMPv3 comes later: the model has SNMP communities'
 }
 
-/** Why a statement inside the top-level statement whose lowercased words are `top` isn't converted, from keywords alone. */
-export function unconvertedReason(top: readonly string[]): string {
+const GENERIC = "a statement this converter doesn't read"
+/**
+ * The reason of last resort, when a secret of the configuration is a word of every other (an SNMP community named
+ * `multicast`, say): a value one character long, which no secret of the conformance kit's (four characters or more) is.
+ */
+const LAST_RESORT = '—'
+
+/** The keyword table's reason for a statement inside the top-level statement whose lowercased words are `top`. */
+function tableReason(top: readonly string[]): string {
   const [first, second] = top[0] === 'no' ? top.slice(1) : top
   const pick = (table: Readonly<Record<string, string>>, key: string | undefined) => (key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined)
   if (first === 'router') return pick(ROUTER, second) ?? 'routing protocols other than OSPF and BGP come later'
   if (first === 'snmp-server') return pick(SNMP, second) ?? TOP[first]
-  return pick(TOP, first) ?? "a statement this converter doesn't read"
+  return pick(TOP, first) ?? GENERIC
+}
+
+/**
+ * Why a statement inside the top-level statement whose lowercased words are `top` isn't converted, from keywords
+ * alone, and never containing one of `secrets` (secretValues()): a fixed text is a value of the config too when a
+ * secret is one of its words (#114).
+ */
+export function unconvertedReason(top: readonly string[], secrets: readonly string[] = []): string {
+  const safe = (reason: string) => !secrets.some((s) => reason.includes(s))
+  return [tableReason(top), GENERIC].find(safe) ?? LAST_RESORT
+}
+
+// The secret values of an IOS-XR configuration, as the conformance kit's patterns find them, with IOS-XR's own forms:
+// SNMP communities, passwords and secrets with a type (`secret 10 …`, a user's, a line's, a key's `key 7 …`), the same
+// without one at the start of a line, a user's on one line, TACACS+/RADIUS keys, NTP authentication keys (`md5
+// [clear|encrypted] …`) and a key chain's `key-string [clear|password|encrypted] …`. Not anchored at the end of a line,
+// as the kit also parses the configuration with a quote opened just after a secret; a word taken for a secret that
+// isn't one only takes a reason's next choice.
+const SECRETS: readonly RegExp[] = [
+  /\bsnmp-server[ \t]+community[ \t]+(\S+)/gi,
+  /(?<![\w-])(?:password|secret|key)[ \t]+\d+[ \t]+(\S+)/gi,
+  /^[ \t]*(?:password|secret)[ \t]+(?:encrypted[ \t]+|clear[ \t]+)?(\S+)/gim,
+  /\busername[ \t]+\S+[ \t]+(?:secret|password)[ \t]+(?:\d+[ \t]+)?(\S+)/gi,
+  /\b(?:tacacs-server|radius-server)\b[^\n]*?\bkey[ \t]+(?:\d+[ \t]+)?(\S+)/gi,
+  /\bntp[ \t]+authentication-key[ \t]+\d+[ \t]+\S+[ \t]+(?:(?:clear|encrypted)[ \t]+)?(\S+)/gi,
+  /(?<![\w-])key-string[ \t]+(?:(?:clear|password|encrypted|\d+)[ \t]+)?(\S+)/gi
+]
+
+/**
+ * The secret values in `text`, for unconvertedReason() to keep out of a reason: four characters or more, as the kit
+ * takes them (a shorter one, `RO` or a key number, is a word of many reasons and no secret).
+ */
+export function secretValues(text: string): string[] {
+  const out = new Set<string>()
+  for (const pattern of SECRETS)
+    for (const m of text.matchAll(pattern)) {
+      // A quote at either end isn't the secret's, as the kit takes it: `"multicast"`, or `"multicast` cut short.
+      const value = m[m.length - 1].replace(/^"+/, '').replace(/"+$/, '')
+      if (value.length >= 4) out.add(value)
+    }
+  return [...out]
 }
