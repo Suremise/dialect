@@ -458,8 +458,8 @@ and `nameInterface`.
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
 The second Cisco platform, built like the IOS / IOS-XE plugin (its code copied, not imported: plugins don't depend on
-each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.4.0 <1.0.0'`, for model 0.4's
-VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and `describeInterface` and
+each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.4.1 <1.0.0'`, for model 0.4's
+VLANs, switch ports, SVIs, OSPF and BGP and 0.4.1's eBGP default policy), with `detect`, `parse`, `render`, and `describeInterface` and
 `nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as IOS's, nested by NX-OS's two-space indents; `!Command:` and `!Time:` headers are
@@ -554,6 +554,11 @@ VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and 
     template peer`, `no address-family`, each setting's `no` form and `no router bgp ASN` remove what they name. Once
     every statement is read, BGP in a VRF the text doesn't define, an update source that names no interface and a
     template a neighbor's VRF doesn't have (a VRF neighbor inheriting a global template, for now) are `unsupported`.
+  - **eBGP default policy (model 0.4.1, #69):** NX-OS takes and sends an eBGP peer's routes with no route map (no
+    RFC 8212). For each network instance with an eBGP neighbor that has no route map one way in a family it carries
+    (each family by its effective policy: the family's own, else the neighbor's, else the template's family's, else the
+    template's; with no family, the neighbor's or the template's), the parse sets `ebgpDefaultPolicy` to `accept` that
+    way, mapped by `router bgp` or the VRF's `vrf V`: the platform's default, not configuration.
   - **A VRF's deletion** (`no vrf context V`) leaves V's OSPF and BGP so far out as `unsupported`, as its interfaces'
     membership is (#47).
   - **SNMP communities:** a community with any statement not converted, anywhere in the text (an access list in any
@@ -598,13 +603,15 @@ VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and 
     `remote-as` with the local AS; `localAddress` and multihop with no TTL are `unsupported`. Route maps go per family,
     one each way: a policy for the whole peer goes into each family it carries (its template's too) unless the family
     has its own, and a chain of policies is `unsupported`. Warnings: `nxos.route-map-name-only` (a policy written by
-    name), `nxos.ebgp-no-policy` (an eBGP neighbor with no route map: NX-OS exchanges every route, where IOS-XR,
-    following RFC 8212, exchanges none), `nxos.bgp-no-address-family` (it carries no routes).
-  - **Secrets the model only flags** are needs-input items, written when the answer is one NX-OS takes and never made
-    up: an OSPF key per interface (`nxos.ospf-key:<the OSPF interface's path>`; for MD5, `ID KEY`; an area's
-    authentication asks on each interface without its own), a key chain's name (kind `other`), and a BGP password
-    (`nxos.bgp-password:<the peer's path>`), whose field is `unsupported` until answered, since NX-OS's `password`
-    needs one. An answer NX-OS can't take raises `nxos.answer-not-taken`, without repeating it.
+    name), `nxos.ebgp-default-policy` (an eBGP neighbor with no route map one way, by the same per-family rule, where
+    the source's `ebgpDefaultPolicy` is `reject` that way: IOS-XR's RFC 8212 drops those routes and NX-OS exchanges
+    them all; the warning names no peer), `nxos.bgp-no-address-family` (it carries no routes). `ebgpDefaultPolicy` is
+    `not-applicable`: the source's default.
+  - **Secrets the model only flags** are `secret` needs-input items, each naming the `authentication` leaf, written
+    when the answer is one NX-OS takes and never made up: an OSPF key per interface (`nxos.ospf-key:<the OSPF
+    interface's path>`; for MD5, `ID KEY`; an area's authentication asks on each interface without its own), a key
+    chain's name, and a BGP password (`nxos.bgp-password:<the peer's path>`). A key chain's and a password's field is
+    `unsupported` until answered, since NX-OS's line needs the answer; the kit's round trip leaves them to it (#68). An answer NX-OS can't take raises `nxos.answer-not-taken`, without repeating it.
 - **Suggested names (`names.ts`):** `describeInterface` says `port-channelN` is aggregate N; `nameInterface`
   suggests `port-channel` for another platform's aggregate, counted as Cisco does: Junos `aeN` is `port-channel(N+1)`,
   IOS-XE `Port-channelN` and IOS-XR `Bundle-EtherN` keep N (the user's decision). It takes the describing plugin's id as

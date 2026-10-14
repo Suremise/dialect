@@ -542,14 +542,14 @@ export function render(model: Device, context: Context): RenderResult {
       if (chain !== undefined) emit(`  ip ospf authentication key-chain ${chain}`, field)
       else {
         skip(field, 'unsupported', 'needs the name of its key chain, which the model doesn\'t carry')
-        needsInput.push({ id, kind: 'other', message: 'OSPF authentication with a key chain on an interface needs the key chain\'s name.', field: fieldPath(...field) })
+        needsInput.push({ id, kind: 'secret', message: 'OSPF authentication with a key chain on an interface needs the key chain\'s name.', field: fieldPath(...field) })
       }
       return
     }
     if (own !== undefined) emit(own === 'md5' ? '  ip ospf authentication message-digest' : '  ip ospf authentication', field)
     const key = answer(id, kind === 'md5' ? /^(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-5])\s+\S{1,16}$/ : /^\S{1,8}$/)
     if (key === undefined) {
-      needsInput.push({ id, kind: 'secret', message: kind === 'md5' ? 'OSPF MD5 authentication on an interface needs its key ID (1 to 255) and key, as "ID KEY": the key isn\'t carried.' : 'OSPF authentication on an interface needs its key (up to 8 characters): the key isn\'t carried.', field: fieldPath(...at) })
+      needsInput.push({ id, kind: 'secret', message: kind === 'md5' ? 'OSPF MD5 authentication on an interface needs its key ID (1 to 255) and key, as "ID KEY": the key isn\'t carried.' : 'OSPF authentication on an interface needs its key (up to 8 characters): the key isn\'t carried.', field: fieldPath(...field) })
       return
     }
     if (kind === 'md5') {
@@ -645,6 +645,8 @@ export function render(model: Device, context: Context): RenderResult {
     for (const [instance, b] of list) {
       const at = ['networkInstances', instance, 'bgp']
       const indent = instance === 'default' ? '  ' : '    '
+      // The source platform's default for an eBGP peer with no policy: NX-OS has its own (it accepts), warned on per neighbor.
+      for (const side of ['import', 'export'] as const) if (b.ebgpDefaultPolicy?.[side] !== undefined) skip([...at, 'ebgpDefaultPolicy', side], 'not-applicable', 'the source platform\'s default, not configuration: NX-OS\'s own is to exchange every route')
       if (instance !== 'default') emit(`  vrf ${instance}`, ...bgpFields(instance, b, local))
       if (b.routerId !== undefined) {
         if (isIpv4(b.routerId)) emit(`${indent}router-id ${b.routerId}`, [...at, 'routerId'])
@@ -756,12 +758,23 @@ export function render(model: Device, context: Context): RenderResult {
     if (maps) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.route-map-name-only', message: 'A policy is written as a route map by its name only: its body isn\'t converted yet, so NX-OS needs a route map of that name.', field: fieldPath(...at) })
   }
 
-  /** The semantic warnings a neighbor raises: eBGP with no policy (RFC 8212 on other platforms), and no family. */
+  /**
+   * The semantic warnings a neighbor raises: an eBGP neighbor with no policy one way, where the source dropped those
+   * routes (its `ebgpDefaultPolicy` is `reject` that way, IOS-XR's RFC 8212) and NX-OS exchanges them all; and no family.
+   */
   function bgpWarnings(neighbor: BgpNeighbor, at: Segments, local: number, group?: BgpGroup) {
     const peerAs = neighbor.peerAs ?? group?.peerAs ?? (group?.type === 'internal' ? local : undefined)
-    const policies = [neighbor, group].some((p) => !!p && (!!p.importPolicies?.length || !!p.exportPolicies?.length || Object.values(p.addressFamilies ?? {}).some((af) => !!af?.importPolicies?.length || !!af?.exportPolicies?.length)))
-    if (peerAs !== undefined && peerAs !== local && !policies) {
-      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.ebgp-no-policy', message: 'An eBGP neighbor has no route map: NX-OS exchanges every route with it, where IOS-XR, which follows RFC 8212, exchanges none without a policy.', field: fieldPath(...at) })
+    const source = model.networkInstances?.[String(at[1])]?.bgp?.ebgpDefaultPolicy
+    // Each family it carries (its own or its group's) by its effective policy: the family's own, else the neighbor's,
+    // else the group's family's, else the group's. With no family, the neighbor's or the group's.
+    const families = [...new Set([...Object.keys(neighbor.addressFamilies ?? {}), ...Object.keys(group?.addressFamilies ?? {})])] as BgpAddressFamilyName[]
+    const missing = (field: 'importPolicies' | 'exportPolicies') => {
+      const effective = (f?: BgpAddressFamilyName) => (f ? neighbor.addressFamilies?.[f]?.[field] : undefined) ?? neighbor[field] ?? (f ? group?.addressFamilies?.[f]?.[field] : undefined) ?? group?.[field]
+      return families.length ? families.some((f) => !effective(f)?.length) : !effective()?.length
+    }
+    const dropped = (['import', 'export'] as const).some((side) => source?.[side] === 'reject' && missing(side === 'import' ? 'importPolicies' : 'exportPolicies'))
+    if (peerAs !== undefined && peerAs !== local && dropped) {
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.ebgp-default-policy', message: 'The source drops an eBGP neighbor\'s routes with no policy (RFC 8212), where NX-OS exchanges them all: the neighbor needs a route map to do as the source did.', field: fieldPath(...at) })
     }
     if (!Object.keys(neighbor.addressFamilies ?? {}).length && !Object.keys(group?.addressFamilies ?? {}).length) {
       diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.bgp-no-address-family', message: 'A BGP neighbor has no address family: on NX-OS it carries no routes until one is configured.', field: fieldPath(...at) })
