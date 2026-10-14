@@ -150,9 +150,9 @@ product decisions.
   policy statements, Cisco route maps). A list is converted whole or not at all, and a policy term by term, each whole or
   not at all; the whole policy is left out when leaving a term out would change what later terms see. Regexes are kept
   as written and never translated between platforms. Where the target treats a route no term decides differently, it
-  says so: IOS/IOS-XE, whose route maps deny such a route, adds a final permit sequence for a Junos policy that passes
-  it on (BGP's default accepts it), with a semantic warning. A BGP route map the IOS config never defines isn't
-  converted, as IOS then denies every route.
+  says so: IOS/IOS-XE and NX-OS, whose route maps deny such a route, add a final permit sequence for a Junos policy
+  that passes it on (BGP's default accepts it), with a semantic warning. A BGP route map the Cisco config never defines
+  isn't converted (IOS then denies every route).
 
 ## 5. Configs and test data
 

@@ -1,13 +1,15 @@
 // NX-OS text → the shared model: system (hostname, domain name, DNS), interfaces and subinterfaces with their addresses,
 // VRFs (`vrf context`) and static routes, NTP, logging and SNMP (phase 1), and VLANs, switch ports, SVIs, OSPF and BGP
-// (phase 2, model 0.4.0). Every statement of the tree gets a disposition: `mapped` when everything it says went into the
+// (phase 2, model 0.4.0), and routing policy (phase 3, model 0.5.0, policy.ts: prefix lists, community and AS-path lists,
+// route maps), which BGP's route maps resolve to. Every statement of the tree gets a disposition: `mapped` when everything it says went into the
 // model, `ignored-by-design` with why, or `unsupported` (its text kept in the tree). A statement is mapped only when
 // every option on it is understood: one with an option the model can't hold (`ntp server 192.0.2.1 key 1`) is
 // unsupported as a whole, never half-converted. Later statements act on earlier ones as on the device: a second setting
 // supersedes the first, and `no …` forms and `vrf member` clear what they remove.
-import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Bgp, type BgpAddressFamilyName, type Diagnostic, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
-import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
+import { fieldPath, isRouteDistinguisher, type Context, type Device, type Bgp, type BgpAddressFamilyName, type Diagnostic, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
+import { asNumber, inRange, ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { OSPF_FEATURE, REQUIRED_FEATURES, VPN_FEATURE } from './features'
+import { createPolicyReader } from './policy'
 import { interfaceName, interfaceType, isInterfaceName, isSwitchable, splitSubinterface } from './names'
 import { BANNER_TYPES, parseTree, unquote, type NxNode } from './tree'
 import { ALL_VLANS, compactVlans, vlanEntries, vlanIds } from './vlans'
@@ -97,8 +99,6 @@ const HOST = /^[A-Za-z0-9][\w.-]*$/
 /** Words on a route that aren't an interface name. */
 const ROUTE_KEYWORDS = new Set(['tag', 'name', 'track', 'vrf', 'static'])
 const MGMT = /^mgmt0$/i
-/** A number from `min` to `max` written as one, or null. */
-const inRange = (text: string | undefined, min: number, max: number): number | null => (text !== undefined && /^\d{1,10}$/.test(text) && Number(text) >= min && Number(text) <= max ? Number(text) : null)
 
 /** An OSPF area as the model writes it, dotted: NX-OS takes `0.0.0.10` or `10` (any number up to 4294967295). */
 export function areaId(text: string): string | null {
@@ -107,14 +107,6 @@ export function areaId(text: string): string | null {
   return n === null ? null : [24, 16, 8, 0].map((shift) => Math.floor(n / 2 ** shift) % 256).join('.')
 }
 
-/** An AS number in plain form: NX-OS takes `65000` or asdot `1.10` (65546). Null when it isn't one from 1 to 4294967295. */
-export function asNumber(text: string): number | null {
-  const dot = /^(\d{1,5})\.(\d{1,5})$/.exec(text)
-  const high = dot ? inRange(dot[1], 0, 65535) : null
-  const low = dot ? inRange(dot[2], 0, 65535) : null
-  const n = dot ? (high !== null && low !== null ? high * 65536 + low : null) : inRange(text, 1, 4294967295)
-  return n !== null && isAsNumber(n) ? n : null
-}
 
 /** Where an interface statement's settings go: subinterface `0` for the main interface's addresses. */
 interface InterfaceContext {
@@ -132,6 +124,8 @@ export function parse(text: string, _context: Context): ParseResult {
   const set = (node: NxNode, disposition: StatementDisposition) => {
     dispositions[node.id] = disposition
   }
+  /** Prefix lists, community and AS-path lists and route maps (policy.ts). */
+  const policy = createPolicyReader(dispositions)
   const line = (node: NxNode) => node.span.startLine
 
   /** The statement that last set a single-valued setting, by key: a later one supersedes it, as on the device. */
@@ -1484,7 +1478,7 @@ export function parse(text: string, _context: Context): ParseResult {
     unsupportedTree(node)
   }
 
-  /** `address-family ipv4|ipv6 unicast` on a peer: the family it carries, with its route maps (by name only). */
+  /** `address-family ipv4|ipv6 unicast` on a peer: the family it carries, with its route maps (resolved in checkBgp()). */
   const mapPeerFamily = (node: NxNode, instance: string, at: Segments, family: 'ipv4' | 'ipv6'): void => {
     const af = [...at, 'addressFamilies', `${family}-unicast`]
     track(instance, node, peerKey(...at), peerKey(...af))
@@ -1501,7 +1495,6 @@ export function parse(text: string, _context: Context): ParseResult {
         claim(fieldPath(...af, direction), child)
         track(instance, child, peerKey(...at), peerKey(...af))
         set(child, mapped([model.set([...af, direction], [w[1]])]))
-        diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.route-map-name-only', message: `The route map on line ${line(child)} is converted by its name only: its body isn't converted yet.`, statement: child.id, span: child.span })
       }
     }
   }
@@ -1557,14 +1550,24 @@ export function parse(text: string, _context: Context): ParseResult {
         for (const [key, peer] of Object.entries(isObject(bgp[kind]) ? (bgp[kind] as Obj) : {})) {
           if (!isObject(peer)) continue
           const at = [...bgpPath(instance), kind, key]
-          const drop = (field: string, why: string) => {
-            const owner = owners.get(fieldPath(...at, field))
+          const drop = (field: string, why: string, where: Segments = at) => {
+            const owner = owners.get(fieldPath(...where, field))
             if (owner) set(owner, unsupported(why))
-            owners.delete(fieldPath(...at, field))
-            model.remove([...at, field])
+            owners.delete(fieldPath(...where, field))
+            model.remove([...where, field])
           }
           if (typeof peer.updateSource === 'string' && !interfaceResolves(peer.updateSource)) drop('updateSource', 'names an interface the configuration doesn\'t define')
           if (typeof peer.group === 'string' && !Object.hasOwn(groups, peer.group)) drop('group', 'names a peer template the configuration doesn\'t define')
+          // A route map names a policy of the model (model 0.5.0), or it isn't kept: a name alone would say nothing.
+          for (const [family, af] of Object.entries(isObject(peer.addressFamilies) ? peer.addressFamilies : {})) {
+            if (!isObject(af)) continue
+            for (const direction of ['importPolicies', 'exportPolicies'] as const) {
+              const names = af[direction]
+              const name = Array.isArray(names) ? String(names[0]) : undefined
+              if (name === undefined || (routingPolicy?.policies && Object.hasOwn(routingPolicy.policies, name))) continue
+              drop(direction, policy.definesRouteMap(name) ? 'names a route map that isn\'t converted' : 'names a route map the configuration doesn\'t define: what NX-OS then does with the routes isn\'t converted', [...at, 'addressFamilies', family])
+            }
+          }
         }
       }
     }
@@ -1665,6 +1668,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const lines = node.span.endLine - node.span.startLine + 1
     if (node.kind === 'banner') return set(node, unsupported(`a ${BANNER_TYPES.has(node.words[1]?.toLowerCase()) ? node.words[1].toLowerCase() : 'motd'} banner, ${lines} line${lines === 1 ? '' : 's'}, kept verbatim`))
 
+    if (policy.top(node)) return
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
     if (lw[0] === 'interface') return mapInterface(node)
@@ -1722,6 +1726,9 @@ export function parse(text: string, _context: Context): ParseResult {
 
   for (const node of nodes) mapTop(node)
   buildRoutes()
+  // Routing policy (model 0.5.0), once every list a route map names is read; BGP's route maps resolve to it (checkBgp).
+  const routingPolicy = policy.finish()
+  if (routingPolicy) model.set(['routingPolicy'], routingPolicy)
 
   // A VRF's route targets: one set in the model, so every address family's must agree (a family with none disagrees
   // with one with some), and none may be left out.

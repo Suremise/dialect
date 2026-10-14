@@ -215,6 +215,10 @@ change what the sequences after it do. A route map named by a neighbor but not d
 denies every route. Converting a Junos policy that passes undecided routes on to the next policy adds a final permit
 sequence to the route map, with a warning, since an IOS route map denies a route no sequence decides.
 
+Cisco NX-OS converts routing policy the same way: prefix lists (with `eq`), standard and expanded community lists and
+AS-path access lists (each entry by its `seq`), and route maps, which its BGP neighbors' route maps name. A route map a
+neighbor names but the config doesn't define isn't converted.
+
 ## The command line
 
 `dialect display-set` and `dialect convert`: files, stdin and stdout, and exit codes.
