@@ -45,7 +45,7 @@ type CommunityAction = 'communityAdd' | 'communitySet' | 'communityDelete'
 /** One statement of a term: what it says, settled into the term once every statement is read. */
 type Part =
   | { readonly index: number; readonly kind: 'none' }
-  | { readonly index: number; readonly kind: 'list'; readonly field: ListField; readonly value: string | number }
+  | { readonly index: number; readonly kind: 'list'; readonly field: ListField; readonly value: string | number; readonly group?: true }
   | { readonly index: number; readonly kind: 'prefix-list'; readonly name: string; readonly match?: 'exact' | 'orlonger' | 'longer' }
   | { readonly index: number; readonly kind: 'route-filter'; readonly match: PrefixMatch }
   | { readonly index: number; readonly kind: 'single'; readonly side: 'matches' | 'actions'; readonly field: string; readonly value: unknown }
@@ -82,6 +82,13 @@ interface CommunityState {
   problem?: string
 }
 
+/** An `as-path-group`: its `as-path N "regex"` entries by name, in the order first given, each with its statement. */
+interface AsPathGroupState {
+  readonly statements: number[]
+  readonly entries: Map<string, { index: number; regex: string }>
+  problem?: string
+}
+
 interface AsPathState {
   readonly statements: number[]
   /** The statement that sets its regular expression, and the regex. */
@@ -95,6 +102,7 @@ export function policyMapper(ctx: PolicyContext) {
   const prefixLists = new Map<string, ListState>()
   const communities = new Map<string, CommunityState>()
   const asPaths = new Map<string, AsPathState>()
+  const asPathGroups = new Map<string, AsPathGroupState>()
   const policies = new Map<string, PolicyState>()
   const state = <T>(map: Map<string, T>, name: string, make: () => T): T => {
     const existing = map.get(name)
@@ -147,6 +155,22 @@ export function policyMapper(ctx: PolicyContext) {
     a.statements.push(i)
     if (r.length !== 1) return unsupported()
     if (claim(`as-path\u0000${name}`, i)) a.regex = { index: i, value: r[0] }
+    return mapped([])
+  }
+
+  /** `as-path-group G as-path N "regex"`: one entry of the group, a later regex for N replacing an earlier one. */
+  const mapAsPathGroup = (name: string, r: readonly string[], i: number): Mutable => {
+    const g = state<AsPathGroupState>(asPathGroups, name, () => ({ statements: [], entries: new Map() }))
+    g.statements.push(i)
+    if (!r.length) return mapped([])
+    if (r[0] !== 'as-path' || r.length !== 3) return taint(g, r[0] === 'dynamic-db' ? 'an AS-path group from the dynamic database isn\'t converted' : undefined)
+    const entry = g.entries.get(r[1])
+    if (claim(`as-path-group\u0000${name}\u0000${r[1]}`, i)) {
+      if (entry) {
+        entry.index = i
+        entry.regex = r[2]
+      } else g.entries.set(r[1], { index: i, regex: r[2] })
+    }
     return mapped([])
   }
 
@@ -211,7 +235,7 @@ export function policyMapper(ctx: PolicyContext) {
         if (one === 'inet' || one === 'inet6') return single('matches', 'family', one === 'inet' ? 'ipv4' : 'ipv6')
         return bad('a family other than inet and inet6')
       }
-      if (what === 'as-path-group') return bad('AS-path groups come later')
+      if (what === 'as-path-group' && one !== undefined) return part({ index: i, kind: 'list', field: 'asPathSets', value: one, group: true })
       return bad()
     }
 
@@ -223,6 +247,8 @@ export function policyMapper(ctx: PolicyContext) {
     if (what === 'tag' && rest.length === 1) return uint32(rest[0]) !== null ? single('actions', 'tag', Number(rest[0])) : bad('not a tag from 0 to 4294967295')
     if (what === 'community' && rest.length === 2 && (rest[0] === 'add' || rest[0] === 'set' || rest[0] === 'delete')) {
       const field = rest[0] === 'add' ? 'communityAdd' : rest[0] === 'set' ? 'communitySet' : 'communityDelete'
+      // `community set [ A B ]` is one action with a list (each value a statement here, as two set-form lines are): the
+      // route's communities become all of them, so every name is kept, in order.
       return part({ index: i, kind: 'community', field, name: rest[1] })
     }
     if (what === 'as-path-prepend' && rest.length === 1) {
@@ -266,7 +292,7 @@ export function policyMapper(ctx: PolicyContext) {
     if (kind === 'community') return mapCommunity(name, r, i)
     if (kind === 'as-path') return mapAsPath(name, r, i)
     if (kind === 'policy-statement') return mapPolicy(name, r, i)
-    if (kind === 'as-path-group') return unsupported('AS-path groups come later')
+    if (kind === 'as-path-group') return mapAsPathGroup(name, r, i)
     return unsupported()
   }
 
@@ -287,6 +313,7 @@ export function policyMapper(ctx: PolicyContext) {
   const lists = new Map<string, Set<'ipv4' | 'ipv6'>>()
   const sets = new Map<string, { readonly regex: boolean }>()
   const paths = new Set<string>()
+  const groupNames = new Set<string>()
   const converted = new Set<string>()
 
   function settleLists() {
@@ -343,6 +370,30 @@ export function policyMapper(ctx: PolicyContext) {
   }
 
   function settleAsPaths() {
+    // Junos names AS paths and AS-path groups apart, the model in one namespace: a name both use converts as neither.
+    for (const name of asPaths.keys()) {
+      if (!asPathGroups.has(name)) continue
+      const why = 'an AS path and an AS-path group share the name, which the model has once: neither converts'
+      notConverted([...asPaths.get(name)!.statements, ...asPathGroups.get(name)!.statements], why)
+      asPaths.delete(name)
+      asPathGroups.delete(name)
+    }
+    for (const [name, g] of asPathGroups) {
+      if (!g.problem && reshaped('as-path-group', name)) g.problem = RESHAPED
+      if (!g.problem && !g.entries.size) g.problem = 'an AS-path group with no AS paths'
+      if (g.problem) {
+        notConverted(g.statements, `the AS-path group isn't converted (${g.problem}), so none of it is`)
+        continue
+      }
+      const dialect = model.set(at('asPathSets', name, 'regexDialect'), 'junos')
+      const fields = new Map<number, string[]>()
+      ;[...g.entries.values()].forEach((e, n) => {
+        const entry = at('asPathSets', name, 'entries', String(n + 1))
+        fields.set(e.index, [model.set([...entry, 'action'], 'permit'), model.set([...entry, 'regex'], e.regex), dialect])
+      })
+      for (const index of g.statements) settleTo(index, mapped(fields.get(index) ?? []))
+      groupNames.add(name)
+    }
     for (const [name, a] of asPaths) {
       if (!a.regex || reshaped('as-path', name)) {
         notConverted(a.statements, a.regex ? RESHAPED : 'an AS path with no regular expression')
@@ -415,7 +466,7 @@ export function policyMapper(ctx: PolicyContext) {
     for (const p of term.parts) {
       if (p.kind !== 'list') continue
       if (p.field === 'communitySets' && !sets.has(p.value as string)) return "names a community the configuration doesn't define, or that isn't converted"
-      if (p.field === 'asPathSets' && !paths.has(p.value as string)) return "names an AS path the configuration doesn't define, or that isn't converted"
+      if (p.field === 'asPathSets' && !(p.group ? groupNames : paths).has(p.value as string)) return `names an AS path${p.group ? ' group' : ''} the configuration doesn't define, or that isn't converted`
       const list = (matches[p.field] ??= []) as unknown[]
       if (list.includes(p.value)) {
         results[p.index] = ignored('already a condition of the term')

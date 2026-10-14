@@ -4,12 +4,13 @@
 //   with a deny or a length range, or a name a term uses for one family when the model has it for both, isn't written;
 // - a **community** is one set of members a route must all carry, with Junos's regexes: a set with more than one
 //   entry, a deny, or a regex in Cisco's dialect isn't written (a regex is never translated);
-// - an **AS path** is one Junos regex;
+// - an **AS path** is one Junos regex, or an `as-path-group` of several (any matching), all permitting;
+// - **literal communities in an action** (Cisco's `set community 65000:1`) get a community of the term's own, as Junos
+//   acts on named communities only;
 // - a **term** is written whole or not at all (the per-term rule): one that can't be (it names something not written,
-//   or Junos would read it another way: route filters and prefix lists together, nested route filters by longest match,
-//   literal communities in an action) is `unsupported`, and when leaving it out isn't safe (core's termSkipSafe()), the
-//   whole policy is. A policy's fall-through is `not-applicable`, with a semantic warning when the source's isn't
-//   Junos's.
+//   or Junos would read it another way: route filters and prefix lists together, nested route filters by longest match)
+//   is `unsupported`, and when leaving it out isn't safe (core's termSkipSafe()), the whole policy is. A policy's
+//   fall-through is `not-applicable`, with a semantic warning when the source's isn't Junos's.
 //
 // Diagnostics never quote the model's names or values.
 import { fieldPath, isAsNumber, populatedLeaves, termSkipSafe, type CommunitySet, type Diagnostic, type FieldDisposition, type Policy, type PolicyTerm, type PrefixMatch, type RoutingPolicy } from '@dialect/core'
@@ -131,6 +132,9 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
 
   // ---- communities
 
+  /** Every community name the model has, and those made up for literal values: a made-up one takes none of them. */
+  const communityNames = new Set(Object.keys(rp.communitySets ?? {}))
+
   const communities: Out[] = []
   /** Each community written: whether it has a regex (Junos adds and sets literal members only). */
   const writtenSets = new Map<string, { readonly regex: boolean }>()
@@ -174,21 +178,29 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
   // ---- AS paths
 
   const asPaths: Out[] = []
-  const writtenPaths = new Set<string>()
+  /** Each AS-path set written, as an `as-path` (one regex) or an `as-path-group` (several, any of which matches). */
+  const writtenPaths = new Map<string, 'path' | 'group'>()
   for (const [name, set] of Object.entries(rp.asPathSets ?? {})) {
     const at = [...base, 'asPathSets', name]
     const entries = Object.entries(set.entries ?? {})
-    if (entries.length !== 1 || entries[0][1]?.action !== 'permit' || typeof entries[0][1].regex !== 'string') {
-      skipAll(set, at, 'an AS-path list with more than one entry, or one that denies: a Junos as-path is one regular expression (as-path groups come later)')
+    if (!entries.length || entries.some(([, e]) => e?.action !== 'permit' || typeof e.regex !== 'string')) {
+      skipAll(set, at, 'an AS-path list that denies, or has no entries: a Junos as-path or as-path-group only permits')
       continue
     }
     if (set.regexDialect !== 'junos') {
       skipAll(set, at, "a regular expression in another dialect than Junos's: it isn't translated")
       continue
     }
-    const [key, entry] = entries[0]
-    asPaths.push(leaf(`as-path ${quote(name)} ${quoteRegex(entry.regex)}`, [...at, 'entries', key, 'action'], [...at, 'entries', key, 'regex'], [...at, 'regexDialect']))
-    writtenPaths.add(name)
+    const fields = (key: string): Segments[] => [[...at, 'entries', key, 'action'], [...at, 'entries', key, 'regex']]
+    if (entries.length === 1) {
+      const [key, entry] = entries[0]
+      asPaths.push(leaf(`as-path ${quote(name)} ${quoteRegex(entry.regex)}`, ...fields(key), [...at, 'regexDialect']))
+      writtenPaths.set(name, 'path')
+      continue
+    }
+    // An as-path-group's entries need names of their own, which the model doesn't keep: the set's, with the position.
+    asPaths.push(box(`as-path-group ${quote(name)}`, entries.map(([key, entry]) => leaf(`as-path ${quote(`${name}-${key}`)} ${quoteRegex(entry.regex)}`, ...fields(key))), [...at, 'regexDialect']))
+    writtenPaths.set(name, 'group')
   }
 
   // ---- policies
@@ -210,7 +222,7 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
     const taken = new Set(terms.flatMap(([, t]) => (typeof t?.name === 'string' ? [t.name] : [])))
     const results = terms.map(([key, term], n) => {
       const t = [...at, 'terms', key]
-      const r = termOf(term ?? {}, t)
+      const r = termOf(term ?? {}, t, `${name}-${term?.name ?? key}`)
       if (typeof r === 'string') return { key, term, t, out: r }
       // A term with no name is written as the policy's own from and then when it is last and says something, else
       // under a name of its own.
@@ -231,7 +243,9 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
         skipAll(r.term, r.t, r.out)
         continue
       }
-      const { label, body, fields } = r.out
+      const { label, body, fields, own } = r.out
+      // The communities the term's literal values need, written only with the term.
+      communities.push(...own)
       if (label === null) inner.push(...body)
       else inner.push(body.length ? box(`term ${label}`, body, ...fields) : leaf(`term ${label}`, ...fields))
     }
@@ -247,7 +261,8 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
   }
 
   /** A term's from and then, with the fields its own line says (its name, or the term when empty); or why it can't be. */
-  function termOf(term: PolicyTerm, t: Segments): { body: Out[]; fields: Segments[] } | string {
+  function termOf(term: PolicyTerm, t: Segments, prefix: string): { body: Out[]; fields: Segments[]; own: Out[] } | string {
+    const ownCommunities: Out[] = []
     const fields: Segments[] = []
     if (term.name !== undefined) fields.push([...t, 'name'])
     if (isEmpty(term)) fields.push(t)
@@ -303,15 +318,20 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
         from.push(leaf(`route-filter ${f.prefix} ${text}`, ...own))
       }
     }
-    for (const [field, word, ok] of [
-      ['communitySets', 'community', (n: unknown) => typeof n === 'string' && writtenSets.has(n)],
-      ['asPathSets', 'as-path', (n: unknown) => typeof n === 'string' && writtenPaths.has(n)]
-    ] as const) {
-      const sets = m[field]
-      if (sets === undefined) continue
-      if (sets.some((n) => !ok(n))) return `names ${field === 'communitySets' ? 'a community' : 'an AS path'} that isn't written`
-      if (!sets.length) skip([...mAt, field], 'not-applicable', 'none: nothing to write')
-      else from.push(list(word, sets.map(quote), [...mAt, field]))
+    if (m.communitySets !== undefined) {
+      if (m.communitySets.some((n) => typeof n !== 'string' || !writtenSets.has(n))) return "names a community that isn't written"
+      if (!m.communitySets.length) skip([...mAt, 'communitySets'], 'not-applicable', 'none: nothing to write')
+      else from.push(list('community', m.communitySets.map(quote), [...mAt, 'communitySets']))
+    }
+    if (m.asPathSets !== undefined) {
+      if (m.asPathSets.some((n) => typeof n !== 'string' || !writtenPaths.has(n))) return "names an AS path that isn't written"
+      const plain = m.asPathSets.filter((n) => writtenPaths.get(n) === 'path')
+      const groups = m.asPathSets.filter((n) => writtenPaths.get(n) === 'group')
+      // How Junos takes an as-path beside an as-path-group in one term isn't something the model can say for sure.
+      if (plain.length && groups.length) return 'an AS path and an AS-path group in one term'
+      if (!m.asPathSets.length) skip([...mAt, 'asPathSets'], 'not-applicable', 'none: nothing to write')
+      else if (plain.length) from.push(list('as-path', plain.map(quote), [...mAt, 'asPathSets']))
+      else groups.forEach((g, k) => from.push(leaf(`as-path-group ${quote(g)}`, ...(k === 0 ? [[...mAt, 'asPathSets']] : []))))
     }
     if (m.protocols !== undefined) {
       if (m.protocols.some((p) => !Object.hasOwn(PROTOCOLS, p))) return 'a protocol Junos has no name for'
@@ -338,7 +358,6 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
     if (kinds.length > 1) return "community actions of more than one kind in one term: Junos applies them in the order written, which the model doesn't say"
     for (const kind of kinds) {
       const v = a[kind]!
-      if (v.values?.length) return 'literal communities in an action: Junos names a community, which this renderer doesn\'t make up yet'
       const sets = v.sets ?? []
       for (const n of sets) {
         const set = writtenSets.get(n)
@@ -346,14 +365,29 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
         if (set.regex && kind !== 'communityDelete') return 'adds or sets a community given by a regular expression, which Junos refuses'
       }
       const at = [...aAt, kind]
-      if (v.values !== undefined) skip([...at, 'values'], 'not-applicable', 'none: nothing to write')
-      if (!sets.length) {
-        if (v.sets !== undefined) skip([...at, 'sets'], 'not-applicable', 'none: nothing to write')
-        if (isEmpty(v)) skip(at, 'not-applicable', 'none: nothing to write')
-        continue
-      }
       const word = kind === 'communityAdd' ? 'add' : kind === 'communitySet' ? 'set' : 'delete'
-      sets.forEach((n, k) => then.push(leaf(`community ${word} ${quote(n)}`, ...(k === 0 ? [[...at, 'sets']] : []))))
+      // One action with every community in it (`community set [ A B ]`): Junos's set replaces the route's communities
+      // with all of them, as the model's list does.
+      const named: string[] = []
+      const actionFields: Segments[] = []
+      // Literal values (Cisco's set community 65000:1): Junos acts on a named community, so the term gets one of its
+      // own, named for the policy, the term and the action, and no other community has the name.
+      if (v.values?.length) {
+        const members = v.values.map((c) => (typeof c === 'string' ? communityToJunos(c) : null))
+        if (members.some((c) => c === null)) return 'a literal community Junos has no way to write'
+        let ownName = `${prefix}-${word}`
+        for (let k = 2; communityNames.has(ownName); k++) ownName = `${prefix}-${word}-${k}`
+        communityNames.add(ownName)
+        ownCommunities.push(list(`community ${quote(ownName)} members`, members.map((c) => quote(c!))))
+        named.push(ownName)
+        actionFields.push([...at, 'values'])
+      } else if (v.values !== undefined) skip([...at, 'values'], 'not-applicable', 'none: nothing to write')
+      if (sets.length) {
+        named.push(...sets)
+        actionFields.push([...at, 'sets'])
+      } else if (v.sets !== undefined) skip([...at, 'sets'], 'not-applicable', 'none: nothing to write')
+      if (named.length) then.push(list(`community ${word}`, named.map(quote), ...actionFields))
+      else if (isEmpty(v)) skip(at, 'not-applicable', 'none: nothing to write')
     }
     if (a.localPreference !== undefined) {
       if (!isUint32(a.localPreference)) return 'a local preference out of range'
@@ -386,7 +420,7 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
     const body: Out[] = []
     if (from.length) body.push(box('from', from))
     if (then.length) body.push(box('then', then))
-    return { body, fields }
+    return { body, fields, own: ownCommunities }
   }
 
   const children = [...lists, ...statements, ...communities, ...asPaths]

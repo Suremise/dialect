@@ -1,0 +1,5 @@
+set policy-options community A members 65000:1
+set policy-options community B members 65000:2
+set policy-options policy-statement P term T then community set A
+set policy-options policy-statement P term T then community set B
+set policy-options policy-statement P term T then accept
