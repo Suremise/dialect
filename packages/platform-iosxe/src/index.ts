@@ -3,12 +3,12 @@
 // detect(). Platform-neutral: strings in, strings and plain objects out.
 import type { PlatformPlugin } from '@dialect/core'
 import { detect } from './detect'
-import { nameInterface } from './names'
+import { describeInterface, nameInterface } from './names'
 import { parse } from './parse'
 import { render } from './render'
 
 export { detect } from './detect'
-export { nameInterface } from './names'
+export { describeInterface, nameInterface } from './names'
 export { parse } from './parse'
 export { render } from './render'
 export { parseTree, type IosNode, type IosTree, type NodeKind } from './tree'
@@ -34,6 +34,7 @@ const plugin: PlatformPlugin = {
   detect,
   parse,
   render,
+  describeInterface,
   nameInterface
 }
 

@@ -124,7 +124,10 @@ product decisions.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,
   a source interface), needs a name on the target from the user: in the app's interface table, or a `--map` file on
   the command line (`from,to` lines or a JSON object). A plugin may suggest names (Junos `ge-0/0/0` → IOS
-  `GigabitEthernet0/0/0`), shown as suggestions and used only once the user takes them. Until every interface is named,
+  `GigabitEthernet0/0/0`), shown as suggestions and used only once the user takes them. Every target suggests a name
+  for an aggregate: Junos `aeN` ↔ Cisco `Port-channel(N+1)`, NX-OS `port-channel(N+1)`, IOS-XR `Bundle-Ether(N+1)`,
+  the number kept between Cisco platforms. A plugin describes an aggregate (PortName) by its number counted from 1, as
+  Cisco does, so no target needs to know the source. Until every interface is named,
   the CLI writes no config and exits 3; `--allow-incomplete` writes it anyway, the unnamed interfaces keeping their
   source names and their lines listed on stderr. Messages give an interface's line, never its name (a name can be a
   secret's value reused); `--write-map` writes the names, with suggestions, to a file the user chose. Two interfaces
