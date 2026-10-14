@@ -465,9 +465,18 @@ export interface CommunitySet {
    * all carry.
    */
   readonly entries?: Keyed<CommunitySetEntry>
+  /**
+   * Which communities the set matches: Cisco's `ip community-list`, `ip extcommunity-list` or `ip large-community-list`.
+   * Given whenever an entry has a regex, which can't say it itself (`.*` matches any kind); every member is then of
+   * this kind. A Junos community whose members mix kinds, with no regex, leaves it out.
+   */
+  readonly type?: CommunityType
   /** The dialect of the entries' `regexes`: given whenever one has a regex. */
   readonly regexDialect?: RegexDialect
 }
+
+/** A community's kind (communityType() says which a value is). */
+export type CommunityType = 'standard' | 'extended' | 'large'
 
 export interface CommunitySetEntry {
   readonly action: 'permit' | 'deny'
@@ -506,10 +515,11 @@ export interface Policy {
   /** By position: a route map's sequence number, a Junos term's place from 1. */
   readonly terms?: Keyed<PolicyTerm>
   /**
-   * What happens to a route no term decides. A parser sets it on every policy; a renderer gives it a `not-applicable`
-   * disposition and raises a semantic warning when its platform's differs.
+   * What happens to a route no term decides: always given (modelProblems() checks), as the same undecided route goes
+   * on to the next policy on Junos and is rejected on Cisco. A renderer gives it a `not-applicable` disposition and
+   * raises a semantic warning when its platform's differs.
    */
-  readonly fallThrough?: PolicyFallThrough
+  readonly fallThrough: PolicyFallThrough
 }
 
 /**

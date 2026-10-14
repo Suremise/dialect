@@ -145,7 +145,10 @@ route maps, IOS-XR's sets and route policies.
   all match; a Junos community is one permit entry), and `asPathSets`, entries of an `action` and a `regex`. A
   community has one spelling whatever the platform (`communityType()`): standard `65000:100` or a well-known name
   (`no-export`, `no-export-subconfed` for Cisco's `local-AS`…), extended `target:…` or `origin:…` in a route
-  distinguisher's forms, large `large:65000:1:2`.
+  distinguisher's forms, large `large:65000:1:2`. A community set's `type` (`standard`, `extended`, `large`: Cisco's
+  `ip community-list`, `ip extcommunity-list`, `ip large-community-list`) is given whenever it has a regex, which can't
+  say which attribute it matches (`.*` matches any); its members are then all of that kind. A Junos community mixing
+  kinds in literal members leaves it out.
 - **Regexes are never translated silently.** Each is kept as written, and its set says its `regexDialect`: `junos`
   (an AS path by whole AS numbers, a community member by one community) or `cisco` (the path or the route's
   communities as a string, IOS-XR's `ios-regex` too). A renderer of another dialect leaves the regex `unsupported`, or
@@ -154,8 +157,9 @@ route maps, IOS-XR's sets and route policies.
   (a Junos term with its `name`, or a policy's `from`/`then` outside any term as one unnamed term; a route map's
   sequence; an RPL `if` block in its simple forms) and its **`fallThrough`**: what happens to a route no term decides,
   the platform's semantics kept with the data as `ebgpDefaultPolicy` is. `next-policy` on Junos (the next policy of
-  the chain, then the protocol's default policy), `reject` for a route map's implicit deny and RPL's drop. A parser
-  sets it on every policy; a renderer gives it `not-applicable` and raises a semantic warning when its own differs.
+  the chain, then the protocol's default policy), `reject` for a route map's implicit deny and RPL's drop. It is
+  required on every policy (the type and `modelProblems()`), since the same undecided route goes on on Junos and is
+  rejected on Cisco; a renderer gives it `not-applicable` and raises a semantic warning when its own differs.
   - A term's `matches` all hold for a route to match (within a list, any entry): `prefixLists` by name per family,
     with `prefixListMatch` (`exact` by default, `orlonger`, `longer`: Junos `prefix-list-filter`), inline
     `routeFilters` (prefix matches), `communitySets`, `asPathSets`, `protocols` (the model's names: `connected` for
@@ -201,7 +205,10 @@ From 0.5.0, routing policy (`routingPolicyProblems()`, which modelProblems() run
 - keys of terms, entries and route filters are positions (`isPositionKey()`, `model.position`); a prefix is in CIDR
   form with no host bits set, of its list's family (`parsePrefix()`, `model.prefix`), and its lengths run from its own
   length to 32 or 128, least first, agreeing with its `form` (`model.prefix-length`);
-- communities are in the model's forms (`communityType()`, `model.community`); a set with a regex, or an AS-path set
+- every entry's `action` is `permit` or `deny` (`model.action`), every policy's `fallThrough` is `next-policy` or
+  `reject` (`model.fall-through`), and a term's `flow` is one of the model's (`model.flow`);
+- communities are in the model's forms (`communityType()`, `model.community`); a community set with a regex says its
+  `type`, one of the model's, and its members are of it (`model.community-type`); a set with a regex, or an AS-path set
   with an entry, says its dialect, and a dialect is one of the model's (`model.regex-dialect`); local preference, MED
   and tags are from 0 to 4294967295 (`model.number`), a prepended AS is an AS number (`model.as-number`), a next hop
   or neighbor an IP address (`isIpAddress()`, `model.ip-address`);
@@ -438,7 +445,7 @@ checks catch careless plugins:
   term that rejects while converting the rest of its policy, fail the ledger check, and leaving out a term that changes
   nothing later terms see, or the whole policy, passes; parses with a term partly unsupported fail it, and one left out
   whole passes; a BGP policy name that resolves to nothing fails the parse check only for a plugin that parses
-  routing policy.
+  routing policy, and a policy without a fall-through, or with one the model doesn't have, fails it too.
 
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 

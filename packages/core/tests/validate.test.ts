@@ -1,7 +1,7 @@
 // modelProblems(), isRouteDistinguisher(), isVlanId(), isAsNumber() and model 0.5.0's isIpAddress(), parsePrefix(),
 // communityType() and isPositionKey(): what a model must hold beyond its types (validate.ts).
 import { describe, expect, it } from 'vitest'
-import { communityType, fieldPath, isAsNumber, isIpAddress, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, type Device, type PrefixMatchForm, type RegexDialect } from '../src'
+import { communityType, deserializeModel, fieldPath, isAsNumber, isIpAddress, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, populatedLeaves, serializeModel, type CommunityType, type Device, type PrefixMatchForm, type RegexDialect } from '../src'
 
 describe('isRouteDistinguisher', () => {
   it('takes the three forms: ASN:nn, IP:nn and ASN4:nn, at their bounds', () => {
@@ -254,7 +254,7 @@ describe('modelProblems, model 0.5.0', () => {
       communitySets: {
         CUSTOMER: { entries: { '1': { action: 'permit', members: ['65000:100', 'no-export'] } } },
         RT: { entries: { '1': { action: 'permit', members: ['target:65000:1', 'large:65000:1:2'] } } },
-        REGEX: { regexDialect: 'cisco', entries: { '10': { action: 'deny', regexes: ['_65000:9[0-9]_'] }, '20': { action: 'permit', regexes: ['_65000:.*_'] } } }
+        REGEX: { type: 'standard', regexDialect: 'cisco', entries: { '10': { action: 'deny', regexes: ['_65000:9[0-9]_'] }, '20': { action: 'permit', regexes: ['_65000:.*_'] } } }
       },
       asPathSets: { FROM_PEER: { regexDialect: 'junos', entries: { '1': { action: 'permit', regex: '65001 .*' } } } },
       policies: {
@@ -282,7 +282,7 @@ describe('modelProblems, model 0.5.0', () => {
         prefixLists: { ipv4: { L: { entries: { '010': { action: 'permit', prefix: '10.0.0.0/8', minLength: 8, maxLength: 8 } } } } },
         communitySets: { C: { entries: { first: { action: 'permit', members: ['65000:1'] } } } },
         asPathSets: { A: { regexDialect: 'cisco', entries: { '-1': { action: 'permit', regex: '_65000_' } } } },
-        policies: { P: { terms: { [CANARY]: { actions: { flow: 'accept' } }, '1': { matches: { routeFilters: { '4294967295': { prefix: '10.0.0.0/8', minLength: 8, maxLength: 8 } } } } } } }
+        policies: { P: { fallThrough: 'reject', terms: { [CANARY]: { actions: { flow: 'accept' } }, '1': { matches: { routeFilters: { '4294967295': { prefix: '10.0.0.0/8', minLength: 8, maxLength: 8 } } } } } } }
       }
     }
     expect(problems(device)).toEqual([
@@ -346,6 +346,7 @@ describe('modelProblems, model 0.5.0', () => {
         asPathSets: { A: { entries: { '1': { action: 'permit', regex: '_65000_' } } }, EMPTY: {}, PERL: { regexDialect: 'perl' as RegexDialect } },
         policies: {
           P: {
+            fallThrough: 'reject',
             terms: {
               '1': {
                 matches: { neighbors: ['192.0.2.2', CANARY], tags: [1, -1] },
@@ -359,6 +360,7 @@ describe('modelProblems, model 0.5.0', () => {
     const term = (...path: string[]) => at('policies', 'P', 'terms', '1', ...path)
     expect(problems(device)).toEqual([
       ['model.community', at('communitySets', 'C', 'entries', '1', 'members')],
+      ['model.community-type', at('communitySets', 'R', 'type')],
       ['model.regex-dialect', at('communitySets', 'R', 'regexDialect')],
       ['model.regex-dialect', at('asPathSets', 'A', 'regexDialect')],
       ['model.regex-dialect', at('asPathSets', 'PERL', 'regexDialect')],
@@ -379,7 +381,7 @@ describe('modelProblems, model 0.5.0', () => {
       routingPolicy: {
         prefixLists: { ipv4: { V4: {} }, ipv6: { V6: {} } },
         communitySets: { C: {} },
-        policies: { P: { terms: { '1': { matches: { prefixLists: { ipv4: ['V4', 'V6'], ipv6: ['V6'] }, communitySets: ['C', CANARY], asPathSets: ['A'] }, actions: { communityAdd: { sets: ['C'] }, communitySet: { sets: [CANARY] }, communityDelete: { sets: ['toString'] } } } } } }
+        policies: { P: { fallThrough: 'reject', terms: { '1': { matches: { prefixLists: { ipv4: ['V4', 'V6'], ipv6: ['V6'] }, communitySets: ['C', CANARY], asPathSets: ['A'] }, actions: { communityAdd: { sets: ['C'] }, communitySet: { sets: [CANARY] }, communityDelete: { sets: ['toString'] } } } } } }
       }
     }
     const term = (...path: string[]) => at('policies', 'P', 'terms', '1', ...path)
@@ -395,7 +397,7 @@ describe('modelProblems, model 0.5.0', () => {
   it('reports a BGP peer\'s or family\'s policy the model doesn\'t have, unless told to leave BGP policy names alone', () => {
     const bgp = ['networkInstances', 'blue', 'bgp'] as const
     const device: Device = {
-      routingPolicy: { policies: { IN: {} } },
+      routingPolicy: { policies: { IN: { fallThrough: 'reject' } } },
       networkInstances: {
         blue: {
           type: 'vrf',
@@ -416,8 +418,53 @@ describe('modelProblems, model 0.5.0', () => {
     expect(problems({ networkInstances: device.networkInstances }).map(([code]) => code)).toEqual(Array(5).fill('model.unknown-policy'))
   })
 
+  it('keeps a regex-only community set\'s kind: standard, extended and large are three sets, through JSON and as leaves', () => {
+    // Cisco's `ip community-list expanded C permit .*`, `ip extcommunity-list expanded …` and `ip large-community-list
+    // expanded …`: the same pattern, matching different attributes.
+    for (const type of ['standard', 'extended', 'large'] as const) {
+      const device: Device = { routingPolicy: { communitySets: { C: { type, regexDialect: 'cisco', entries: { '10': { action: 'permit', regexes: ['.*'] } } } } } }
+      expect(problems(device), type).toEqual([])
+      expect(deserializeModel(serializeModel(device)).device.routingPolicy?.communitySets?.C.type).toBe(type)
+      expect(populatedLeaves(device).map((l) => l.path)).toContain(at('communitySets', 'C', 'type'))
+    }
+  })
+
+  it('reports a community set with a regex and no type, a type the model doesn\'t have, or members of another kind', () => {
+    const device: Device = {
+      routingPolicy: {
+        communitySets: {
+          UNTYPED: { regexDialect: 'cisco', entries: { '1': { action: 'permit', regexes: ['.*'] } } },
+          BOGUS: { type: 'normal' as CommunityType },
+          LARGE: { type: 'large', entries: { '1': { action: 'permit', members: ['large:65000:1:2', '65000:1'] } } },
+          // Members alone say their kinds: a Junos community may mix them, with no type.
+          MIXED: { entries: { '1': { action: 'permit', members: ['65000:1', 'target:65000:1', 'large:65000:1:2'] } } }
+        }
+      }
+    }
+    expect(problems(device)).toEqual([
+      ['model.community-type', at('communitySets', 'UNTYPED', 'type')],
+      ['model.community-type', at('communitySets', 'BOGUS', 'type')],
+      ['model.community-type', at('communitySets', 'LARGE', 'entries', '1', 'members')]
+    ])
+  })
+
+  it('reports a policy with no fall-through or an unknown one, an entry with no action or an unknown one, and an unknown flow', () => {
+    const loose = JSON.parse(
+      '{"routingPolicy":{"prefixLists":{"ipv4":{"L":{"entries":{"1":{"prefix":"10.0.0.0/8","minLength":8,"maxLength":8}}}}},"communitySets":{"C":{"entries":{"1":{"action":"allow","members":["65000:1"]}}}},"asPathSets":{"A":{"regexDialect":"cisco","entries":{"1":{"regex":"_1_"}}}},"policies":{"NONE":{"terms":{"1":{"actions":{"flow":"next-term"}}}},"BAD":{"fallThrough":"accept","terms":{"1":{"actions":{"flow":"continue"}}}},"NULL":{"fallThrough":null}}}}'
+    ) as Device
+    expect(problems(loose)).toEqual([
+      ['model.action', at('prefixLists', 'ipv4', 'L', 'entries', '1', 'action')],
+      ['model.action', at('communitySets', 'C', 'entries', '1', 'action')],
+      ['model.action', at('asPathSets', 'A', 'entries', '1', 'action')],
+      ['model.fall-through', at('policies', 'NONE', 'fallThrough')],
+      ['model.fall-through', at('policies', 'BAD', 'fallThrough')],
+      ['model.flow', at('policies', 'BAD', 'terms', '1', 'actions', 'flow')],
+      ['model.fall-through', at('policies', 'NULL', 'fallThrough')]
+    ])
+  })
+
   it('reads a 0.5 model from JSON or a careless plugin without trusting its types', () => {
-    const loose = JSON.parse('{"routingPolicy":{"prefixLists":{"ipv4":{"L":{"entries":{"1":{"prefix":7,"minLength":"8","maxLength":8}}}}},"communitySets":{"C":{"entries":{"1":{"members":"65000:1"}}}},"policies":{"P":{"terms":{"1":{"matches":{"prefixLists":{"ipv4":"L"},"communitySets":"D"},"actions":{"asPathPrepend":"65000","localPreference":"100"}}}}}}}') as Device
+    const loose = JSON.parse('{"routingPolicy":{"prefixLists":{"ipv4":{"L":{"entries":{"1":{"action":"permit","prefix":7,"minLength":"8","maxLength":8}}}}},"communitySets":{"C":{"entries":{"1":{"action":"deny","members":"65000:1"}}}},"policies":{"P":{"fallThrough":"reject","terms":{"1":{"matches":{"prefixLists":{"ipv4":"L"},"communitySets":"D"},"actions":{"asPathPrepend":"65000","localPreference":"100"}}}}}}}') as Device
     expect(problems(loose)).toEqual([
       ['model.prefix', at('prefixLists', 'ipv4', 'L', 'entries', '1', 'prefix')],
       ['model.unknown-community-set', at('policies', 'P', 'terms', '1', 'matches', 'communitySets')],

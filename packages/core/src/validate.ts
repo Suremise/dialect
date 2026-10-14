@@ -3,7 +3,7 @@
 // that names a VRF, VLAN, interface or BGP group it never declared, or writes a route distinguisher, VLAN ID or AS number
 // in a form no other plugin can read, fails there instead of in a conversion. Messages never quote the config (AGENTS.md, No secrets in diagnostics): a VRF can share
 // its name with a secret, so they say what is wrong, and `field` says where.
-import type { BgpPeer, Device, Interface, Keyed, PrefixMatch, RoutingPolicy } from './model'
+import type { BgpPeer, CommunityType, Device, Interface, Keyed, PrefixMatch, RoutingPolicy } from './model'
 import { fieldPath, type PathSegment } from './paths'
 import type { Diagnostic } from './results'
 
@@ -73,7 +73,7 @@ const WELL_KNOWN_COMMUNITIES: ReadonlySet<string> = new Set(['no-export', 'no-ad
  * well-known name), `extended` (`target:65000:100`, `origin:192.0.2.1:100`) or `large` (`large:65000:1:2`); null when
  * it is none of them.
  */
-export function communityType(value: unknown): 'standard' | 'extended' | 'large' | null {
+export function communityType(value: unknown): CommunityType | null {
   if (typeof value !== 'string') return null
   if (WELL_KNOWN_COMMUNITIES.has(value)) return 'standard'
   const parts = value.split(':')
@@ -293,8 +293,11 @@ export interface ModelProblemsOptions {
  * - a term's, prefix list entry's, route filter's or set entry's key isn't a position (`model.position`);
  * - a prefix isn't in CIDR form with no host bits set, or is in a list of the other family (`model.prefix`), and its
  *   lengths aren't from the prefix's length to the family's longest, or disagree with its form (`model.prefix-length`);
- * - a community isn't in one of the model's forms (`model.community`); a set with a regex, or an AS-path set with an
- *   entry, says no dialect, or a set names one the model doesn't have (`model.regex-dialect`);
+ * - an entry's action isn't `permit` or `deny` (`model.action`), a policy's fall-through is missing or isn't
+ *   `next-policy` or `reject` (`model.fall-through`), a term's flow isn't one of the model's (`model.flow`);
+ * - a community isn't in one of the model's forms (`model.community`); a community set with a regex says no `type`,
+ *   names one the model doesn't have, or has a member of another kind (`model.community-type`); a set with a regex, or
+ *   an AS-path set with an entry, says no dialect, or a set names one the model doesn't have (`model.regex-dialect`);
  * - a local preference, MED or tag isn't from 0 to 4294967295 (`model.number`), a prepended AS isn't an AS number
  *   (`model.as-number`), a next hop or neighbor isn't an IP address (`model.ip-address`);
  * - a term or action names a prefix list, community set or AS-path set the model doesn't have
@@ -321,28 +324,45 @@ export function routingPolicyProblems(policy: RoutingPolicy | undefined): Diagno
     else if (!form) problem('prefix-length', 'A prefix match\'s lengths don\'t agree with the form it was written in.', ...path, 'form')
   }
 
+  /** An entry's action: `permit` or `deny`, always given. */
+  const action = (value: unknown, ...path: PathSegment[]) => {
+    if (value !== 'permit' && value !== 'deny') problem('action', 'An entry\'s action isn\'t permit or deny.', ...path, 'action')
+  }
   for (const family of ['ipv4', 'ipv6'] as const)
     for (const [name, l] of entries(policy.prefixLists?.[family])) {
       positions(l?.entries, 'A prefix list entry', 'prefixLists', family, name, 'entries')
-      for (const [key, e] of entries(l?.entries)) prefixMatch(e, family, 'prefixLists', family, name, 'entries', key)
+      for (const [key, e] of entries(l?.entries)) {
+        action(e?.action, 'prefixLists', family, name, 'entries', key)
+        prefixMatch(e, family, 'prefixLists', family, name, 'entries', key)
+      }
     }
   for (const [name, set] of entries(policy.communitySets)) {
     positions(set?.entries, 'A community set entry', 'communitySets', name, 'entries')
+    const type = set?.type
+    if (type !== undefined && type !== 'standard' && type !== 'extended' && type !== 'large') problem('community-type', 'A community set\'s type isn\'t standard, extended or large.', 'communitySets', name, 'type')
     let regex = false
     for (const [key, e] of entries(set?.entries)) {
-      if (!list(e?.members).every((m) => communityType(m) !== null)) problem('community', 'A community isn\'t in one of the model\'s forms (65000:100, a well-known name, target:…, origin:…, large:…).', 'communitySets', name, 'entries', key, 'members')
+      action(e?.action, 'communitySets', name, 'entries', key)
+      const members = list(e?.members).map(communityType)
+      if (members.some((m) => m === null)) problem('community', 'A community isn\'t in one of the model\'s forms (65000:100, a well-known name, target:…, origin:…, large:…).', 'communitySets', name, 'entries', key, 'members')
+      else if (type !== undefined && members.some((m) => m !== type)) problem('community-type', 'A community set has a member of another kind than its type.', 'communitySets', name, 'entries', key, 'members')
       regex ||= list(e?.regexes).length > 0
     }
+    // A regex can't say which kind of community it matches (`.*` matches any): the set says.
+    if (regex && type === undefined) problem('community-type', 'A community set has a regex but says no type: standard, extended or large.', 'communitySets', name, 'type')
     if (set?.regexDialect !== undefined ? !isDialect(set.regexDialect) : regex) problem('regex-dialect', 'A community set has a regex but says no dialect, or names one the model doesn\'t have.', 'communitySets', name, 'regexDialect')
   }
   for (const [name, set] of entries(policy.asPathSets)) {
     positions(set?.entries, 'An AS-path set entry', 'asPathSets', name, 'entries')
+    for (const [key, e] of entries(set?.entries)) action(e?.action, 'asPathSets', name, 'entries', key)
     if (set?.regexDialect !== undefined ? !isDialect(set.regexDialect) : entries(set?.entries).length > 0) problem('regex-dialect', 'An AS-path set has regexes but says no dialect, or names one the model doesn\'t have.', 'asPathSets', name, 'regexDialect')
   }
 
   /** Whether every name in `names` is a key of `map`. */
   const resolve = (names: unknown, map: Keyed<unknown> | undefined) => list(names).every((n) => typeof n === 'string' && map !== undefined && Object.hasOwn(map, n))
   for (const [name, p] of entries(policy.policies)) {
+    // Always given: the same undecided route goes on to the next policy on Junos, and is rejected on Cisco.
+    if (p?.fallThrough !== 'next-policy' && p?.fallThrough !== 'reject') problem('fall-through', 'A policy doesn\'t say what happens to a route no term decides (next-policy or reject).', 'policies', name, 'fallThrough')
     positions(p?.terms, 'A policy term', 'policies', name, 'terms')
     for (const [key, term] of entries(p?.terms)) {
       const at = ['policies', name, 'terms', key]
@@ -356,6 +376,7 @@ export function routingPolicyProblems(policy: RoutingPolicy | undefined): Diagno
       if (!list(m?.neighbors).every(isIpAddress)) problem('ip-address', 'A policy term\'s neighbor isn\'t an IP address.', ...at, 'matches', 'neighbors')
       if (!list(m?.tags).every(isUint32)) problem('number', 'A tag isn\'t a number from 0 to 4294967295.', ...at, 'matches', 'tags')
       const a = term?.actions
+      if (a?.flow !== undefined && !['accept', 'reject', 'next-term', 'next-policy'].includes(a.flow)) problem('flow', 'A policy term\'s flow isn\'t accept, reject, next-term or next-policy.', ...at, 'actions', 'flow')
       for (const leaf of ['localPreference', 'med', 'tag'] as const)
         if (a?.[leaf] !== undefined && !isUint32(a[leaf])) problem('number', `A policy term's ${leaf === 'med' ? 'MED' : leaf === 'tag' ? 'tag' : 'local preference'} isn't a number from 0 to 4294967295.`, ...at, 'actions', leaf)
       if (!list(a?.asPathPrepend).every(isAsNumber)) problem('as-number', 'A prepended AS isn\'t an AS number from 1 to 4294967295.', ...at, 'actions', 'asPathPrepend')

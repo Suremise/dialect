@@ -203,8 +203,10 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
             return mapped(put([...at, 'action'], action), push([...at, 'members'], w[6]))
           }
           if (w[5] !== 'regex') return unsupported('the probe stub has no rule for it')
+          // The stub's community sets are standard ones: a regex can't say its kind, so the set does.
           const dialect = put([...set, 'regexDialect'], 'cisco')
-          return w[0] === 'community-set' ? mapped(dialect, put([...at, 'action'], action), push([...at, 'regexes'], w[6])) : mapped(dialect, put([...at, 'action'], action), put([...at, 'regex'], w[6]))
+          const kind = w[0] === 'community-set' ? [put([...set, 'type'], 'standard')] : []
+          return w[0] === 'community-set' ? mapped(dialect, ...kind, put([...at, 'action'], action), push([...at, 'regexes'], w[6])) : mapped(dialect, put([...at, 'action'], action), put([...at, 'regex'], w[6]))
         }
         const term = position(w[3])
         if (w[0] === 'policy' && w[2] === 'term' && term !== null) {
@@ -384,6 +386,12 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
             for (const path of leavesOf(set, ...at)) dispositions[path] = { kind: 'unsupported', reason: 'the stub writes Cisco\'s regex dialect only' }
             continue
           }
+          const type = (set as { type?: string }).type
+          if (type !== undefined && type !== 'standard') {
+            for (const path of leavesOf(set, ...at)) dispositions[path] = { kind: 'unsupported', reason: 'the stub has standard community sets only' }
+            continue
+          }
+          if (type !== undefined) dispositions[fieldPath(...at, 'type')] = { kind: 'not-applicable', reason: 'the stub\'s community sets are standard ones' }
           if (set.regexDialect !== undefined) dispositions[fieldPath(...at, 'regexDialect')] = { kind: 'not-applicable', reason: 'the stub writes Cisco\'s regex dialect' }
           for (const [seq, e] of Object.entries((set.entries ?? {}) as Record<string, { action: string; members?: readonly string[]; regexes?: readonly string[]; regex?: string }>)) {
             const entry = [...at, 'entries', seq]

@@ -226,7 +226,7 @@ describe('a renderer built for model 0.4.1 meeting 0.5.0\'s routing policy', () 
     networkInstances: { default: { bgp: { neighbors: { '10.0.0.2': { peerAs: 65001, importPolicies: ['IN'] } } } } },
     routingPolicy: {
       prefixLists: { ipv4: { L: { entries: { '5': { action: 'permit', prefix: '10.0.0.0/8', minLength: 8, maxLength: 24, form: 'le' } } } }, ipv6: { L6: {} } },
-      communitySets: { C: { regexDialect: 'cisco', entries: { '1': { action: 'permit', members: ['65000:1'], regexes: ['_65000:9_'] } } } },
+      communitySets: { C: { type: 'standard', regexDialect: 'cisco', entries: { '1': { action: 'permit', members: ['65000:1'], regexes: ['_65000:9_'] } } } },
       asPathSets: { A: { regexDialect: 'junos', entries: { '1': { action: 'deny', regex: '65001 .*' } } } },
       policies: {
         IN: {
@@ -246,7 +246,7 @@ describe('a renderer built for model 0.4.1 meeting 0.5.0\'s routing policy', () 
     const ledger = buildLedger(old.parse!('', { modelVersion: '0.5.0' }), rendered, model)
     const added = populatedLeaves(model.routingPolicy, ['routingPolicy']).map((l) => l.path)
     // Every leaf of every new type, the empty IPv6 list among them.
-    expect(added).toHaveLength(39)
+    expect(added).toHaveLength(40)
     expect(added).toContain(fieldPath('routingPolicy', 'prefixLists', 'ipv6', 'L6'))
     expect(added).toContain(fieldPath('routingPolicy', 'policies', 'IN', 'fallThrough'))
     // The BGP neighbor's import policy is a 0.4 field this stub doesn't render either.
@@ -359,6 +359,34 @@ describe('a BGP policy name that resolves to nothing: checked for a plugin that 
   it('fails one that does, saying where and quoting nothing', () => {
     const r = byCheck(checkFixture(giving({ 'routing-policy': { parse: 'partial', render: 'none' } }), { name: 'bgp/names', source: '', expectedModel: model }))
     expect(r.parse.problems).toEqual([`parse made an invalid model: A BGP peer names a policy the model doesn't have. (${fieldPath('networkInstances', 'default', 'bgp', 'neighbors', '10.0.0.2', 'importPolicies')})`])
+  })
+})
+
+describe('a parse that doesn\'t say what its policy does with a route no term decides', () => {
+  // Junos goes on to the next policy, Cisco rejects: a policy without its fall-through has lost what decides that.
+  const policy = (fallThrough: unknown): Device => ({ routingPolicy: { policies: { P: { ...(fallThrough === undefined ? {} : { fallThrough }), terms: { '1': { actions: { flow: 'next-term' } } } } as never } } })
+  const giving = (model: Device): PlatformPlugin => ({
+    ...stubPlugin(),
+    capabilities: { 'routing-policy': { parse: 'partial', render: 'partial' } },
+    parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }),
+    render: () => ({ text: '', diagnostics: [], dispositions: Object.fromEntries(populatedLeaves(model).map((l): [string, FieldDisposition] => [l.path, { kind: 'rendered' }])) })
+  })
+  const field = fieldPath('routingPolicy', 'policies', 'P', 'fallThrough')
+
+  it.each([
+    ['leaves it out', undefined],
+    ['gives one the model doesn\'t have', 'accept']
+  ])('fails the parse check when it %s, saying where', (_what, fallThrough) => {
+    const model = policy(fallThrough)
+    const r = byCheck(checkFixture(giving(model), { name: 'policy/fall-through', source: '', expectedModel: model }))
+    expect(r.parse.problems).toEqual([`parse made an invalid model: A policy doesn't say what happens to a route no term decides (next-policy or reject). (${field})`])
+  })
+
+  it('passes it with next-policy or reject', () => {
+    for (const fallThrough of ['next-policy', 'reject']) {
+      const model = policy(fallThrough)
+      expect(byCheck(checkFixture(giving(model), { name: 'policy/fall-through', source: '', expectedModel: model })).parse.status, fallThrough).toBe('passed')
+    }
   })
 })
 

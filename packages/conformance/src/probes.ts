@@ -503,7 +503,7 @@ export function runProbes(plugin: PlatformPlugin, adapter: ProbeAdapter, { model
       const model: Device = {
         routingPolicy: {
           asPathSets: { [PROBE_AS_PATH_SET]: { regexDialect: foreign, entries: { '1': { action: 'permit', regex: own.asPath } } } },
-          communitySets: { [PROBE_COMMUNITY_SET]: { regexDialect: foreign, entries: { '1': { action: 'permit', regexes: [own.community] } } } }
+          communitySets: { [PROBE_COMMUNITY_SET]: { type: 'standard', regexDialect: foreign, entries: { '1': { action: 'permit', regexes: [own.community] } } } }
         }
       }
       const rendered = render(model)

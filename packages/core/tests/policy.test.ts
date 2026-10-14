@@ -47,7 +47,7 @@ describe('termSkipSafe', () => {
     const terms: Record<string, PolicyTerm> = {}
     terms['20'] = later({ tags: [7] })
     terms['10'] = { actions: { tag: 7 } }
-    expect(termSkipSafe({ terms }, '10')).toBe(false)
-    expect(termSkipSafe({ terms }, '20')).toBe(true)
+    expect(termSkipSafe({ fallThrough: 'reject', terms }, '10')).toBe(false)
+    expect(termSkipSafe({ fallThrough: 'reject', terms }, '20')).toBe(true)
   })
 })
