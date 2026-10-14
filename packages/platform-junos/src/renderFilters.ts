@@ -92,6 +92,8 @@ export function firewall(filters: Filters, ctx: FilterRenderContext): { readonly
         continue
       }
       inner.push(box(`term ${quote(r.out.label)}`, r.out.body, ...r.out.fields))
+      // A Cisco remark (model 0.5.3): Junos keeps none per term, and comments aren't written (annotations, #90).
+      if (r.term?.description !== undefined) skip([...r.t, 'description'], 'unsupported', 'Junos filters keep no description per term')
     }
     // Junos discards what no term decides; a source that denies (a Cisco ACL, which may also send an ICMP unreachable)
     // is said, as is a filter that relies on its end at all: by the terms written, as one left out (a last discard) can

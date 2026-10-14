@@ -341,6 +341,16 @@ describe('the per-term rule: a term whole or not at all, and the whole policy wh
       expect(check('accept', (p) => (p.startsWith(at()) && !p.endsWith('.implicitAction')) || p === attachment)).toEqual([])
     })
 
+    it("passes a term written without its description (a remark: it says nothing about what the term decides), and fails one written without a match", () => {
+      const m: Device = { filters: { ipv4: { F: { implicitAction: 'deny', terms: { '1': { description: 'why', matches: { protocols: [6] }, actions: { action: 'accept' } } } } } } }
+      const problems = (leftOut: string) => termProblems({ tree: [], model: m, dispositions: {}, diagnostics: [] }, renderOf(m, (p) => p === leftOut))
+      expect(problems(at('terms', '1', 'description'))).toEqual([])
+      expect(problems(at('terms', '1', 'matches', 'protocols'))).toEqual([
+        `render converted part of a term: some of ${at('terms', '1')}'s fields are unsupported and some aren't`,
+        `render left out ${at('terms', '1')}, which later terms would see packets differently without, but converted the rest of the filter: the whole filter is unsupported instead (${at('terms', '1', 'description')}, ${at('terms', '1', 'actions', 'action')})`
+      ])
+    })
+
     // A filter left out whole (every leaf unsupported, its implicitAction too) can't be applied, whatever its terms: a
     // safe only term, no terms, or empty ones.
     describe('a filter left out whole, whatever its terms, still applied', () => {

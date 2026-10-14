@@ -29,6 +29,8 @@
   keyboard focus shows.
 
 ### Convert
+- **An access list remark converting to Junos says why it isn't written:** Junos filters keep no description per term,
+  so the remark is listed as not written, and the entry it describes still converts.
 - **A filter whose last entry can't be converted is no longer turned into one that drops everything:** an entry left
   out goes alone only when that changes nothing (it only counts, or it is the last and denies, as the filter's end
   does). Otherwise the whole filter is listed as not converted, and so is every interface that applies it.
