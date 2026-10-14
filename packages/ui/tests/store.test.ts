@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { outputSummary } from '../src/components/ConversionView'
 import { sessionOf } from '../src/session'
 import { activeConversion, convertJob, countCommands, DISPLAY_SET, isUnsaved, outputName, sameJob, SOURCES, tabTitle, targetsFor, toolJobs, useStore } from '../src/store'
 
@@ -184,6 +185,82 @@ describe('the store converting IRB units (#80)', () => {
     expect(doc().interfaces.filter((i) => i.target === undefined).map((i) => i.source)).toEqual(['irb.200'])
     expect(doc().output).toContain('interface Vlan100\n')
     expect(doc().output).toContain('interface Vlan300\n')
+  })
+})
+
+describe('the store answering keys, passwords and policies (#105)', () => {
+  const SECRETS = readFileSync(join(__dirname, '../../cli/tests/fixtures/convert/secrets.conf'), 'utf8')
+  const OSPF = 'iosxr.ospf-key:networkInstances.default.ospf.areas["0.0.0.0"].interfaces["GigabitEthernet0/0/0/0.0"]'
+  const BGP = 'iosxr.bgp-password:networkInstances.default.bgp.neighbors["192.0.2.1"]'
+  const POLICY = 'iosxr.ebgp-policy:networkInstances.default.bgp.neighbors["192.0.2.1"]'
+  const KEY = '7 SYNTHETIC_KEY'
+  const PASSWORD = 'SYNTHETIC_PASSWORD'
+
+  beforeEach(() => {
+    useStore.getState().setJob({ kind: 'convert', target: 'iosxr' })
+    useStore.getState().setSource(SECRETS, 'secrets.conf')
+    useStore.getState().setInterfaceName('ge-0/0/0', 'GigabitEthernet0/0/0/0')
+  })
+  afterEach(() => {
+    useStore.getState().setJob(DISPLAY_SET)
+  })
+
+  it('lists what the target asks for besides names, by line, unanswered', () => {
+    expect(doc().inputs.map(({ id, kind, lines, answered, rejected }) => ({ id, kind, lines, answered, rejected }))).toEqual([
+      { id: OSPF, kind: 'secret', lines: [21], answered: false, rejected: false },
+      { id: BGP, kind: 'secret', lines: [34], answered: false, rejected: false },
+      { id: POLICY, kind: 'other', lines: [34], answered: false, rejected: false }
+    ])
+    expect(doc().inputs[2].message).toContain('Name an existing route policy to attach.')
+    expect(outputSummary(doc())).toMatch(/, incomplete: 3 items need an answer$/)
+    expect(doc().output).not.toMatch(/password|message-digest-key|route-policy/)
+    // A render's warning about a field is at its statement's line.
+    expect(doc().problems).toContainEqual(expect.objectContaining({ message: expect.stringContaining('The source accepts an eBGP neighbor'), line: 34, column: 17 }))
+  })
+
+  it('completes the config with the answers, and an answer in a form the target does not take is asked again', () => {
+    const { setAnswer } = useStore.getState()
+    setAnswer(OSPF, KEY)
+    setAnswer(BGP, PASSWORD)
+    setAnswer(POLICY, 'PASS-ALL')
+    expect(doc().inputs.every((i) => i.answered && !i.rejected)).toBe(true)
+    expect(doc().output).toContain('   message-digest-key 7 md5 clear SYNTHETIC_KEY\n')
+    expect(doc().output).toContain('  password clear SYNTHETIC_PASSWORD\n')
+    expect(doc().output).toContain('   route-policy PASS-ALL in\n')
+    expect(outputSummary(doc())).not.toContain('incomplete')
+    setAnswer(OSPF, 'no-key-id')
+    expect(doc().inputs[0]).toMatchObject({ answered: false, rejected: true })
+    expect(doc().output).not.toContain('message-digest-key')
+    // No message repeats an answer.
+    for (const p of doc().problems) for (const value of [KEY, 'SYNTHETIC', 'no-key-id', 'PASS-ALL']) expect(p.message).not.toContain(value)
+    // An empty answer clears it.
+    setAnswer(BGP, '')
+    expect(doc().answers).toEqual({ [OSPF]: 'no-key-id', [POLICY]: 'PASS-ALL' })
+  })
+
+  it('asks once, in one row, for a password a BGP group shared by VRFs needs at each place, and one answer serves them all', () => {
+    // IOS-XR's global neighbor group G, with a password, used in VRFs A and B: NX-OS asks for it at each place, by one id.
+    const src = ['vrf A', '!', 'vrf B', '!', 'router bgp 65000', ' neighbor-group G', '  remote-as 65000', '  password encrypted SYNTHETIC_HASH', ' !', ' vrf A', '  neighbor 192.0.2.2', '   use neighbor-group G', '  !', ' !', ' vrf B', '  neighbor 192.0.2.3', '   use neighbor-group G', '  !', ' !', '!'].join('\n')
+    useStore.getState().setJob(convertJob('iosxr', 'nxos').job)
+    useStore.getState().setSource(src, 'group.xr')
+    expect(doc().inputs.map(({ kind, lines, answered }) => ({ kind, lines, answered }))).toEqual([{ kind: 'secret', lines: [8], answered: false }])
+    expect(outputSummary(doc())).toMatch(/, incomplete: .*1 item needs an answer$/)
+    useStore.getState().setAnswer(doc().inputs[0].id, PASSWORD)
+    expect(doc().inputs[0]).toMatchObject({ answered: true, rejected: false })
+    expect(doc().output).toContain(`password 0 ${PASSWORD}`)
+  })
+
+  it('keeps the answers while the source is edited, drops them for another file or job, and never keeps them for the next start', () => {
+    useStore.getState().setAnswer(BGP, PASSWORD)
+    useStore.getState().setSource(SECRETS.replace('host-name r1', 'host-name r2'))
+    expect(doc().output).toContain(PASSWORD)
+    expect(JSON.stringify(sessionOf(useStore.getState().tabs, useStore.getState().activeId))).not.toContain(PASSWORD)
+    useStore.getState().setTarget('nxos')
+    expect(doc().answers).toEqual({})
+    useStore.getState().setTarget('iosxr')
+    useStore.getState().setAnswer(BGP, PASSWORD)
+    useStore.getState().setSource(SECRETS, 'other.conf')
+    expect(doc().answers).toEqual({})
   })
 })
 

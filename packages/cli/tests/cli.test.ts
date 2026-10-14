@@ -293,6 +293,177 @@ describe('dialect convert', () => {
   })
 })
 
+describe('dialect convert: answers to keys, passwords and policies (#105)', () => {
+  // A Junos config whose OSPF interface and eBGP neighbor authenticate (keys a conversion never carries), the neighbor
+  // with no policy (which IOS-XR needs, RFC 8212): tests/fixtures/convert/secrets.conf. Its interface is named by the map.
+  const lines = (...parts: string[]) => parts.map((p) => `${p}\n`).join('')
+  const convert = (to: string, args: string[], input?: string) => dialect(['convert', '--from', 'junos', '--to', to, ...args, 'secrets.conf'], input, CONVERT)
+  const mapFor = (name: string) => {
+    const path = join(dir, `secrets-${name.replace(/\W/g, '-')}.csv`)
+    writeFileSync(path, `ge-0/0/0,${name}\n`)
+    return path
+  }
+  const xrMap = () => mapFor('GigabitEthernet0/0/0/0')
+  const asked = {
+    ospf: 'OSPF MD5 authentication on an interface needs its key ID (1 to 255) and key, as "ID KEY": the key isn\'t carried.',
+    bgp: 'A BGP session with a password needs the password, which isn\'t carried.',
+    policy: 'An eBGP neighbor has no route policy one way or both: IOS-XR, following RFC 8212, exchanges no routes that way without one. Name an existing route policy to attach.'
+  }
+  const IDS = {
+    ospf: 'iosxr.ospf-key:networkInstances.default.ospf.areas["0.0.0.0"].interfaces["GigabitEthernet0/0/0/0.0"]',
+    bgp: 'iosxr.bgp-password:networkInstances.default.bgp.neighbors["192.0.2.1"]',
+    policy: 'iosxr.ebgp-policy:networkInstances.default.bgp.neighbors["192.0.2.1"]'
+  }
+  // Answers no message may repeat: a # and an = in the key, a comma in the password.
+  const ANSWERS = { ospf: '7 K3y#Syn=th', bgp: 'Pa55,SYNTHETIC', policy: 'PASS-ALL' }
+  /** An answers file's `"id" = ` lines filled in by each id's start (`iosxr.bgp-password:` → its answer). */
+  const fill = (template: string, byPrefix: Record<string, string>) =>
+    template.replace(/^("(?:[^"\\]|\\.)*") =$/gm, (line, quoted: string) => {
+      const id = JSON.parse(quoted) as string
+      const prefix = Object.keys(byPrefix).find((p) => id.startsWith(p))
+      return prefix ? `${quoted} = ${byPrefix[prefix]}` : line
+    })
+  const noSecrets = (stderr: string) => {
+    for (const value of ['$9$placeholder', ...Object.values(ANSWERS), 'K3y', 'Pa55', ...Object.values(IDS), '192.0.2.1']) expect(stderr).not.toContain(value)
+  }
+
+  it('exits 3 while keys, passwords or a policy are unanswered, saying where and what, never which or a value', () => {
+    const run = convert('iosxr', ['--map', xrMap()])
+    expect(run.status).toBe(3)
+    expect(run.stdout).toBe('')
+    expect(run.stderr).toContain(
+      lines(
+        `secrets.conf:21:21: error: secret needed: ${asked.ospf}`,
+        `secrets.conf:34:17: error: secret needed: ${asked.bgp}`,
+        `secrets.conf:34:17: error: needs input: ${asked.policy}`,
+        'dialect: 3 items need an answer: give their answers with --answers (--write-answers <file> writes everything asked, to fill in), or write the config anyway with --allow-incomplete.'
+      )
+    )
+    // A render's warning about a field has its statement's line now (#105).
+    expect(run.stderr).toContain('secrets.conf:34:17: warning: The source accepts an eBGP neighbor\'s routes with no policy')
+    noSecrets(run.stderr)
+    // Interfaces and other items, counted apart.
+    const both = convert('iosxr', [])
+    expect(both.stderr).toContain(
+      'dialect: 1 interface has no name on Cisco IOS-XR, and 3 items need an answer: give it with --map (--write-map <file> writes every interface, with suggestions, to fill in); give their answers with --answers (--write-answers <file> writes everything asked, to fill in); or write the config anyway with --allow-incomplete.\n'
+    )
+    const incomplete = convert('iosxr', ['--allow-incomplete'])
+    expect(incomplete.status).toBe(0)
+    expect(incomplete.stderr).toContain('dialect: warning: incomplete: 1 interface has no name on Cisco IOS-XR, and keeps its Junos name; 3 items need an answer, and what they need is left out.\n')
+    expect(incomplete.stdout).toContain('router bgp 65000\n')
+    expect(incomplete.stdout).not.toMatch(/password|message-digest-key|route-policy/)
+  })
+
+  it('writes everything asked to an answers file which, filled in, completes the config: from a file or stdin', () => {
+    const template = join(dir, 'answers.txt')
+    expect(convert('iosxr', ['--map', xrMap(), '--write-answers', template]).stderr).toContain(`dialect: 3 items need an answer: fill in ${template} and give it with --answers, or write the config anyway with --allow-incomplete.\n`)
+    const written = readFileSync(template, 'utf8')
+    expect(written).toBe(
+      [
+        '# Answers for dialect convert --answers: one "id" = answer line per item. Leave an answer empty to leave it',
+        '# unanswered. The answer is the rest of the line, as typed (spaces at either end are dropped). Keys and',
+        '# passwords are secrets: keep this file safe, and delete it when the config is done.',
+        '',
+        `# Line 21: secret. ${asked.ospf}`,
+        `${JSON.stringify(IDS.ospf)} =`,
+        '',
+        `# Line 34: secret. ${asked.bgp}`,
+        `${JSON.stringify(IDS.bgp)} =`,
+        '',
+        `# Line 34: ${asked.policy}`,
+        `${JSON.stringify(IDS.policy)} =`,
+        ''
+      ].join('\n')
+    )
+    const filled = fill(written, { 'iosxr.ospf-key:': ANSWERS.ospf, 'iosxr.bgp-password:': ANSWERS.bgp, 'iosxr.ebgp-policy:': ANSWERS.policy })
+    writeFileSync(template, filled)
+    for (const run of [convert('iosxr', ['--map', xrMap(), '--answers', template]), convert('iosxr', ['--map', xrMap(), '--answers', '-'], filled)]) {
+      expect(run.status, run.stderr).toBe(0)
+      expect(run.stdout).toContain('   message-digest-key 7 md5 clear K3y#Syn=th\n')
+      expect(run.stdout).toContain('  password clear Pa55,SYNTHETIC\n')
+      expect(run.stdout).toContain('   route-policy PASS-ALL in\n   route-policy PASS-ALL out\n')
+      expect(run.stderr).not.toMatch(/error|needs input|secret needed/)
+      noSecrets(run.stderr)
+    }
+    // Written again, the answers given are kept; JSON answers the same.
+    const again = join(dir, 'answers-again.txt')
+    expect(convert('iosxr', ['--map', xrMap(), '--answers', template, '--write-answers', again]).status).toBe(0)
+    expect(readFileSync(again, 'utf8')).toBe(filled)
+    writeFileSync(join(dir, 'answers.json'), JSON.stringify({ [IDS.ospf]: ANSWERS.ospf, [IDS.bgp]: ANSWERS.bgp, [IDS.policy]: ANSWERS.policy }))
+    expect(convert('iosxr', ['--map', xrMap(), '--answers', join(dir, 'answers.json')]).stdout).toContain('  password clear Pa55,SYNTHETIC\n')
+  })
+
+  it.each([
+    ['iosxe', 'GigabitEthernet0/0/0', { 'ospf-key:': 'K3y#Syn=th', 'bgp-password:': ANSWERS.bgp }, [' ip ospf message-digest-key 1 md5 K3y#Syn=th\n', ' neighbor 192.0.2.1 password Pa55,SYNTHETIC\n']],
+    ['nxos', 'Ethernet1/1', { 'nxos.ospf-key:': ANSWERS.ospf, 'nxos.bgp-password:': ANSWERS.bgp }, ['  ip ospf message-digest-key 7 md5 0 K3y#Syn=th\n', '    password 0 Pa55,SYNTHETIC\n']]
+  ])('completes the OSPF key and BGP password on %s', (to, name, answers, expected) => {
+    const template = join(dir, `answers-${to}.txt`)
+    const first = convert(to, ['--map', mapFor(name), '--write-answers', template])
+    expect(first.status).toBe(3)
+    expect(first.stderr).toContain('dialect: 2 items need an answer')
+    writeFileSync(template, fill(readFileSync(template, 'utf8'), answers))
+    const run = convert(to, ['--map', mapFor(name), '--answers', template])
+    expect(run.status, run.stderr).toBe(0)
+    for (const line of expected) expect(run.stdout).toContain(line)
+    noSecrets(run.stderr)
+  })
+
+  it('says an answer is not in the form asked for, without repeating it, and warns of answers to nothing asked', () => {
+    writeFileSync(join(dir, 'wrong.txt'), `${JSON.stringify(IDS.ospf)} = K3y-without-an-id\n"nothing:asked" = SYNTHETIC\n`)
+    const run = convert('iosxr', ['--map', xrMap(), '--answers', join(dir, 'wrong.txt')])
+    expect(run.status).toBe(3)
+    expect(run.stderr).toContain(`secrets.conf:21:21: error: secret needed: ${asked.ospf} (the answer given isn't in the form asked for)\n`)
+    expect(run.stderr).toContain(`dialect: warning: ${join(dir, 'wrong.txt')}: 1 answer is for nothing this conversion asks\n`)
+    expect(run.stderr).not.toContain('K3y-without-an-id')
+    expect(run.stderr).not.toContain('SYNTHETIC')
+  })
+
+  it('asks once for a password a BGP group shared by VRFs needs at each place, and one answer serves them all', () => {
+    // IOS-XR's global neighbor group G, with a password, used by neighbors in VRFs A and B: NX-OS asks for G's password
+    // in the global table and in each VRF, by one id.
+    const src = ['vrf A', '!', 'vrf B', '!', 'router bgp 65000', ' neighbor-group G', '  remote-as 65000', '  password encrypted SYNTHETIC_HASH', ' !', ' vrf A', '  neighbor 192.0.2.2', '   use neighbor-group G', '  !', ' !', ' vrf B', '  neighbor 192.0.2.3', '   use neighbor-group G', '  !', ' !', '!', ''].join('\n')
+    const template = join(dir, 'answers-group.txt')
+    const xr = (args: string[]) => dialect(['convert', '--from', 'iosxr', '--to', 'nxos', ...args, '-'], src)
+    const first = xr(['--write-answers', template])
+    expect(first.status).toBe(3)
+    expect(first.stderr).toContain('dialect: 1 item needs an answer: fill in')
+    const written = readFileSync(template, 'utf8')
+    expect(written.match(/^"nxos\.bgp-password:[^\n]*=$/gm)).toHaveLength(1)
+    // All three places come from the group's one password statement.
+    expect(written).toContain('\n# Line 8: secret. A BGP session with a password needs the password')
+    expect(first.stderr.match(/secret needed/g)).toHaveLength(1)
+    writeFileSync(template, fill(written, { 'nxos.bgp-password:': ANSWERS.bgp }))
+    const run = xr(['--answers', template])
+    expect(run.status, run.stderr).toBe(0)
+    expect(run.stdout).toContain('password 0 Pa55,SYNTHETIC\n')
+    noSecrets(run.stderr)
+    expect(run.stderr).not.toContain('SYNTHETIC_HASH')
+  })
+
+  it('exits 2 for an answers file it can\'t read, by line and never quoting it', () => {
+    const answers = (name: string, text: string) => {
+      writeFileSync(join(dir, name), text)
+      return convert('iosxr', ['--map', xrMap(), '--answers', join(dir, name)])
+    }
+    const expectRefused = (name: string, text: string, problems: string[]) => expect(answers(name, text)).toEqual({ status: 2, stdout: '', stderr: lines(...problems.map((p) => `dialect: ${join(dir, name)}: ${p}`)) })
+    expectRefused('bare.txt', '# a comment\nSYNTHETIC = x\n', ['line 2: expected "id" = answer, the id a JSON string'])
+    expectRefused('no-equals.txt', '"a" SYNTHETIC\n', ['line 1: expected "id" = answer, the id a JSON string'])
+    // An id JSON doesn't read (a \q escape, a tab inside it) is refused by line, the parser's message not repeated.
+    expectRefused('escape.txt', '"SYNTHETIC\\q" = x\n', ['line 1: expected "id" = answer, the id a JSON string'])
+    expectRefused('control.txt', '"SYNTHETIC\tID" = x\n', ['line 1: expected "id" = answer, the id a JSON string'])
+    expectRefused('unicode.txt', '"SYNTHETIC\\u12" = x\n', ['line 1: expected "id" = answer, the id a JSON string'])
+    expectRefused('twice.txt', '"a" = SYNTHETIC\n\n"a" = other\n', ['line 3: answered twice (first on line 1)'])
+    expectRefused('interface.txt', '"interface:ge-0/0/0" = Gi1\n', ["line 1: an interface's name: give it with --map"])
+    expectRefused('bad.json', '{"a": SYNTHETIC}', ['not valid JSON'])
+    expectRefused('list.json', '["SYNTHETIC"]', ['the JSON is not an object of answers'])
+    expectRefused('values.json', '{"a": 1, "b": "SYN\\nTHETIC", "interface:x": "y"}', ['an answer is not a string', 'an answer has a line break', "an id is an interface's: give interface names with --map"])
+    expect(convert('iosxr', ['--answers', join(dir, 'none.txt')])).toEqual({ status: 2, stdout: '', stderr: `dialect: can't read ${join(dir, 'none.txt')}: no such file\n` })
+    const hint = "\nRun 'dialect --help' for usage.\n"
+    expect(dialect(['convert', '--from', 'junos', '--to', 'iosxr', '--answers', '-', '-'], '')).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: the config and --answers can't both be read from stdin${hint}` })
+    expect(dialect(['convert', '--from', 'junos', '--to', 'iosxr', '--answers'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: --answers needs a value${hint}` })
+  })
+})
+
 describe('dialect usage', () => {
   const hint = "\nRun 'dialect --help' for usage.\n"
 

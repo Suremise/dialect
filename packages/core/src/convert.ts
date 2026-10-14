@@ -574,13 +574,45 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   for (const i of interfaces) if (i.target !== undefined) map[i.source] = i.target
   const model = renameInterfaces(parse.model, map)
   const failed = parse.diagnostics.some((d) => d.severity === 'error')
-  const render = failed ? undefined : target.render(model, context)
+  const placed = place(parse.model, map)
+  const sourcePath = sourcePathOf(placed.sourcePath, ospfKeys(parse.model, placed.ref))
+  // A render's needs-input item, or a diagnostic with no place, names only a field of the renamed model: the source
+  // statement it is about lets a shell say which line (never which name, which may be a reused secret).
+  const locate = <T extends { readonly statement?: string; readonly field?: string; readonly span?: Span }>(x: T): T => {
+    if (x.statement !== undefined || x.span !== undefined || x.field === undefined) return x
+    const statement = statementAt(parse.tree, fields, sourcePath(x.field))
+    return statement !== undefined ? { ...x, statement } : x
+  }
+  const rendered = failed ? undefined : target.render(model, context)
+  const render = rendered && { ...rendered, diagnostics: rendered.diagnostics.map(locate), ...(rendered.needsInput ? { needsInput: rendered.needsInput.map(locate) } : {}) }
   const built = buildLedger(parse, render, model)
   const ledger: CoverageLedger = { ...built, diagnostics: [...built.diagnostics, ...diagnostics], needsInput: [...needsInput, ...built.needsInput] }
   const named = new Set(interfaces.filter((i) => i.target !== undefined).map((i) => i.inputId))
-  const unanswered = [...needsInput.filter((item) => !named.has(item.id)), ...built.needsInput.filter((item) => answer(item.id) === undefined)]
-  const placed = place(parse.model, map)
-  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, placed.sourcePath, ospfKeys(parse.model, placed.ref)) }
+  // A plugin raises an item only while it has no answer it can use: one given in a form it doesn't take is still asked.
+  const unanswered = [...needsInput.filter((item) => !named.has(item.id)), ...built.needsInput]
+  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, sourcePath) }
+}
+
+/**
+ * The source statement a field is about: the first, in tree order, that filled it or a leaf under it; else the same for
+ * its nearest ancestor below the model's top level (`networkInstances.blue` for a VRF's route distinguisher the source
+ * never set). `path` is the parse's (sourcePathOf()).
+ */
+function statementAt(tree: readonly SyntaxNode[], fields: ReadonlyMap<string, readonly string[]>, path: string): string | undefined {
+  let segments: ReturnType<typeof pathSegments>
+  try {
+    segments = pathSegments(path)
+  } catch {
+    return undefined
+  }
+  const order = statementsOf(tree)
+  for (let n = segments.length; n >= 2; n--) {
+    const p = fieldPath(...segments.slice(0, n))
+    const under = (f: string) => f === p || f.startsWith(`${p}.`) || f.startsWith(`${p}[`)
+    const found = order.find((s) => (fields.get(s.id) ?? []).some(under))
+    if (found) return found.id
+  }
+  return undefined
 }
 
 /**
@@ -594,11 +626,12 @@ function ospfKeys(model: Device, ref: (value: string) => string): Map<string, Ma
   return out
 }
 
-/** By source statement: what didn't fully carry over (one issue per statement and reason), and where its fields went. */
-function sourceSide(ledger: CoverageLedger, placedPath: (path: string) => string, ospf: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map()): Pick<Conversion, 'issues' | 'links'> {
-  // The render's fields are the renamed model's: back to the parse's names (and units), to find the statement that
-  // filled each.
-  const sourcePath = (path: string) => {
+/**
+ * A render's field path, the renamed model's, as the parse's: back to the source's names (and units), OSPF interface
+ * keys included, to find the statement that filled it.
+ */
+function sourcePathOf(placedPath: (path: string) => string, ospf: ReadonlyMap<string, ReadonlyMap<string, string>>): (path: string) => string {
+  return (path) => {
     const s = pathSegments(placedPath(path))
     // networkInstances.<instance>.ospf.areas.<area>.interfaces.<reference>…
     if (s[0] === 'networkInstances' && s[2] === 'ospf' && s[3] === 'areas' && s[5] === 'interfaces' && typeof s[6] === 'string') {
@@ -607,6 +640,10 @@ function sourceSide(ledger: CoverageLedger, placedPath: (path: string) => string
     }
     return fieldPath(...s)
   }
+}
+
+/** By source statement: what didn't fully carry over (one issue per statement and reason), and where its fields went. */
+function sourceSide(ledger: CoverageLedger, sourcePath: (path: string) => string): Pick<Conversion, 'issues' | 'links'> {
   const rendered = new Map<string, Span>()
   for (const f of ledger.target?.fields ?? []) if (f.disposition?.kind === 'rendered' && f.disposition.span) rendered.set(sourcePath(f.path), f.disposition.span)
   const links: OutputLink[] = []
