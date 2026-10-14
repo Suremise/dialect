@@ -1590,6 +1590,7 @@ Compiled into the desktop app. Crates that only run while it is built (proc-macr
 | [toml_writer](https://github.com/toml-rs/toml) | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0, used under MIT | desktop app |
 | [tracing](https://github.com/tokio-rs/tracing) | 0.1.44 | MIT | desktop app |
 | [tracing-core](https://github.com/tokio-rs/tracing) | 0.1.36 | MIT | desktop app |
+| [tray-icon](https://github.com/tauri-apps/tray-icon) | 0.25.1 | MIT OR Apache-2.0, used under MIT | desktop app |
 | [typeid](https://github.com/dtolnay/typeid) | 1.0.3 | MIT OR Apache-2.0, used under MIT | desktop app |
 | [unicode-segmentation](https://github.com/unicode-rs/unicode-segmentation) | 1.13.3 | MIT OR Apache-2.0, used under MIT | desktop app |
 | [url](https://github.com/servo/rust-url) | 2.5.8 | MIT OR Apache-2.0, used under MIT | desktop app |
@@ -7699,6 +7700,14 @@ DEALINGS IN THE SOFTWARE.
 License: MIT
 
 *LICENSE*: the same text as tracing 0.1.44's LICENSE, above.
+
+## tray-icon 0.25.1 (crate)
+
+License: MIT OR Apache-2.0, used under MIT
+
+*LICENSE-APACHE*: the same text as base64 0.23.1's LICENSE-APACHE, above.
+
+*LICENSE-MIT*: the same text as muda 0.20.0's LICENSE-MIT, above.
 
 ## typeid 1.0.3 (crate)
 

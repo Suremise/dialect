@@ -61,4 +61,10 @@ await writeFile(
     ['ic10', png[1024]]
   ])
 )
+// The desktop app's notification-area icon, as Hive's: its own master (the small icon filling its square, with heavier
+// strokes), at 16 px and 32 px for 100 % and 200 % scaling. The violet disc reads on light and dark taskbars alike.
+const tray = join(here, 'tray.svg')
+for (const size of [16, 32]) {
+  await writeFile(join(out, `tray-${size}.png`), await sharp(await readFile(tray), { density: Math.max(72, (size / 64) * 72 * 2) }).resize(size, size).png().toBuffer())
+}
 console.log('Icons written to branding/out/')

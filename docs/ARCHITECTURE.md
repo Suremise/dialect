@@ -1535,8 +1535,14 @@ with no server and no network.
 `src/desktopPlatform.ts`) into `dist/`, cargo builds `src-tauri` with it embedded, and the bundler makes the NSIS
 installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe` (about 1.7 MB; the exe is 4 MB).
 
-- **Rust:** `src-tauri/src/main.rs` only opens the window and adds the dialog, fs and opener plugins. Conversion runs
-  in the webview, from the same TypeScript as the web build.
+- **Rust:** `src-tauri/src/main.rs` opens the window, adds the dialog, fs and opener plugins, and makes the
+  **notification-area icon** (#82, tauri's `tray-icon` feature): `branding/out/tray-32.png` through `include_image!`,
+  decoded when the app is built (so no image decoder ships), tooltip "Dialect", a left click shows the window
+  (unminimised and focused), and a menu of Show Dialect, New tab (shows the window and sends `tray-new-tab` to it,
+  which `src/tray.ts` turns into the New Tab picker) and Quit (shows the window and `close()`s it, as the ✕ does, so the
+  close guard asks first while output is unsaved; the only window closing quits the app). Closing the window quits:
+  no minimise-to-tray, as the user decided. The menu runs in Rust, so the capability needs nothing for it. Conversion
+  runs in the webview, from the same TypeScript as the web build.
 - **The Platform** (`src/desktopPlatform.ts`): Open and Save output use `@tauri-apps/plugin-dialog`'s open and save
   dialogs, then `@tauri-apps/plugin-fs` to read or write that path; an opened file's path is the tab's tooltip, and a
   saved one's is where Save output writes again this session (`saveTextTo`, in the fs scope the dialog gave it).
@@ -1560,11 +1566,15 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
   `object-src`. Tauri adds its own scripts' hashes. The editors' styles are constructed stylesheets in shadow roots,
   as in the web build, so `style-src` needs no `unsafe-inline`.
 - **Installer** (`bundle`): NSIS only, `installMode: currentUser`, `compression: zlib` (no CPL code from NSIS's LZMA),
-  the default WebView2 mode, icons from `branding/out`. `bundle.windows.signCommand` runs `scripts/sign.mjs` on every
+  the default WebView2 mode, icons from `branding/out`: `installerIcon` and `uninstallerIcon` are `icon.ico` (the setup
+  file and its window, the uninstaller), Add/Remove Programs shows the app's .exe icon (`DisplayIcon`), and the
+  bundle's icon list puts the same `.ico` in the app's .exe, which its window, taskbar button and Start-menu shortcut
+  show. `bundle.windows.signCommand` runs `scripts/sign.mjs` on every
   file the bundler signs: unsigned (it says so) until `DIALECT_SIGN_COMMAND` gives a signing command with `%1` for
   the file.
-- **Tests:** `tests/desktop.test.ts` (in `npm test`) checks the Platform with the plugins mocked, and the config and
-  capability above. `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
+- **Tests:** `tests/desktop.test.ts` (in `npm test`) checks the Platform with the plugins mocked, the tray's New tab
+  event, and the config, capability and tray menu above. WebDriver can't reach the notification area, so the tray is
+  checked by hand (the card's manual steps). `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
   (`tauri build --no-bundle`), starts it from the build output through tauri-driver and Edge WebDriver, drops a
   fixture and checks its display set, opens About and each Docs page in its tab, converts in a tab of its own and
   switches back through the Window menu, then checks that the CSP refuses an inline

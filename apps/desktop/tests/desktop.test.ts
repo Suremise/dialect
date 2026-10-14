@@ -1,7 +1,7 @@
 // The desktop app's own code without building it: the Platform over the dialog, fs and opener plugins and the window API
-// (mocked), and the Tauri
-// config and capability that make the app what the card asks for (an NSIS installer only, per user, zlib; a strict CSP;
-// file access only through what the user picks). The built app is tested by the smoke test (e2e/).
+// (mocked), the tray's New tab, and the Tauri config and capability that make the app what the cards ask for (an NSIS
+// installer only, per user, zlib, with the Dialect icon; a strict CSP; file access only through what the user picks; a
+// tray icon whose menu needs no permission). The built app is tested by the smoke test (e2e/).
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,16 +10,28 @@ const dialog = vi.hoisted(() => ({ open: vi.fn(), save: vi.fn() }))
 const fs = vi.hoisted(() => ({ readTextFile: vi.fn(), writeTextFile: vi.fn() }))
 const opener = vi.hoisted(() => ({ openUrl: vi.fn() }))
 const appWindow = vi.hoisted(() => ({ close: vi.fn(), destroy: vi.fn(), onCloseRequested: vi.fn() }))
+const event = vi.hoisted(() => ({ listen: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => dialog)
 vi.mock('@tauri-apps/plugin-fs', () => fs)
 vi.mock('@tauri-apps/plugin-opener', () => opener)
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => appWindow }))
+vi.mock('@tauri-apps/api/event', () => event)
 
 const { baseName, desktopPlatform, FILTERS } = await import('../src/desktopPlatform')
+const { listenToTray, NEW_TAB_EVENT } = await import('../src/tray')
+const { useStore } = await import('@dialect/ui')
 
 const tauri = join(__dirname, '..', 'src-tauri')
 const config = JSON.parse(readFileSync(join(tauri, 'tauri.conf.json'), 'utf8'))
 const capability = JSON.parse(readFileSync(join(tauri, 'capabilities', 'default.json'), 'utf8'))
+const mainRs = readFileSync(join(tauri, 'src', 'main.rs'), 'utf8')
+const cargo = readFileSync(join(tauri, 'Cargo.toml'), 'utf8')
+const branding = join(__dirname, '..', '..', '..', 'branding', 'out')
+/** A PNG's width and height, from its IHDR chunk. */
+const pngSize = (path: string): [number, number] => {
+  const png = readFileSync(path)
+  return [png.readUInt32BE(16), png.readUInt32BE(20)]
+}
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -116,10 +128,17 @@ describe('the desktop platform', () => {
 describe('the Tauri config', () => {
   it('builds an NSIS installer only, per user, with zlib, the default WebView2 mode and the signing hook', () => {
     expect(config.bundle.targets).toEqual(['nsis'])
-    expect(config.bundle.windows.nsis).toEqual({ installMode: 'currentUser', compression: 'zlib' })
+    expect(config.bundle.windows.nsis).toEqual({ installMode: 'currentUser', compression: 'zlib', installerIcon: '../../../branding/out/icon.ico', uninstallerIcon: '../../../branding/out/icon.ico' })
     // The default (downloadBootstrapper): not set.
     expect(config.bundle.windows.webviewInstallMode).toBeUndefined()
     expect(config.bundle.windows.signCommand).toBe('node ../scripts/sign.mjs %1')
+  })
+
+  it('gives the installer (the setup file and its window) and the uninstaller the Dialect icon', () => {
+    expect(config.bundle.windows.nsis.installerIcon).toBe('../../../branding/out/icon.ico')
+    expect(config.bundle.windows.nsis.uninstallerIcon).toBe('../../../branding/out/icon.ico')
+    // Tauri's own icon list is what the app's .exe and its window carry: the .ico, from the same masters.
+    expect(config.bundle.icon).toContain(config.bundle.windows.nsis.installerIcon)
   })
 
   it('takes its icons from branding/out', () => {
@@ -156,5 +175,51 @@ describe('the Tauri config', () => {
       'fs:allow-write-text-file',
       { identifier: 'opener:allow-open-url', allow: [{ url: 'https://*' }] }
     ])
+  })
+})
+
+describe('the tray icon', () => {
+  it("has the tray feature only: its icon is decoded when the app is built, so no image decoder ships", () => {
+    expect(cargo).toMatch(/^tauri = \{ version = "[^"]+", features = \["tray-icon"\] \}$/m)
+    expect(mainRs).toContain('tauri::include_image!("../../../branding/out/tray-32.png")')
+  })
+
+  it('is made from branding/tray.svg at 16 and 32 px', () => {
+    expect(pngSize(join(branding, 'tray-16.png'))).toEqual([16, 16])
+    expect(pngSize(join(branding, 'tray-32.png'))).toEqual([32, 32])
+  })
+
+  it('says Dialect, and its menu shows the window, opens a new tab and quits, in that order', () => {
+    expect(mainRs).toContain('.tooltip("Dialect")')
+    const items = [...mainRs.matchAll(/MenuItem::with_id\(app, "([^"]+)", "([^"]+)"/g)].map((m) => [m[1], m[2]])
+    expect(items).toEqual([
+      ['show', 'Show Dialect'],
+      ['new-tab', 'New tab'],
+      ['quit', 'Quit']
+    ])
+    // A left click shows the window; the menu is on the right button.
+    expect(mainRs).toContain('.show_menu_on_left_click(false)')
+  })
+
+  it("quits as the window's own close does, so the close guard asks first while output is unsaved", () => {
+    const quit = mainRs.slice(mainRs.indexOf('"quit" =>'))
+    expect(quit.slice(0, quit.indexOf('_ =>'))).toMatch(/window\.close\(\)/)
+    expect(mainRs).not.toMatch(/\.destroy\(\)|\.exit\(/)
+  })
+
+  it("opens the New Tab picker on the tray's event, which main.rs sends by the same name", async () => {
+    expect(mainRs).toContain(`const NEW_TAB_EVENT: &str = "${NEW_TAB_EVENT}";`)
+    const unlisten = vi.fn()
+    event.listen.mockResolvedValue(unlisten)
+    expect(await listenToTray()).toBe(unlisten)
+    expect(event.listen).toHaveBeenCalledWith(NEW_TAB_EVENT, expect.any(Function))
+    useStore.getState().setPickerOpen(false)
+    ;(event.listen.mock.calls[0][1] as () => void)()
+    expect(useStore.getState().pickerOpen).toBe(true)
+    useStore.getState().setPickerOpen(false)
+  })
+
+  it('needs no permission of its own: its menu runs in Rust, and the page only listens', () => {
+    expect(JSON.stringify(capability.permissions)).not.toMatch(/tray|menu|emit/)
   })
 })
