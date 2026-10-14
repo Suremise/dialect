@@ -133,7 +133,7 @@ describe('BGP', () => {
     const result = parse(lines('router bgp 65000', ' neighbor 192.0.2.2', '  update-source Loopback9', '  use neighbor-group NONE', ' !', ' vrf B', '  neighbor 192.0.2.3 remote-as 65001', ' !', '!', 'router bgp 65001', ' bgp router-id 192.0.2.1', '!'))
     expect(bgp(result)).toEqual({ localAs: 65000, neighbors: { '192.0.2.2': {} } })
     expect(at(result, 3)).toEqual({ kind: 'unsupported', reason: 'names an interface the configuration doesn\'t define' })
-    expect(at(result, 4)).toEqual({ kind: 'unsupported', reason: 'names a neighbor group the configuration doesn\'t define here' })
+    expect(at(result, 4)).toEqual({ kind: 'unsupported', reason: 'names a neighbor group the configuration doesn\'t define' })
     expect([at(result, 6), at(result, 7)]).toEqual(Array.from({ length: 2 }, () => ({ kind: 'unsupported', reason: 'BGP in a VRF the configuration doesn\'t define' })))
     expect(at(result, 10)).toEqual({ kind: 'unsupported', reason: 'a second BGP AS beside line 1\'s: the model has one' })
   })
@@ -142,6 +142,56 @@ describe('BGP', () => {
     const result = parse(lines('vrf A', '!', 'router bgp 65000', ' vrf A', '  rd 65000:1', '  neighbor 192.0.2.2 remote-as 65001', ' !', '!', 'no vrf A', 'vrf A', '!'))
     for (const n of [4, 5, 6]) expect(at(result, n), `line ${n}`).toEqual({ kind: 'unsupported', reason: 'in a VRF line 9 deletes: what the device keeps of it isn\'t certain' })
     expect(result.model.networkInstances?.A).toEqual({ type: 'vrf' })
+  })
+
+  it('a VRF neighbor using a global neighbor group gets the VRF its own copy (#71), written back as the one neighbor group', () => {
+    const text = lines('vrf A', '!', 'router bgp 65000', ' neighbor-group G', '  remote-as 65000', '  description d', ' !', ' vrf A', '  neighbor 192.0.2.2', '   use neighbor-group G', '  !', ' !', '!')
+    const result = parse(text)
+    const copied = { peerAs: 65000, description: 'd' }
+    expect([bgp(result)?.groups, bgp(result, 'A')?.groups, bgp(result, 'A')?.neighbors]).toEqual([{ G: copied }, { G: copied }, { '192.0.2.2': { group: 'G' } }])
+    expect(at(result, 5)).toEqual({ kind: 'mapped', fields: [fieldPath('networkInstances', 'default', 'bgp', 'groups', 'G', 'peerAs'), fieldPath('networkInstances', 'A', 'bgp', 'groups', 'G', 'peerAs')] })
+    expect(render(result.model).text.match(/^ neighbor-group G$/gm)).toHaveLength(1)
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('a VRF\'s group is written once for the whole router bgp when it is the same as the global one, or with none as every other VRF\'s, and a VRF neighbor uses it', () => {
+    const vrf = (peerAs: number, used = true) => ({ type: 'vrf' as const, bgp: { localAs: 65000, groups: { G: { peerAs } }, ...(used ? { neighbors: { '192.0.2.2': { group: 'G' } } } : {}) } })
+    const global = { type: 'default' as const, bgp: { localAs: 65000, groups: { G: { peerAs: 65000 } } } }
+    const peerAs = (model: Device, instance: string) => render(model).dispositions[fieldPath('networkInstances', instance, 'bgp', 'groups', 'G', 'peerAs')]
+    const why = (reason: string) => ({ kind: 'unsupported', reason: `${reason}: IOS-XR's neighbor groups belong to the whole router bgp` })
+    const same: Device = { networkInstances: { default: global, A: vrf(65000) } }
+    const vrfsOnly: Device = { networkInstances: { A: vrf(65000), B: vrf(65000) } }
+    for (const model of [same, vrfsOnly]) {
+      const result = render(model)
+      expect(result.text.match(/^ neighbor-group G$/gm)).toHaveLength(1)
+      expect(result.text.match(/   use neighbor-group G$/gm)).toHaveLength(Object.keys(model.networkInstances!).filter((i) => i !== 'default').length)
+      expect(peerAs(model, 'A')).toMatchObject({ kind: 'rendered' })
+      expect(accounted(model)).toEqual([])
+    }
+    // With no BGP in the global table, the families a group carries are the global table's too.
+    expect(render({ networkInstances: { A: { type: 'vrf', bgp: { localAs: 65000, groups: { G: { addressFamilies: { 'ipv4-unicast': {} } } }, neighbors: { '192.0.2.2': { group: 'G' } } } } } }).text).toMatch(/^router bgp 65000\n address-family ipv4 unicast\n !\n neighbor-group G$/m)
+    const differs: Device = { networkInstances: { default: global, A: vrf(65001) } }
+    expect([peerAs(differs, 'A'), render(differs).dispositions[fieldPath('networkInstances', 'A', 'bgp', 'neighbors', '192.0.2.2', 'group')]?.kind]).toEqual([why('a group in a VRF that differs from the global table\'s of its name'), 'unsupported'])
+    const vrfsDiffer: Device = { networkInstances: { A: vrf(65000), B: vrf(65001) } }
+    expect([peerAs(vrfsDiffer, 'A'), peerAs(vrfsDiffer, 'B')]).toEqual(Array.from({ length: 2 }, () => why('a group in a VRF that differs from another VRF\'s of its name')))
+    const unused: Device = { networkInstances: { default: global, A: vrf(65000, false) } }
+    expect(peerAs(unused, 'A')).toEqual(why('a group in a VRF that no neighbor of the VRF uses'))
+    for (const model of [differs, vrfsDiffer, unused]) expect(accounted(model)).toEqual([])
+  })
+
+  it('a global neighbor group with a password, used in two VRFs, is one question deferring each copy\'s flag, answered once', () => {
+    const text = lines('vrf A', '!', 'vrf B', '!', 'router bgp 65000', ' neighbor-group G', '  remote-as 65000', '  password encrypted 0822455D0A16', ' !', ' vrf A', '  neighbor 192.0.2.2', '   use neighbor-group G', '  !', ' !', ' vrf B', '  neighbor 192.0.2.3', '   use neighbor-group G', '  !', ' !', '!')
+    expect(roundTrips(text)).toEqual([])
+    const model = parse(text).model
+    const fields = ['default', 'A', 'B'].map((i) => fieldPath('networkInstances', i, 'bgp', 'groups', 'G', 'authentication'))
+    const asked = render(model).needsInput ?? []
+    expect(asked.map((item) => [item.kind, item.field])).toEqual(fields.map((f) => ['secret', f]))
+    expect(new Set(asked.map((item) => item.id)).size).toBe(1)
+    const inputs = { [asked[0].id]: 'answer1' }
+    const answered = render(model, inputs)
+    expect(answered.text.match(/password/g)).toHaveLength(1)
+    expect(fields.map((f) => answered.dispositions[f]?.kind)).toEqual(['rendered', 'rendered', 'rendered'])
+    expect([accounted(model), accounted(model, inputs)]).toEqual([[], []])
   })
 
   it('a password is never carried: flagged on parse, asked for on render, and the round trip leaves it to the answer', () => {
