@@ -206,7 +206,8 @@ export function render(model: Device, _context: Context): RenderResult {
     const primaries = addresses.filter(([, a]) => a.primary)
     const primary = primaries[0]?.[0] ?? addresses[0]?.[0]
     if (addresses.length > 1 && !primaries.length) {
-      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.primary-chosen', message: `No primary address given: ${primary} is written as the primary, the others as secondary.`, field: fieldPath(...at, 'addresses') })
+      // Value-free (AGENTS.md): an address can share its value with a secret, such as a community. The field says where.
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.primary-chosen', message: 'No primary address given: the first is written as the primary, the others as secondary.', field: fieldPath(...at, 'addresses') })
     }
     const ordered = addresses.filter(([a]) => a === primary).concat(addresses.filter(([a]) => a !== primary))
     for (const [address, a] of ordered) {
