@@ -9,5 +9,11 @@ export const REQUIRED_FEATURES: readonly (readonly [feature: string, needs: RegE
   ['tunnel', /^tunnel\d/i, 'Tunnel interfaces']
 ]
 
+/**
+ * The feature a VRF's route distinguisher and route targets need: they are BGP's (L3VPN), and NX-OS refuses `rd` and
+ * `route-target` until it is on.
+ */
+export const VPN_FEATURE = 'bgp'
+
 /** The features an interface needs, by its name. */
 export const featuresFor = (name: string): string[] => REQUIRED_FEATURES.filter(([, needs]) => needs.test(name)).map(([feature]) => feature)

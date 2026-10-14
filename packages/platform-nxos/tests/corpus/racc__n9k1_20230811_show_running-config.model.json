@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.3.0",
   "device": {
     "system": {
       "hostname": "sbx-ao",
@@ -340,9 +340,9 @@
       },
       "mgmt0": {
         "type": "management",
-        "description": "DO NOT TOUCH CONFIG ON THIS INTERFACE",
         "subinterfaces": {
           "0": {
+            "networkInstance": "management",
             "ipv4": {
               "addresses": {
                 "10.10.20.95": {
@@ -351,7 +351,8 @@
               }
             }
           }
-        }
+        },
+        "description": "DO NOT TOUCH CONFIG ON THIS INTERFACE"
       },
       "loopback1": {
         "type": "loopback",

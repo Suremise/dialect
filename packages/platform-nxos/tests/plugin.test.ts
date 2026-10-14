@@ -1,13 +1,13 @@
 // The plugin beyond its fixtures: nothing dropped silently, later statements acting on earlier ones (`no …` forms,
-// `vrf member`, `ip address dhcp`), the `feature` and `switchport` lines a render must carry, configuration names that
-// are Object.prototype's own, no secrets in what the plugin reports, detect(), and rendering a model that came from
-// another platform.
+// `vrf member`, `ip address dhcp`), VRF membership, route distinguishers and route targets, the `feature` and
+// `switchport` lines a render must carry, configuration names that are Object.prototype's own, no secrets in what the
+// plugin reports, detect(), and rendering a model that came from another platform.
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { checkFixture, checkSecrets, findSecrets } from '@dialect/conformance'
-import { buildLedger, createRegistry, ledgerProblems, MODEL_VERSION, populatedLeaves, statementsOf, type Device, type ParseResult } from '@dialect/core'
+import { buildLedger, createRegistry, fieldPath, ledgerProblems, MODEL_VERSION, populatedLeaves, statementsOf, type Device, type ParseResult } from '@dialect/core'
 import iosxe from '@dialect/platform-iosxe'
 import plugin from '../src'
 import { isIpv6, lengthMask, maskLength } from '../src/addresses'
@@ -83,7 +83,10 @@ describe('"no …" forms clear what they remove', () => {
     ['global route', ['ip route 10.0.0.0/8 192.0.2.1', 'ip route 10.0.0.0/8 192.0.2.2', 'no ip route 10.0.0.0/8 192.0.2.1'], { networkInstances: { default: { staticRoutes: { '10.0.0.0/8': { nextHops: { '0': { address: '192.0.2.2' } } } } } } }],
     ['route in a VRF', ['vrf context A', '  ip route 10.0.0.0/8 192.0.2.1', '  ipv6 route 2001:db8::/32 2001:db8::1', '  no ipv6 route 2001:db8::/32 2001:db8::1'], { networkInstances: { A: { type: 'vrf', staticRoutes: { '10.0.0.0/8': { nextHops: { '0': { address: '192.0.2.1' } } } } } } }],
     ['every next hop of a route', ['ip route 10.0.0.0/8 192.0.2.1', 'ip route 10.0.0.0/8 Null0', 'no ip route 10.0.0.0/8'], {}],
-    ['VRF', ['vrf context A', '  ip route 10.0.0.0/8 192.0.2.1', 'vrf context B', 'no vrf context A'], { networkInstances: { B: { type: 'vrf' } } }]
+    ['VRF', ['vrf context A', '  ip route 10.0.0.0/8 192.0.2.1', 'vrf context B', 'no vrf context A'], { networkInstances: { B: { type: 'vrf' } } }],
+    ['VRF membership', ['vrf context A', 'interface Ethernet1/1', '  no switchport', '  vrf member A', '  no vrf member A'], { networkInstances: { A: { type: 'vrf' } }, interfaces: { 'Ethernet1/1': { type: 'ethernet' } } }],
+    ['route distinguisher', ['vrf context A', '  rd 65000:1', '  no rd 65000:1'], { networkInstances: { A: { type: 'vrf' } } }],
+    ['one direction of a route target', ['vrf context A', '  address-family ipv4 unicast', '    route-target both 65000:1', '    route-target import 65000:2', '    no route-target export 65000:1'], { networkInstances: { A: { type: 'vrf', routeTargets: { import: ['65000:1', '65000:2'] } } } }]
   ]
   for (const [what, lines, model] of cases) {
     it(what, () => {
@@ -118,41 +121,121 @@ describe('"no …" forms clear what they remove', () => {
 describe('addresses, VRF membership and DHCP', () => {
   const addresses = (result: ParseResult, name = 'Ethernet1/1') => result.model.interfaces?.[name]?.subinterfaces?.['0']?.ipv4?.addresses
 
-  it('"vrf member" clears the addresses before it, as on the device', () => {
-    const result = parse(['interface Ethernet1/1', '  no switchport', '  ip address 192.0.2.1/24', '  vrf member A'].join('\n'))
-    expect(addresses(result)).toBeUndefined()
-    expect(result.dispositions.L3).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 4, which moves the interface to another VRF' })
-    expect(result.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'the model can\'t place an interface in a VRF yet, clearing the addresses on line 3' })
+  const vrfA = 'vrf context A'
+  const sub0 = (result: ParseResult, name = 'Ethernet1/1') => result.model.interfaces?.[name]?.subinterfaces?.['0']
+
+  it('"vrf member" puts the interface in the VRF, and clears the addresses before it, as on the device', () => {
+    const text = [vrfA, 'interface Ethernet1/1', '  no switchport', '  ip address 192.0.2.1/24', '  vrf member A', '  ip address 192.0.2.9/24'].join('\n')
+    const result = parse(text)
+    expect(sub0(result)).toEqual({ networkInstance: 'A', ipv4: { addresses: { '192.0.2.9': { prefixLength: 24 } } } })
+    expect(result.dispositions.L4).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 5, which moves the interface to another VRF' })
+    expect(result.dispositions.L5).toEqual({ kind: 'mapped', fields: ['interfaces["Ethernet1/1"].subinterfaces["0"].networkInstance'] })
+    expect(roundTrips(text)).toEqual([])
+    // Written before the addresses, which it would otherwise clear.
+    expect(render(result.model).text).toContain('interface Ethernet1/1\n  no switchport\n  vrf member A\n  ip address 192.0.2.9/24\n')
   })
 
-  it('an address in a VRF is left out rather than put in the global table', () => {
-    const result = parse(['interface Ethernet1/1', '  no switchport', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64'].join('\n'))
-    expect(result.model.interfaces).toEqual({ 'Ethernet1/1': { type: 'ethernet' } })
-    expect(result.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'an address in the VRF of line 3: the model can\'t place an interface in a VRF yet' })
-    expect(result.dispositions.L2).toMatchObject({ kind: 'unsupported' })
+  it('a subinterface\'s "vrf member" goes on that subinterface', () => {
+    const text = [vrfA, 'interface Ethernet1/1', '  no switchport', 'interface Ethernet1/1.10', '  encapsulation dot1q 10', '  vrf member A', '  ip address 192.0.2.1/24'].join('\n')
+    const result = parse(text)
+    expect(result.model.interfaces?.['Ethernet1/1'].subinterfaces).toEqual({ '10': { vlanId: 10, networkInstance: 'A', ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } })
+    expect(roundTrips(text)).toEqual([])
   })
 
-  it('"no ip address" removes an address left out for its VRF too', () => {
-    const result = parse(['interface Ethernet1/1', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64', '  no ip address'].join('\n'))
-    expect(result.dispositions.L3).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 5' })
-    expect(result.dispositions.L4).toMatchObject({ kind: 'unsupported' })
-    expect(result.dispositions.L5).toEqual({ kind: 'ignored-by-design', reason: 'removes the addresses on line 3: nothing to convert' })
+  it('an interface in a VRF the text doesn\'t define (or removes) is left out with its addresses, not put in the global table', () => {
+    for (const lines of [
+      ['interface Ethernet1/1', '  no switchport', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64'],
+      [vrfA, 'interface Ethernet1/1', '  no switchport', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64', 'no vrf context A']
+    ]) {
+      const result = parse(lines.join('\n'))
+      const member = lines.indexOf('  vrf member A') + 1
+      expect(result.model.interfaces, lines.join(' / ')).toEqual({ 'Ethernet1/1': { type: 'ethernet' } })
+      expect(result.dispositions[`L${member}`]).toEqual({ kind: 'unsupported', reason: 'names a VRF the configuration doesn\'t define' })
+      expect(result.dispositions[`L${member + 1}`]).toEqual({ kind: 'unsupported', reason: `an address in the VRF of line ${member}, which the configuration doesn't define` })
+      expect(result.dispositions[`L${member + 2}`]).toMatchObject({ kind: 'unsupported' })
+      expect(buildLedger(result).complete).toBe(true)
+    }
+  })
+
+  it('the VRF may be defined after the interface that names it', () => {
+    const result = parse(['interface loopback1', '  vrf member A', '  ip address 192.0.2.1/32', vrfA].join('\n'))
+    expect(sub0(result, 'loopback1')).toEqual({ networkInstance: 'A', ipv4: { addresses: { '192.0.2.1': { prefixLength: 32 } } } })
+  })
+
+  it('"no ip address" in a VRF removes the addresses and keeps the membership', () => {
+    const result = parse([vrfA, 'interface Ethernet1/1', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64', '  no ip address'].join('\n'))
+    expect(sub0(result)).toEqual({ networkInstance: 'A', ipv6: { addresses: { '2001:db8::1': { prefixLength: 64 } } } })
+    expect(result.dispositions.L4).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 6' })
+    expect(result.dispositions.L6).toEqual({ kind: 'ignored-by-design', reason: 'removes the addresses on line 4: nothing to convert' })
   })
 
   it('"no vrf member" returns the interface to the global table, clearing its addresses', () => {
-    const result = parse(['interface Ethernet1/1', '  vrf member A', '  ip address 192.0.2.1/24', '  no vrf member', '  ip address 192.0.2.9/24'].join('\n'))
-    expect(addresses(result)).toEqual({ '192.0.2.9': { prefixLength: 24 } })
-    expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'undone by line 4' })
-    expect(result.dispositions.L3).toMatchObject({ kind: 'ignored-by-design' })
+    const result = parse([vrfA, 'interface Ethernet1/1', '  vrf member A', '  ip address 192.0.2.1/24', '  no vrf member', '  ip address 192.0.2.9/24'].join('\n'))
+    expect(sub0(result)).toEqual({ ipv4: { addresses: { '192.0.2.9': { prefixLength: 24 } } } })
+    expect(result.dispositions.L3).toEqual({ kind: 'ignored-by-design', reason: 'undone by line 5' })
+    expect(result.dispositions.L4).toMatchObject({ kind: 'ignored-by-design' })
+    expect(parse([vrfA, 'interface Ethernet1/1', '  vrf member A', '  no vrf member B'].join('\n')).dispositions.L4).toEqual({ kind: 'ignored-by-design', reason: 'not in that VRF: nothing to convert' })
   })
 
-  it('mgmt0 is always in the management VRF: said by its type, and written back', () => {
-    const text = ['interface mgmt0', '  vrf member management', '  ip address 192.0.2.10/24'].join('\n')
-    const result = parse(text)
-    expect(result.model.interfaces?.mgmt0).toEqual({ type: 'management', subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.10': { prefixLength: 24 } } } } } })
-    expect(result.dispositions.L2).toMatchObject({ kind: 'ignored-by-design' })
-    expect(render(result.model).text).toContain('interface mgmt0\n  vrf member management\n  ip address 192.0.2.10/24\n')
+  it('"vrf member default" returns the interface to the global table as "no vrf member" does, with or without global routes', () => {
+    for (const route of [[], ['ip route 10.0.0.0/8 192.0.2.254']]) {
+      for (const [name, head] of [['Ethernet1/1', ['interface Ethernet1/1']], ['Ethernet1/1.10', ['interface Ethernet1/1', '  no switchport', 'interface Ethernet1/1.10', '  encapsulation dot1q 10']]] as const) {
+        const lines = [...route, vrfA, ...head, '  vrf member A', '  ip address 192.0.2.1/24', '  vrf member default', '  ip address 192.0.2.2/24']
+        const result = parse(lines.join('\n'))
+        const sub = result.model.interfaces?.['Ethernet1/1'].subinterfaces?.[name === 'Ethernet1/1' ? '0' : '10']
+        expect(sub, lines.join(' / ')).toMatchObject({ ipv4: { addresses: { '192.0.2.2': { prefixLength: 24 } } } })
+        expect(sub?.networkInstance).toBeUndefined()
+        expect(Object.keys(sub?.ipv4?.addresses ?? {})).toEqual(['192.0.2.2'])
+        const at = (text: string) => `L${lines.indexOf(text) + 1}`
+        expect(result.dispositions[at('  vrf member A')]).toEqual({ kind: 'ignored-by-design', reason: `undone by line ${lines.indexOf('  vrf member default') + 1}` })
+        expect(result.dispositions[at('  vrf member default')]).toMatchObject({ kind: 'ignored-by-design' })
+        expect(result.dispositions[at('  ip address 192.0.2.1/24')]).toMatchObject({ kind: 'ignored-by-design' })
+        expect(roundTrips(lines.join('\n'))).toEqual([])
+      }
+    }
+    expect(parse('interface Ethernet1/1\n  vrf member default').dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'already in the default VRF: nothing to convert' })
+  })
+
+  it('mgmt0 is always in the management VRF, which is built in: in the model whether the text says so or not', () => {
+    for (const lines of [['interface mgmt0', '  vrf member management', '  ip address 192.0.2.10/24'], ['interface mgmt0', '  ip address 192.0.2.10/24']]) {
+      const text = lines.join('\n')
+      const result = parse(text)
+      expect(result.model).toEqual({ networkInstances: { management: { type: 'vrf' } }, interfaces: { mgmt0: { type: 'management', subinterfaces: { '0': { networkInstance: 'management', ipv4: { addresses: { '192.0.2.10': { prefixLength: 24 } } } } } } } })
+      expect(result.dispositions.L1).toEqual({ kind: 'mapped', fields: ['interfaces.mgmt0.type', 'interfaces.mgmt0.subinterfaces["0"].networkInstance', 'networkInstances.management.type'] })
+      expect(render(result.model).text).toContain('interface mgmt0\n  vrf member management\n  ip address 192.0.2.10/24\n')
+      expect(roundTrips(text)).toEqual([])
+    }
+    expect(parse('interface mgmt0\n  vrf member management').dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'mgmt0 is always in the management VRF: its interface statement says so' })
+    // The text's own `vrf context management` defines it.
+    expect(parse('vrf context management\ninterface mgmt0').dispositions.L2).toEqual({ kind: 'mapped', fields: ['interfaces.mgmt0.type', 'interfaces.mgmt0.subinterfaces["0"].networkInstance'] })
     expect(parse('interface mgmt0\n  vrf member other').dispositions.L2).toEqual({ kind: 'unsupported', reason: 'mgmt0 is always in the management VRF' })
+    expect(parse('interface mgmt0\n  no vrf member').dispositions.L2).toEqual({ kind: 'unsupported', reason: 'mgmt0 is always in the management VRF' })
+    expect(parse('interface Ethernet1/1\n  vrf member management').dispositions.L2).toEqual({ kind: 'unsupported', reason: 'only mgmt0 is in the management VRF' })
+    expect(parse('vrf context management\nno vrf context management').dispositions.L2).toEqual({ kind: 'unsupported', reason: 'the management VRF is built in: NX-OS can\'t remove it' })
+  })
+
+  it('a render leaves out a membership NX-OS can\'t say, with the addresses that would land in another table', () => {
+    const ipv4 = { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } }
+    const result = render({
+      networkInstances: { A: { type: 'vrf' }, management: { type: 'vrf' } },
+      interfaces: {
+        'Ethernet1/1': { subinterfaces: { '0': { networkInstance: 'B', ...ipv4 } } },
+        'Ethernet1/2': { subinterfaces: { '0': { networkInstance: 'management', ...ipv4 } } },
+        mgmt0: { subinterfaces: { '0': { networkInstance: 'A', ...ipv4 } } },
+        MGMT0: { subinterfaces: { '0': { networkInstance: 'default', ...ipv4 } } },
+        'Ethernet1/3': { subinterfaces: { '0': { networkInstance: 'default', ...ipv4 } } }
+      }
+    })
+    const at = (name: string, ...leaf: string[]) => result.dispositions[fieldPath('interfaces', name, 'subinterfaces', '0', ...leaf)]
+    expect(at('Ethernet1/1', 'networkInstance')).toEqual({ kind: 'unsupported', reason: 'a VRF the model doesn\'t have' })
+    expect(at('Ethernet1/2', 'networkInstance')).toEqual({ kind: 'unsupported', reason: 'only mgmt0 is in the management VRF' })
+    expect(at('mgmt0', 'networkInstance')).toEqual({ kind: 'unsupported', reason: 'mgmt0 is always in the management VRF' })
+    expect(at('MGMT0', 'networkInstance')).toEqual({ kind: 'unsupported', reason: 'mgmt0 is always in the management VRF' })
+    for (const name of ['Ethernet1/1', 'Ethernet1/2', 'mgmt0', 'MGMT0']) expect(at(name, 'ipv4', 'addresses', '192.0.2.1', 'prefixLength')).toMatchObject({ kind: 'unsupported' })
+    expect(at('Ethernet1/3', 'networkInstance')).toMatchObject({ kind: 'not-applicable' })
+    expect(at('Ethernet1/3', 'ipv4', 'addresses', '192.0.2.1', 'prefixLength')).toMatchObject({ kind: 'rendered' })
+    expect(result.text).not.toContain('vrf member B')
+    expect(result.text.match(/192\.0\.2\.1\//g)).toHaveLength(1)
   })
 
   it('"ip address dhcp" replaces the static addresses before it, and a later address replaces it', () => {
@@ -183,6 +266,80 @@ describe('addresses, VRF membership and DHCP', () => {
       expect(result.model, header).toEqual({})
       expect(result.dispositions.L1).toEqual({ kind: 'unsupported' })
     }
+  })
+})
+
+describe('VRF route distinguishers and route targets', () => {
+  const vrf = (text: string) => parse(text).model.networkInstances?.A
+
+  it('a route distinguisher in any of the three forms maps; a later one supersedes it, and "rd auto" leaves it out', () => {
+    for (const rd of ['65000:100', '192.0.2.1:100', '4200000000:100']) expect(vrf(`vrf context A\n  rd ${rd}`)).toEqual({ type: 'vrf', routeDistinguisher: rd })
+    const result = parse('vrf context A\n  rd 65000:1\n  rd auto')
+    expect(result.model.networkInstances?.A).toEqual({ type: 'vrf' })
+    expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 3' })
+    expect(result.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'an automatic route distinguisher, which depends on the device\'s BGP router id' })
+    for (const bad of ['65536:4294967296', '192.0.2.1:65536', 'x:1']) expect(parse(`vrf context A\n  rd ${bad}`).dispositions.L2, bad).toMatchObject({ kind: 'unsupported' })
+    // The global table has none.
+    expect(parse('vrf context default\n  rd 65000:1').dispositions.L2).toMatchObject({ kind: 'unsupported' })
+  })
+
+  it('route targets map when every address family agrees, and render under both', () => {
+    const text = ['vrf context A', '  address-family ipv4 unicast', '    route-target both 65000:1', '    route-target import 65000:2', '  address-family ipv6 unicast', '    route-target import 65000:1', '    route-target export 65000:1', '    route-target import 65000:2'].join('\n')
+    const result = parse(text)
+    expect(result.model.networkInstances?.A).toEqual({ type: 'vrf', routeTargets: { import: ['65000:1', '65000:2'], export: ['65000:1'] } })
+    expect(result.dispositions.L3).toEqual({ kind: 'mapped', fields: ['networkInstances.A.routeTargets.import', 'networkInstances.A.routeTargets.export'] })
+    expect(result.dispositions.L2).toMatchObject({ kind: 'ignored-by-design' })
+    expect(roundTrips(text)).toEqual([])
+    expect(render(result.model).text).toBe(['feature bgp', '', 'vrf context A', '  address-family ipv4 unicast', '    route-target import 65000:1', '    route-target import 65000:2', '    route-target export 65000:1', '  address-family ipv6 unicast', '    route-target import 65000:1', '    route-target import 65000:2', '    route-target export 65000:1', ''].join('\n'))
+    // One address family alone is the VRF's.
+    expect(vrf('vrf context A\n  address-family ipv4 unicast\n    route-target export 65000:1')).toEqual({ type: 'vrf', routeTargets: { export: ['65000:1'] } })
+  })
+
+  it('route targets that differ between address families, or with one not converted, are all left out', () => {
+    const differ = parse(['vrf context A', '  address-family ipv4 unicast', '    route-target both 65000:1', '  address-family ipv6 unicast', '    route-target import 65000:1'].join('\n'))
+    expect(differ.model.networkInstances?.A).toEqual({ type: 'vrf' })
+    expect(differ.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'route targets that differ between IPv4 and IPv6: the model holds one set for the VRF' })
+    expect(differ.dispositions.L5).toEqual(differ.dispositions.L3)
+    // The same set in another order, or with a value again, agrees: the model keeps the first family's order.
+    for (const v6 of [['    route-target import 65000:2', '    route-target import 65000:1'], ['    route-target import 65000:2', '    route-target import 65000:1', '    route-target import 65000:2']]) {
+      const text = ['vrf context A', '  address-family ipv4 unicast', '    route-target import 65000:1', '    route-target import 65000:2', '  address-family ipv6 unicast', ...v6].join('\n')
+      const result = parse(text)
+      expect(result.model.networkInstances?.A, text).toEqual({ type: 'vrf', routeTargets: { import: ['65000:1', '65000:2'] } })
+      expect(Object.values(result.dispositions).filter((d) => d.kind === 'unsupported')).toEqual([])
+      expect(roundTrips(text)).toEqual([])
+    }
+    // A different set doesn't, nor does the same value in another direction.
+    expect(vrf('vrf context A\n  address-family ipv4 unicast\n    route-target import 65000:1\n    route-target import 65000:2\n  address-family ipv6 unicast\n    route-target import 65000:1\n    route-target import 65000:3')).toEqual({ type: 'vrf' })
+    expect(vrf('vrf context A\n  address-family ipv4 unicast\n    route-target import 65000:1\n  address-family ipv6 unicast\n    route-target export 65000:1')).toEqual({ type: 'vrf' })
+    // An address family with none disagrees with one with some.
+    expect(vrf('vrf context A\n  address-family ipv4 unicast\n    route-target both 65000:1\n  address-family ipv6 unicast')).toEqual({ type: 'vrf' })
+    const auto = parse(['vrf context A', '  address-family ipv4 unicast', '    route-target import 65000:1', '    route-target both auto'].join('\n'))
+    expect(auto.model.networkInstances?.A).toEqual({ type: 'vrf' })
+    expect(auto.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'left out whole: line 4 about the VRF\'s route targets isn\'t converted' })
+    expect(auto.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'an automatic route target, which depends on the device\'s BGP AS' })
+    // EVPN's are another address family's: unsupported without taking the others with them.
+    const evpn = parse(['vrf context A', '  address-family ipv4 unicast', '    route-target import 65000:1', '    route-target both 65000:9 evpn'].join('\n'))
+    expect(evpn.model.networkInstances?.A).toEqual({ type: 'vrf', routeTargets: { import: ['65000:1'] } })
+    expect(evpn.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'a route target for EVPN, which comes later' })
+    // Another address family is unsupported, with what is inside it.
+    const l2vpn = parse('vrf context A\n  address-family l2vpn evpn\n    route-target both auto')
+    expect([l2vpn.dispositions.L2, l2vpn.dispositions.L3]).toMatchObject([{ kind: 'unsupported' }, { kind: 'unsupported' }])
+  })
+
+  it('"no vrf context" removes the route distinguisher and targets with the VRF', () => {
+    const result = parse(['vrf context A', '  rd 65000:1', '  address-family ipv4 unicast', '    route-target both 65000:1', '  vni 5000', 'no vrf context A', 'vrf context A'].join('\n'))
+    expect(result.model.networkInstances).toEqual({ A: { type: 'vrf' } })
+    for (const l of ['L1', 'L2', 'L3', 'L4', 'L5']) expect(result.dispositions[l], l).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 6' })
+  })
+
+  it('a render writes a VRF\'s route distinguisher, and says what it can\'t write', () => {
+    const result = render({ networkInstances: { default: { routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'] } }, A: { type: 'vrf', routeDistinguisher: 'bad', routeTargets: { import: ['bad'], export: [] } } } })
+    expect(result.dispositions['networkInstances.default.routeDistinguisher']).toEqual({ kind: 'unsupported', reason: 'the global routing table has no route distinguisher' })
+    expect(result.dispositions['networkInstances.default.routeTargets.import']).toEqual({ kind: 'unsupported', reason: 'the global routing table has no route targets' })
+    expect(result.dispositions['networkInstances.A.routeDistinguisher']).toMatchObject({ kind: 'unsupported' })
+    expect(result.dispositions['networkInstances.A.routeTargets.import']).toMatchObject({ kind: 'unsupported' })
+    expect(result.dispositions['networkInstances.A.routeTargets.export']).toMatchObject({ kind: 'not-applicable' })
+    expect(result.text).toBe('vrf context A\n')
   })
 })
 
@@ -259,7 +416,9 @@ describe('no secret where it is repeated', () => {
  */
 const NEEDS: readonly (readonly [RegExp, string])[] = [
   [/^interface vlan\d/i, 'interface-vlan'],
-  [/^interface tunnel\d/i, 'tunnel']
+  [/^interface tunnel\d/i, 'tunnel'],
+  // A VRF's route distinguisher and route targets are BGP's (L3VPN).
+  [/^\s+(rd|route-target) /, 'bgp']
 ]
 function missingFeatures(text: string): string[] {
   const lines = text.split('\n')
@@ -276,6 +435,8 @@ describe('feature lines', () => {
     expect(missingFeatures('interface Vlan10\n  no shutdown\n')).toEqual(['interface-vlan'])
     expect(missingFeatures('interface Vlan10\nfeature interface-vlan\n')).toEqual(['interface-vlan'])
     expect(missingFeatures('feature tunnel\ninterface Tunnel1\n')).toEqual([])
+    expect(missingFeatures('vrf context A\n  rd 65000:1\n')).toEqual(['bgp'])
+    expect(missingFeatures('vrf context A\n  address-family ipv4 unicast\n    route-target import 65000:1\n')).toEqual(['bgp'])
   })
 
   it('a render writes every feature its statements need, before them, from any model', () => {
@@ -285,6 +446,19 @@ describe('feature lines', () => {
     expect(text.split('\n').filter((l) => l.startsWith('feature '))).toEqual(['feature interface-vlan', 'feature tunnel'])
     expect(missingFeatures(render({ interfaces: { 'Ethernet1/1': {} } }).text)).toEqual([])
     expect(render({ interfaces: { 'Ethernet1/1': {} } }).text).not.toContain('feature')
+  })
+
+  it('a VRF\'s route distinguisher or route targets bring feature bgp; a VRF with neither, or only what isn\'t written, doesn\'t', () => {
+    for (const instance of [{ routeDistinguisher: '65000:1' }, { routeTargets: { import: ['65000:1'] } }, { routeTargets: { export: ['65000:1'] } }]) {
+      const text = render({ networkInstances: { A: { type: 'vrf', ...instance } } }).text
+      expect(text.startsWith('feature bgp\n\nvrf context A\n'), text).toBe(true)
+      expect(missingFeatures(text)).toEqual([])
+      // Without it, the guard fails the render.
+      expect(missingFeatures(text.replace('feature bgp\n', ''))).toEqual(['bgp'])
+    }
+    const without: Device[] = [{ networkInstances: { A: { type: 'vrf' } } }, { networkInstances: { A: { routeDistinguisher: 'bad', routeTargets: { import: [] } } } }, { networkInstances: { default: { routeDistinguisher: '65000:1' } } }]
+    for (const model of without)
+      expect(render(model).text).not.toContain('feature')
   })
 
   it('every render of the fixtures and the corpus has the features it needs', () => {
@@ -306,6 +480,24 @@ describe('feature lines', () => {
     expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'needed by Tunnel interfaces: written whenever one is' })
     expect(result.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'turns on a feature whose configuration isn\'t converted yet' })
     expect(result.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'turns on a feature whose configuration isn\'t converted yet' })
+  })
+
+  it('on parse, feature bgp is needed when a VRF\'s route distinguisher or targets are converted; other BGP stays unsupported', () => {
+    const text = ['feature bgp', 'vrf context A', '  rd 65000:1', '  address-family ipv4 unicast', '    route-target both 65000:1', 'router bgp 65000', '  router-id 192.0.2.1'].join('\n')
+    const result = parse(text)
+    expect(result.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'needed by VRF route distinguishers and targets: written whenever one is' })
+    expect([result.dispositions.L6, result.dispositions.L7]).toMatchObject([{ kind: 'unsupported' }, { kind: 'unsupported' }])
+    expect(render(result.model).text.split('\n')[0]).toBe('feature bgp')
+    // With only an `rd auto`, nothing needs it.
+    expect(parse('feature bgp\nvrf context A\n  rd auto').dispositions.L1).toMatchObject({ kind: 'unsupported' })
+  })
+
+  it('"no feature bgp" leaves out the route distinguishers and targets before it', () => {
+    const result = parse(['feature bgp', 'vrf context A', '  rd 65000:1', '  address-family ipv4 unicast', '    route-target both 65000:1', '    route-target both auto', 'no feature bgp', 'vrf context B', '  rd 65000:2'].join('\n'))
+    expect(result.model.networkInstances).toEqual({ A: { type: 'vrf' }, B: { type: 'vrf', routeDistinguisher: '65000:2' } })
+    for (const l of ['L3', 'L5', 'L6']) expect(result.dispositions[l], l).toEqual({ kind: 'unsupported', reason: 'BGP\'s, which line 7 turns off: left out' })
+    expect(result.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'turned off by line 7' })
+    expect(result.dispositions.L9).toMatchObject({ kind: 'mapped' })
   })
 })
 

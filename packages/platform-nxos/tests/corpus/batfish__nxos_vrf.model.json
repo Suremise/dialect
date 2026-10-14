@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.3.0",
   "device": {
     "system": {
       "hostname": "nxos_vrf"
@@ -15,11 +15,28 @@
       },
       "Ethernet1/3": {
         "type": "ethernet",
-        "enabled": true
+        "enabled": true,
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "vrf1"
+          }
+        }
       },
       "Ethernet1/4": {
         "type": "ethernet",
-        "enabled": true
+        "enabled": true,
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "vrf1",
+            "ipv4": {
+              "addresses": {
+                "10.0.4.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
       },
       "Ethernet1/5": {
         "type": "ethernet",
@@ -46,12 +63,25 @@
       },
       "Ethernet1/8": {
         "type": "ethernet",
-        "enabled": true
+        "enabled": true,
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "vrf3",
+            "ipv4": {
+              "addresses": {
+                "10.0.8.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
       }
     },
     "networkInstances": {
       "vrf1": {
-        "type": "vrf"
+        "type": "vrf",
+        "routeDistinguisher": "65001:10"
       },
       "vrf3": {
         "type": "vrf"

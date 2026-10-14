@@ -1,11 +1,11 @@
-// The shared model → NX-OS text, for the phase 1 areas. Every populated leaf of model 0.2 gets a disposition:
+// The shared model → NX-OS text, for the phase 1 areas. Every populated leaf of model 0.3 gets a disposition:
 // `rendered` with the line it went to, `unsupported` with why (NX-OS can't say it, or this renderer can't yet), or
 // `not-applicable` (NX-OS implies it). Fields of a later model version are left without one, so the ledger reports them
 // as unrendered rather than this renderer claiming them. The text says everything it relies on: each `feature` a
 // written statement needs, and `switchport` or `no switchport` on every Ethernet and port-channel interface, so the
 // result doesn't depend on the switch's defaults.
-import { fieldPath, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type StaticRoute, type Subinterface } from '@dialect/core'
-import { featuresFor } from './features'
+import { fieldPath, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
+import { featuresFor, VPN_FEATURE } from './features'
 import { isSwitchable } from './names'
 import { SEVERITY_LEVELS, SNMP_GROUPS } from './parse'
 
@@ -50,6 +50,7 @@ export function render(model: Device, _context: Context): RenderResult {
   // ---- features: before anything that needs them
 
   const features = new Set(Object.keys(model.interfaces ?? {}).flatMap(featuresFor))
+  if (Object.entries(model.networkInstances ?? {}).some(([name, instance]) => name !== 'default' && writesVpn(instance))) features.add(VPN_FEATURE)
   if (features.size) {
     separator()
     for (const feature of [...features].sort()) emit(`feature ${feature}`)
@@ -186,8 +187,43 @@ export function render(model: Device, _context: Context): RenderResult {
       emit(`vrf context ${name}`, ...fields)
       indent = '  '
     }
+    if (isDefault) {
+      if (instance.routeDistinguisher !== undefined) skip([...at, 'routeDistinguisher'], 'unsupported', 'the global routing table has no route distinguisher')
+      if (instance.routeTargets !== undefined) skipAll(instance.routeTargets, [...at, 'routeTargets'], 'the global routing table has no route targets')
+    } else if (instance.routeDistinguisher !== undefined) {
+      if (isRouteDistinguisher(instance.routeDistinguisher)) emit(`  rd ${instance.routeDistinguisher}`, [...at, 'routeDistinguisher'])
+      else skip([...at, 'routeDistinguisher'], 'unsupported', 'not a route distinguisher in the form ASN:nn, IP:nn or ASN4:nn')
+    }
     emptyContainer(instance.staticRoutes, [...at, 'staticRoutes'])
     for (const [prefix, route] of Object.entries(instance.staticRoutes ?? {})) renderRoute(indent, prefix, route, [...at, 'staticRoutes', prefix])
+    if (!isDefault && instance.routeTargets !== undefined) renderRouteTargets(instance.routeTargets, [...at, 'routeTargets'])
+  }
+
+  /** Whether a VRF's route distinguisher or route targets are written: they need `feature bgp`. */
+  function writesVpn(instance: NetworkInstance): boolean {
+    const targets = instance.routeTargets
+    return isRouteDistinguisher(instance.routeDistinguisher) || (['import', 'export'] as const).some((d) => !!targets?.[d]?.length && targets[d].every(isRouteDistinguisher))
+  }
+
+  /**
+   * A VRF's route targets: NX-OS sets them per address family, and the model's are the VRF's, so they go under both
+   * IPv4 and IPv6 unicast. Each list is one field (a leaf-list), marked on its first line.
+   */
+  function renderRouteTargets(targets: RouteTargets, at: Segments) {
+    emptyContainer(targets, at)
+    const lists: [direction: 'import' | 'export', values: readonly string[]][] = []
+    for (const direction of ['import', 'export'] as const) {
+      const values = targets[direction]
+      if (values === undefined) continue
+      if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
+      else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
+      else lists.push([direction, values])
+    }
+    if (!lists.length) return
+    for (const family of ['ipv4', 'ipv6']) {
+      emit(`  address-family ${family} unicast`)
+      for (const [direction, values] of lists) values.forEach((v, i) => emit(`    route-target ${direction} ${v}`, ...(family === 'ipv4' && i === 0 ? [[...at, direction]] : [])))
+    }
   }
 
   function renderRoute(indent: string, prefix: string, route: StaticRoute, at: Segments) {
@@ -257,22 +293,23 @@ export function render(model: Device, _context: Context): RenderResult {
     if (iface.vlanTagging !== undefined) skip([...at, 'vlanTagging'], 'not-applicable', 'NX-OS tags each subinterface (encapsulation dot1q)')
     emptyContainer(iface.subinterfaces, [...at, 'subinterfaces'])
 
-    // A routed port: an address on it, or subinterfaces (which need a routed parent).
-    const routed = subs.some(([index, s]) => index !== '0' || s.ipv4 !== undefined || s.ipv6 !== undefined)
+    // A routed port: an address or a VRF on it, or subinterfaces (which need a routed parent).
+    const routed = subs.some(([index, s]) => index !== '0' || s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined)
     separator()
     emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []))
     if (iface.description !== undefined) emit(`  description ${iface.description}`, [...at, 'description'])
     if (isSwitchable(name)) emit(routed ? '  no switchport' : '  switchport')
     if (iface.mtu !== undefined) emit(`  mtu ${iface.mtu}`, [...at, 'mtu'])
-    // mgmt0 is always in the management VRF: said, as NX-OS shows it.
-    if (/^mgmt0$/i.test(name)) emit('  vrf member management')
+    const isMgmt = /^mgmt0$/i.test(name)
+    // mgmt0 is always in the management VRF: said, as NX-OS shows it, whether the model says so or not.
+    if (isMgmt && main?.networkInstance === undefined) emit('  vrf member management')
     if (main) {
       const sub = [...at, 'subinterfaces', '0']
       if (isEmpty(main)) skip(sub, 'not-applicable', 'NX-OS has no subinterface 0 of its own: the main interface is it')
       if (main.description !== undefined) skip([...sub, 'description'], 'unsupported', 'NX-OS has one description for the main interface')
       if (main.enabled !== undefined) skip([...sub, 'enabled'], 'unsupported', 'NX-OS has one shutdown for the main interface')
       if (main.vlanId !== undefined) skip([...sub, 'vlanId'], 'unsupported', 'NX-OS has no subinterface 0 to tag')
-      renderAddresses(main, sub)
+      if (renderMembership(main, sub, isMgmt)) renderAddresses(main, sub)
     }
     if (iface.enabled !== undefined) emit(iface.enabled ? '  no shutdown' : '  shutdown', [...at, 'enabled'])
 
@@ -283,9 +320,34 @@ export function render(model: Device, _context: Context): RenderResult {
       emit(`interface ${name}.${index}`, ...(isEmpty(sub) ? [subAt] : []))
       if (sub.description !== undefined) emit(`  description ${sub.description}`, [...subAt, 'description'])
       if (sub.vlanId !== undefined) emit(`  encapsulation dot1q ${sub.vlanId}`, [...subAt, 'vlanId'])
-      renderAddresses(sub, subAt)
+      if (renderMembership(sub, subAt, false)) renderAddresses(sub, subAt)
       if (sub.enabled !== undefined) emit(sub.enabled ? '  no shutdown' : '  shutdown', [...subAt, 'enabled'])
     }
+  }
+
+  /**
+   * `vrf member V`, before the addresses (on NX-OS it clears those before it). Whether the addresses can follow: in a
+   * VRF NX-OS can't put the interface in, they would land in another table, so they are left out with it.
+   */
+  function renderMembership(sub: Subinterface, at: Segments, isMgmt: boolean): boolean {
+    const vrf = sub.networkInstance
+    if (vrf === undefined) return true
+    const field = [...at, 'networkInstance']
+    if (vrf === 'default' && !isMgmt) {
+      skip(field, 'not-applicable', 'the global routing table, which interfaces are in unless they say otherwise')
+      return true
+    }
+    let reason: string | undefined
+    if (isMgmt && vrf !== 'management') reason = 'mgmt0 is always in the management VRF'
+    else if (!isMgmt && vrf === 'management') reason = 'only mgmt0 is in the management VRF'
+    else if (!model.networkInstances || !Object.hasOwn(model.networkInstances, vrf)) reason = 'a VRF the model doesn\'t have'
+    if (reason === undefined) {
+      emit(`  vrf member ${vrf}`, field)
+      return true
+    }
+    skip(field, 'unsupported', reason)
+    for (const family of ['ipv4', 'ipv6'] as const) if (sub[family] !== undefined) skipAll(sub[family], [...at, family], `in a VRF NX-OS can't put the interface in (${reason}): left out rather than put in another table`)
+    return false
   }
 
   function renderAddresses(sub: Subinterface, at: Segments) {

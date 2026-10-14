@@ -5,9 +5,9 @@
 // an option the model can't hold (`ntp server 192.0.2.1 key 1`) is unsupported as a whole, never half-converted. Later
 // statements act on earlier ones as on the device: a second setting supersedes the first, and `no …` forms and
 // `vrf member` clear what they remove.
-import { fieldPath, type Context, type Device, type Diagnostic, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, isRouteDistinguisher, type Context, type Device, type Diagnostic, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
-import { REQUIRED_FEATURES } from './features'
+import { REQUIRED_FEATURES, VPN_FEATURE } from './features'
 import { interfaceName, interfaceType, isInterfaceName, isSwitchable, splitSubinterface } from './names'
 import { BANNER_TYPES, parseTree, unquote, type NxNode } from './tree'
 
@@ -158,10 +158,12 @@ export function parse(text: string, _context: Context): ParseResult {
     const at = familyPath(ctx, family)
     model.removeIfEmpty([...at, 'addresses'])
     model.removeIfEmpty(at)
-    if (!ctx.isSub) {
-      model.removeIfEmpty(subPath(ctx))
-      model.removeIfEmpty(['interfaces', ctx.name, 'subinterfaces'])
-    }
+    if (!ctx.isSub) pruneMain(ctx)
+  }
+  /** A main interface's subinterface 0 left with nothing in it: dropped, with the map it was in when that is empty too. */
+  const pruneMain = (ctx: InterfaceContext) => {
+    model.removeIfEmpty(subPath(ctx))
+    model.removeIfEmpty(['interfaces', ctx.name, 'subinterfaces'])
   }
 
   /** Removes a family's addresses before `node`, each statement marked with `why`; the statements' lines, in order. */
@@ -183,12 +185,6 @@ export function parse(text: string, _context: Context): ParseResult {
   const mapAddress = (node: NxNode, ctx: InterfaceContext, family: 4 | 6): StatementDisposition => {
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
-    // In a VRF the model can't hold yet, the address would land in the global table: left out instead.
-    const member = vrfOf(ctx)
-    if (member.node) {
-      inVrf.set(`${ctx.name}|${ctx.sub}`, [...(inVrf.get(`${ctx.name}|${ctx.sub}`) ?? []), { node, family }])
-      return unsupported(`an address in the VRF of line ${line(member.node)}: the model can't place an interface in a VRF yet`)
-    }
     const state = addressingOf(ctx, family)
     const at = familyPath(ctx, family)
     if (lw[2] === 'dhcp' && w.length === 3) {
@@ -244,41 +240,46 @@ export function parse(text: string, _context: Context): ParseResult {
     return ignored(`removes the address on ${linesText(removed.map((r) => line(r.node)))}: nothing to convert`)
   }
 
-  /** Per interface (`name|sub`): the address statements left out because the interface is in a VRF. */
-  const inVrf = new Map<string, { readonly node: NxNode; readonly family: 4 | 6 }[]>()
-  /** Marks the address statements of `families` left out for a VRF as removed by `why`; their lines. */
-  const clearInVrf = (ctx: InterfaceContext, families: readonly (4 | 6)[], why: string): number[] => {
-    const all = inVrf.get(`${ctx.name}|${ctx.sub}`) ?? []
-    const removed = all.filter((a) => families.includes(a.family))
-    for (const a of removed) set(a.node, ignored(why))
-    inVrf.set(`${ctx.name}|${ctx.sub}`, all.filter((a) => !families.includes(a.family)))
-    return removed.map((a) => line(a.node))
-  }
   /** Per interface (`name|sub`): the VRF it is in and the `vrf member` statement that put it there. */
-  const membership = new Map<string, { vrf: string; node?: NxNode }>()
+  const membership = new Map<string, { readonly ctx: InterfaceContext; readonly vrf: string; readonly node?: NxNode }>()
   const vrfOf = (ctx: InterfaceContext): { vrf: string; node?: NxNode } => membership.get(`${ctx.name}|${ctx.sub}`) ?? { vrf: MGMT.test(ctx.name) && !ctx.isSub ? 'management' : 'default' }
 
-  /** `vrf member V` / `no vrf member [V]`: moving an interface to another VRF clears its addresses, as on the device. */
+  /**
+   * `vrf member V` / `no vrf member [V]`: the subinterface's `networkInstance` (subinterface `0` for a main interface).
+   * Moving an interface to another VRF clears its addresses, as on the device, so only addresses after it stay.
+   * mgmt0 is always in the management VRF (its interface statement maps that), and no other interface is.
+   */
   const mapVrfMember = (node: NxNode, ctx: InterfaceContext, remove: boolean): StatementDisposition => {
     const w = node.words.slice(remove ? 1 : 0)
     if (w.length > 3 || (!remove && w.length !== 3)) return unsupported()
     const isMgmt = MGMT.test(ctx.name) && !ctx.isSub
     const current = vrfOf(ctx)
     const target = remove ? 'default' : w[2]
+    const at = [...subPath(ctx), 'networkInstance']
     if (remove && w[2] !== undefined && w[2] !== current.vrf) return ignored('not in that VRF: nothing to convert')
     if (isMgmt && target !== 'management') return unsupported('mgmt0 is always in the management VRF')
+    if (!isMgmt && target === 'management') return unsupported('only mgmt0 is in the management VRF')
     if (target === current.vrf) {
-      if (isMgmt) return ignored('mgmt0 is always in the management VRF: its type, management, says so')
-      return ignored(remove ? 'already in the default VRF: nothing to convert' : `already in that VRF${current.node ? ` (line ${line(current.node)})` : ''}`)
+      if (isMgmt) return ignored('mgmt0 is always in the management VRF: its interface statement says so')
+      return ignored(target === 'default' ? 'already in the default VRF: nothing to convert' : `already in that VRF${current.node ? ` (line ${line(current.node)})` : ''}`)
     }
     const why = `removed by line ${line(node)}, which moves the interface to another VRF`
-    const lines = [...clearAddresses(ctx, 4, why), ...clearAddresses(ctx, 6, why), ...clearInVrf(ctx, [4, 6], why)].sort((a, b) => a - b)
+    const lines = [...clearAddresses(ctx, 4, why), ...clearAddresses(ctx, 6, why)].sort((a, b) => a - b)
     const cleared = lines.length ? `, clearing the addresses on ${linesText(lines)}` : ''
     if (current.node) set(current.node, ignored(`undone by line ${line(node)}`))
-    membership.set(`${ctx.name}|${ctx.sub}`, remove ? { vrf: 'default' } : { vrf: target, node })
-    if (remove) return ignored(`returns the interface to the default VRF${cleared}: nothing to convert`)
-    return unsupported(`the model can't place an interface in a VRF yet${cleared}`)
+    // `vrf member default` is the global table too: the model says it by leaving networkInstance out.
+    if (target === 'default') {
+      membership.set(`${ctx.name}|${ctx.sub}`, { ctx, vrf: 'default' })
+      model.remove(at)
+      if (!ctx.isSub) pruneMain(ctx)
+      return ignored(`returns the interface to the default VRF${cleared}: nothing to convert`)
+    }
+    membership.set(`${ctx.name}|${ctx.sub}`, { ctx, vrf: target, node })
+    return mapped([model.set(at, target)])
   }
+
+  /** The `interface mgmt0` statements, which put it in the management VRF. */
+  const mgmtInterfaces: NxNode[] = []
 
   /** Main interfaces with `no switchport`, decided once every statement is read (it depends on their addresses). */
   const routedPorts: { node: NxNode; ctx: InterfaceContext }[] = []
@@ -321,7 +322,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (lw[0] === 'no' && (lw[1] === 'ip' || lw[1] === 'ipv6') && lw[2] === 'address' && w.length === 3) {
       const family = lw[1] === 'ip' ? 4 : 6
       const why = `removed by line ${line(node)}`
-      const lines = [...clearAddresses(ctx, family, why), ...clearInVrf(ctx, [family], why)].sort((a, b) => a - b)
+      const lines = clearAddresses(ctx, family, why)
       return ignored(lines.length ? `removes the addresses on ${linesText(lines)}: nothing to convert` : 'says the interface has no address: nothing to convert')
     }
     if (lw[0] === 'vrf' && lw[1] === 'member') return mapVrfMember(node, ctx, false)
@@ -350,6 +351,11 @@ export function parse(text: string, _context: Context): ParseResult {
     const type = interfaceType(ctx.name)
     if (type) fields.push(model.set(['interfaces', ctx.name, 'type'], type))
     if (split) model.object(subPath(ctx))
+    // mgmt0 routes in the management VRF whether its `vrf member management` is shown or not.
+    if (!split && MGMT.test(ctx.name)) {
+      fields.push(model.set([...subPath(ctx), 'networkInstance'], 'management'))
+      mgmtInterfaces.push(node)
+    }
     set(node, mapped(fields))
     for (const child of node.children) {
       if (child.kind !== 'statement' || child.children.length) unsupportedTree(child)
@@ -472,20 +478,75 @@ export function parse(text: string, _context: Context): ParseResult {
 
   // ---- VRFs
 
-  /** The `vrf context X` statements of each VRF, so `no vrf context X` can remove them. */
-  const contexts = new Map<string, NxNode[]>()
+  /** A `route-target import|export|both V` statement, with the directions it still sets (`no route-target` can take one). */
+  type RouteTarget = { readonly node: NxNode; directions: ('import' | 'export')[]; readonly value: string }
+  /**
+   * Each VRF's `vrf context X` statements, so `no vrf context X` can remove them, and its route targets by address
+   * family (`ipv4`, `ipv6` unicast), with the address family statements seen and the first route target statement not
+   * converted: the VRF's route targets are a whole, so one left out leaves them all out.
+   */
+  type VrfState = { readonly contexts: NxNode[]; readonly families: Map<'ipv4' | 'ipv6', RouteTarget[]>; unconverted?: NxNode }
+  const vrfs = new Map<string, VrfState>()
+  const vrfOfName = (instance: string): VrfState => {
+    const state = vrfs.get(instance) ?? { contexts: [], families: new Map() }
+    vrfs.set(instance, state)
+    return state
+  }
 
-  /** `vrf context X`: the VRF, and the routes inside it. */
+  /**
+   * `address-family ipv4|ipv6 unicast` inside `vrf context X`: its route targets. NX-OS sets them per address family;
+   * the model holds one set for the VRF, so they map once every family's agree (once every statement is read).
+   */
+  const mapVrfFamily = (node: NxNode, instance: string, family: 'ipv4' | 'ipv6'): void => {
+    const state = vrfOfName(instance)
+    const targets = state.families.get(family) ?? []
+    state.families.set(family, targets)
+    set(node, ignored('an address family of the VRF: the model\'s VRFs carry every family'))
+    for (const child of node.children) {
+      const w = child.words
+      const lw = w.map((x) => x.toLowerCase())
+      if (child.kind !== 'statement' || child.children.length) unsupportedTree(child)
+      else if (lw[0] === 'route-target' && w.length === 4 && lw[3] === 'evpn') set(child, unsupported('a route target for EVPN, which comes later'))
+      else if (lw[0] === 'route-target' && w.length === 3 && (lw[1] === 'import' || lw[1] === 'export' || lw[1] === 'both') && isRouteDistinguisher(w[2])) {
+        const directions: ('import' | 'export')[] = lw[1] === 'both' ? ['import', 'export'] : [lw[1]]
+        targets.push({ node: child, directions, value: w[2] })
+        set(child, mapped([]))
+      } else if (lw[0] === 'no' && lw[1] === 'route-target' && w.length === 4 && (lw[2] === 'import' || lw[2] === 'export' || lw[2] === 'both')) {
+        const directions = lw[2] === 'both' ? ['import', 'export'] : [lw[2]]
+        const removed = targets.filter((t) => t.value === w[3] && t.directions.some((d) => directions.includes(d)))
+        for (const t of removed) {
+          t.directions = t.directions.filter((d) => !directions.includes(d))
+          if (!t.directions.length) set(t.node, ignored(`removed by line ${line(child)}`))
+        }
+        targets.splice(0, targets.length, ...targets.filter((t) => t.directions.length))
+        set(child, ignored(removed.length ? `removes the route target on ${linesText(removed.map((t) => line(t.node)))}: nothing to convert` : 'no such route target: nothing to convert'))
+      } else {
+        // `route-target both auto`, a malformed value: the VRF's route targets would be incomplete without it.
+        set(child, unsupported(lw[0] === 'route-target' && lw[2] === 'auto' ? 'an automatic route target, which depends on the device\'s BGP AS' : undefined))
+        if (lw[0] === 'route-target') state.unconverted ??= child
+      }
+    }
+  }
+
+  /** `vrf context X`: the VRF, with its route distinguisher, route targets and routes. */
   const mapVrfContext = (node: NxNode): void => {
     const w = node.words
     if (w.length !== 3) return unsupportedTree(node)
     const instance = w[2]
     const isDefault = instance === 'default'
-    if (!isDefault) contexts.set(instance, [...(contexts.get(instance) ?? []), node])
+    if (!isDefault) vrfOfName(instance).contexts.push(node)
     set(node, isDefault ? ignored('the global routing table, which needs no definition') : mapped([model.set(['networkInstances', instance, 'type'], 'vrf')]))
+    const rd = ['networkInstances', instance, 'routeDistinguisher']
     for (const child of node.children) {
       const lw = child.words.map((x) => x.toLowerCase())
-      if (child.kind === 'statement' && !child.children.length && (lw[0] === 'ip' || lw[0] === 'ipv6') && lw[1] === 'route') mapRoute(child, lw[0] === 'ipv6', instance)
+      const leaf = child.kind === 'statement' && !child.children.length
+      if (!isDefault && child.kind === 'statement' && lw[0] === 'address-family' && child.words.length === 3 && (lw[1] === 'ipv4' || lw[1] === 'ipv6') && lw[2] === 'unicast') mapVrfFamily(child, instance, lw[1])
+      else if (!isDefault && leaf && lw[0] === 'rd' && child.words.length === 2) {
+        claim(`vrf ${instance} rd`, child, () => model.remove(rd))
+        if (isRouteDistinguisher(child.words[1])) set(child, mapped([model.set(rd, child.words[1])]))
+        else set(child, unsupported(lw[1] === 'auto' ? 'an automatic route distinguisher, which depends on the device\'s BGP router id' : 'not a route distinguisher in the form ASN:nn or IP:nn'))
+      } else if (!isDefault && leaf && lw[0] === 'no' && lw[1] === 'rd' && child.words.length <= 3) set(child, unclaim(`vrf ${instance} rd`, child, 'route distinguisher', rd, 2))
+      else if (leaf && (lw[0] === 'ip' || lw[0] === 'ipv6') && lw[1] === 'route') mapRoute(child, lw[0] === 'ipv6', instance)
       else if (child.kind === 'statement' && !child.children.length && lw[0] === 'no' && (lw[1] === 'ip' || lw[1] === 'ipv6') && lw[2] === 'route') set(child, removeRoute(child, lw[1] === 'ipv6', instance))
       else if (child.kind === 'statement' && !child.children.length && SHUTDOWN.test(lw[0]) && child.words.length === 1) {
         claim(`vrf ${instance} shutdown`, child)
@@ -502,11 +563,17 @@ export function parse(text: string, _context: Context): ParseResult {
     const w = node.words
     if (w.length !== 4 || w[3] === 'default') return unsupported()
     const instance = w[3]
-    const removed = [...(contexts.get(instance) ?? []), ...[...routes.values()].filter((r) => r.instance === instance).flatMap((r) => r.hops.map((h) => h.node))]
+    if (instance === 'management') return unsupported('the management VRF is built in: NX-OS can\'t remove it')
+    const contexts = vrfs.get(instance)?.contexts ?? []
+    const removed = [...contexts, ...[...routes.values()].filter((r) => r.instance === instance).flatMap((r) => r.hops.map((h) => h.node))]
     if (!removed.length) return ignored('no such VRF: nothing to convert')
-    for (const n of removed) set(n, ignored(`removed by line ${line(node)}`))
+    const why = ignored(`removed by line ${line(node)}`)
+    // Everything inside the VRF goes with it: its route distinguisher, route targets and settings, converted or not.
+    const inside = (n: NxNode): NxNode[] => n.children.flatMap((c) => (c.kind === 'comment' ? [] : [c, ...inside(c)]))
+    for (const n of [...removed, ...contexts.flatMap(inside)]) set(n, why)
     for (const [key, r] of routes) if (r.instance === instance) routes.delete(key)
-    contexts.delete(instance)
+    for (const key of ['rd', 'shutdown']) owners.delete(`vrf ${instance} ${key}`)
+    vrfs.delete(instance)
     model.prune(['networkInstances', instance], 0)
     return ignored(`removes the VRF and its routes (${linesText(removed.map(line).sort((a, b) => a - b))}): nothing to convert`)
   }
@@ -736,6 +803,28 @@ export function parse(text: string, _context: Context): ParseResult {
 
   // ---- features
 
+  /**
+   * `no feature bgp`: BGP's configuration goes with it, and a VRF's route distinguisher and targets are BGP's. Whether
+   * NX-OS keeps them is not something the model should guess, so those before it are left out.
+   */
+  const clearVpn = (node: NxNode) => {
+    const why = unsupported(`BGP's, which line ${line(node)} turns off: left out`)
+    for (const [instance, state] of vrfs) {
+      const rd = owners.get(`vrf ${instance} rd`)
+      if (rd) {
+        owners.delete(`vrf ${instance} rd`)
+        model.remove(['networkInstances', instance, 'routeDistinguisher'])
+        set(rd, why)
+      }
+      for (const targets of state.families.values()) {
+        for (const t of targets) set(t.node, why)
+        targets.length = 0
+      }
+      if (state.unconverted) set(state.unconverted, why)
+      state.unconverted = undefined
+    }
+  }
+
   /** The `feature` statement that turned each feature on, so `no feature` can undo it. */
   const features = new Map<string, NxNode>()
 
@@ -747,9 +836,12 @@ export function parse(text: string, _context: Context): ParseResult {
       const on = features.get(feature)
       if (on) set(on, ignored(`turned off by line ${line(node)}`))
       features.delete(feature)
+      if (feature === VPN_FEATURE) clearVpn(node)
       return unsupported('turns a feature off: the model holds no features')
     }
     features.set(feature, node)
+    // Needed only when a VRF's route distinguisher or targets are converted: decided once every statement is read.
+    if (feature === VPN_FEATURE) return unsupported('turns on a feature whose configuration isn\'t converted yet')
     const required = REQUIRED_FEATURES.find(([f]) => f === feature)
     if (required) return ignored(`needed by ${required[2]}: written whenever one is`)
     return unsupported('turns on a feature whose configuration isn\'t converted yet')
@@ -814,6 +906,63 @@ export function parse(text: string, _context: Context): ParseResult {
   for (const node of nodes) mapTop(node)
   buildRoutes()
 
+  // A VRF's route targets: one set in the model, so every address family's must agree (a family with none disagrees
+  // with one with some), and none may be left out.
+  for (const [instance, state] of vrfs) {
+    const all = [...state.families.values()].flat()
+    if (!all.length) continue
+    const lists = [...state.families.values()].map((targets) => ({
+      import: [...new Set(targets.filter((t) => t.directions.includes('import')).map((t) => t.value))],
+      export: [...new Set(targets.filter((t) => t.directions.includes('export')).map((t) => t.value))]
+    }))
+    // The same set in each direction, in any order: the model keeps the first family's order.
+    const sorted = (values: string[]) => JSON.stringify([...values].sort())
+    const same = lists.every((l) => sorted(l.import) === sorted(lists[0].import) && sorted(l.export) === sorted(lists[0].export))
+    if (state.unconverted || !same) {
+      const why = state.unconverted
+        ? `left out whole: line ${line(state.unconverted)} about the VRF's route targets isn't converted`
+        : 'route targets that differ between IPv4 and IPv6: the model holds one set for the VRF'
+      for (const t of all) set(t.node, unsupported(why))
+      continue
+    }
+    const at = ['networkInstances', instance, 'routeTargets']
+    for (const direction of ['import', 'export'] as const) if (lists[0][direction].length) model.set([...at, direction], lists[0][direction])
+    for (const t of all) set(t.node, mapped(t.directions.map((d) => fieldPath(...at, d))))
+  }
+
+  // `feature bgp` is needed by a VRF's route distinguisher or targets: written back with them. Any other BGP
+  // configuration stays unsupported on its own.
+  const bgp = features.get(VPN_FEATURE)
+  if (bgp && Object.values((model.get(['networkInstances']) as Obj | undefined) ?? {}).some((i) => isObject(i) && (i.routeDistinguisher !== undefined || i.routeTargets !== undefined)))
+    set(bgp, ignored('needed by VRF route distinguishers and targets: written whenever one is'))
+
+  // A subinterface in a VRF the text doesn't define (or removes) would name a network instance the model doesn't
+  // have: its membership and its addresses, which would otherwise land in the global table, are left out. The
+  // management VRF is built in: mgmt0 declares it when the text doesn't.
+  if (mgmtInterfaces.length && model.get(['networkInstances', 'management']) === undefined) {
+    const field = model.set(['networkInstances', 'management', 'type'], 'vrf')
+    for (const node of mgmtInterfaces) {
+      const d = dispositions[node.id]
+      if (d.kind === 'mapped') set(node, mapped([...d.fields, field]))
+    }
+  }
+  for (const { ctx, vrf, node } of membership.values()) {
+    if (!node || model.get(['networkInstances', vrf]) !== undefined) continue
+    model.remove([...subPath(ctx), 'networkInstance'])
+    set(node, unsupported('names a VRF the configuration doesn\'t define'))
+    for (const family of [4, 6] as const) {
+      const state = addressing.get(`${ctx.name}|${ctx.sub}|${family}`)
+      if (!state) continue
+      for (const r of [...(state.primary ? [state.primary] : []), ...state.secondaries]) {
+        if ('address' in r) model.remove([...familyPath(ctx, family), 'addresses', r.address])
+        set(r.node, unsupported(`an address in the VRF of line ${line(node)}, which the configuration doesn't define`))
+      }
+      addressing.delete(`${ctx.name}|${ctx.sub}|${family}`)
+      pruneFamily(ctx, family)
+    }
+    if (!ctx.isSub) pruneMain(ctx)
+  }
+
   // A community with a statement not converted anywhere in the text (an access list, another group) is left out whole:
   // mapped without it, it could answer clients or allow access the source doesn't.
   for (const [name, state] of communities) {
@@ -852,7 +1001,7 @@ export function parse(text: string, _context: Context): ParseResult {
   for (const { node, ctx } of routedPorts) {
     if (owners.get(`switchport ${ctx.name}`) !== node) continue
     const subs = (model.get(['interfaces', ctx.name, 'subinterfaces']) as Obj | undefined) ?? {}
-    const routed = Object.values(subs).some((s) => isObject(s) && (s.ipv4 !== undefined || s.ipv6 !== undefined)) || Object.keys(subs).some((k) => k !== '0')
+    const routed = Object.values(subs).some((s) => isObject(s) && (s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined)) || Object.keys(subs).some((k) => k !== '0')
     set(node, routed ? ignored('a routed port, as its IP configuration says: written back with it') : unsupported('a routed port with no IP configuration the model holds: the model can\'t say it'))
   }
 

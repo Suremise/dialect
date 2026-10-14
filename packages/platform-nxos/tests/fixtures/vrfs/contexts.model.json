@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.3.0",
   "device": {
     "system": {
       "hostname": "leaf-4"
@@ -42,7 +42,19 @@
     },
     "interfaces": {
       "Ethernet1/1": {
-        "type": "ethernet"
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "TENANT-A",
+            "ipv4": {
+              "addresses": {
+                "192.0.2.10": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

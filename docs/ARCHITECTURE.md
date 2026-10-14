@@ -290,8 +290,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
 The second Cisco platform, built like the IOS / IOS-XE plugin (its code copied, not imported: plugins don't depend on
-each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.2.0 <1.0.0'`), with `detect`,
-`parse` and `render`.
+each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.3.0 <1.0.0'`, for model 0.3's
+VRF membership, route distinguishers and route targets), with `detect`, `parse` and `render`.
 
 - **The tree (`tree.ts`):** as IOS's, nested by NX-OS's two-space indents; `!Command:` and `!Time:` headers are
   comments. Banners (`banner motd|exec <d>…<d>`) are kept whole as one atomic statement; an unterminated one is an
@@ -300,7 +300,8 @@ each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi
   `ip domain-list`), interfaces (`Ethernet1/1`, `port-channel10`, `loopback0`, `Vlan10`, `mgmt0`; type from the name,
   `mgmt0` as `management`), subinterfaces with `encapsulation dot1q`, addresses with a prefix length or a dotted mask,
   `secondary` for IPv4 and IPv6 alike (one primary per family, as NX-OS keeps it: a second primary replaces the first),
-  `vrf context X` (a VRF, with its `ip route`/`ipv6 route` inside), static routes (interface, next hop, `name`, `tag`,
+  `vrf context X` (a VRF, with its `rd`, route targets and `ip route`/`ipv6 route` inside), `vrf member V` on interfaces
+  and subinterfaces, static routes (interface, next hop, `name`, `tag`,
   distance, `Null0`), `ntp server … [prefer] [use-vrf V]` and `source-interface`, `logging server H [level] [port P]
   [use-vrf V] [facility F]` and `source-interface`, and `snmp-server community` (`group network-operator|network-admin`
   or `ro`/`rw`), `location` and `contact`. As in the IOS plugin, a statement with an option the model can't hold
@@ -311,16 +312,32 @@ each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi
     setting the parser maps remove it and mark what they removed: `no hostname`, `no ip domain-name`,
     `no ip domain-list X`, `no ip name-server … [use-vrf V]` (only in the VRF it names, no VRF and `default` alike),
     `no ip|ipv6 route P [next hop]` (at the top or in a `vrf context`; every next hop when it names none),
-    `no vrf context X` (with its routes), `no description`, `no mtu`, `no encapsulation dot1q` (the parent's
+    `no vrf context X` (with its routes, route distinguisher and route targets), `no rd`,
+    `no route-target import|export|both V` (that direction only), `no description`, `no mtu`, `no encapsulation dot1q` (the parent's
     `vlanTagging` goes with the last tag), `no ip|ipv6 address [A/L]`, `no vrf member`, `no ntp server X`,
     `no ntp|logging source-interface`, `no logging server X`, `no snmp-server community X`,
     `no snmp-server contact|location`, `no feature X`. `vrf member` and `ip address dhcp` clear the addresses before
     them.
-  - **VRF membership:** model 0.2 can't place an interface in a VRF, so `vrf member V` is `unsupported`, and an
-    address on an interface in a VRF is left out (`unsupported`) rather than put in the global table. `mgmt0` is always
-    in the management VRF: its `vrf member management` is `ignored-by-design`, said by its type.
+  - **VRF membership:** `vrf member V` is the subinterface's `networkInstance` (subinterface `0` for a main interface),
+    and clears the addresses before it, as on the device. `vrf member default` returns the interface to the global
+    table as `no vrf member` does, leaving `networkInstance` out. A VRF the text never defines, or removes with
+    `no vrf context`, would name a network instance the model doesn't have: the membership and the interface's
+    addresses are then `unsupported` rather than put in the global table. `mgmt0` is always in the management VRF, which
+    is built in: its interface statement maps `networkInstance: management` (and the `management` network instance when
+    the text has no `vrf context management`), so the model says so whether `vrf member management` is shown or not;
+    that statement is `ignored-by-design`, and any other VRF on mgmt0, or `management` on another interface, is
+    `unsupported`.
+  - **Route distinguishers and targets:** `rd V` in a `vrf context` maps in any of the model's three forms (a later one
+    supersedes it; `rd auto` is `unsupported`). NX-OS sets route targets per address family
+    (`address-family ipv4|ipv6 unicast`, `route-target import|export|both V`); the model holds one set for the VRF, so
+    they map only when every unicast family's agree, as sets in each direction (in any order, the model keeping the first
+    family's; a family with none disagrees with one with some), and are all
+    `unsupported` otherwise, or when one of them isn't converted (`route-target both auto`), since a partial list would
+    be wrong. EVPN's (`route-target … evpn`, `address-family l2vpn evpn`) are another family's, `unsupported` on their
+    own. They are BGP's (L3VPN): `feature bgp` is `ignored-by-design` when a converted route distinguisher or target
+    needs it, and `unsupported` otherwise, like the rest of BGP; `no feature bgp` leaves out the ones before it.
   - **`feature` lines:** one a converted statement needs (`interface-vlan` for Vlan interfaces, `tunnel` for Tunnel
-    interfaces; `features.ts`) is `ignored-by-design`, since the render writes it back whenever it is needed. Every
+    interfaces, `bgp` for a VRF's route distinguisher and targets; `features.ts`) is `ignored-by-design`, since the render writes it back whenever it is needed. Every
     other feature turns on a service the model doesn't hold, and is `unsupported`.
   - **`switchport`:** `no switchport` is `ignored-by-design` on a port with IP configuration (the render writes it back
     with it) and `unsupported` on one without, which the model can't call routed. `switchport` and its options are
@@ -335,13 +352,18 @@ each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi
     corpus file.
   - Keys come from the configuration (`vrf context __proto__`), so the model is built with own properties only, and
     per-name bookkeeping uses `Map`s.
-- **Render (`render.ts`):** every leaf of model 0.2 gets a disposition; a later version's fields get none, for the
+- **Render (`render.ts`):** every leaf of model 0.3 gets a disposition; a later version's fields get none, for the
   ledger to report. The text relies on no switch default: it writes each `feature` a written statement needs before it,
   and `switchport` or `no switchport` on every Ethernet and port-channel interface (`no switchport` with an address or
-  subinterfaces). Each VRF is a `vrf context` with its routes inside; `mgmt0` gets `vrf member management`. What NX-OS
-  can't write is `unsupported` with why: subinterface 0's own description or shutdown, an address family's MTU, an
-  NTP server's version, a `reject` route, a route's metric, and an SNMP community limited to some clients (left out
-  whole, with a warning that doesn't name it). With several addresses and no primary, the first becomes primary, with
+  subinterfaces or a VRF). Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
+  `address-family ipv4 unicast` and `ipv6 unicast` (the model's are the VRF's), after `feature bgp`, and before the
+  interfaces; `vrf member V` comes before an interface's addresses, which it would otherwise clear, and `mgmt0` always
+  gets `vrf member management`. What NX-OS can't write is `unsupported` with why: a membership in a VRF the model
+  doesn't have, in `management` on an interface other than mgmt0, or in another VRF (`default` included) on mgmt0
+  (each with the interface's addresses, which would otherwise land in another table), a route distinguisher or target
+  on the global table, subinterface 0's own description or shutdown, an address family's MTU, an NTP server's version,
+  a `reject` route, a route's metric, and an SNMP community limited to some clients (left out whole, with a warning
+  that doesn't name it). With several addresses and no primary, the first becomes primary, with
   a warning.
 - **Detect (`detect.ts`):** counts NX-OS's own signs (`feature`, `vrf context`, `vrf member`, `use-vrf`, prefix-length
   addresses, `switchname`, `version 9.3(3)`, `!Command: show running-config`, RANCID's `cisco-nx`) and discounts IOS's

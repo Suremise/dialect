@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.3.0",
   "device": {
     "system": {
       "hostname": "leaf-3"
@@ -119,6 +119,7 @@
         "type": "management",
         "subinterfaces": {
           "0": {
+            "networkInstance": "management",
             "ipv4": {
               "addresses": {
                 "192.0.2.100": {
@@ -128,6 +129,11 @@
             }
           }
         }
+      }
+    },
+    "networkInstances": {
+      "management": {
+        "type": "vrf"
       }
     }
   }
