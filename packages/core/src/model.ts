@@ -1,6 +1,6 @@
 // The shared device model: what every platform plugin parses into and renders from (the hub in docs/ARCHITECTURE.md).
 // Shaped like OpenConfig (system, interfaces with subinterfaces and addresses, VLANs, network instances with static
-// routes, OSPF and BGP, routing policy), borrowing its structure and names, not its code, as plain readonly types serialised as JSON (serialize.ts).
+// routes, OSPF and BGP, routing policy, filters), borrowing its structure and names, not its code, as plain readonly types serialised as JSON (serialize.ts).
 //
 // Conventions every type here keeps, because the coverage ledger walks the model generically (ledger.ts):
 // - **Collections are maps keyed by their natural key** (an interface's name, an address, a prefix), never arrays of
@@ -20,7 +20,7 @@
 // while the ledger reports any populated field it has never heard of as unrendered.
 
 /** The shared model's version (docs/SPEC.md §4). Bump minor for additions, major for breaking changes. */
-export const MODEL_VERSION = '0.5.0'
+export const MODEL_VERSION = '0.5.1'
 
 /** A map from a collection's natural key to its entries. */
 export type Keyed<T> = Readonly<Record<string, T>>
@@ -40,6 +40,8 @@ export interface Device {
   readonly networkInstances?: Keyed<NetworkInstance>
   /** Prefix lists, community and AS-path sets, and routing policies. Since model 0.5.0. */
   readonly routingPolicy?: RoutingPolicy
+  /** Firewall filters and ACLs, per address family. Since model 0.5.1. */
+  readonly filters?: Filters
 }
 
 export interface System {
@@ -177,6 +179,25 @@ export interface Subinterface {
    * Since model 0.4.0.
    */
   readonly routedVlan?: number
+  /**
+   * The filters applied to the subinterface's traffic, per family and direction: Junos `family inet filter input F`,
+   * Cisco `ip access-group F in` (on subinterface `0` for a main interface). Each names an entry of `Device.filters` of
+   * its family (modelProblems() checks). Since model 0.5.1.
+   */
+  readonly filters?: FilterAttachments
+}
+
+/** A subinterface's filters (since model 0.5.1). */
+export interface FilterAttachments {
+  readonly ipv4?: FilterDirections
+  readonly ipv6?: FilterDirections
+}
+
+export interface FilterDirections {
+  /** The filter's name, for traffic coming in. */
+  readonly input?: string
+  /** The filter's name, for traffic going out. */
+  readonly output?: string
 }
 
 export interface AddressFamily {
@@ -601,4 +622,107 @@ export interface CommunityValues {
   readonly values?: readonly string[]
   /** Names of `RoutingPolicy.communitySets` entries. */
   readonly sets?: readonly string[]
+}
+
+// ---- Filters and ACLs (since model 0.5.1)
+//
+// After OpenConfig `acl`, simplified, with ideas from Capirca and Aerleon's term model: Junos `firewall family inet|inet6
+// filter`, Cisco `ip access-list` and `ipv6 access-list` (standard and extended, named or numbered), IOS-XR's ACLs.
+// Terms are keyed by position, as a policy's are (routing policy, above), and converted whole or not at all by the same
+// per-term rule. The model holds prefixes, never wildcard masks: a Cisco wildcard is a prefix when it is contiguous, and
+// a term with a non-contiguous one is `unsupported` whole, never approximated.
+
+/** Filters by family, by name (since model 0.5.1). */
+export interface Filters {
+  readonly ipv4?: Keyed<Filter>
+  readonly ipv6?: Keyed<Filter>
+}
+
+/**
+ * What a platform does with a packet no term decides: the platform's semantics, kept with the data as a policy's
+ * `fallThrough` is. `discard`: Junos filters drop it silently. `deny`: a Cisco ACL's implicit deny, which drops it and
+ * may send an ICMP unreachable (the interface's `ip unreachables`).
+ */
+export type FilterImplicitAction = 'discard' | 'deny'
+
+/** A filter: terms in order; the first whose matches all hold decides the packet, unless its action is `next-term`. */
+export interface Filter {
+  readonly description?: string
+  /** By position: an ACL entry's sequence number, a Junos term's place from 1. */
+  readonly terms?: Keyed<FilterTerm>
+  /**
+   * What happens to a packet no term decides: always given (modelProblems() checks). A renderer gives it a
+   * `not-applicable` disposition and raises a semantic warning when its platform's differs, or when the source relied
+   * on it (no final term deciding every packet).
+   */
+  readonly implicitAction: FilterImplicitAction
+}
+
+/** A Junos term, a Cisco ACL entry (`permit tcp any host 192.0.2.1 eq 22`). */
+export interface FilterTerm {
+  /** The Junos term's name. */
+  readonly name?: string
+  /** Every condition given must hold (and within a list, any of its entries). None given matches every packet. */
+  readonly matches?: FilterMatches
+  readonly actions: FilterActions
+}
+
+/** A TCP flag, as the model names it. */
+export type TcpFlag = 'fin' | 'syn' | 'rst' | 'psh' | 'ack' | 'urg' | 'ece' | 'cwr'
+
+/**
+ * A port or a range of them, from 0 to 65535: `"22"`, `"1024-65535"` (first below last). Cisco's `eq`, `range`, `gt`
+ * and `lt` all come down to these; `neq` is two ranges.
+ */
+export type PortRange = string
+
+export interface FilterMatches {
+  /** Source prefixes, in CIDR form of the filter's family (a Cisco `host` is a /32 or /128). */
+  readonly sourcePrefixes?: readonly string[]
+  readonly destinationPrefixes?: readonly string[]
+  /** Either the source or the destination (Junos `address`). */
+  readonly prefixes?: readonly string[]
+  /** Prefix lists by name, of the filter's family (`RoutingPolicy.prefixLists`): Junos `source-prefix-list`. */
+  readonly sourcePrefixLists?: readonly string[]
+  readonly destinationPrefixLists?: readonly string[]
+  /** Either the source or the destination (Junos `prefix-list`). */
+  readonly prefixLists?: readonly string[]
+  /** IP protocol numbers, from 0 to 255 (`tcp` is 6, `udp` 17, `icmp` 1, `icmp6` 58). */
+  readonly protocols?: readonly number[]
+  readonly sourcePorts?: readonly PortRange[]
+  readonly destinationPorts?: readonly PortRange[]
+  /** Either the source or the destination port (Junos `port`). */
+  readonly ports?: readonly PortRange[]
+  /** ICMP (or ICMPv6) types, from 0 to 255. */
+  readonly icmpTypes?: readonly number[]
+  readonly icmpCodes?: readonly number[]
+  /** An established TCP session: ACK or RST set (Cisco `established`, Junos `tcp-established`). */
+  readonly tcpEstablished?: boolean
+  /** TCP flags that must all be set, and all be clear (Junos `tcp-flags "syn & !ack"`, Cisco `match-all +syn -ack`). */
+  readonly tcpFlags?: TcpFlags
+  /** `initial`: a first fragment (Junos `first-fragment`); `non-initial`: a later one (Junos `is-fragment`, Cisco `fragments`). */
+  readonly fragment?: 'initial' | 'non-initial'
+  /** DSCP values, from 0 to 63 (Junos `af11` is 10). */
+  readonly dscp?: readonly number[]
+}
+
+export interface TcpFlags {
+  readonly set?: readonly TcpFlag[]
+  readonly clear?: readonly TcpFlag[]
+}
+
+/**
+ * What a term does with a packet it matches: `accept`, `discard` it silently, `reject` it with an ICMP unreachable,
+ * or go on to the `next-term` (Junos, after counting or logging). A Cisco ACL's `deny` is `discard`: the ICMP
+ * unreachable it may send is the interface's setting, outside the ACL.
+ */
+export type FilterAction = 'accept' | 'discard' | 'reject' | 'next-term'
+
+export interface FilterActions {
+  /** Always given: a Junos term that only counts accepts, and the parser says so. */
+  readonly action: FilterAction
+  /** A counter's name (Junos `count`). */
+  readonly count?: string
+  /** Log the packet (Junos `log` or `syslog`, Cisco `log`). */
+  readonly log?: boolean
 }

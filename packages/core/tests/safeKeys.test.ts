@@ -35,15 +35,16 @@ afterAll(() => {
 /**
  * A model with `key` as an interface, a VRF (with the interface in it), an SNMP community, a DNS server, a VLAN's name,
  * an OSPF interface (a reference to the interface), a BGP group and a neighbor's group, update source and policy, and
- * (model 0.5.0) a policy, prefix list, community set and AS-path set, which the policy's term names. Computed keys are
- * own properties.
+ * (model 0.5.0) a policy, prefix list, community set and AS-path set, which the policy's term names, and (0.5.1) a
+ * filter the interface applies, naming the prefix list and counting into a counter of that name. Computed keys are own
+ * properties.
  */
 const deviceWith = (key: string): Device => ({
   system: {
     snmp: { communities: { [key]: { access: 'read-only' } } },
     dns: { servers: { [key]: {}, '192.0.2.53': { networkInstance: key } }, search: ['example.net'] }
   },
-  interfaces: { [key]: { description: 'uplink', subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } }, networkInstance: key } } } },
+  interfaces: { [key]: { description: 'uplink', subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } }, networkInstance: key, filters: { ipv4: { input: key } } } } } },
   vlans: { '10': { name: key } },
   networkInstances: {
     [key]: {
@@ -60,7 +61,8 @@ const deviceWith = (key: string): Device => ({
     communitySets: { [key]: { entries: { '1': { action: 'permit', members: ['65000:1'] } } } },
     asPathSets: { [key]: { regexDialect: 'junos', entries: { '1': { action: 'permit', regex: '65000 .*' } } } },
     policies: { [key]: { fallThrough: 'reject', terms: { '10': { matches: { prefixLists: { ipv4: [key] }, communitySets: [key], asPathSets: [key] }, actions: { flow: 'accept', communityAdd: { sets: [key] } } } } } }
-  }
+  },
+  filters: { ipv4: { [key]: { implicitAction: 'discard', terms: { '1': { matches: { sourcePrefixLists: [key] }, actions: { action: 'accept', count: key } } } } } }
 })
 
 const policyPath = (...path: string[]) => fieldPath('routingPolicy', ...path)
@@ -73,6 +75,7 @@ const expectedPaths = (key: string) => [
   fieldPath('interfaces', key, 'description'),
   fieldPath('interfaces', key, 'subinterfaces', '0', 'ipv4', 'addresses', '192.0.2.1', 'prefixLength'),
   fieldPath('interfaces', key, 'subinterfaces', '0', 'networkInstance'),
+  fieldPath('interfaces', key, 'subinterfaces', '0', 'filters', 'ipv4', 'input'),
   fieldPath('vlans', '10', 'name'),
   fieldPath('networkInstances', key, 'type'),
   fieldPath('networkInstances', key, 'routeDistinguisher'),
@@ -95,7 +98,11 @@ const expectedPaths = (key: string) => [
   policyPath('policies', key, 'terms', '10', 'matches', 'communitySets'),
   policyPath('policies', key, 'terms', '10', 'matches', 'asPathSets'),
   policyPath('policies', key, 'terms', '10', 'actions', 'flow'),
-  policyPath('policies', key, 'terms', '10', 'actions', 'communityAdd', 'sets')
+  policyPath('policies', key, 'terms', '10', 'actions', 'communityAdd', 'sets'),
+  fieldPath('filters', 'ipv4', key, 'implicitAction'),
+  fieldPath('filters', 'ipv4', key, 'terms', '1', 'matches', 'sourcePrefixLists'),
+  fieldPath('filters', 'ipv4', key, 'terms', '1', 'actions', 'action'),
+  fieldPath('filters', 'ipv4', key, 'terms', '1', 'actions', 'count')
 ]
 
 describe.each(KEYS)('the key %s', (key) => {
@@ -113,7 +120,7 @@ describe.each(KEYS)('the key %s', (key) => {
       expect(d).toEqual(device)
       const instance = d.networkInstances![key]
       const policy = d.routingPolicy!
-      for (const map of [d.interfaces!, d.networkInstances!, d.system!.snmp!.communities!, d.system!.dns!.servers!, instance.ospf!.areas!['0.0.0.0'].interfaces!, instance.bgp!.groups!, policy.prefixLists!.ipv4!, policy.communitySets!, policy.asPathSets!, policy.policies!]) {
+      for (const map of [d.interfaces!, d.networkInstances!, d.system!.snmp!.communities!, d.system!.dns!.servers!, instance.ospf!.areas!['0.0.0.0'].interfaces!, instance.bgp!.groups!, policy.prefixLists!.ipv4!, policy.communitySets!, policy.asPathSets!, policy.policies!, d.filters!.ipv4!]) {
         expect(Object.hasOwn(map, key)).toBe(true)
         expect(Object.getPrototypeOf(map)).toBe(Object.prototype)
       }
@@ -158,7 +165,7 @@ describe.each(KEYS)('the key %s', (key) => {
     const { [key]: vrf, ...others } = device.networkInstances!
     const undeclared: Device = { ...device, networkInstances: { ...others, blue: vrf } }
     expect(modelProblems(undeclared).map((d) => d.code)).toEqual(['model.unknown-network-instance'])
-    expect(modelProblems({ interfaces: device.interfaces }).map((d) => d.field)).toEqual([fieldPath('interfaces', key, 'subinterfaces', '0', 'networkInstance')])
+    expect(modelProblems({ interfaces: device.interfaces, filters: device.filters, routingPolicy: device.routingPolicy }).map((d) => d.field)).toEqual([fieldPath('interfaces', key, 'subinterfaces', '0', 'networkInstance')])
     const nullProto = Object.assign(Object.create(null), { blue: vrf }) as Device['networkInstances']
     expect(modelProblems({ ...device, networkInstances: nullProto }).map((d) => d.code)).toEqual(['model.unknown-network-instance'])
   })
@@ -194,12 +201,23 @@ describe.each(KEYS)('the key %s', (key) => {
       ['model.unknown-prefix-list', term('matches', 'prefixLists', 'ipv4')],
       ['model.unknown-community-set', term('matches', 'communitySets')],
       ['model.unknown-as-path-set', term('matches', 'asPathSets')],
-      ['model.unknown-community-set', term('actions', 'communityAdd', 'sets')]
+      ['model.unknown-community-set', term('actions', 'communityAdd', 'sets')],
+      // The filter names the prefix list too.
+      ['model.unknown-prefix-list', fieldPath('filters', 'ipv4', key, 'terms', '1', 'matches', 'sourcePrefixLists')]
     ])
     expect(modelProblems(renamed).map((d) => [d.code, d.field])).toEqual([['model.unknown-policy', fieldPath('networkInstances', key, 'bgp', 'neighbors', '192.0.2.2', 'importPolicies')]])
     expect(modelProblems(renamed, { policyReferences: false })).toEqual([])
     const nullProto = Object.assign(Object.create(null), { other: policy.policies![key] }) as NonNullable<Device['routingPolicy']>['policies']
     expect(modelProblems({ ...device, routingPolicy: { ...policy, policies: nullProto } }).map((d) => d.code)).toEqual(['model.unknown-policy'])
+  })
+
+  it('is a filter a subinterface applies, by own keys only, in its own family', () => {
+    const device = deviceWith(key)
+    const attachment = fieldPath('interfaces', key, 'subinterfaces', '0', 'filters', 'ipv4', 'input')
+    expect(modelProblems({ ...device, filters: { ipv4: { other: device.filters!.ipv4![key] } } }).map((d) => [d.code, d.field])).toEqual([['model.unknown-filter', attachment]])
+    expect(modelProblems({ ...device, filters: { ipv6: device.filters!.ipv4 } }).map((d) => d.code)).toEqual(['model.unknown-filter', 'model.unknown-prefix-list'])
+    const nullProto = Object.assign(Object.create(null), { other: device.filters!.ipv4![key] }) as NonNullable<Device['filters']>['ipv4']
+    expect(modelProblems({ ...device, filters: { ipv4: nullProto } }).map((d) => d.code)).toEqual(['model.unknown-filter'])
   })
 
   it('works in null-prototype maps too', () => {
@@ -218,17 +236,17 @@ describe('a model document', () => {
 })
 
 describe('model 0.5', () => {
-  it('is the core\'s model version, and plugins built for 0.1 to 0.4.1 still load', () => {
-    expect(MODEL_VERSION).toBe('0.5.0')
-    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0', '>=0.3.0 <1.0.0', '>=0.4.0 <1.0.0', '>=0.4.1 <1.0.0'])
+  it('is the core\'s model version, and plugins built for 0.1 to 0.5.0 still load', () => {
+    expect(MODEL_VERSION).toBe('0.5.1')
+    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0', '>=0.3.0 <1.0.0', '>=0.4.0 <1.0.0', '>=0.4.1 <1.0.0', '>=0.5.0 <1.0.0'])
       expect(() => createRegistry([{ id: 'old', name: 'Old', modelApi, capabilities: { system: { parse: 'full', render: 'full' } } }]), modelApi).not.toThrow()
   })
 
   it('reads 0.3.0 documents, and a 0.3 core refuses a 0.5 one rather than drop its fields', () => {
     expect(deserializeModel('{"modelVersion":"0.3.0","device":{"networkInstances":{"blue":{"type":"vrf","routeDistinguisher":"65000:1"}}}}').device).toEqual({ networkInstances: { blue: { type: 'vrf', routeDistinguisher: '65000:1' } } })
     const text = serializeModel({ vlans: { '10': { name: 'users' } } })
-    expect(JSON.parse(text).modelVersion).toBe('0.5.0')
-    expect(() => deserializeModel(text, '0.3.0')).toThrow('The model document was made with model 0.5.0, newer than this core\'s 0.3.0.')
+    expect(JSON.parse(text).modelVersion).toBe('0.5.1')
+    expect(() => deserializeModel(text, '0.3.0')).toThrow('The model document was made with model 0.5.1, newer than this core\'s 0.3.0.')
   })
 
   it('reads 0.4.0 and 0.4.1 documents, and a 0.4.1 core refuses a 0.5.0 one rather than drop its routing policy', () => {
@@ -237,7 +255,15 @@ describe('model 0.5', () => {
     expect(deserializeModel(JSON.stringify({ modelVersion: '0.4.1', device: { networkInstances: { default: { bgp } } } })).device.networkInstances?.default.bgp).toEqual(bgp)
     const text = serializeModel({ routingPolicy: { policies: { IN: { fallThrough: 'reject', terms: { '10': { actions: { flow: 'accept' } } } } } } })
     expect(deserializeModel(text).device.routingPolicy?.policies?.IN.terms?.['10'].actions).toEqual({ flow: 'accept' })
-    expect(() => deserializeModel(text, '0.4.1')).toThrow('The model document was made with model 0.5.0, newer than this core\'s 0.4.1.')
+    expect(() => deserializeModel(text, '0.4.1')).toThrow('The model document was made with model 0.5.1, newer than this core\'s 0.4.1.')
+  })
+
+  it('reads 0.5.0 documents, and a 0.5.0 core refuses a 0.5.1 one rather than drop its filters', () => {
+    const policy = { policies: { IN: { fallThrough: 'reject', terms: { '10': { actions: { flow: 'accept' } } } } } }
+    expect(deserializeModel(JSON.stringify({ modelVersion: '0.5.0', device: { routingPolicy: policy } })).device.routingPolicy).toEqual(policy)
+    const text = serializeModel({ filters: { ipv4: { F: { implicitAction: 'deny', terms: { '10': { matches: { protocols: [6] }, actions: { action: 'accept' } } } } } } })
+    expect(deserializeModel(text).device.filters?.ipv4?.F.implicitAction).toBe('deny')
+    expect(() => deserializeModel(text, '0.5.0')).toThrow('The model document was made with model 0.5.1, newer than this core\'s 0.5.0.')
   })
 
   it('has VLANs, switch ports, routed VLANs, OSPF and BGP as leaves, through JSON and with nothing wrong', () => {

@@ -16,11 +16,15 @@
 //   policy P term N match prefix-list L | match community C | match as-path A | action accept|reject|next-term|next-policy
 //   no <any of them> (no interface N description, no interface N address A/L, no vrf V [route P], no route P,
 //   no community C, no name-server A [vrf V], no search D, no [vrf V] bgp neighbor A, no [vrf V] ospf area X interface I,
-//   no prefix-list L seq N, no policy P term N)
+//   filter F ipv4|ipv6 | filter F seq N accept|discard|reject|next-term [protocol P] [dport R] [source A/L]
+//     [destination A/L] [source-wildcard A W]   (a filter's implicit action is the stub's own, deny)
+//   interface N filter-in F
+//   no prefix-list L seq N, no policy P term N, no filter F seq N, no interface N filter-in)
 //
 // A policy term is converted whole or not at all (the per-term rule): a term with a line the stub can't take is left out
-// with all its lines unsupported, and its whole policy too when leaving it out isn't safe (termSkipSafe()).
-import { communityType, fieldPath, parsePrefix, populatedLeaves, termSkipSafe, type Context, type Device, type Diagnostic, type FieldDisposition, type ParseResult, type PathSegment, type PlatformPlugin, type Policy, type RenderResult, type StatementDisposition, type SyntaxNode } from '@dialect/core'
+// with all its lines unsupported, and its whole policy too when leaving it out isn't safe (termSkipSafe()); so is a
+// filter's (filterTermSkipSafe()), its attachments with it.
+import { communityType, fieldPath, filterReliesOnImplicitAction, filterTermSkipSafe, isPortRange, parsePrefix, pathSegments, populatedLeaves, termSkipSafe, type Context, type Device, type Diagnostic, type FieldDisposition, type ParseResult, type PathSegment, type PlatformPlugin, type Policy, type RenderResult, type StatementDisposition, type SyntaxNode } from '@dialect/core'
 import type { ProbeAdapter } from '../src'
 
 /** The bug classes the probes look for, each as the stub can be told to make it. */
@@ -41,6 +45,10 @@ export type ProbeBug =
   | 'reference'
   /** A regex of another dialect is written as if it were the stub's own, with no word said. */
   | 'regex'
+  /** A filter whose platform default for an undecided packet isn't the stub's is written with no word said. */
+  | 'implicit'
+  /** A filter that relies on its implicit action is written with no word said when the default is the stub's. */
+  | 'implicit-reliance'
 
 type Obj = Record<string, unknown>
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -83,7 +91,8 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
       vlans: { parse: 'partial', render: 'partial' },
       ospf: { parse: 'partial', render: 'partial' },
       bgp: { parse: 'partial', render: 'partial' },
-      'routing-policy': { parse: 'partial', render: 'partial' }
+      'routing-policy': { parse: 'partial', render: 'partial' },
+      filters: { parse: 'partial', render: 'partial' }
     },
     parse(text: string, _context: Context): ParseResult {
       const model: Obj = {}
@@ -166,7 +175,47 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
         if (w[0] === 'vrf' && (w[2] === 'bgp' || w[2] === 'ospf')) return protocol(w[1], w.slice(2))
         if (w[0] === 'bgp' || w[0] === 'ospf') return protocol('default', w)
         if (w[0] === 'prefix-list' || w[0] === 'community-set' || w[0] === 'as-path-set' || w[0] === 'policy') return policyStatement(w)
+        if (w[0] === 'filter') return filterStatement(w)
+        if (w[0] === 'interface' && w[2] === 'filter-in' && w.length === 4) {
+          const family = ['ipv4', 'ipv6'].find((f) => isObject(get(['filters', f, w[3]]))) ?? (bug.has('reference') ? 'ipv4' : undefined)
+          if (!family) return unsupported('applies a filter the source doesn\'t have')
+          return mapped(put(['interfaces', w[1], 'subinterfaces', '0', 'filters', family, 'input'], w[3]))
+        }
         return unsupported('the probe stub has no rule for it')
+      }
+      /** A filter, or one of its terms: one line each, as a Cisco ACL entry is. */
+      const filterStatement = (w: readonly string[]): StatementDisposition => {
+        if ((w[2] === 'ipv4' || w[2] === 'ipv6') && w.length === 3) return mapped(put(['filters', w[2], w[1], 'implicitAction'], 'deny'))
+        const family = ['ipv4', 'ipv6'].find((f) => isObject(get(['filters', f, w[1]])))
+        const seq = position(w[3])
+        if (!family || w[2] !== 'seq' || seq === null || !['accept', 'discard', 'reject', 'next-term'].includes(w[4])) return unsupported('the probe stub has no rule for it')
+        const careless = bug.has('malformed')
+        const matches: Record<string, unknown[]> = {}
+        for (let i = 5; i < w.length; ) {
+          const [option, value] = [w[i], w[i + 1]]
+          if (value === undefined) return unsupported('the probe stub has no rule for it')
+          if (option === 'protocol') {
+            const n = bounded(value, 0, 255, careless) ?? (value === '0' ? 0 : null)
+            if (n === null) return unsupported('not a protocol number')
+            matches.protocols = [n]
+          } else if (option === 'dport') {
+            if (!careless && !isPortRange(value)) return unsupported('not a port or a range of them')
+            matches.destinationPorts = [value]
+          } else if (option === 'source' || option === 'destination') {
+            if (!careless && parsePrefix(value)?.family !== family) return unsupported('not a prefix of the filter\'s family')
+            matches[option === 'source' ? 'sourcePrefixes' : 'destinationPrefixes'] = [value]
+          } else if (option === 'source-wildcard' && w[i + 2] !== undefined) {
+            // A wildcard is a prefix when its ones are all at the end; any other is never approximated (careless: it is).
+            const bits = w[i + 2].split('.').map((o) => Number(o).toString(2).padStart(8, '0')).join('')
+            if (!careless && !/^0*1*$/.test(bits)) return unsupported('a non-contiguous wildcard has no prefix form')
+            matches.sourcePrefixes = [`${value}/${bits.indexOf('1') === -1 ? 32 : bits.indexOf('1')}`]
+            i++
+          } else return unsupported('the probe stub has no rule for it')
+          i += 2
+        }
+        const at = ['filters', family, w[1], 'terms', seq]
+        put(at, { ...(Object.keys(matches).length ? { matches } : {}), actions: { action: w[4] } })
+        return mapped(...populatedLeaves(get(at), at).map((l) => l.path))
       }
       const rp = ['routingPolicy']
       /** Whether a name is one the source defined before (or, careless, any name at all). */
@@ -293,6 +342,10 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
           remove(['routingPolicy', 'policies', w[1], 'terms', w[3]])
           const policy = get(['routingPolicy', 'policies', w[1]])
           if (isObject(policy) && !isObject(policy.terms)) remove(['routingPolicy', 'policies', w[1]])
+        } else if (w[0] === 'filter' && w[2] === 'seq' && w.length === 4) {
+          for (const family of ['ipv4', 'ipv6']) if (isObject(get(['filters', family, w[1], 'terms', w[3]]))) remove(['filters', family, w[1], 'terms', w[3]])
+        } else if (w[0] === 'interface' && w[2] === 'filter-in' && w.length === 3) {
+          for (const family of ['ipv4', 'ipv6']) if (get(['interfaces', w[1], 'subinterfaces', '0', 'filters', family, 'input']) !== undefined) remove(['interfaces', w[1], 'subinterfaces', '0', 'filters', family, 'input'])
         } else return unsupported('the probe stub has no rule for it')
         return ignored('removes what it names: nothing to convert')
       }
@@ -316,6 +369,24 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
         remove(['routingPolicy', 'policies', policy, ...(whole ? [] : ['terms', term])])
         const left = get(['routingPolicy', 'policies', policy])
         if (isObject(left) && !isObject(left.terms)) remove(['routingPolicy', 'policies', policy])
+      }
+      // The same for filters: an unsupported term line is left out alone when that is safe (it is last, or goes on to the
+      // next term), else with its whole filter and the attachments naming it.
+      for (const n of tree) {
+        const [first, name, seqWord, seq, action] = n.label.split(' ')
+        if (first !== 'filter' || seqWord !== 'seq' || dispositions[n.id].kind !== 'unsupported') continue
+        const family = ['ipv4', 'ipv6'].find((f) => isObject(get(['filters', f, name])))
+        if (!family) continue
+        const later = tree.some((l) => { const p = l.label.split(' '); return p[0] === 'filter' && p[1] === name && p[2] === 'seq' && Number(p[3]) > Number(seq) && dispositions[l.id].kind === 'mapped' })
+        // As the model would have the term: what filterTermSkipSafe() decides from.
+        const filter = { implicitAction: 'deny' as const, terms: { [seq]: { actions: { action: action as 'accept' }, }, ...(later ? { [String(Number(seq) + 1)]: { actions: { action: 'accept' as const } } } : {}) } }
+        if (filterTermSkipSafe(filter, seq)) continue
+        for (const l of tree) {
+          const p = l.label.split(' ')
+          if (dispositions[l.id].kind === 'mapped' && ((p[0] === 'filter' && p[1] === name) || (p[0] === 'interface' && p[2] === 'filter-in' && p[3] === name))) dispositions[l.id] = unsupported('its filter is converted whole or not at all')
+        }
+        remove(['filters', family, name])
+        for (const ifc of Object.keys((get(['interfaces']) as Obj | undefined) ?? {})) if (get(['interfaces', ifc, 'subinterfaces', '0', 'filters', family, 'input']) === name) remove(['interfaces', ifc, 'subinterfaces', '0', 'filters', family, 'input'])
       }
       // A statement whose fields a later `no` removed: it says so, as a removed statement's disposition would.
       for (const [id, d] of Object.entries(dispositions)) {
@@ -417,6 +488,48 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
       for (const [name, instance] of Object.entries(model.networkInstances ?? {}))
         for (const [a, n] of Object.entries(instance.bgp?.neighbors ?? {}))
           n.importPolicies?.forEach((p, i) => emit(`${name === 'default' ? '' : `vrf ${name} `}bgp neighbor ${a} import ${p}`, ...(i === 0 ? [['networkInstances', name, 'bgp', 'neighbors', a, 'importPolicies']] : [])))
+      // Filters: the stub writes one protocol, destination port, source and destination per term, and denies what no
+      // term decides. A term it can't write is left out whole, and its filter too when that isn't safe.
+      const written = new Set<string>()
+      for (const family of ['ipv4', 'ipv6'] as const)
+        for (const [name, filter] of Object.entries(model.filters?.[family] ?? {})) {
+          const at = ['filters', family, name]
+          const writable = (t: (typeof filter.terms & object)[string]) => {
+            const leaves = populatedLeaves(t, []).map((l) => l.path)
+            return leaves.every((l) => ['matches.protocols', 'matches.destinationPorts', 'matches.sourcePrefixes', 'matches.destinationPrefixes', 'actions.action'].includes(l)) && Object.values(t.matches ?? {}).every((v) => !Array.isArray(v) || v.length === 1)
+          }
+          const terms = Object.entries(filter.terms ?? {})
+          if (terms.some(([seq, t]) => !writable(t) && !filterTermSkipSafe(filter, seq))) {
+            for (const path of leavesOf(filter, ...at)) dispositions[path] = { kind: 'unsupported', reason: 'its filter is converted whole or not at all' }
+            continue
+          }
+          written.add(`${family} ${name}`)
+          emit(`filter ${name} ${family}`)
+          dispositions[fieldPath(...at, 'implicitAction')] = { kind: 'not-applicable', reason: 'the stub\'s filters deny what no term decides' }
+          if (filter.implicitAction !== 'deny' && !bug.has('implicit')) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'probe-stub.implicit-action', message: 'A filter discards what no term decides, and the stub\'s deny it.', field: fieldPath(...at, 'implicitAction') })
+          else if (filterReliesOnImplicitAction(filter) && !bug.has('implicit') && !bug.has('implicit-reliance')) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'probe-stub.implicit-action', message: 'Packets no term decides are denied by the platform\'s implicit action, not by a term.', field: fieldPath(...at, 'implicitAction') })
+          if (filter.description !== undefined) dispositions[fieldPath(...at, 'description')] = { kind: 'unsupported', reason: 'the stub\'s filters have no description' }
+          for (const [seq, t] of terms) {
+            const term = [...at, 'terms', seq]
+            if (!writable(t)) {
+              for (const path of leavesOf(t, ...term)) dispositions[path] = { kind: 'unsupported', reason: 'the stub can\'t write this term' }
+              continue
+            }
+            const m = t.matches
+            const words = [m?.protocols ? ` protocol ${m.protocols[0]}` : '', m?.destinationPorts ? ` dport ${m.destinationPorts[0]}` : '', m?.sourcePrefixes ? ` source ${m.sourcePrefixes[0]}` : '', m?.destinationPrefixes ? ` destination ${m.destinationPrefixes[0]}` : ''].join('')
+            emit(`filter ${name} seq ${seq} ${t.actions.action}${words}`, ...leavesOf(t, ...term).map((path) => pathSegments(path)))
+          }
+        }
+      for (const [name, ifc] of Object.entries(model.interfaces ?? {}))
+        for (const [index, sub] of Object.entries(ifc.subinterfaces ?? {}))
+          for (const family of ['ipv4', 'ipv6'] as const)
+            for (const direction of ['input', 'output'] as const) {
+              const filter = sub.filters?.[family]?.[direction]
+              if (filter === undefined) continue
+              const at = ['interfaces', name, 'subinterfaces', index, 'filters', family, direction]
+              if (index === '0' && direction === 'input' && written.has(`${family} ${filter}`)) emit(`interface ${name} filter-in ${filter}`, at)
+              else dispositions[fieldPath(...at)] = { kind: 'unsupported', reason: 'the stub applies filters coming in, on a main interface' }
+            }
       return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics }
     }
   }
@@ -439,6 +552,8 @@ const OSPF_BASE = ['interface e1', 'vrf A', 'vrf B', 'ospf area 0.0.0.0 interfac
 const BGP_BASE = ['vrf A', 'vrf B', 'bgp neighbor 192.0.2.2 as 65001', 'vrf A bgp neighbor 192.0.2.2 as 65002', 'vrf B bgp neighbor 192.0.2.2 as 65003'].join('\n')
 /** A prefix list of two entries and a policy of two terms, for the policy negation cases. */
 const POLICY_BASE = ['prefix-list L seq 5 permit 10.0.0.0/8 le 24', 'prefix-list L seq 10 deny 0.0.0.0/0 le 32', 'policy P term 10 match prefix-list L', 'policy P term 10 action accept', 'policy P term 20 action reject'].join('\n')
+/** A filter of two terms applied to an interface, for the filter negation cases and the implicit-action probe. */
+const FILTER_BASE = ['interface e1', 'filter F ipv4', 'filter F seq 10 accept protocol 6 dport 22 destination 192.0.2.1/32', 'filter F seq 20 discard', 'interface e1 filter-in F'].join('\n')
 
 /** The stub's probe adapter: every probe and case, in its syntax. */
 export const PROBE_STUB_ADAPTER: ProbeAdapter = {
@@ -472,7 +587,9 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'bgp-neighbor': { set: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001', negated: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001\nno bgp neighbor 192.0.2.2', path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2'] },
     'ospf-interface': { set: 'interface e1\nospf area 0.0.0.0 interface e1', negated: 'interface e1\nospf area 0.0.0.0 interface e1\nno ospf area 0.0.0.0 interface e1', path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'e1'] },
     'policy-term': { set: POLICY_BASE, negated: `${POLICY_BASE}\nno policy P term 10`, path: ['routingPolicy', 'policies', 'P', 'terms', '10'] },
-    'prefix-list-entry': { set: POLICY_BASE, negated: `${POLICY_BASE}\nno prefix-list L seq 10`, path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '10'] }
+    'prefix-list-entry': { set: POLICY_BASE, negated: `${POLICY_BASE}\nno prefix-list L seq 10`, path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '10'] },
+    'filter-term': { set: FILTER_BASE, negated: `${FILTER_BASE}\nno filter F seq 10`, path: ['filters', 'ipv4', 'F', 'terms', '10'] },
+    'filter-attachment': { set: FILTER_BASE, negated: `${FILTER_BASE}\nno interface e1 filter-in`, path: ['interfaces', 'e1', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] }
   },
   malformed: {
     'ipv4-address': { source: 'interface e1\ninterface e1 address 999.1.1.1/24', value: '999.1.1.1' },
@@ -482,7 +599,10 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'as-number': { source: 'bgp neighbor 192.0.2.2 as 4294967296', value: '4294967296' },
     'vlan-id': { source: 'vlandef 4095', value: '4095' },
     prefix: { source: 'prefix-list L seq 5 permit 10.0.0.0/33', value: '10.0.0.0/33' },
-    'prefix-length': { source: 'prefix-list L seq 5 permit 10.0.0.0/8 le 33', value: '33' }
+    'prefix-length': { source: 'prefix-list L seq 5 permit 10.0.0.0/8 le 33', value: '33' },
+    port: { source: 'filter F ipv4\nfilter F seq 10 accept protocol 6 dport 70000', value: '70000' },
+    'filter-prefix': { source: 'filter F ipv4\nfilter F seq 10 accept source 10.0.0.1/8', value: '10.0.0.1/8' },
+    wildcard: { source: 'filter F ipv4\nfilter F seq 10 accept source-wildcard 10.0.0.0 0.255.0.255', value: '0.255.0.255' }
   },
   vrfScoping: {
     delete: { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A', vrf: 'A' },
@@ -495,7 +615,9 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'prefix-list': { source: 'policy P term 10 match prefix-list MISSING\npolicy P term 10 action accept', value: 'MISSING' },
     'community-set': { source: 'policy P term 10 match community MISSING\npolicy P term 10 action accept', value: 'MISSING' },
     'as-path-set': { source: 'policy P term 10 match as-path MISSING\npolicy P term 10 action accept', value: 'MISSING' },
-    policy: { source: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001\nbgp neighbor 192.0.2.2 import MISSING', value: 'MISSING' }
+    policy: { source: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001\nbgp neighbor 192.0.2.2 import MISSING', value: 'MISSING' },
+    filter: { source: 'interface e1\ninterface e1 filter-in MISSING', value: 'MISSING' }
   },
-  regex: { source: 'as-path-set A seq 1 permit regex _65000_\ncommunity-set C seq 1 permit regex _65000:[0-9]+_', regexes: ['_65000_', '_65000:[0-9]+_'] }
+  regex: { source: 'as-path-set A seq 1 permit regex _65000_\ncommunity-set C seq 1 permit regex _65000:[0-9]+_', regexes: ['_65000_', '_65000:[0-9]+_'] },
+  implicitAction: { source: FILTER_BASE }
 }
