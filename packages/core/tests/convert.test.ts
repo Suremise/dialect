@@ -491,3 +491,37 @@ describe('convert: routed VLAN interfaces named unit by unit (#80)', () => {
     expect(after.links.map((l) => l.statement)).toEqual(['u100'])
   })
 })
+
+describe('convert: an interface with an empty subinterfaces collection (#80, round 2)', () => {
+  // `subinterfaces: {}` is configured with nothing in it: a leaf of its own, which no rename may drop.
+  const model: Device = { interfaces: { e0: { description: 'x', subinterfaces: {} } } }
+
+  it('keeps it through a rename that changes nothing and one that renames the interface', () => {
+    expect(renameInterfaces(model, {}).interfaces).toEqual({ e0: { description: 'x', subinterfaces: {} } })
+    expect(renameInterfaces(model, { e0: 'Gig0' }).interfaces).toEqual({ Gig0: { description: 'x', subinterfaces: {} } })
+    expect(populatedLeaves(renameInterfaces(model, { e0: 'Gig0' })).map((l) => l.path)).toEqual([fieldPath('interfaces', 'Gig0', 'description'), fieldPath('interfaces', 'Gig0', 'subinterfaces')])
+  })
+
+  it('accounts for it in the ledger after a confirmed rename: rendered, linked to its statement, or unrendered and an issue', () => {
+    const dispositions: Record<string, StatementDisposition> = {
+      d: { kind: 'mapped', fields: [fieldPath('interfaces', 'e0', 'description')] },
+      s: { kind: 'mapped', fields: [fieldPath('interfaces', 'e0', 'subinterfaces')] }
+    }
+    const from: PlatformPlugin = { id: 'from', name: 'From', modelApi: '>=0.1.0 <1.0.0', capabilities: {}, parse: () => ({ tree: [{ id: 'd', label: 'd' }, { id: 's', label: 's' }], model, dispositions, diagnostics: [] }) }
+    const to = (skip: boolean): PlatformPlugin => ({
+      id: 'to',
+      name: 'To',
+      modelApi: '>=0.1.0 <1.0.0',
+      capabilities: {},
+      render: (m) => ({ text: 'x\n', diagnostics: [], dispositions: Object.fromEntries(populatedLeaves(m).filter((l) => !(skip && l.path.endsWith('.subinterfaces'))).map((l): [string, FieldDisposition] => [l.path, { kind: 'rendered', span: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 2 } }])) })
+    })
+    const inputs = interfaceInputs({ e0: 'Gig0' })
+    const written = convert(from, to(false), '', { modelVersion: MODEL_VERSION, inputs })
+    expect(written.ledger.complete).toBe(true)
+    expect(written.links.map((l) => l.statement)).toEqual(['d', 's'])
+    const dropped = convert(from, to(true), '', { modelVersion: MODEL_VERSION, inputs })
+    expect(dropped.ledger.complete).toBe(false)
+    expect(dropped.ledger.target?.unrendered.map((f) => f.path)).toEqual([fieldPath('interfaces', 'Gig0', 'subinterfaces')])
+    expect(dropped.issues).toEqual([{ statement: 's', kind: 'not-rendered', reason: 'the target plugin gave it no disposition' }])
+  })
+})

@@ -240,6 +240,11 @@ function place(model: Device, names: InterfaceMap): Placed {
         if (!Object.hasOwn(out, leaf)) out[leaf] = value
         if (!back.has(JSON.stringify([target, leaf]))) back.set(JSON.stringify([target, leaf]), ['interfaces', source, leaf])
       }
+      // A collection configured with no units (`subinterfaces: {}`) is a leaf of its own: it goes with the interface.
+      if (i.subinterfaces !== undefined && !Object.keys(i.subinterfaces).length && !Object.hasOwn(out, 'subinterfaces')) {
+        out.subinterfaces = Object.create(null)
+        back.set(JSON.stringify([target, 'subinterfaces']), ['interfaces', source, 'subinterfaces'])
+      }
     }
     for (const [unit, [target, to]] of p.units) {
       const out = build(target)
