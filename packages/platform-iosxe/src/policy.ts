@@ -331,9 +331,10 @@ export function createPolicyReader(dispositions: Record<string, StatementDisposi
     const w = node.words.slice(remove ? 1 : 0)
     const lw = w.map((x) => x.toLowerCase())
     const name = w[3]
-    // IOS numbers its AS-path access lists, from 1 to 500.
-    if (name === undefined || inRange(name, 1, 500) === null) return unsupported('not an AS-path access list numbered from 1 to 500')
+    if (name === undefined) return unsupported('not an AS-path access list statement the model has')
     const state = stateOf(asPaths, name, (): AsPathState => ({ nodes: [], entries: [] }))
+    // IOS numbers its AS-path access lists, from 1 to 500: a named one is kept track of, but not converted.
+    if (inRange(name, 1, 500) === null) return unconverted(state, node, 'a named AS-path access list: only numbered ones (1 to 500) are converted')
     if (remove) {
       if (w.length === 4) return removeAll(asPaths, name, node, 'AS-path access list')
       return unconverted(state, node, 'removes part of an AS-path access list, which isn\'t converted')

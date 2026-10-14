@@ -1,0 +1,237 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "as1border1",
+      "domainName": "lab.local"
+    },
+    "interfaces": {
+      "Loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.1.1.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet0/0": {
+        "type": "ethernet",
+        "enabled": false
+      },
+      "GigabitEthernet0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.0.1.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet1/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.12.11.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 1,
+          "routerId": "1.1.1.1",
+          "groups": {
+            "as1": {
+              "peerAs": 1
+            },
+            "as2": {
+              "peerAs": 2
+            },
+            "as3": {
+              "peerAs": 3
+            },
+            "xanadu": {
+              "peerAs": 555
+            },
+            "bad-ebgp": {
+              "peerAs": 666
+            }
+          },
+          "neighbors": {
+            "1.10.1.1": {
+              "group": "as1",
+              "updateSource": "Loopback0",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            },
+            "3.2.2.2": {
+              "group": "bad-ebgp",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            },
+            "5.6.7.8": {
+              "group": "xanadu",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            },
+            "10.12.11.2": {
+              "group": "as2",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "accept",
+            "export": "accept"
+          }
+        },
+        "ospf": {
+          "areas": {
+            "0.0.0.1": {
+              "interfaces": {
+                "Loopback0": {
+                  "enabledBy": "network",
+                  "passive": true
+                },
+                "GigabitEthernet0/0": {
+                  "enabledBy": "network"
+                }
+              }
+            }
+          },
+          "processId": "1",
+          "routerId": "1.1.1.1"
+        }
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "default_list": {
+            "entries": {
+              "5": {
+                "action": "permit",
+                "prefix": "0.0.0.0/0",
+                "minLength": 0,
+                "maxLength": 0,
+                "form": "exact"
+              }
+            }
+          },
+          "inbound_route_filter": {
+            "entries": {
+              "5": {
+                "action": "deny",
+                "prefix": "1.0.0.0/8",
+                "minLength": 8,
+                "maxLength": 32,
+                "form": "le"
+              },
+              "10": {
+                "action": "permit",
+                "prefix": "0.0.0.0/0",
+                "minLength": 0,
+                "maxLength": 32,
+                "form": "le"
+              }
+            }
+          }
+        }
+      },
+      "communitySets": {
+        "as1_community": {
+          "type": "standard",
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "_1:"
+              ]
+            }
+          }
+        },
+        "as2_community": {
+          "type": "standard",
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "_2:"
+              ]
+            }
+          }
+        },
+        "as3_community": {
+          "type": "standard",
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "_3:"
+              ]
+            }
+          }
+        }
+      },
+      "policies": {
+        "as2_to_as1": {
+          "terms": {
+            "100": {
+              "matches": {
+                "communitySets": [
+                  "as2_community"
+                ]
+              },
+              "actions": {
+                "flow": "accept",
+                "localPreference": 350
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "as3_to_as1": {
+          "terms": {
+            "100": {
+              "matches": {
+                "communitySets": [
+                  "as3_community"
+                ]
+              },
+              "actions": {
+                "flow": "accept",
+                "localPreference": 350
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}

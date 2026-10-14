@@ -1,6 +1,6 @@
 // @dialect/platform-iosxe: the IOS / IOS-XE plugin (B8). The indentation-tree parser (tree.ts), mapping into the shared
-// model (parse.ts) and rendering from it (render.ts), for the phase 1 areas and phase 2's VLANs, OSPF and BGP, and
-// detect(). Platform-neutral: strings in, strings and plain objects out.
+// model (parse.ts) and rendering from it (render.ts), for the phase 1 areas, phase 2's VLANs, OSPF and BGP, and phase
+// 3's routing policy (policy.ts, renderPolicy.ts), and detect(). Platform-neutral: strings in, strings and plain objects out.
 import type { PlatformPlugin } from '@dialect/core'
 import { detect } from './detect'
 import { describeInterface, nameInterface } from './names'

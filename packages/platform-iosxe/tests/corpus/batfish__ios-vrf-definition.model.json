@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.5.1",
   "device": {
     "system": {
       "hostname": "ios-vrf-definition"
@@ -19,6 +19,30 @@
           "export": [
             "2222:77"
           ]
+        }
+      }
+    },
+    "routingPolicy": {
+      "policies": {
+        "RT_IMPORT_MAP": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "RT_EXPORT_MAP": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
         }
       }
     }

@@ -1,6 +1,6 @@
 // The plugin beyond its fixtures: nothing dropped silently (unknown statements, banners and certificate chains are
-// unsupported, with their text kept), VRF membership and definitions, the registry, detect(), and rendering a model that
-// came from another platform.
+// unsupported, with their text kept), VRF membership and definitions, OSPF, BGP and routing policy, the registry,
+// detect(), and rendering a model that came from another platform.
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -929,11 +929,11 @@ describe('BGP (model 0.4.0)', () => {
   it('keeps a member\'s own route map in a family it carries through its peer group, IPv4 and IPv6', () => {
     for (const [family, name, v6] of [['ipv4', 'ipv4-unicast', false], ['ipv6', 'ipv6-unicast', true]] as const) {
       const member = v6 ? '2001:db8::2' : '192.0.2.2'
-      const text = ['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor G peer-group', ' neighbor G remote-as 65001', ` neighbor ${member} peer-group G`, ` address-family ${family}`, '  neighbor G activate', '  neighbor G route-map GROUP-OUT out', `  neighbor ${member} route-map FILTER in`].join('\n')
+      const text = ['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor G peer-group', ' neighbor G remote-as 65001', ` neighbor ${member} peer-group G`, ` address-family ${family}`, '  neighbor G activate', '  neighbor G route-map GROUP-OUT out', `  neighbor ${member} route-map FILTER in`, 'route-map GROUP-OUT permit 10', 'route-map FILTER permit 10'].join('\n')
       const result = parse(text)
       expect(bgp(result)?.groups?.G?.addressFamilies, family).toEqual({ [name]: { exportPolicies: ['GROUP-OUT'] } })
       expect(bgp(result)?.neighbors?.[member]?.addressFamilies, family).toEqual({ [name]: { importPolicies: ['FILTER'] } })
-      expect(result.diagnostics.map((d) => d.code), family).toEqual(['iosxe.route-map-name-only', 'iosxe.route-map-name-only'])
+      expect(result.diagnostics, family).toEqual([])
       expect(render(result.model).text, family).toContain(`  neighbor ${member} route-map FILTER in\n`)
       expect(roundTrips(text), family).toEqual([])
     }
@@ -993,11 +993,19 @@ describe('BGP (model 0.4.0)', () => {
     expect(JSON.stringify([result.model, result.diagnostics, result.dispositions])).not.toContain('PLACEHOLDER-PASSWORD')
   })
 
-  it('keeps a route map by name, with a warning that names no value', () => {
-    const result = parse(['router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  neighbor 192.0.2.2 route-map OLD in', '  neighbor 192.0.2.2 route-map NEW in'].join('\n'))
+  it('keeps a route map that resolves to its policy (model 0.5.0), the last of a direction winning, and no other', () => {
+    const peer = ['router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  neighbor 192.0.2.2 route-map OLD in', '  neighbor 192.0.2.2 route-map NEW in']
+    const result = parse([...peer, 'route-map NEW permit 10'].join('\n'))
     expect(bgp(result)?.neighbors?.['192.0.2.2']?.addressFamilies).toEqual({ 'ipv4-unicast': { importPolicies: ['NEW'] } })
     expect(at(result, 'neighbor 192.0.2.2 route-map OLD in')).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 5' })
-    expect(result.diagnostics).toEqual([{ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A route map is kept by name only: its body isn\'t converted, so a target needs a policy of that name.', field: 'networkInstances.default.bgp.neighbors["192.0.2.2"].addressFamilies["ipv4-unicast"].importPolicies', statement: 'L5' }])
+    expect(result.diagnostics).toEqual([])
+    // Undefined (IOS then denies every route) or not converted: not kept, as a name alone says nothing.
+    const undefinedMap = parse(peer.join('\n'))
+    expect(bgp(undefinedMap)?.neighbors?.['192.0.2.2']?.addressFamilies).toEqual({ 'ipv4-unicast': {} })
+    expect(at(undefinedMap, 'neighbor 192.0.2.2 route-map NEW in')).toEqual({ kind: 'unsupported', reason: 'names a route map the configuration doesn\'t define: IOS denies every route then, which the model can\'t say' })
+    const unconverted = parse([...peer, 'route-map NEW permit 10', ' match ip address 10'].join('\n'))
+    expect(at(unconverted, 'neighbor 192.0.2.2 route-map NEW in')).toEqual({ kind: 'unsupported', reason: 'names a route map that isn\'t converted' })
+    expect(unconverted.model.routingPolicy).toBeUndefined()
   })
 
   it('needs the VRF of an address family defined, and "no router bgp" removes BGP everywhere', () => {
@@ -1067,6 +1075,101 @@ describe('rendering OSPF and BGP from another platform', () => {
     const rendered = render(two)
     expect(rendered.dispositions['networkInstances.A.bgp.localAs']).toMatchObject({ kind: 'unsupported' })
     expect(rendered.text).not.toContain('vrf A\n  bgp')
+  })
+})
+
+describe('routing policy (model 0.5.0)', () => {
+  const at = (result: ReturnType<typeof parse>, text: string, nth = 0) => result.dispositions[statementsOf(result.tree).filter((n) => (n as IosNode).text === text)[nth].id]
+  const lines = (...l: string[]) => l.join('\n')
+
+  it('leaves a list out whole when one of its statements isn\'t converted, and a sequence naming it with it', () => {
+    const result = parse(lines('ip community-list standard C permit 65000:1', 'ip community-list standard C permit internet', 'route-map M permit 10', ' match community C', ' set tag 1', 'route-map M permit 20'))
+    expect(result.model.routingPolicy?.communitySets).toBeUndefined()
+    expect(at(result, 'ip community-list standard C permit 65000:1')).toEqual({ kind: 'unsupported', reason: 'left out whole: line 2 about the same community list isn\'t converted' })
+    expect(at(result, 'match community C')).toEqual({ kind: 'unsupported', reason: 'names a community list that isn\'t converted' })
+    // Sequence 10 decides (it permits), so leaving it out would let sequence 20 see its routes: the whole route map goes.
+    expect(result.model.routingPolicy?.policies).toBeUndefined()
+    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'left out whole: sequence 10 (line 3) isn\'t converted, and the sequences after it would see the routes it decides' })
+    expect(at(result, 'set tag 1')).toEqual({ kind: 'unsupported', reason: 'part of route map sequence 10, converted whole or not at all: line 4 isn\'t converted' })
+    expect(buildLedger(result).complete).toBe(true)
+  })
+
+  it('leaves out only the last sequence when it alone isn\'t converted, as no sequence comes after it', () => {
+    const text = lines('route-map M deny 10', ' match tag 7', 'route-map M permit 20', ' match ip address 10')
+    const result = parse(text)
+    expect(result.model.routingPolicy?.policies).toEqual({ M: { terms: { '10': { matches: { tags: [7] }, actions: { flow: 'reject' } } }, fallThrough: 'reject' } })
+    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'part of route map sequence 20, converted whole or not at all: line 4 isn\'t converted' })
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('reads a route map as IOS does: a sequence entered again, its matches joined, a later set replacing one, and no sequence number', () => {
+    const text = lines('route-map M permit', ' match community A', ' set metric 5', 'route-map M deny 10', ' match community B A', ' set metric 6', 'ip community-list standard A permit 65000:1', 'ip community-list standard B permit 65000:2')
+    const result = parse(text)
+    expect(result.model.routingPolicy?.policies?.M).toEqual({ terms: { '10': { matches: { communitySets: ['A', 'B'] }, actions: { flow: 'reject', med: 6 } } }, fallThrough: 'reject' })
+    expect(at(result, 'set metric 5')).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 6' })
+    expect(roundTrips(text)).toEqual([])
+    // With several sequences, IOS refuses a route map statement with no number: the route map is left out.
+    const refused = parse(lines('route-map M permit 10', 'route-map M permit 20', 'route-map M permit'))
+    expect(refused.model.routingPolicy).toBeUndefined()
+    expect(at(refused, 'route-map M permit')).toEqual({ kind: 'unsupported', reason: 'no sequence number, and the route map has several: IOS refuses it' })
+  })
+
+  it('removes what the "no" forms name: a list, an entry by number or by what it says, a sequence, a route map', () => {
+    const result = parse(lines('ip prefix-list L seq 5 permit 10.0.0.0/8', 'ip prefix-list L seq 10 deny 10.1.0.0/16 ge 24', 'no ip prefix-list L deny 10.1.0.0/16 ge 24', 'ip prefix-list GONE permit 192.0.2.0/24', 'no ip prefix-list GONE', 'route-map M permit 10', 'route-map M permit 20', 'no route-map M permit 10', 'route-map X permit 10', 'no route-map X'))
+    expect(result.model.routingPolicy).toEqual({ prefixLists: { ipv4: { L: { entries: { '5': { action: 'permit', prefix: '10.0.0.0/8', minLength: 8, maxLength: 8, form: 'exact' } } } } }, policies: { M: { terms: { '20': { actions: { flow: 'accept' } } }, fallThrough: 'reject' } } })
+    expect(at(result, 'ip prefix-list L seq 10 deny 10.1.0.0/16 ge 24')).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 3' })
+    expect(at(result, 'no route-map X')).toEqual({ kind: 'ignored-by-design', reason: 'removes the route map configured on line 9: nothing to convert' })
+    // Taking part of a community list out isn't certain on IOS: the list is left out rather than guessed.
+    const partial = parse(lines('ip community-list standard C permit 65000:1', 'no ip community-list standard C permit 65000:1'))
+    expect(partial.model.routingPolicy).toBeUndefined()
+  })
+
+  it('keeps prefix lengths only in the ranges IOS takes, and numbers an entry with no sequence 5 after the highest', () => {
+    const result = parse(lines('ip prefix-list L seq 7 permit 10.0.0.0/8 le 16', 'ip prefix-list L permit 192.0.2.0/24', 'ip prefix-list BAD permit 10.0.0.0/8 ge 4', 'ip prefix-list BAD2 permit 10.0.0.0/8 ge 20 le 16'))
+    expect(Object.keys(result.model.routingPolicy?.prefixLists?.ipv4?.L?.entries ?? {})).toEqual(['7', '12'])
+    expect(result.model.routingPolicy?.prefixLists?.ipv4?.BAD).toBeUndefined()
+    expect(at(result, 'ip prefix-list BAD2 permit 10.0.0.0/8 ge 20 le 16')).toEqual({ kind: 'unsupported', reason: 'not a prefix length range IOS takes (the prefix\'s length < ge ≤ le ≤ the longest)' })
+  })
+
+  it('keeps any name as an own key, and leaves Object.prototype alone', () => {
+    const before = Object.getOwnPropertyNames(Object.prototype).sort()
+    const text = lines('ip prefix-list __proto__ seq 5 permit 10.0.0.0/8', 'ip community-list standard constructor permit 65000:1', 'route-map toString permit 10', ' match ip address prefix-list __proto__', ' match community constructor')
+    const result = parse(text)
+    const rp = result.model.routingPolicy!
+    expect(Object.hasOwn(rp.prefixLists!.ipv4!, '__proto__')).toBe(true)
+    expect(Object.hasOwn(rp.communitySets!, 'constructor')).toBe(true)
+    expect(Object.getOwnPropertyDescriptor(rp.policies, 'toString')?.value?.terms?.['10']?.matches).toEqual({ prefixLists: { ipv4: ['__proto__'] }, communitySets: ['constructor'] })
+    expect(roundTrips(text)).toEqual([])
+    expect(Object.getOwnPropertyNames(Object.prototype).sort()).toEqual(before)
+  })
+
+  it('renders a term IOS can\'t write as unsupported whole, and the policy with it unless leaving it out is safe', () => {
+    const base = (terms: NonNullable<NonNullable<Device['routingPolicy']>['policies']>[string]['terms'], fallThrough: 'reject' | 'next-policy' = 'reject'): Device => ({ routingPolicy: { policies: { P: { terms, fallThrough } } } })
+    const filter = { matches: { routeFilters: { '1': { prefix: '10.0.0.0/8', minLength: 8, maxLength: 32 } } } }
+    // A first term that rejects can't be left out: the whole policy is unsupported.
+    const unsafe = render(base({ '1': { ...filter, actions: { flow: 'reject' } }, '2': { actions: { flow: 'accept' } } }))
+    expect(unsafe.text).not.toContain('route-map')
+    expect(unsafe.dispositions['routingPolicy.policies.P.terms["2"].actions.flow']).toMatchObject({ kind: 'unsupported' })
+    // A term that only sets the local preference, deciding nothing, can be: the rest is written.
+    const safe = render(base({ '1': { ...filter, actions: { localPreference: 200 } }, '2': { actions: { flow: 'accept' } } }))
+    expect(safe.text).toContain('route-map P permit 2\n')
+    expect(safe.dispositions['routingPolicy.policies.P.terms["1"].actions.localPreference']).toMatchObject({ kind: 'unsupported' })
+    // The last term, unless a final permit for the source's fall-through comes after it.
+    expect(render(base({ '1': { actions: { flow: 'accept', med: 5 } }, '2': { ...filter, actions: { flow: 'reject' } } })).text).toContain('route-map P permit 1\n set metric 5\n')
+    expect(render(base({ '1': { matches: { tags: [1] }, actions: { flow: 'accept' } }, '2': { ...filter, actions: { flow: 'reject' } } }, 'next-policy')).text).not.toContain('route-map')
+  })
+
+  it('never writes another dialect\'s regex, an empty list, or a name IOS can\'t read back', () => {
+    const result = render({
+      routingPolicy: {
+        asPathSets: { '10': { regexDialect: 'junos', entries: { '1': { action: 'permit', regex: '65000 .*' } } }, NAMED: { regexDialect: 'cisco', entries: { '1': { action: 'permit', regex: '_1_' } } } },
+        communitySets: { '50': { type: 'standard', regexDialect: 'cisco', entries: { '1': { action: 'permit', regexes: ['_1:1_'] } } }, 'TWO WORDS': { entries: { '1': { action: 'permit', members: ['65000:1'] } } }, EXT: { entries: { '1': { action: 'permit', members: ['target:65000:1'] } } } },
+        prefixLists: { ipv4: { EMPTY: { entries: {} } } }
+      }
+    })
+    expect(result.text).toBe('end\n')
+    for (const [path, kind] of Object.entries(result.dispositions)) expect(kind, path).toMatchObject({ kind: 'unsupported' })
+    expect(result.dispositions['routingPolicy.asPathSets["10"].entries["1"].regex']).toEqual({ kind: 'unsupported', reason: 'a Junos regex: regexes are never translated silently, and IOS\'s are another dialect' })
   })
 })
 

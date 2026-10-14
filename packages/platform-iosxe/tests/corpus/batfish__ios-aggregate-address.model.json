@@ -1,0 +1,91 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "ios-aggregate-address"
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 1,
+          "routerId": "1.1.1.1"
+        }
+      }
+    },
+    "routingPolicy": {
+      "policies": {
+        "atm1": {
+          "terms": {
+            "100": {
+              "actions": {
+                "flow": "accept",
+                "med": 50
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "adm": {
+          "terms": {
+            "100": {
+              "matches": {
+                "tags": [
+                  5
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "atm2": {
+          "terms": {
+            "100": {
+              "actions": {
+                "flow": "accept",
+                "communitySet": {
+                  "values": [
+                    "1:1"
+                  ]
+                }
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "sm1": {
+          "terms": {
+            "100": {
+              "matches": {
+                "tags": [
+                  5
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "sm2": {
+          "terms": {
+            "100": {
+              "matches": {
+                "tags": [
+                  5
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}

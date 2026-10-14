@@ -1,7 +1,8 @@
 // IOS / IOS-XE text → the shared model, for the phase 1 areas: system (hostname, domain name, DNS), interfaces and
 // subinterfaces with their addresses and VRF, VRFs (`vrf definition`, `ip vrf`) with their route distinguisher and
 // route targets, static routes, NTP, logging and SNMP; and from model 0.4, VLANs, switch ports (`switchport`) and VLAN
-// interfaces (`interface Vlan10`, routing for VLAN 10). Every statement of the tree gets a disposition: `mapped` when
+// interfaces (`interface Vlan10`, routing for VLAN 10); from model 0.5, routing policy (policy.ts: prefix lists,
+// community and AS-path lists, route maps), which BGP's route maps resolve to. Every statement of the tree gets a disposition: `mapped` when
 // everything it says went into the model, `ignored-by-design` with why, or `unsupported` (its text kept in the tree). A
 // statement is mapped only when every option on it is understood: one with an option the model can't hold
 // (`ntp server 192.0.2.1 key 1`) is unsupported as a whole, never half-converted. `vrf forwarding` clears the addresses
