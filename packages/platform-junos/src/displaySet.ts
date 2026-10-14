@@ -40,16 +40,16 @@ export function flatten(nodes: ConfigNode[]): SetLine[] {
 /** A warning for each annotation, which display set has no line for. */
 export function annotationWarnings(nodes: ConfigNode[]): ParseWarning[] {
   const found: ParseWarning[] = []
-  const walk = (level: ConfigNode[], path: string[]): void => {
+  // At the statement the annotation is on. Like the parser's, the message doesn't quote the config (tree.ts).
+  const walk = (level: ConfigNode[]): void => {
     for (const node of level) {
-      const full = [...path, ...node.words]
       if (node.annotation !== null) {
-        found.push({ code: 'annotation', message: `annotation /* ${node.annotation} */ on '${full.join(' ')}' isn't shown in display set`, line: node.line, column: node.column })
+        found.push({ code: 'annotation', message: "annotation on this statement isn't shown in display set", line: node.line, column: node.column })
       }
-      if (node.children) walk(node.children, full)
+      if (node.children) walk(node.children)
     }
   }
-  walk(nodes, [])
+  walk(nodes)
   return found
 }
 

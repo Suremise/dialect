@@ -32,6 +32,8 @@ The output is what `show configuration | display set` prints on the device:
 - An unknown tag such as `deleted:` is kept as a word, with a warning.
 - A syntax error (an unterminated quote or annotation, a missing or extra brace, a missing `;` or `]`) gives no output,
   only the error, with its line and column.
+- Errors and warnings never quote the config's names, values or annotations (a value can be a secret): they say what
+  is wrong, and the line and column say where.
 
 ## Convert
 
@@ -45,6 +47,46 @@ Which platforms and which parts of a config each one reads and writes.
 ## The command line
 
 `dialect display-set` and `dialect convert`: files, stdin and stdout, and exit codes.
+
+The command needs Node 24. Until there's a release, build it from a checkout with `npm run build -w @dialect/cli`,
+which writes one file, `packages/cli/dist/dialect.mjs`, and run that with `node`.
+
+### display-set
+
+```
+dialect display-set <file>
+dialect display-set -          (reads stdin)
+```
+
+It prints the display set commands to stdout (see [Display set](#display-set-junos)) and nothing else, so the output
+can go straight to a file or another command:
+
+```
+dialect display-set router.conf > router.set
+```
+
+Warnings and errors go to stderr, one per line, with the file (`<stdin>` for stdin), line and column, the way
+compilers print them:
+
+```
+router.conf:12:5: warning: annotation on this statement isn't shown in display set
+router.conf:30:1: error: missing ';' after the statement at line 29, column 5
+```
+
+Messages say what is wrong and where, but never quote your config's names, values or annotations, so a password
+hash or key can't end up in a terminal log or a CI log through them.
+
+A syntax error prints no set commands at all. `convert` comes later.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Done. There may be warnings on stderr. |
+| 1 | The config has a syntax error (on stderr, with its line and column). |
+| 2 | A usage error (an unknown command or option, a missing or extra file), or the file can't be read. |
+
+`dialect --help` lists the commands, and `dialect --version` prints the version.
 
 ## About and Docs
 

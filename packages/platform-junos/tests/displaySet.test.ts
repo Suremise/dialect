@@ -94,7 +94,7 @@ describe("jcc's failure cases, from the spike report", () => {
     expect(result).toEqual({
       ok: true,
       lines: [{ text: 'set system host-name r1', sourceLine: 3 }],
-      warnings: [{ code: 'annotation', message: "annotation /* management box */ on 'system host-name r1' isn't shown in display set", line: 3, column: 5 }]
+      warnings: [{ code: 'annotation', message: "annotation on this statement isn't shown in display set", line: 3, column: 5 }]
     })
   })
 
@@ -120,7 +120,7 @@ describe("jcc's failure cases, from the spike report", () => {
   })
 
   it('reports bad input as an error with a line and column, not wrong output', () => {
-    expect(parseError('system {\n    host-name r1\n}\n')).toEqual({ message: "missing ';' after 'host-name r1'", line: 3, column: 1 })
+    expect(parseError('system {\n    host-name r1\n}\n')).toEqual({ message: "missing ';' after the statement at line 2, column 5", line: 3, column: 1 })
     expect(parseError('system {\n    name-server [ 192.0.2.1 { ];\n}\n')).toEqual({ message: "expected ']', got '{'", line: 2, column: 29 })
   })
 })
@@ -184,8 +184,8 @@ describe('the parser', () => {
   it('warns about an annotation with no statement after it, and about an empty list', () => {
     const result = displaySet('system {\n    host-name r1;\n    /* nothing after this */\n}\nvlans {\n    v10 {\n        vlan-id-list [ ];\n    }\n}\n')
     expect(result.ok && result.warnings).toEqual([
-      { code: 'stray-annotation', message: "annotation /* nothing after this */ isn't followed by a statement and isn't shown", line: 3, column: 5 },
-      { code: 'empty-list', message: "empty list '[ ]' on 'vlan-id-list' gives no set line", line: 7, column: 22 }
+      { code: 'stray-annotation', message: "annotation isn't followed by a statement, so it isn't shown", line: 3, column: 5 },
+      { code: 'empty-list', message: "empty list '[ ]' gives no set line", line: 7, column: 22 }
     ])
   })
 
@@ -196,6 +196,58 @@ describe('the parser', () => {
     expect(parseError('system {\n    host-name r1')).toEqual({ message: "statement isn't ended by ';' or '{'", line: 2, column: 17 })
     expect(parseError('system {\n    ;\n}\n')).toEqual({ message: "expected a statement, got ';'", line: 2, column: 5 })
     expect(parseError('system {\n    host-name r1 ]\n}\n')).toEqual({ message: "unexpected ']'", line: 2, column: 18 })
+  })
+
+  it("never quotes the config's words, values or annotations in an error or warning", () => {
+    // Each input has a synthetic secret where a real config could have one: a value, a quoted string, a list, an
+    // annotation, a word in a bad place. Their messages say what's wrong and where, without it.
+    const secret = 'SYNTHETIC_SECRET'
+    const inputs = [
+      `system {
+    root-authentication {
+        encrypted-password "$6$${secret}"
+    }
+}
+`,
+      `snmp {
+    community ${secret}
+}
+`,
+      `system {
+    name-server [ ${secret} ] ${secret};
+}
+`,
+      `system {
+    name-server [ ${secret} { ];
+}
+`,
+      `system {
+    /* ${secret} */
+    host-name r1;
+    /* ${secret} */
+}
+`,
+      `snmp {
+    community ${secret} {
+        clients [ ];
+    }
+}
+`,
+      `system {
+    host-name ${secret}`,
+      `system {
+    login {
+        message "${secret}
+`,
+      `/* ${secret}`,
+      `${secret} ] ;`
+    ]
+    for (const src of inputs) {
+      const result = displaySet(src)
+      const messages = result.ok ? result.warnings.map((w) => w.message) : [result.error.message]
+      expect(messages.length, src).toBeGreaterThan(0)
+      for (const message of messages) expect(message, src).not.toContain(secret)
+    }
   })
 
   it('throws JunosParseError from parseConfig, with the position in the message', () => {

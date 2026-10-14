@@ -1,3 +1,4 @@
-// @dialect/cli. The command comes in group C.
-// Until then it is a stub that only names itself, so the workspace layout and its checks are in place.
+// @dialect/cli: the dialect command. src/bin.ts is its entry; run() is exported for tests and other callers.
 export const PACKAGE_NAME = '@dialect/cli'
+
+export { EXIT, run, USAGE, type Io } from './cli'

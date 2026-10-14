@@ -45,14 +45,16 @@ export function parseConfig(src: string): ParsedConfig {
   let pos = 0
 
   const peek = (): Token | undefined => tokens[pos]
-  const describe = (token: Token): string => (token.kind === 'annotation' ? 'an annotation' : `'${token.text}'`)
+  // Messages name punctuation and tag names, never the config's own words, values or annotations: they go to stderr,
+  // logs and the UI, and a value can be a secret. The line and column say where.
+  const describe = (token: Token): string => (token.kind === 'annotation' ? 'an annotation' : token.kind === 'word' ? 'a word' : `'${token.text}'`)
 
   const body = (opener: Token | null): ConfigNode[] => {
     const nodes: ConfigNode[] = []
     let annotation: Token | null = null
     const strayAnnotation = (): void => {
       if (!annotation) return
-      warnings.push({ code: 'stray-annotation', message: `annotation /* ${annotation.text} */ isn't followed by a statement and isn't shown`, line: annotation.line, column: annotation.column })
+      warnings.push({ code: 'stray-annotation', message: "annotation isn't followed by a statement, so it isn't shown", line: annotation.line, column: annotation.column })
       annotation = null
     }
     for (;;) {
@@ -134,11 +136,11 @@ export function parseConfig(src: string): ParsedConfig {
       if (semi.kind !== 'semi') throw new JunosParseError(`expected ';' after ']', got ${describe(semi)}`, semi.line, semi.column)
       pos++
       if (values.length === 0) {
-        warnings.push({ code: 'empty-list', message: `empty list '[ ]' on '${node.words.join(' ')}' gives no set line`, line: token.line, column: token.column })
+        warnings.push({ code: 'empty-list', message: "empty list '[ ]' gives no set line", line: token.line, column: token.column })
       }
       node.values = values
     } else if (token.kind === 'rbrace') {
-      throw new JunosParseError(`missing ';' after '${node.words.join(' ')}'`, token.line, token.column)
+      throw new JunosParseError(`missing ';' after the statement at line ${node.line}, column ${node.column}`, token.line, token.column)
     } else throw new JunosParseError(`unexpected ${describe(token)}`, token.line, token.column)
     return node
   }

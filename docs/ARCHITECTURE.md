@@ -205,12 +205,27 @@ B3's parser and display set, ported from the spike prototype (B4 adds the mappin
   A `ConfigNode` is its words, then children (a container), a `[ ]` list (a leaf with values) or neither (a leaf), the
   `inactive:`/`protect:`/`replace:` tags and the annotation before it. A syntax error throws `JunosParseError` with
   its line and column; unknown `word:` tags, annotations with no statement after them and empty lists are warnings.
+  Messages never quote the config's words, values or annotations (they reach stderr, logs and the UI, and a value can
+  be a secret): only punctuation and tag names, with positions to say where.
 - `displaySet.ts`: `flatten()` turns the tree into `set` lines, each with the source line it comes from (for the UI's
   source and output highlighting). A statement's `deactivate` and `protect` lines come after the `set` lines of its
   subtree, Juniper's documented order. `displaySet()` wraps both: the lines and warnings, or the first error.
 - Tests: the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
   cleaned up by `tests/cleanFixtures.ts` into `tests/fixtures/display-set/` (`tests/displaySetFixtures.test.ts`). The
   tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
+
+## The command line (`packages/cli`)
+
+- `src/cli.ts`: `run(argv, io, version)` parses the arguments, reads the input through `io`, runs the Junos plugin's
+  `displaySet()` and returns the exit code (0 done, 1 a syntax error, 2 a usage error or unreadable input). It never
+  touches `process`, so it can be called directly.
+- `src/bin.ts`: the entry. It wires `run()` to Node's file system, stdin, stdout and stderr, sets `process.exitCode`,
+  and ignores a closed stdout pipe.
+- `vite.config.ts`: `npm run build -w @dialect/cli` bundles `bin.ts` and the workspace packages it imports into one ES
+  module, `dist/dialect.mjs`, for Node 24, with a `#!/usr/bin/env node` line. Only Node's own modules stay imports.
+  Vite is build-only.
+- `tests/cli.test.ts` builds into a temp folder with Vite's API and runs the built file with Node: the 22 display set
+  fixtures, stdin, invalid input, warnings, unreadable files and usage errors.
 
 ## Branding
 

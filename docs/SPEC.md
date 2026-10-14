@@ -16,7 +16,9 @@ product decisions.
   - the **desktop app** (Tauri 2, Windows, NSIS installer only, no MSI);
   - the **offline web build**, one self-contained HTML file opened from disk, for laptops where installing isn't
     allowed;
-  - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout.
+  - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout: results to stdout, warnings and errors
+    to stderr with their line and column. Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
+    unreadable input.
 - **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
   content security policy blocks remote content in both shells.
 
