@@ -797,6 +797,11 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   non-contiguous wildcard as malformed values, an interface applying an access list the text doesn't define, and the
   implicit deny; `tests/fixtures/filters` has every access list form it converts and the non-contiguous wildcard
   negative fixture, and the corpus cases include Aerleon's IOS outputs.
+- **Detect (`detect.ts`):** counts IOS's own signs (a dotted mask on `ip address`, `ip route`, `service timestamps`, a
+  `^C` banner, `ip access-list standard|extended NAME`, numbered `access-list N`, an entry's address and wildcard) and
+  discounts NX-OS's (`feature`, `vrf context`), IOS-XR's (`ipv4 address`, `ipv4 access-list`, four-part interface
+  names) and Junos's. The corpus's misses with every plugin registered are listed in `packages/cli/tests/detect.test.ts`
+  with why (#58).
 - **Convert suggestions (`names.ts`):** `nameInterface()` names an Ethernet port by its speed, `Port-channel`,
   `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. A Junos `irb.100`
   gets `Vlan100` only once the core's convert names an IRB unit on its own (#41): today it names the `irb` interface
@@ -1018,9 +1023,12 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
   an optional second argument, which the core's convert doesn't pass yet (#64's comment proposes it): without it,
   nothing is suggested, rather than guess the numbering.
 - **Detect (`detect.ts`):** counts NX-OS's own signs (`feature`, `vrf context`, `vrf member`, `use-vrf`, prefix-length
-  addresses, `switchname`, `version 9.3(3)`, `!Command: show running-config`, RANCID's `cisco-nx`) and discounts IOS's
-  (dotted masks, `end`, `service timestamps`, `vrf definition`), IOS-XR's and Junos's. Over the corpus, wherever either
-  plugin is sure (0.4 or more), the right one of NX-OS and IOS-XE scores higher.
+  addresses, `switchname`, `version 9.3(3)`, `!Command: show running-config`, RANCID's `cisco-nx`, `configure session`,
+  an `ip access-list NAME` with no kind) and discounts IOS's (dotted masks, `end`, `service timestamps`, `vrf
+  definition`), IOS-XR's and Junos's. Over the corpus, wherever either plugin is sure (0.4 or more), the right one of
+  NX-OS and IOS-XE scores higher. With every plugin registered, each corpus file detects as its own platform but for
+  the misses `packages/cli/tests/detect.test.ts` lists with why (#58): Batfish's unit tests that mix platforms'
+  syntax, fragments no platform's signs settle, and none a whole configuration.
 - **Tests:** the same layout as the IOS plugin's: hand-written fixtures per area through the kit
   (`tests/fixtures/<area>`, with expected models and renders), chosen corpus files against expected models in
   `tests/corpus/`, and every file of `fixtures/public/nxos` through the kit's checks. `plugin.test.ts` also checks
