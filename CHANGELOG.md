@@ -12,10 +12,15 @@
   which keeps Ctrl+T, Ctrl+W and Ctrl+Tab for itself, the web build uses Alt+T, Alt+W and Alt+PgDn.
 - **Tabs come back after a restart** with their file names, but never your configs: Dialect doesn't keep configs
   anywhere. Reopen the file from the tab.
+- **Nothing unsaved is lost on the way out:** File → Exit, the desktop window's ✕ and Alt+F4 ask first while a tab's
+  output is unsaved, and the web build has the browser ask before its tab closes or reloads.
 - **Controls stand out:** buttons, tabs and menus have a visible edge, the current tab is marked in violet, and the
   keyboard focus shows.
 
 ### Convert
+- **Cisco NX-OS and IOS-XR join convert**, in the app and on the command line: convert from any of Junos, IOS / IOS-XE,
+  NX-OS and IOS-XR to any other (`dialect convert --from nxos --to iosxr …`). In the app, a new tab's Convert row has
+  the platform to convert from and the one to convert to, and a convert tab can change either.
 - **Junos routing instances convert:** VRFs and virtual routers, with their units, route distinguisher and vrf-target
   (one target or an import and export), to and from the model, so their interfaces stay in the right VRF. A unit in two
   instances is an error, as on the device, and instance types Dialect doesn't convert yet (mac-vrf, EVPN) are listed as

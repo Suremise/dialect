@@ -201,7 +201,7 @@ describe('the desktop app', () => {
       }, label)
     // A convert tab of its own, from File → New Tab.
     await menu('File', 'New Tab…')
-    await expect.poll(() => click('[role=dialog] .picker-label', 'Convert: Junos → Cisco IOS / IOS-XE'), UI_WAIT).toBe(true)
+    await expect.poll(() => click('[role=dialog] .picker-convert button', 'Convert: Junos → Cisco IOS / IOS-XE'), UI_WAIT).toBe(true)
     await expect.poll(() => paneText('source'), UI_WAIT).not.toBeNull()
     await drop('phase1.conf', readFileSync(join(convertFixtures, 'phase1.conf'), 'utf8'))
     await expect.poll(() => testIdText('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
@@ -253,9 +253,25 @@ describe('the desktop app', () => {
     expect(result).toMatch(/^refused: .*(forbidden|scope|not allowed)/i)
   })
 
+  /** How many copies of the built app are running: this test's, until it quits. */
+  const running = (): number => Number(execFileSync('powershell', ['-NoProfile', '-Command', `@(Get-Process dialect -ErrorAction SilentlyContinue | Where-Object Path -eq '${app}').Count`], { encoding: 'utf8' }).trim())
+
+  it("asks before the window's own close loses unsaved output, and stays open when told to", async () => {
+    // A close request to the window, as its ✕ or Alt+F4 makes: the page's close guard answers it.
+    await page().execute(() => {
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string, args: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__
+      void internals.invoke('plugin:window|close', { label: 'main' })
+    })
+    const dialogTitle = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('[role=dialog] .modal-title')?.innerText ?? null)
+    await expect.poll(dialogTitle, UI_WAIT).toBe('Exit Dialect?')
+    expect(await click('[role=dialog] button', 'Cancel')).toBe(true)
+    await expect.poll(dialogTitle, UI_WAIT).toBeNull()
+    expect(running()).toBe(1)
+    expect(await testIdText('output-summary')).not.toBeNull()
+  })
+
   // Last: it quits the app.
   it('quits on File → Exit, once told the unsaved output would go', async () => {
-    const running = (): number => Number(execFileSync('powershell', ['-NoProfile', '-Command', `@(Get-Process dialect -ErrorAction SilentlyContinue | Where-Object Path -eq '${app}').Count`], { encoding: 'utf8' }).trim())
     expect(running()).toBe(1)
     await menu('File', 'Exit')
     await expect.poll(() => click('[role=dialog] button', 'Exit without saving'), UI_WAIT).toBe(true)

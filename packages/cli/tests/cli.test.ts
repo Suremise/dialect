@@ -250,11 +250,23 @@ describe('dialect convert', () => {
     }
   })
 
+  it.each([
+    ['nxos', 'iosxr', 'hostname n1\n', 'hostname n1'],
+    ['iosxr', 'nxos', 'hostname x1\n', 'hostname x1'],
+    ['nxos', 'junos', 'hostname n1\n', 'host-name n1;'],
+    ['junos', 'iosxr', 'system {\n    host-name j1;\n}\n', 'hostname j1'],
+    ['iosxr', 'iosxe', 'hostname x1\n', 'hostname x1']
+  ])('converts from %s to %s, now both Cisco platforms are registered', (from, to, src, line) => {
+    const run = dialect(['convert', '--from', from, '--to', to, '-'], src)
+    expect(run.status, run.stderr).toBe(0)
+    expect(run.stdout.split('\n').map((l) => l.trim())).toContain(line)
+  })
+
   it('exits 2 for usage errors', () => {
     const hint = "\nRun 'dialect --help' for usage.\n"
-    expect(dialect(['convert', 'a.conf'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: give --from (junos, iosxe)${hint}` })
-    expect(dialect(['convert', '--from', 'junos', 'a.conf'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: give --to (junos, iosxe)${hint}` })
-    expect(dialect(['convert', '--from', 'nxos', '--to', 'iosxe', 'a.conf'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: --from nxos: not one of junos, iosxe${hint}` })
+    expect(dialect(['convert', 'a.conf'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: give --from (junos, iosxe, nxos, iosxr)${hint}` })
+    expect(dialect(['convert', '--from', 'junos', 'a.conf'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: give --to (junos, iosxe, nxos, iosxr)${hint}` })
+    expect(dialect(['convert', '--from', 'eos', '--to', 'iosxe', 'a.conf'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: --from eos: not one of junos, iosxe, nxos, iosxr${hint}` })
     expect(dialect(['convert', '--from', 'junos', '--to', 'iosxe'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: give a file, or - for stdin${hint}` })
     expect(dialect(['convert', '--from', 'junos', '--to', 'iosxe', '--map'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: --map needs a value${hint}` })
     expect(dialect(['convert', '--from', 'junos', '--from', 'junos', 'a.conf'])).toEqual({ status: 2, stdout: '', stderr: `dialect: convert: --from is given twice${hint}` })

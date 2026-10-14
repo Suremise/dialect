@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sessionOf } from '../src/session'
-import { activeConversion, countCommands, DISPLAY_SET, isUnsaved, jobs, outputName, tabTitle, useStore } from '../src/store'
+import { activeConversion, convertJob, countCommands, DISPLAY_SET, isUnsaved, outputName, sameJob, SOURCES, tabTitle, targetsFor, toolJobs, useStore } from '../src/store'
 
 /** The tab the store's actions act on. */
 const doc = () => activeConversion(useStore.getState())!
@@ -256,10 +256,41 @@ describe('the tabs', () => {
 })
 
 describe('the jobs a new tab offers', () => {
-  it('come from the registry: each tool, then convert to each target', () => {
-    expect(jobs().map((j) => [j.job, j.label])).toEqual([
-      [DISPLAY_SET, 'Display set (Junos)'],
-      [{ kind: 'convert', target: 'iosxe' }, 'Convert: Junos → Cisco IOS / IOS-XE']
-    ])
+  it('come from the registry: each tool, and convert between the four platforms', () => {
+    expect(toolJobs().map((j) => [j.job, j.label])).toEqual([[DISPLAY_SET, 'Display set (Junos)']])
+    expect(SOURCES.map((p) => p.id)).toEqual(['junos', 'iosxe', 'nxos', 'iosxr'])
+    expect(targetsFor(SOURCES[2]).map((p) => p.id)).toEqual(['junos', 'iosxe', 'iosxr'])
+    expect(convertJob('junos', 'iosxe')).toEqual({ job: { kind: 'convert', source: 'junos', target: 'iosxe' }, label: 'Convert: Junos → Cisco IOS / IOS-XE' })
+    expect(convertJob('nxos', 'iosxr').label).toBe('Convert: Cisco NX-OS → Cisco IOS-XR')
+    // A target that is the source itself gives way to the source's first target.
+    expect(convertJob('iosxr', 'iosxr').job).toEqual({ kind: 'convert', source: 'iosxr', target: 'junos' })
+  })
+})
+
+describe('convert from another source', () => {
+  beforeEach(() => {
+    useStore.setState({ tabs: [], activeId: null })
+    useStore.getState().newTab({ kind: 'convert', source: 'nxos', target: 'iosxr' })
+  })
+
+  it('reads the source platform and writes the target, its title naming the target', () => {
+    useStore.getState().setSource('hostname n1\n', 'n1.cfg')
+    expect(doc().output).toContain('hostname n1')
+    expect(tabTitle(doc(), (p) => p)).toBe('n1.cfg → IOS-XR')
+    expect(outputName('n1.cfg', doc().job)).toBe('n1.iosxr')
+  })
+
+  it('changes source and target, keeping the other, and a target the new source is gives way', () => {
+    useStore.getState().setConvertSource('junos')
+    expect(doc().job).toEqual({ kind: 'convert', source: 'junos', target: 'iosxr' })
+    useStore.getState().setTarget('nxos')
+    expect(doc().job).toEqual({ kind: 'convert', source: 'junos', target: 'nxos' })
+    useStore.getState().setConvertSource('nxos')
+    expect(doc().job).toEqual({ kind: 'convert', source: 'nxos', target: 'junos' })
+  })
+
+  it('keeps its source for the next start, and a job saved before sources were chosen reads as Junos', () => {
+    expect(sessionOf(useStore.getState().tabs, useStore.getState().activeId).tabs).toEqual([{ kind: 'conversion', job: { kind: 'convert', source: 'nxos', target: 'iosxr' }, name: null }])
+    expect(sameJob({ kind: 'convert', target: 'iosxe' }, { kind: 'convert', source: 'junos', target: 'iosxe' })).toBe(true)
   })
 })

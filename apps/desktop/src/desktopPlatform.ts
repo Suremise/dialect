@@ -2,8 +2,10 @@
 // no scope of its own (src-tauri/capabilities), so it reads and writes only the files the user picks in a dialog, which
 // the dialog plugin adds to its scope. A dropped file is read from the drop event, as in the web build: the window
 // leaves drops to the page (dragDropEnabled: false in tauri.conf.json), so the UI's drop handler gets the file. Links
-// open in the default browser through the opener plugin, which the capability allows for https URLs only. File → Exit
-// closes the window (core:window:allow-close), which quits the app.
+// open in the default browser through the opener plugin, which the capability allows for https URLs only. The window's
+// own close (its ✕, Alt+F4) is guarded: with a listener for it, Tauri leaves the close to the page, which destroys the
+// window unless the UI keeps it open to ask first (core:event:allow-listen and allow-unlisten, core:window:allow-destroy).
+// File → Exit, asked already, destroys it at once, which quits the app.
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
@@ -63,7 +65,14 @@ export const desktopPlatform: Platform = {
     await openUrl(url)
   },
   async exit() {
-    // The only window: closing it quits the app.
-    await getCurrentWindow().close()
+    // The only window: destroying it quits the app. Not close(), which would ask the close guard again.
+    await getCurrentWindow().destroy()
+  },
+  guardClose(mayClose) {
+    // Tauri destroys the window after the handler unless it prevents that.
+    const listening = getCurrentWindow().onCloseRequested((event) => {
+      if (!mayClose()) event.preventDefault()
+    })
+    return () => void listening.then((unlisten) => unlisten())
   }
 }
