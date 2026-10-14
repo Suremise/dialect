@@ -44,7 +44,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.4.0)
+## Core contracts (`@dialect/core`, model 0.4.1)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -79,11 +79,18 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
     `neighbors` by address, each with a `peerAs`, `description`, `localAddress` or `updateSource` (an interface
     reference), `multihop` (`{}`, or a `ttl`), `addressFamilies` (`ipv4-unicast`, `ipv6-unicast`), and
     `importPolicies`/`exportPolicies` by name only, on the peer or per address family (policy bodies are phase 3); a
-    neighbor names its `group`, and its own settings win over the group's.
+    neighbor names its `group`, and its own settings win over the group's. Since 0.4.1, `ebgpDefaultPolicy` says what
+    the source platform does with an eBGP peer's routes when no policy applies (`import`, `export`: `accept` on Junos
+    and IOS-XE, `reject` on IOS-XR after RFC 8212). It is the source's default, not configuration, kept with the data
+    as `enabledBy` is: a **parser** sets the side(s) that apply when the instance has an eBGP peer without an import
+    or an export policy; a **renderer** gives it a `not-applicable` disposition and raises a `category: 'semantic'`
+    warning when its own default differs, naming the line, never a peer's address.
 
 **Secrets are flags, never values:** OSPF `authentication` (`simple`, `md5`, `key-chain`, on an area or an interface)
 and a BGP peer's `authentication: true` say the source had a key; the key never reaches the model, so the target asks
-for it (a needs-input item).
+for it (a needs-input item of kind `secret`, whose `field` is the flag's path) and writes it from the answer. **A
+renderer never writes a placeholder key**: unanswered, the key is left out, and the conformance kit's round trip
+excuses that leaf (below).
 
 These are the phase 1 and phase 2 areas; later minor versions add policy bodies and filters (phase 3).
 
@@ -112,6 +119,7 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 | 0.2.0 | `system.dns` (`Dns`, `DnsServer`) and the `dns` feature area (#21) |
 | 0.3.0 | `Subinterface.networkInstance` (VRF membership), `NetworkInstance.routeDistinguisher` and `routeTargets`, and the `virtual-router` type (#44) |
 | 0.4.0 | `Device.vlans`, `Interface.switching`, the `irb-or-svi` type and `Subinterface.routedVlan`, `NetworkInstance.ospf` and `bgp`, and the `vlans`, `ospf` and `bgp` feature areas (#59, phase 2) |
+| 0.4.1 | `Bgp.ebgpDefaultPolicy` (`BgpDefaultPolicy`), the source's default for eBGP peers without a policy (#68) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
 renderer, a subinterface's `networkInstance` for a 0.2 one or any of 0.4's VLAN, switch port, routed VLAN, OSPF and BGP
@@ -223,13 +231,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.4.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.4.1.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.4.0", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.4.1", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
@@ -252,7 +260,11 @@ describeConformance(plugin, new URL('./fixtures', import.meta.url))
 Each fixture goes through five checks (`checkFixture()`):
 1. parse → no error, a model with no `modelProblems()`, and the expected model;
 2. render → no error, and the expected text (skipped when there is none and the render reported no error);
-3. render → reparse → no error, a model with no `modelProblems()`, and the same model;
+3. render → reparse → no error, a model with no `modelProblems()`, and the same model, except a leaf the render left
+   to the user: a populated leaf it didn't write that a `secret` needs-input item (with an id) names as its `field`
+   (`deferredSecrets()`), a key the model flags but never carries (#68). The result lists them (`deferred`), and the
+   suite puts them in the test's name, so none is left out unseen. A leaf dropped without such an item, or left to an
+   item of another kind, still fails;
 4. the coverage ledger is complete for the parse and the render;
 5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
 

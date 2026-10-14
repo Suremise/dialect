@@ -7,13 +7,15 @@
 //    model equals the expected model;
 // 2. render → no error, and the text equals the expected render (when the fixture has one; skipped when it has none
 //    and the render reported no error);
-// 3. render → reparse → no error, a valid model, and the same model (round-trip stability);
+// 3. render → reparse → no error, a valid model, and the same model (round-trip stability), except a leaf the render
+//    left to a secret needs-input item: a key the model flags but never carries, which the render asks the user for
+//    rather than make up (the check lists each one it leaves out);
 // 4. the coverage ledger is complete: every statement of the parse and every populated field of the render has a
 //    disposition (core's ledger.ts, which doesn't trust the plugin's own count);
 // 5. no secret: none of the fixture's secret values is in a diagnostic, needs-input item, ledger reason, tool
 //    diagnostic, tool report (a tool's text, unless it is a config tool's) or thrown error, on the fixture or on broken copies of it (secrets.ts). Skipped for a fixture with none.
 // An error a step reports fails its check even when its output matches: a plugin that says it failed isn't conformant.
-import { buildLedger, ledgerProblems, MODEL_VERSION, modelProblems, type Context, type Device, type PlatformPlugin } from '@dialect/core'
+import { buildLedger, fieldPath, ledgerProblems, MODEL_VERSION, modelProblems, populatedLeaves, type Context, type Device, type PlatformPlugin, type RenderResult } from '@dialect/core'
 import type { SecretAllowance } from './allowances'
 import { checkSecrets, describeLeak, findSecrets, type SecretsOptions } from './secrets'
 
@@ -38,6 +40,8 @@ export interface CheckResult {
   readonly problems: readonly string[]
   /** The secrets check: leaks a temporary allowance let through, each with it (allowances.ts). */
   readonly allowed?: readonly { readonly leak: string; readonly allowance: SecretAllowance }[]
+  /** The round-trip check: the leaves it left out, each one the render left to a secret needs-input item, by path. */
+  readonly deferred?: readonly string[]
 }
 
 const lf = (text: string) => text.replace(/\r\n?/g, '\n')
@@ -71,6 +75,30 @@ export function modelDifferences(expected: unknown, actual: unknown, limit = 20)
     out.push(`${at || '(model)'}: expected ${JSON.stringify(e)}, got ${JSON.stringify(a)}`)
   }
   walk(expected, actual, '')
+  return out
+}
+
+/**
+ * The leaves of `model` that `rendered` left to the user: each a populated leaf that a `secret` needs-input item (with
+ * an id) names as its field, and that the render didn't write. A key the model flags (`authentication: true`) never
+ * reaches the render's text, so a reparse can't have it back; asking for it is the render's honest answer, and a
+ * placeholder key never is. A leaf dropped with no such item, or left to an item of another kind, isn't one.
+ */
+export function deferredSecrets(model: Device, rendered: RenderResult): string[] {
+  const leaves = new Set(populatedLeaves(model).map((l) => l.path))
+  const fields = (rendered.needsInput ?? []).filter((item) => item.kind === 'secret' && item.id !== '' && item.field !== undefined).map((item) => item.field!)
+  const written = (path: string) => Object.hasOwn(rendered.dispositions, path) && rendered.dispositions[path].kind === 'rendered'
+  return [...new Set(fields)].filter((path) => leaves.has(path) && !written(path))
+}
+
+/** `model` without the leaves at `paths` (field paths), as a copy: null-prototype objects, own keys only. */
+function without(model: unknown, paths: ReadonlySet<string>, at: readonly string[] = []): unknown {
+  if (!isObject(model) || !paths.size) return model
+  const out: Record<string, unknown> = Object.create(null)
+  for (const key of Object.keys(model)) {
+    const segments = [...at, key]
+    if (!paths.has(fieldPath(...segments))) out[key] = without(own(model, key), paths, segments)
+  }
   return out
 }
 
@@ -118,7 +146,9 @@ export function checkFixture(plugin: PlatformPlugin, fixture: Fixture, { modelVe
   )
 
   const reparsed = plugin.parse(rendered.text, context)
-  checks.push(result('round-trip', [...errors('reparse', reparsed), ...invalid('reparse', reparsed.model), ...modelDifferences(parsed.model, reparsed.model).map((d) => `render → reparse changed the model: ${d}`)]))
+  const deferred = deferredSecrets(parsed.model, rendered)
+  const roundTrip = result('round-trip', [...errors('reparse', reparsed), ...invalid('reparse', reparsed.model), ...modelDifferences(without(parsed.model, new Set(deferred)), reparsed.model).map((d) => `render → reparse changed the model: ${d}`)])
+  checks.push(deferred.length ? { ...roundTrip, deferred } : roundTrip)
 
   checks.push(result('ledger', ledgerProblems(buildLedger(parsed, rendered))))
   checks.push(secretsCheck(plugin, fixture, modelVersion, options))
