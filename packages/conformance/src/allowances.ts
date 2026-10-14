@@ -24,10 +24,4 @@ export interface SecretAllowance {
   readonly card: number
 }
 
-/** IOS-XE's test of prototype-named keys uses each as an SNMP community and as a VRF name (#29). */
-const PROTOTYPE_NAMES = ['__proto__', 'constructor', 'toString']
-
-export const SECRET_ALLOWANCES: readonly SecretAllowance[] = [
-  { plugin: 'iosxe', site: 'render diagnostic', code: 'iosxe.vrf-not-defined', fixtures: PROTOTYPE_NAMES, leak: '"VRF <name> isn\'t defined in the output" names a VRF whose name is also the fixture\'s SNMP community', card: 29 },
-  { plugin: 'iosxe', site: 'field reason', fixtures: PROTOTYPE_NAMES, leak: '"VRF definitions come later: the routes are written with "ip route vrf <name>"" names a VRF whose name is also the fixture\'s SNMP community', card: 29 }
-]
+export const SECRET_ALLOWANCES: readonly SecretAllowance[] = []
