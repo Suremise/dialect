@@ -33,6 +33,12 @@ export interface ToolResult {
   readonly text: string
   /** Errors (with where, as a span) and warnings; an error means `text` may be incomplete. */
   readonly diagnostics: readonly Diagnostic[]
+  /**
+   * The 1-based source line each line of `text` comes from, in order, for linking the output to its source (the UI marks
+   * a set line's statement). Left out when the tool doesn't track it. A line break is `\n`, `\r\n` or `\r`, as the
+   * editors count them, and a final line break starts no line.
+   */
+  readonly sourceLines?: readonly number[]
 }
 
 export interface PlatformPlugin {

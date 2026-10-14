@@ -19,6 +19,9 @@ function at(line: number, column: number): Diagnostic['span'] {
   return { startLine: line, startColumn: column, endLine: line, endColumn: column }
 }
 
+/** A line break as editors count them (CodeMirror among them). */
+const LINE_BREAK = /\r\n?|\n/
+
 export const displaySetTool: JunosTool = {
   id: 'display-set',
   name: 'Display set',
@@ -29,11 +32,14 @@ export const displaySetTool: JunosTool = {
     const result = displaySet(input)
     if (!result.ok) {
       const { message, line, column } = result.error
-      return { text: '', diagnostics: [{ severity: 'error', category: 'syntax', code: 'junos.syntax', message, span: at(line, column) }] }
+      return { text: '', diagnostics: [{ severity: 'error', category: 'syntax', code: 'junos.syntax', message, span: at(line, column) }], sourceLines: [] }
     }
     return {
       text: result.lines.length > 0 ? result.lines.map((line) => line.text).join('\n') + '\n' : '',
-      diagnostics: result.warnings.map((w) => ({ severity: 'warning', category: 'syntax', code: `junos.${w.code}`, message: w.message, span: at(w.line, w.column) }))
+      diagnostics: result.warnings.map((w) => ({ severity: 'warning', category: 'syntax', code: `junos.${w.code}`, message: w.message, span: at(w.line, w.column) })),
+      // A quoted value can hold line breaks (a banner), so one set line can be several output lines: each gets its
+      // statement's line.
+      sourceLines: result.lines.flatMap((line) => Array<number>(line.text.split(LINE_BREAK).length).fill(line.sourceLine))
     }
   }
 }
