@@ -2,7 +2,7 @@
 // through groups and interface ranges by the inheritance rules, the aggregate's LACP mode and minimum links, what isn't
 // converted and why, the render of a model from another platform, and an IOS-XE port-channel converted to an `ae`.
 import { describe, expect, it } from 'vitest'
-import { buildLedger, convert, interfaceInputs, MODEL_VERSION, modelProblems, statementsOf, type Device, type ParseResult, type PlatformPlugin } from '@dialect/core'
+import { buildLedger, convert, interfaceInputs, MODEL_VERSION, modelProblems, statementsOf, type Device, type ParseResult } from '@dialect/core'
 import { checkFixture } from '@dialect/conformance'
 import iosxe from '@dialect/platform-iosxe'
 import plugin, { parse, render } from '../src'
@@ -149,22 +149,13 @@ describe('render', () => {
 })
 
 describe('convert: an IOS-XE port-channel with its members', () => {
-  // The model IOS-XE's parse gives for `interface Port-channel1` with `port-channel min-links 2` and two members with
-  // `channel-group 1 mode active` (ARCHITECTURE, model 0.5.4). IOS-XE reads them in #108, so until then the source
-  // plugin's parse is this model's, and everything else (its names) is IOS-XE's own.
-  const model: Device = {
-    interfaces: {
-      'Port-channel1': { type: 'aggregate', aggregation: { lacp: 'active', minLinks: 2 }, subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 31 } } } } } },
-      'GigabitEthernet1/0/1': { type: 'ethernet', aggregate: 'Port-channel1' },
-      'GigabitEthernet1/0/2': { type: 'ethernet', aggregate: 'Port-channel1' }
-    }
-  }
-  const source: PlatformPlugin = { ...iosxe, parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }) }
+  // IOS-XE's own text: a routed Port-channel with its minimum links, and two members bundling with LACP.
+  const iosxeText = ['interface Port-channel1', ' ip address 192.0.2.1 255.255.255.254', ' port-channel min-links 2', 'interface GigabitEthernet1/0/1', ' channel-group 1 mode active', 'interface GigabitEthernet1/0/2', ' channel-group 1 mode active', ''].join('\n')
 
   it('is ae0, Port-channel N being ae(N-1), with its members and its mode once the names are taken', () => {
-    const before = convert(source, plugin, '', context)
+    const before = convert(iosxe, plugin, iosxeText, context)
     expect(before.interfaces.find((i) => i.source === 'Port-channel1')?.suggestion).toBe('ae0')
-    const after = convert(source, plugin, '', { ...context, inputs: interfaceInputs({ 'Port-channel1': 'ae0', 'GigabitEthernet1/0/1': 'ge-0/0/1', 'GigabitEthernet1/0/2': 'ge-0/0/2' }) })
+    const after = convert(iosxe, plugin, iosxeText, { ...context, inputs: interfaceInputs({ 'Port-channel1': 'ae0', 'GigabitEthernet1/0/1': 'ge-0/0/1', 'GigabitEthernet1/0/2': 'ge-0/0/2' }) })
     expect(after.model.interfaces!['ge-0/0/1'].aggregate).toBe('ae0')
     const text = after.render!.text
     expect(text).toContain('device-count 1;')

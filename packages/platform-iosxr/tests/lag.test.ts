@@ -2,7 +2,7 @@
 // and the bundle's LACP mode from its members, `bundle minimum-active links`, the `no` forms, what isn't converted and
 // why, the render of a model from another platform, and an IOS-XE port-channel converted to a Bundle-Ether.
 import { describe, expect, it } from 'vitest'
-import { convert, interfaceInputs, MODEL_VERSION, modelProblems, statementsOf, type Device, type ParseResult, type PlatformPlugin } from '@dialect/core'
+import { convert, interfaceInputs, MODEL_VERSION, modelProblems, statementsOf, type Device, type ParseResult } from '@dialect/core'
 import { checkFixture } from '@dialect/conformance'
 import iosxe from '@dialect/platform-iosxe'
 import plugin from '../src'
@@ -99,22 +99,13 @@ describe('render', () => {
 })
 
 describe('convert: an IOS-XE port-channel with its members', () => {
-  // The model IOS-XE's parse gives for `interface Port-channel1` with `port-channel min-links 2` and two members with
-  // `channel-group 1 mode active` (ARCHITECTURE, model 0.5.4). IOS-XE reads them in #108, so until then the source
-  // plugin's parse is this model's, and everything else (its names) is IOS-XE's own.
-  const model: Device = {
-    interfaces: {
-      'Port-channel1': { type: 'aggregate', aggregation: { lacp: 'active', minLinks: 2 }, subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 31 } } } } } },
-      'GigabitEthernet1/0/1': { type: 'ethernet', aggregate: 'Port-channel1' },
-      'GigabitEthernet1/0/2': { type: 'ethernet', aggregate: 'Port-channel1' }
-    }
-  }
-  const source: PlatformPlugin = { ...iosxe, parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }) }
+  // IOS-XE's own text: a routed Port-channel with its minimum links, and two members bundling with LACP.
+  const iosxeText = ['interface Port-channel1', ' ip address 192.0.2.1 255.255.255.254', ' port-channel min-links 2', 'interface GigabitEthernet1/0/1', ' channel-group 1 mode active', 'interface GigabitEthernet1/0/2', ' channel-group 1 mode active', ''].join('\n')
 
   it('is Bundle-Ether1, the number kept, with its members and their mode once the names are taken', () => {
-    const before = convert(source, plugin, '', context)
+    const before = convert(iosxe, plugin, iosxeText, context)
     expect(before.interfaces.find((i) => i.source === 'Port-channel1')?.suggestion).toBe('Bundle-Ether1')
-    const after = convert(source, plugin, '', { ...context, inputs: interfaceInputs({ 'Port-channel1': 'Bundle-Ether1', 'GigabitEthernet1/0/1': 'GigabitEthernet0/0/0/1', 'GigabitEthernet1/0/2': 'GigabitEthernet0/0/0/2' }) })
+    const after = convert(iosxe, plugin, iosxeText, { ...context, inputs: interfaceInputs({ 'Port-channel1': 'Bundle-Ether1', 'GigabitEthernet1/0/1': 'GigabitEthernet0/0/0/1', 'GigabitEthernet1/0/2': 'GigabitEthernet0/0/0/2' }) })
     const text = after.render!.text
     expect(text).toContain('interface Bundle-Ether1\n bundle minimum-active links 2\n ipv4 address 192.0.2.1 255.255.255.254\n!\n')
     expect(text).toContain('interface GigabitEthernet0/0/0/1\n bundle id 1 mode active\n!\n')

@@ -460,7 +460,9 @@ Each fixture goes through five checks (`checkFixture()`):
    `not-applicable`), and no subinterface's attachment naming it, nor one naming a filter whose unsafe skip left it out,
    may be `rendered` (#103). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
    judge, from the term's actions, and its own tests show it; so is a partial term in a flat syntax with no
-   containers (one statement per line), whose statements the kit can't group;
+   containers (one statement per line), whose statements the kit can't group; and every statement and field left out
+   says why (#111): an `unsupported` or `ignored-by-design` disposition with no reason fails it, given by line or field
+   path only, so every fixture and corpus file of every plugin is checked;
 5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
 
 An error a step reports (a diagnostic with `severity: 'error'`) fails its check even when its output matches;
@@ -867,6 +869,14 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   numbers and minimum links, and what the render leaves out. The kit has no probe kinds for LAGs, so these stand in for
   them. Its convert case is a Junos-shaped model (as the Junos plugin's parse gives `ae0` and two members) converted
   to IOS-XE: `Port-channel1` with both members and the mode kept.
+- **Every statement left out says why (#111):** one the mapper has nothing more particular to say about gets a reason
+  from the keywords of the top-level statement it is in, as IOS-XR's does (`unconverted.ts`: by the first keyword, and
+  the one after `ip`, `router` and `snmp-server`: terminal lines, crypto, QoS, AAA, NAT and zone-based firewall,
+  EIGRP…, else "a statement this converter doesn't read"), each a fixed text, never a word of the configuration. Nor
+  one a secret of it is: a community named like a keyword (`multicast`) would make the fixed text leak it, so the
+  parse finds the configuration's secrets as the kit does (`secretValues()`: communities, passwords, typed keys,
+  TACACS+/RADIUS and NTP keys, four characters or more) and takes the next reason that holds none, the generic one, or
+  else `—`. The kit's ledger check holds every fixture and corpus file to it.
 - **Detect (`detect.ts`):** counts IOS's own signs (a dotted mask on `ip address`, `ip route`, `service timestamps`, a
   `^C` banner, `ip access-list standard|extended NAME`, numbered `access-list N`, an entry's address and wildcard) and
   discounts NX-OS's (`feature`, `vrf context`), IOS-XR's (`ipv4 address`, `ipv4 access-list`, four-part interface
@@ -1110,6 +1120,8 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
   IOS-XE `Port-channelN` and IOS-XR `Bundle-EtherN` keep N (the user's decision). It takes the describing plugin's id as
   an optional second argument, which the core's convert doesn't pass yet (#64's comment proposes it): without it,
   nothing is suggested, rather than guess the numbering.
+- **Every statement left out says why (#111):** as the IOS plugin's, with NX-OS's table (`unconverted.ts`: EVPN and
+  VXLAN, vPC, VDCs, roles and AAA, RMON…).
 - **Detect (`detect.ts`):** counts NX-OS's own signs (`feature`, `vrf context`, `vrf member`, `use-vrf`, prefix-length
   addresses, `switchname`, `version 9.3(3)`, `!Command: show running-config`, RANCID's `cisco-nx`, `configure session`,
   an `ip access-list NAME` with no kind) and discounts IOS's (dotted masks, `end`, `service timestamps`, `vrf
@@ -1385,7 +1397,7 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
   models in `tests/corpus/` (`policy/` files among them), and every file of `fixtures/public/iosxr` through the kit's
   checks, with no statement or field left out without a reason (#109). `lag.test.ts` covers bundles beyond the fixture:
   modes agreeing and not, the `no` forms, what isn't converted and why, render from a Junos model, and an IOS-XE
-  port-channel converted to `Bundle-Ether1` (its model given until IOS-XE parses `channel-group`, #108). Its probe adapter (`tests/probes.ts`, #51) gives every probe in
+  port-channel converted to `Bundle-Ether1` from IOS-XE's own text (#111). Its probe adapter (`tests/probes.ts`, #51) gives every probe in
   IOS-XR syntax, except the prototype keys as an interface name, which IOS-XR can't have (a name is a type and numbers),
   and as a VLAN name (Layer 2 isn't converted this phase); model 0.5.0's cases in RPL (a term and an entry go with
   their policy and set, which `no route-policy|prefix-set` removes; a set is one statement from its first line), and
@@ -1546,8 +1558,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `fxp`/`em`/`me` management, `gr-`/`st` tunnels). Reasons never quote the configuration. **Every statement left out
   says why (#109):** one the mapper has nothing more particular to say about gets a reason from its keywords alone
   (`unconverted.ts`: logical systems, `system login`, IS-IS, SNMPv3, chassis settings…, else "a statement this
-  converter doesn't read"), each a fixed text, never a word of the statement; the corpus test checks no statement or
-  field anywhere in the corpus is `unsupported` or `ignored-by-design` without one.
+  converter doesn't read"), each a fixed text, never a word of the statement; the kit's ledger check (#111) fails any
+  statement or field `unsupported` or `ignored-by-design` without one, over every fixture and the whole corpus.
 - **LAGs (#109, model 0.5.4):** `gigether-options 802.3ad aeN` (MX) or `ether-options 802.3ad aeN` (EX, QFX) is the
   interface's `aggregate` (one setting, so the later or higher-ranked wins, groups and ranges by R1–R12), and makes
   sure the aggregate exists; on an aggregate, `aggregated-ether-options lacp active|passive` is its
@@ -1783,8 +1795,7 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   without a reason (#109); the one that isn't a configuration (a terminal capture that cuts a quoted hash) must give a
   syntax error that quotes nothing. `tests/lag.test.ts`: LAGs beyond the fixture (`tests/fixtures/conformance/lag/`,
   with a group-applied member): both member forms, the inheritance rules, what isn't converted and why, render from
-  another platform's model, and an IOS-XE port-channel converted to `ae0` (its model given until IOS-XE parses
-  `channel-group`, #108). `tests/mapping.test.ts`:
+  another platform's model, and an IOS-XE port-channel converted to `ae0` from IOS-XE's own text (#111). `tests/mapping.test.ts`:
   both forms, `detect()`, nodes standing for several statements, member ranges, inactive statements, keys named like
   `Object.prototype`'s, secrets, SNMP communities and render from another platform's model.
   `tests/inheritance.test.ts`: the group and range inheritance rules, one per test, each citing Juniper's page.
