@@ -294,9 +294,12 @@ export function parse(text: string, _context: Context): ParseResult {
    */
   const members = new Map<string, { readonly sub: Segments; readonly instance: string; readonly statements: number[]; twice: boolean }>()
   /**
-   * Instances of a type this mapper doesn't convert (`mac-vrf`, `evpn`, `forwarding`…): none of their statements is
-   * converted, as their route distinguisher, targets and units mean something else there than in a VRF.
+   * `instance-type` statements of a type this mapper doesn't convert (`mac-vrf`, `evpn`, `forwarding`…), by statement:
+   * their instance. One that is the instance's type in the end (it outranks every other instance-type, as a single
+   * setting does) means none of the instance's statements is converted, as its route distinguisher, targets and units
+   * mean something else there than in a VRF. One a higher-ranked type overrides is superseded like any setting.
    */
+  const otherTypeAt = new Map<number, string>()
   const otherTypes = new Set<string>()
   /** Per instance, its `vrf-target`, `vrf-target import` and `vrf-target export`: the statement that set each last, and its value. */
   const targets = new Map<string, Map<'both' | 'import' | 'export', { readonly index: number; readonly value: string }>>()
@@ -338,8 +341,10 @@ export function parse(text: string, _context: Context): ParseResult {
     if (!r.length) return mapped([model.ensure(at)])
     if (r[0] === 'instance-type' && r.length === 2) {
       if (r[1] === 'vrf' || r[1] === 'virtual-router') return mapped([put(i, [...at, 'type'], r[1])])
-      otherTypes.add(name)
-      return unsupported('routing instances other than VRFs and virtual routers come later')
+      // It takes the type as any instance-type would, so the ranks decide which one the instance has: settled below.
+      claim(fieldPath(...at, 'type'), i)
+      otherTypeAt.set(i, name)
+      return mapped([])
     }
     if (r[0] === 'interface' && r.length === 2) return mapMember(name, r[1], i)
     if (r[0] === 'route-distinguisher' && r.length === 2) {
@@ -448,7 +453,12 @@ export function parse(text: string, _context: Context): ParseResult {
     })
   }
 
-  // An instance of a type that isn't converted isn't converted at all, nor are its units' memberships.
+  // An instance whose type, in the end, isn't one converted isn't converted at all, nor are its units' memberships.
+  for (const [index, name] of otherTypeAt) {
+    if (owners.get(fieldPath('networkInstances', name, 'type')) !== index) continue
+    results[index] = unsupported('routing instances other than VRFs and virtual routers come later')
+    otherTypes.add(name)
+  }
   for (const name of otherTypes) {
     model.remove(['networkInstances', name])
     model.removeIfEmpty(['networkInstances'])

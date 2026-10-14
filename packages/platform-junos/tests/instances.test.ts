@@ -60,6 +60,23 @@ describe('a VRF without a route distinguisher or route targets', () => {
     expect(r.dispositions['networkInstances.CUST.routeTargets.import']).toMatchObject({ kind: 'rendered' })
   })
 
+  it.each([
+    ['empty lists', { import: [], export: [] }],
+    ['malformed targets', { import: ['not-a-target'], export: ['not-a-target'] }],
+    ['several targets each way', { import: ['65000:1', '65000:2'], export: ['65000:3', '65000:4'] }]
+  ])('with %s takes the answer for both sides, or is asked for one', (_, routeTargets) => {
+    const bare: Device = { networkInstances: { A: { type: 'vrf', routeDistinguisher: '65000:1', routeTargets } } }
+    const asked = render(bare, context)
+    expect(asked.text).not.toContain('vrf-target')
+    expect(asked.needsInput?.map((n) => n.id)).toEqual([routeTargetInputId('A')])
+    const answered = render(bare, { ...context, inputs: { [routeTargetInputId('A')]: 'target:65000:9' } })
+    expect(answered.text).toContain('        vrf-target target:65000:9;\n')
+    expect(answered.needsInput).toBeUndefined()
+    // The model's own lists are still accounted for as not written.
+    expect(answered.dispositions['networkInstances.A.routeTargets.import']?.kind).not.toBe('rendered')
+    expect(ledgerProblems(buildLedger(parse('', context), answered, bare))).toEqual([])
+  })
+
   it('asks nothing of a virtual router, which has no route distinguisher or targets', () => {
     const r = render({ networkInstances: { T: { type: 'virtual-router', routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'], export: ['65000:1'] } } } }, context)
     expect(r.text).toBe('routing-instances {\n    T {\n        instance-type virtual-router;\n    }\n}\n')
@@ -111,6 +128,45 @@ describe('vrf-target', () => {
     const p = parse(set(line), context)
     expect(Object.values(p.dispositions)).toEqual([{ kind: 'unsupported', reason }])
     expect(p.model).toEqual({})
+  })
+})
+
+describe('an instance type from a group', () => {
+  const VRF = { type: 'vrf', routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'], export: ['65000:1'] } }
+  const local = ['set routing-instances A instance-type vrf', 'set routing-instances A interface ge-0/0/0.0', 'set routing-instances A route-distinguisher 65000:1', 'set routing-instances A vrf-target target:65000:1']
+  const hierarchical = (groupType: string) =>
+    `groups {\n    G {\n        routing-instances {\n            A {\n                instance-type ${groupType};\n            }\n        }\n    }\n}\napply-groups G;\nrouting-instances {\n    A {\n        instance-type vrf;\n        interface ge-0/0/0.0;\n        route-distinguisher 65000:1;\n        vrf-target target:65000:1;\n    }\n}\n`
+
+  it.each([
+    ['set', set('set groups G routing-instances A instance-type mac-vrf', 'set apply-groups G', ...local)],
+    ['hierarchical', hierarchical('mac-vrf')]
+  ])("gives way to the instance's own, in %s form: the VRF converts and the group's type is superseded", (_, text) => {
+    const p = parse(text, context)
+    expect(p.model.networkInstances?.A).toEqual(VRF)
+    expect(p.model.interfaces?.['ge-0/0/0'].subinterfaces?.['0'].networkInstance).toBe('A')
+    expect(p.diagnostics).toEqual([])
+    expect(Object.values(p.dispositions).filter((d) => d.kind === 'unsupported')).toEqual([])
+    expect(Object.values(p.dispositions).some((d) => d.kind === 'ignored-by-design' && /^superseded by line \d+$/.test(d.reason ?? ''))).toBe(true)
+  })
+
+  it('of two groups is the earlier one\'s, as for any setting: a VRF over a mac-vrf, or the instance not converted', () => {
+    const groups = (first: string, second: string) => set(`set groups G1 routing-instances A instance-type ${first}`, `set groups G2 routing-instances A instance-type ${second}`, 'set apply-groups [ G1 G2 ]', 'set routing-instances A route-distinguisher 65000:1', 'set routing-instances A vrf-target target:65000:1')
+    expect(parse(groups('vrf', 'mac-vrf'), context).model.networkInstances?.A).toEqual(VRF)
+    const other = parse(groups('mac-vrf', 'vrf'), context)
+    expect(other.model).toEqual({})
+    // The mac-vrf group's type, then everything else of the instance: the other group's vrf, its RD and its vrf-target.
+    expect(Object.values(other.dispositions).filter((d) => d.kind === 'unsupported').map((d) => d.kind === 'unsupported' && d.reason)).toEqual([
+      'routing instances other than VRFs and virtual routers come later',
+      "the routing instance's type isn't converted, so none of it is",
+      "the routing instance's type isn't converted, so none of it is",
+      "the routing instance's type isn't converted, so none of it is"
+    ])
+  })
+
+  it("doesn't taint an instance when its own type is one converted, set before or after a group's other type", () => {
+    const p = parse(set('set routing-instances A instance-type mac-vrf', 'set routing-instances A instance-type virtual-router'), context)
+    expect(p.model.networkInstances?.A).toEqual({ type: 'virtual-router' })
+    expect(Object.values(p.dispositions).map((d) => (d.kind === 'ignored-by-design' ? d.reason : d.kind))).toEqual(['superseded by line 2', 'mapped'])
   })
 })
 

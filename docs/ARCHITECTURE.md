@@ -636,7 +636,9 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   unit named in two instances is in neither:** Junos refuses that, so it's an error diagnostic naming the lines (not
   the unit), and every statement that named it is `unsupported`. **An instance of another type** (`mac-vrf`, `evpn`,
   `forwarding`…) is converted not at all, as SNMP communities are: its route distinguisher, targets and units mean
-  something else there.
+  something else there. Which type an instance has is settled as any single setting is (the configuration over a
+  group, an earlier group over a later one), so a group's `mac-vrf` under the instance's own `vrf` is superseded and
+  the VRF converts.
 - **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.3 with a disposition and a
   later version's fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
@@ -651,7 +653,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   **A VRF Junos can't commit isn't made whole by guessing:** one without a route distinguisher, or without a route
   target for a side, is written with what it has, and each missing part is a needs-input item
   (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
-  answer in another form is left unused, with a warning).
+  answer in another form is left unused, with a warning). A route target answer goes to every side without one Junos
+  can write (left out, empty, malformed or more than one); the item is withdrawn only once the answer is written.
 - `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's
   (`hostname`, `!`, `interface GigabitEthernet…`).
 - **Tests:** the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,

@@ -320,11 +320,12 @@ export function render(model: Device, context: Context): RenderResult {
       else if (!isRouteDistinguisher(list[0])) skip(rtField(side), 'unsupported', 'not a route target in a form the model has')
       else sides[side] = list[0]
     }
-    // A side the model leaves out takes the user's answer, if any; one still missing is asked for.
+    // A side with no target Junos can write takes the user's answer, if any; while one is missing, it is asked for.
     if (isVrf && (sides.import === null || sides.export === null)) {
       const given = answer(routeTargetInputId(name), (value) => targetFromJunos(value) ?? fromJunos(value))
       if (given === null) needsInput.push({ id: routeTargetInputId(name), kind: 'other', message: "This VRF needs a route target on Junos (target:ASN:nn or target:IP:nn) for the routes it imports or exports, which the source doesn't give.", field: fieldPath(...at) })
-      else for (const side of ['import', 'export'] as const) if (sides[side] === null && instance.routeTargets?.[side] === undefined) sides[side] = given
+      // Every side still without a target Junos can write takes it: left out, empty, malformed or more than one.
+      else for (const side of ['import', 'export'] as const) if (sides[side] === null) sides[side] = given
     }
     const given = (side: 'import' | 'export'): Segments[] => (instance.routeTargets?.[side]?.length === 1 && isRouteDistinguisher(instance.routeTargets[side][0]) ? [rtField(side)] : [])
     if (sides.import !== null && sides.import === sides.export) out.push(leaf(`vrf-target target:${toJunos(sides.import)}`, ...given('import'), ...given('export')))
