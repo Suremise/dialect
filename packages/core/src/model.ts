@@ -1,6 +1,6 @@
 // The shared device model: what every platform plugin parses into and renders from (the hub in docs/ARCHITECTURE.md).
 // Shaped like OpenConfig (system, interfaces with subinterfaces and addresses, VLANs, network instances with static
-// routes, OSPF and BGP), borrowing its structure and names, not its code, as plain readonly types serialised as JSON (serialize.ts).
+// routes, OSPF and BGP, routing policy), borrowing its structure and names, not its code, as plain readonly types serialised as JSON (serialize.ts).
 //
 // Conventions every type here keeps, because the coverage ledger walks the model generically (ledger.ts):
 // - **Collections are maps keyed by their natural key** (an interface's name, an address, a prefix), never arrays of
@@ -20,7 +20,7 @@
 // while the ledger reports any populated field it has never heard of as unrendered.
 
 /** The shared model's version (docs/SPEC.md §4). Bump minor for additions, major for breaking changes. */
-export const MODEL_VERSION = '0.4.1'
+export const MODEL_VERSION = '0.5.0'
 
 /** A map from a collection's natural key to its entries. */
 export type Keyed<T> = Readonly<Record<string, T>>
@@ -38,6 +38,8 @@ export interface Device {
   readonly vlans?: Keyed<Vlan>
   /** By instance name; the global routing table is `default`. */
   readonly networkInstances?: Keyed<NetworkInstance>
+  /** Prefix lists, community and AS-path sets, and routing policies. Since model 0.5.0. */
+  readonly routingPolicy?: RoutingPolicy
 }
 
 export interface System {
@@ -337,7 +339,10 @@ export interface BgpPeer {
   readonly multihop?: BgpMultihop
   /** By address family: the families the session carries. */
   readonly addressFamilies?: Readonly<Partial<Record<BgpAddressFamilyName, BgpAddressFamily>>>
-  /** Import policies by name, in order (Junos `import`); their bodies are phase 3. */
+  /**
+   * Import policies by name, in order (Junos `import`). Each names an entry of `Device.routingPolicy.policies` (since
+   * model 0.5.0, modelProblems() checks, for a plugin that parses routing policy).
+   */
   readonly importPolicies?: readonly string[]
   /** Export policies by name, in order (Junos `export`). */
   readonly exportPolicies?: readonly string[]
@@ -369,4 +374,231 @@ export interface BgpGroup extends BgpPeer {
 export interface BgpNeighbor extends BgpPeer {
   /** The group it is in: names an entry of `groups` (modelProblems() checks). */
   readonly group?: string
+}
+
+// ---- Routing policy (since model 0.5.0)
+//
+// After OpenConfig `routing-policy` (defined sets and policy definitions) and `bgp-policy` (community and AS-path sets),
+// simplified. Device-wide: Junos `policy-options`, Cisco's prefix lists, community and AS-path lists and route maps,
+// IOS-XR's sets and route policies.
+//
+// **Ordered collections are keyed by position:** a policy's terms, a prefix list's entries, a set's entries. A key is a
+// decimal number with no sign or leading zero, from 0 to 4294967294 (modelProblems() checks): the source's sequence
+// number where it has one (a route map's `permit 10`, a prefix list's `seq 5`), else its place counting from 1 (Junos
+// terms and prefix lists, IOS-XR sets). JavaScript and JSON keep such keys in numeric order, whatever order they were
+// added in, so the model's order is the keys' order and a field's path stays the same. A name the source gives (a
+// Junos term's) is a leaf of its own.
+//
+// **Regular expressions are never translated:** each is kept as written, with the dialect it is written in
+// (`RegexDialect`). A renderer of another dialect leaves it `unsupported`, or translates it and says so with a
+// semantic warning on its field; it never writes it as if it were its own.
+
+/** Prefix lists, community and AS-path sets, and policies (since model 0.5.0). */
+export interface RoutingPolicy {
+  /** Per address family, by name: Cisco's `ip prefix-list` and `ipv6 prefix-list`; a Junos list goes in each family it has prefixes of. */
+  readonly prefixLists?: PrefixLists
+  /** By name: Junos `community`, Cisco `ip community-list`, `ip extcommunity-list` and `ip large-community-list`, IOS-XR `community-set`. */
+  readonly communitySets?: Keyed<CommunitySet>
+  /** By name: Junos `as-path` and `as-path-group`, Cisco `ip as-path access-list`, IOS-XR `as-path-set`. */
+  readonly asPathSets?: Keyed<AsPathSet>
+  /** By name: Junos `policy-statement`, Cisco `route-map`, IOS-XR `route-policy`. */
+  readonly policies?: Keyed<Policy>
+}
+
+export interface PrefixLists {
+  readonly ipv4?: Keyed<PrefixList>
+  readonly ipv6?: Keyed<PrefixList>
+}
+
+/** A prefix list: the first entry that matches a route decides (permit or deny); none matching is a deny. */
+export interface PrefixList {
+  readonly description?: string
+  /** By position (the source's `seq`, else its place from 1). An empty list is `{}`. */
+  readonly entries?: Keyed<PrefixListEntry>
+}
+
+/**
+ * The source's form of a prefix match, kept so a renderer can write it the same way where it can. Junos route filters:
+ * `exact`, `orlonger`, `longer`, `upto`, `prefix-length-range`. Cisco prefix lists: `exact` (no `ge` or `le`), `ge`,
+ * `le`, `ge-le`. Each is also said as a length range (`PrefixMatch`), which the form must agree with.
+ */
+export type PrefixMatchForm = 'exact' | 'orlonger' | 'longer' | 'upto' | 'prefix-length-range' | 'ge' | 'le' | 'ge-le'
+
+/**
+ * A prefix with the lengths it matches: routes within `prefix` whose length is from `minLength` to `maxLength`, both
+ * always given, with the prefix's length ≤ `minLength` ≤ `maxLength` ≤ 32 (IPv4) or 128 (IPv6). `10.0.0.0/8 orlonger`
+ * and `10.0.0.0/8 le 32` are `{ prefix: '10.0.0.0/8', minLength: 8, maxLength: 32 }`; an exact match is the prefix's
+ * own length twice.
+ */
+export interface PrefixMatch {
+  /** In CIDR form, with no host bits set (`10.0.0.0/8`, `2001:db8::/32`). */
+  readonly prefix: string
+  readonly minLength: number
+  readonly maxLength: number
+  /** How the source wrote it. Left out, a renderer chooses. */
+  readonly form?: PrefixMatchForm
+}
+
+export interface PrefixListEntry extends PrefixMatch {
+  /** Junos prefix lists only permit. */
+  readonly action: 'permit' | 'deny'
+}
+
+/**
+ * The regular-expression dialect a pattern is written in. `junos`: Junos's, which matches an AS path by whole AS
+ * numbers (`65000 .*`) and a community member by one community (`65000:.*`). `cisco`: Cisco's (IOS, NX-OS, IOS-XR
+ * `ios-regex`), which matches the path or the route's communities as a string of characters (`_65000_`).
+ */
+export type RegexDialect = 'junos' | 'cisco'
+
+/**
+ * A community set. A community is written in one form whatever the platform (communityType() says which it is):
+ * standard `65000:100` (each part up to 65535) or a well-known name (`no-export`, `no-advertise`, `no-export-subconfed`
+ * (Cisco `local-AS`), `graceful-shutdown`, `blackhole`, `accept-own`, `no-peer`, `llgr-stale`, `no-llgr`); extended
+ * `target:65000:100` or `origin:192.0.2.1:100` (a route target or site of origin, in a route distinguisher's forms);
+ * large `large:65000:1:2` (each part up to 4294967295).
+ */
+export interface CommunitySet {
+  /**
+   * By position. A route matches the first entry it fits (it carries every member and matches every regex), which
+   * permits or denies it; none fitting is a deny. A Junos community is one entry, permit, whose members a route must
+   * all carry.
+   */
+  readonly entries?: Keyed<CommunitySetEntry>
+  /**
+   * Which communities the set matches: Cisco's `ip community-list`, `ip extcommunity-list` or `ip large-community-list`.
+   * Given whenever an entry has a regex, which can't say it itself (`.*` matches any kind); every member is then of
+   * this kind. A Junos community whose members mix kinds, with no regex, leaves it out.
+   */
+  readonly type?: CommunityType
+  /** The dialect of the entries' `regexes`: given whenever one has a regex. */
+  readonly regexDialect?: RegexDialect
+}
+
+/** A community's kind (communityType() says which a value is). */
+export type CommunityType = 'standard' | 'extended' | 'large'
+
+export interface CommunitySetEntry {
+  readonly action: 'permit' | 'deny'
+  /** Communities, in the model's forms: a route must carry each. */
+  readonly members?: readonly string[]
+  /** Patterns, in the set's `regexDialect`, as written: a route must match each. */
+  readonly regexes?: readonly string[]
+}
+
+/** An AS-path set: the first entry whose regex matches a route's AS path permits or denies it; none matching is a deny. */
+export interface AsPathSet {
+  /** By position. */
+  readonly entries?: Keyed<AsPathSetEntry>
+  /** The dialect its regexes are written in: given whenever it has an entry. */
+  readonly regexDialect?: RegexDialect
+}
+
+export interface AsPathSetEntry {
+  readonly action: 'permit' | 'deny'
+  /** As written, in the set's `regexDialect`. */
+  readonly regex: string
+}
+
+/**
+ * What a policy does with a route no term decides: the platform's semantics, not configuration, kept with the data as
+ * BGP's `ebgpDefaultPolicy` is. `next-policy` (Junos): the next policy of the chain, and after the last, the
+ * protocol's default policy. `reject`: Cisco's route map (an implicit deny) and IOS-XR's route policy (a drop).
+ */
+export type PolicyFallThrough = 'next-policy' | 'reject'
+
+/**
+ * A routing policy: terms in order, each matching routes and acting on them. A route goes through the terms until one
+ * accepts or rejects it (or sends it to the next policy); a term with no flow action lets it go on to the next term.
+ */
+export interface Policy {
+  /** By position: a route map's sequence number, a Junos term's place from 1. */
+  readonly terms?: Keyed<PolicyTerm>
+  /**
+   * What happens to a route no term decides: always given (modelProblems() checks), as the same undecided route goes
+   * on to the next policy on Junos and is rejected on Cisco. A renderer gives it a `not-applicable` disposition and
+   * raises a semantic warning when its platform's differs.
+   */
+  readonly fallThrough: PolicyFallThrough
+}
+
+/**
+ * A term: Junos `term T { from …; then …; }` (a policy's `from` and `then` outside any term are its one unnamed term),
+ * a route map's sequence (`route-map M permit 10` with its `match` and `set` lines), an IOS-XR `if … then … endif` in
+ * its simple forms. Converted whole or not at all (docs/ARCHITECTURE.md, the per-term rule).
+ */
+export interface PolicyTerm {
+  /** The Junos term's name. */
+  readonly name?: string
+  /** Every condition given must hold (and within a list, any of its entries). None given matches every route. */
+  readonly matches?: PolicyMatches
+  readonly actions?: PolicyActions
+}
+
+/** A route's source protocol, in the model's names (Junos `direct` and Cisco `connected` are `connected`). */
+export type RouteProtocol = 'bgp' | 'ospf' | 'static' | 'connected' | 'local' | 'aggregate' | 'isis'
+
+export interface PolicyMatches {
+  /** Prefix lists by name, per family: a route matches when any of them permits it. */
+  readonly prefixLists?: PolicyPrefixLists
+  /**
+   * How the lists' prefixes match: `exact` (by default), or the prefix and longer ones (`orlonger`, Junos
+   * `prefix-list-filter L orlonger`) or only longer ones (`longer`).
+   */
+  readonly prefixListMatch?: 'exact' | 'orlonger' | 'longer'
+  /** Inline prefixes (Junos `route-filter`), by position: a route matches when any of them does. */
+  readonly routeFilters?: Keyed<PrefixMatch>
+  /** Community sets by name: a route matches when any permits it. */
+  readonly communitySets?: readonly string[]
+  /** AS-path sets by name: a route matches when any permits it. */
+  readonly asPathSets?: readonly string[]
+  readonly protocols?: readonly RouteProtocol[]
+  /** BGP neighbors' addresses. */
+  readonly neighbors?: readonly string[]
+  readonly tags?: readonly number[]
+  /** Only routes of this family (Junos `family inet`). */
+  readonly family?: 'ipv4' | 'ipv6'
+}
+
+export interface PolicyPrefixLists {
+  /** Names of `RoutingPolicy.prefixLists.ipv4` entries. */
+  readonly ipv4?: readonly string[]
+  /** Names of `RoutingPolicy.prefixLists.ipv6` entries. */
+  readonly ipv6?: readonly string[]
+}
+
+/**
+ * Where a matched route goes once the term's other actions are done: `accept` or `reject` it (a route map's `permit`
+ * or `deny`), on to the `next-term`, or to the `next-policy` of the chain. Left out, it goes on to the next term.
+ */
+export type PolicyFlow = 'accept' | 'reject' | 'next-term' | 'next-policy'
+
+export interface PolicyActions {
+  readonly flow?: PolicyFlow
+  /** Local preference, from 0 to 4294967295. */
+  readonly localPreference?: number
+  /** MED (Junos `metric`), from 0 to 4294967295. */
+  readonly med?: number
+  /** Communities added to the route's. */
+  readonly communityAdd?: CommunityValues
+  /** Communities that replace the route's. */
+  readonly communitySet?: CommunityValues
+  /** Communities taken off the route. */
+  readonly communityDelete?: CommunityValues
+  /** AS numbers put in front of the AS path, in order (`65000 65000`). */
+  readonly asPathPrepend?: readonly number[]
+  /** An IP address. */
+  readonly nextHop?: string
+  /** The local address as next hop (Junos `next-hop self`). */
+  readonly nextHopSelf?: boolean
+  /** From 0 to 4294967295. */
+  readonly tag?: number
+}
+
+/** Communities for an action: literal values (Cisco `set community 65000:1`), named sets (Junos `community add C`), or both. */
+export interface CommunityValues {
+  /** In the model's community forms. */
+  readonly values?: readonly string[]
+  /** Names of `RoutingPolicy.communitySets` entries. */
+  readonly sets?: readonly string[]
 }

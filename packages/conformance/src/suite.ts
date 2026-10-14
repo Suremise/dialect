@@ -11,7 +11,7 @@ import { createRegistry, MODEL_VERSION, type PlatformPlugin } from '@dialect/cor
 import { SECRET_ALLOWANCES, type SecretAllowance } from './allowances'
 import { checkFixture } from './checks'
 import { loadFixtures } from './fixtures'
-import { probesNotGiven, runProbes, type ProbeAdapter } from './probes'
+import { probesNotGivenByModel, runProbes, type ProbeAdapter } from './probes'
 import type { SecretsOptions } from './secrets'
 
 /**
@@ -50,9 +50,9 @@ export function describeConformance(plugin: PlatformPlugin, fixturesDir: string 
       }
       const results = runProbes(plugin, probes, { modelVersion, allowances, ...(configTools ? { configTools } : {}) })
       for (const r of results) for (const a of r.allowed ?? []) used.add(a.allowance)
-      // Model 0.4.0's cases an adapter written before it leaves out: skipped, never passing, until its phase 2 card.
-      const notGiven = probesNotGiven(probes)
-      if (notGiven.length) it.skip(`not given yet (model 0.4.0): ${notGiven.join(', ')}`, () => {})
+      // The cases of model 0.4.0 and 0.5.0 an adapter written before them leaves out: skipped, never passing, until the
+      // plugin's card for that phase gives them.
+      for (const [model, cases] of probesNotGivenByModel(probes)) it.skip(`not given yet (model ${model}): ${cases.join(', ')}`, () => {})
       for (const r of results) {
         // Not applicable is a declared skip, with why in its name.
         if (r.status === 'not-applicable') it.skip(`${r.probe}: ${r.case}: not applicable: ${r.problems.join('; ')}`, () => {})

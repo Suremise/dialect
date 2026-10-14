@@ -44,7 +44,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.4.1)
+## Core contracts (`@dialect/core`, model 0.5.0)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -84,7 +84,10 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
     and IOS-XE, `reject` on IOS-XR after RFC 8212). It is the source's default, not configuration, kept with the data
     as `enabledBy` is: a **parser** sets the side(s) that apply when the instance has an eBGP peer without an import
     or an export policy; a **renderer** gives it a `not-applicable` disposition and raises a `category: 'semantic'`
-    warning when its own default differs, naming the line, never a peer's address.
+    warning when its own default differs, naming the line, never a peer's address. Since 0.5.0 the policy names
+    resolve to `routingPolicy.policies`;
+- `routingPolicy` (since 0.5.0, after OpenConfig `routing-policy` and `bgp-policy`, simplified; below): prefix lists
+  per family, community sets, AS-path sets and policies with ordered terms.
 
 **Secrets are flags, never values:** OSPF `authentication` (`simple`, `md5`, `key-chain`, on an area or an interface)
 and a BGP peer's `authentication: true` say the source had a key; the key never reaches the model, so the target asks
@@ -92,7 +95,7 @@ for it (a needs-input item of kind `secret`, whose `field` is the flag's path) a
 renderer never writes a placeholder key**: unanswered, the key is left out, and the conformance kit's round trip
 excuses that leaf (below).
 
-These are the phase 1 and phase 2 areas; later minor versions add policy bodies and filters (phase 3).
+These are the phase 1 and phase 2 areas and phase 3's routing policy; a later minor version adds filters and ACLs.
 
 Three conventions keep the model walkable by the ledger:
 - **collections are maps keyed by their natural key** (interface name, address, prefix), never arrays of objects, so
@@ -120,11 +123,64 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 | 0.3.0 | `Subinterface.networkInstance` (VRF membership), `NetworkInstance.routeDistinguisher` and `routeTargets`, and the `virtual-router` type (#44) |
 | 0.4.0 | `Device.vlans`, `Interface.switching`, the `irb-or-svi` type and `Subinterface.routedVlan`, `NetworkInstance.ospf` and `bgp`, and the `vlans`, `ospf` and `bgp` feature areas (#59, phase 2) |
 | 0.4.1 | `Bgp.ebgpDefaultPolicy` (`BgpDefaultPolicy`), the source's default for eBGP peers without a policy (#68) |
+| 0.5.0 | `Device.routingPolicy` (`RoutingPolicy`): prefix lists, community and AS-path sets, policies and their terms, and the `routing-policy` feature area (#72, phase 3) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
 renderer, a subinterface's `networkInstance` for a 0.2 one or any of 0.4's VLAN, switch port, routed VLAN, OSPF and BGP
-fields for a 0.3 one, shows in the ledger as unrendered rather than being dropped (the kit's negative tests). Each
-plugin adopts 0.4 in its own phase 2 cards.
+fields for a 0.3 one, or any routing policy field for a 0.4 one, shows in the ledger as unrendered rather than being
+dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
+
+### Routing policy (model 0.5.0)
+
+`Device.routingPolicy` is device-wide: Junos `policy-options`, Cisco's prefix lists, community and AS-path lists and
+route maps, IOS-XR's sets and route policies.
+- `prefixLists.ipv4` and `.ipv6`, by name (Cisco's two namespaces; a Junos list goes in each family it has prefixes
+  of), each with a `description` and ordered `entries`: an `action` (`permit`, `deny`; Junos lists only permit) and a
+  **prefix match**: the `prefix` in CIDR form with no host bits set, and the lengths it matches as `minLength` and
+  `maxLength`, always both, from the prefix's own length to 32 or 128. Junos's `exact`, `orlonger`, `longer`, `upto`
+  and `prefix-length-range` and Cisco's `ge`/`le` all come down to that range; `form` keeps how the source wrote it
+  (`exact`, `orlonger`, `longer`, `upto`, `prefix-length-range`, `ge`, `le`, `ge-le`), so a renderer can write it the
+  same way where it can, and must agree with the range. The first entry that matches decides; none is a deny.
+- `communitySets`, by name, with ordered `entries` (an `action`, `members` a route must all carry, `regexes` it must
+  all match; a Junos community is one permit entry), and `asPathSets`, entries of an `action` and a `regex`. A
+  community has one spelling whatever the platform (`communityType()`): standard `65000:100` or a well-known name
+  (`no-export`, `no-export-subconfed` for Cisco's `local-AS`…), extended `target:…` or `origin:…` in a route
+  distinguisher's forms, large `large:65000:1:2`. A community set's `type` (`standard`, `extended`, `large`: Cisco's
+  `ip community-list`, `ip extcommunity-list`, `ip large-community-list`) is given whenever it has a regex, which can't
+  say which attribute it matches (`.*` matches any); its members are then all of that kind. A Junos community mixing
+  kinds in literal members leaves it out.
+- **Regexes are never translated silently.** Each is kept as written, and its set says its `regexDialect`: `junos`
+  (an AS path by whole AS numbers, a community member by one community) or `cisco` (the path or the route's
+  communities as a string, IOS-XR's `ios-regex` too). A renderer of another dialect leaves the regex `unsupported`, or
+  translates it and raises a semantic warning on its field or set; it never writes it as its own.
+- `policies`, by name: Junos `policy-statement`, Cisco `route-map`, IOS-XR `route-policy`. Each has ordered `terms`
+  (a Junos term with its `name`, or a policy's `from`/`then` outside any term as one unnamed term; a route map's
+  sequence; an RPL `if` block in its simple forms) and its **`fallThrough`**: what happens to a route no term decides,
+  the platform's semantics kept with the data as `ebgpDefaultPolicy` is. `next-policy` on Junos (the next policy of
+  the chain, then the protocol's default policy), `reject` for a route map's implicit deny and RPL's drop. It is
+  required on every policy (the type and `modelProblems()`), since the same undecided route goes on on Junos and is
+  rejected on Cisco; a renderer gives it `not-applicable` and raises a semantic warning when its own differs.
+  - A term's `matches` all hold for a route to match (within a list, any entry): `prefixLists` by name per family,
+    with `prefixListMatch` (`exact` by default, `orlonger`, `longer`: Junos `prefix-list-filter`), inline
+    `routeFilters` (prefix matches), `communitySets`, `asPathSets`, `protocols` (the model's names: `connected` for
+    Junos `direct`), `neighbors`, `tags` and `family`. None given matches every route.
+  - Its `actions`: the `flow` (`accept`, `reject`, `next-term`, `next-policy`; left out, the next term), and
+    `localPreference`, `med`, `communityAdd`/`communitySet`/`communityDelete` (literal `values`, named `sets` or both),
+    `asPathPrepend` (AS numbers in order), `nextHop` or `nextHopSelf`, and `tag`.
+
+**Ordered collections are keyed by position:** terms, prefix list entries and set entries, by the source's sequence
+number where it has one (`route-map M permit 10`, `seq 5`), else their place from 1. A position is a decimal number
+with no sign or leading zero, up to 4294967294, which JavaScript and JSON keep in numeric order however the keys were
+added, so a field's path is stable and the model's order is its keys' order without a separate order list.
+
+**The per-term rule.** A policy is converted term by term, each term **whole or not at all**: a term the plugin can't
+parse or render in full is `unsupported` as a whole (all its statements, or all its fields), never partly converted.
+The rest of the policy is still converted only when that is semantically safe, which `termSkipSafe(policy, key)`
+decides: leaving a term out is safe when later terms see the same routes the same way without it, that is, when it
+decides nothing (no `flow`, or `next-term`) and changes nothing a later term matches on (communities for a
+community-set match, the AS path for an AS-path match, the tag for a tag match). The last term always is. Anything it
+doesn't know (a later version's action, or a later term's match) counts against it. When leaving a term out isn't
+safe, the **whole policy** is `unsupported` instead. The conformance kit checks the rule (below).
 
 ### Validation (`validate.ts`)
 
@@ -144,6 +200,23 @@ From 0.4.0, references resolve and values are in range:
   numbers plain, from 1 to 4294967295 (`isAsNumber()`, `model.as-number`); an OSPF interface and a BGP update source
   name an interface, and with a `.N` that isn't part of a key, one of its subinterfaces (`model.unknown-interface`); a
   neighbor's group is one of its instance's (`model.unknown-bgp-group`).
+
+From 0.5.0, routing policy (`routingPolicyProblems()`, which modelProblems() runs):
+- keys of terms, entries and route filters are positions (`isPositionKey()`, `model.position`); a prefix is in CIDR
+  form with no host bits set, of its list's family (`parsePrefix()`, `model.prefix`), and its lengths run from its own
+  length to 32 or 128, least first, agreeing with its `form` (`model.prefix-length`);
+- every entry's `action` is `permit` or `deny` (`model.action`), every policy's `fallThrough` is `next-policy` or
+  `reject` (`model.fall-through`), and a term's `flow` is one of the model's (`model.flow`);
+- communities are in the model's forms (`communityType()`, `model.community`); a community set with a regex says its
+  `type`, one of the model's, and its members are of it (`model.community-type`); a set with a regex, or an AS-path set
+  with an entry, says its dialect, and a dialect is one of the model's (`model.regex-dialect`); local preference, MED
+  and tags are from 0 to 4294967295 (`model.number`), a prepended AS is an AS number (`model.as-number`), a next hop
+  or neighbor an IP address (`isIpAddress()`, `model.ip-address`);
+- references resolve: a term's prefix lists (in their family), community sets and AS-path sets, and an action's
+  community sets (`model.unknown-prefix-list`, `model.unknown-community-set`, `model.unknown-as-path-set`), and a BGP
+  peer's or family's import and export policies (`model.unknown-policy`). The last is turned off by
+  `modelProblems(device, { policyReferences: false })`, which the kit uses for a plugin that doesn't parse routing
+  policy: it keeps the names alone, as phase 2 did.
 
 Messages never quote the value, which can share its text with a secret. The conformance kit runs it on every parse and
 reparse.
@@ -231,13 +304,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.4.1.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.5.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.4.1", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.5.0", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
@@ -258,7 +331,9 @@ describeConformance(plugin, new URL('./fixtures', import.meta.url))
 ```
 
 Each fixture goes through five checks (`checkFixture()`):
-1. parse → no error, a model with no `modelProblems()`, and the expected model;
+1. parse → no error, a model with no `modelProblems()`, and the expected model. A BGP policy name must name a policy of
+   the model only for a plugin whose capabilities parse `routing-policy` (model 0.5.0): one that doesn't keeps the
+   names alone, as phase 2 did;
 2. render → no error, and the expected text (skipped when there is none and the render reported no error);
 3. render → reparse → no error, a model with no `modelProblems()`, and the same model, except a leaf the render left
    to the user: a populated leaf it didn't write that a `secret` needs-input item (with an id) names as its `field`
@@ -267,7 +342,14 @@ Each fixture goes through five checks (`checkFixture()`):
    the model has empty still counts. The result lists them (`deferred`), and the
    suite puts them in the test's name, so none is left out unseen. A leaf dropped without such an item, or left to an
    item of another kind, still fails;
-4. the coverage ledger is complete for the parse and the render;
+4. the coverage ledger is complete for the parse and the render, and policy terms keep the per-term rule
+   (`termProblems()`): on the parse, the statements a term is made of (the smallest subtree holding every statement
+   that maps into it, widened while its parent maps nothing outside the term) are none of them `unsupported` once
+   any maps into the model; on the render, a term's fields are all `unsupported` or none is, and a term left out whose
+   skip isn't safe (`termSkipSafe()`) leaves every field of its policy `unsupported` (its `fallThrough` may be
+   `not-applicable`). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
+   judge, from the term's actions, and its own tests show it; so is a partial term in a flat syntax with no
+   containers (one statement per line), whose statements the kit can't group;
 5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
 
 An error a step reports (a diagnostic with `severity: 'error'`) fails its check even when its output matches;
@@ -316,15 +398,27 @@ what comes out the same way for every platform (`runProbes()`):
 5. **VRF scoping** (a delete, a DNS change, a static route, OSPF or BGP change): every leaf that differs between `base` and
    `changed` is the VRF's, and the case changes something. A leaf is the VRF's under its network instance, or under an
    entry that belongs to it: where `base` puts an entry it already has (no `networkInstance`: the global table), and
-   where `changed` puts a new one, so a change can't move another VRF's entry in and make its edits look in scope.
+   where `changed` puts a new one, so a change can't move another VRF's entry in and make its edits look in scope;
+6. **unknown references** (model 0.5.0: a term's prefix list, community set or AS-path set, a BGP peer's policy, none
+   of them defined): checked as a malformed value is, with the missing name as the value, and the parse's model has no
+   `modelProblems()`, BGP policy names included whatever the capabilities say;
+7. **regexes kept as written** (model 0.5.0): a source with AS-path and community regexes in the plugin's dialect, and
+   each regex as written. The parse keeps each verbatim in a set that says the dialect, all in one; a render of the
+   kit's own sets (`PROBE-AS-PATH`, `PROBE-COMMUNITY-SET`) in each other dialect leaves each regex `unsupported`, or
+   `rendered` with a semantic warning (not info) on the regex or its set, and never `not-applicable`.
+
+Model 0.5.0 also adds cases to the probes above: negation of a policy term and of a prefix list entry, and a malformed
+prefix and prefix length.
 
 Every probe source also goes through the five fixture checks, the secrets check with the community names its parse
 has (and a cleared one's) among its secrets. Every probe and case is a choice in the adapter's types: given, or
 `{ notApplicable: 'why' }` for an area the plugin doesn't have, which the suite shows as a skipped test with its reason.
 The cases model 0.4.0 added (the VLAN and BGP group uses, BGP and OSPF negation, AS and VLAN malformed values, OSPF and
-BGP scoping) are optional in the types, so an adapter written before 0.4 compiles and runs as it did: `runProbes()`
-leaves out the ones it doesn't give, `probesNotGiven()` lists them, and the suite shows them as one skipped test, `not
-given yet (model 0.4.0)`, until the plugin's phase 2 card gives each or declares it not applicable.
+BGP scoping) and 0.5.0 added (term and entry negation, prefix and length malformed values, the reference and regex
+probes) are optional in the types, so an older adapter compiles and runs as it did: `runProbes()` leaves out the ones
+it doesn't give, `probesNotGiven()` lists them, and the suite shows them as a skipped test per model version (`not
+given yet (model 0.4.0)`, `(model 0.5.0)`, from `probesNotGivenByModel()`), until the plugin's card for that phase
+gives each or declares it not applicable.
 A plugin with no adapter shows its probes as one skipped test, never as passing; each existing plugin's adapter is its
 own lane's follow-up card, which fixes what its probes find in the plugin (that lane owns it), so the probes have no
 allowances of their own; a probe source's secrets go through the secrets allowances like any fixture's.
@@ -344,8 +438,14 @@ checks catch careless plugins:
 - a line-language probe stub (`tests/probeStub.ts`) with a switch for each probe's bug class: `{}` containers that
   turn `__proto__` into a prototype, a client list dropped on parse or on render, `no` forms that remove nothing, any
   address, AS number or VLAN ID taken as one, and a `no` in one VRF that removes the same thing (a route, a BGP
-  neighbor, an OSPF interface) everywhere. Each fails its probe; the
-  careful stub passes them all (`tests/probes.test.ts`).
+  neighbor, an OSPF interface) everywhere; since 0.5.0, a prefix or length out of range taken as one, a name kept
+  that nothing defines, and another dialect's regex written as its own. Each fails its probe; the
+  careful stub, which keeps the per-term rule itself, passes them all (`tests/probes.test.ts`);
+- a 0.4.1 renderer leaves every routing policy field unrendered; renders that convert part of a term, or leave out a
+  term that rejects while converting the rest of its policy, fail the ledger check, and leaving out a term that changes
+  nothing later terms see, or the whole policy, passes; parses with a term partly unsupported fail it, and one left out
+  whole passes; a BGP policy name that resolves to nothing fails the parse check only for a plugin that parses
+  routing policy, and a policy without a fall-through, or with one the model doesn't have, fails it too.
 
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
