@@ -187,6 +187,13 @@ product decisions.
   contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos
   silent discard), or a filter relying on its end, gets a semantic warning. A Cisco remark is kept as its entry's
   description.
+- **Link aggregation (model 0.5.4)** converts member links with their aggregate and its LACP mode (active, passive, or
+  static: Cisco `mode on`) and minimum links. Cisco gives the mode on each member: members of one channel group that
+  agree give it to the aggregate, and members that don't are an **error**, never a guess, as no device bundles them so.
+  IOS / IOS-XE and NX-OS (#108) make a Port-channel the config doesn't configure, as the device does, and NX-OS writes
+  `feature lacp` whenever LACP needs it. A member is bundled into its aggregate by number, so it is written only once
+  the aggregate has the target's name (`ae0` → `Port-channel1`, from the interface map's suggestion); until then it is
+  listed as not converted. PAgP is not converted.
 
 ## 5. Configs and test data
 

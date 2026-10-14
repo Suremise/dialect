@@ -7,14 +7,44 @@
 // needs-input items, written when answered (Context.inputs) and never made up.
 import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type BgpPeer, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type OspfInterface, type RenderResult, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
 import { isIpv4, isIpv6 } from './addresses'
-import { featuresFor, OSPF_FEATURE, VPN_FEATURE } from './features'
-import { isSwitchable } from './names'
+import { featuresFor, LACP_FEATURE, OSPF_FEATURE, VPN_FEATURE } from './features'
+import { interfaceType, isSwitchable } from './names'
 import { planFilters } from './renderAcl'
 import { planRoutingPolicy } from './renderPolicy'
-import { SEVERITY_LEVELS, SNMP_GROUPS } from './parse'
+import { MAX_CHANNEL_GROUP, MAX_MIN_LINKS, SEVERITY_LEVELS, SNMP_GROUPS } from './parse'
 import { vlanEntries } from './vlans'
 
 type Segments = readonly (string | number)[]
+
+/** A member link's `channel-group` line, and whether it says its aggregate's LACP mode; or why it isn't written. */
+type ChannelGroupLine = { readonly line: string; readonly lacp: boolean } | { readonly why: string }
+
+/**
+ * Each member link's channel group (model 0.5.4), by interface: NX-OS bundles a member into `port-channelN` by N, so the
+ * aggregate must be named so, and gives the aggregate's LACP mode on each member (`on` for `static`; no mode for none).
+ */
+function planChannelGroups(model: Device): Map<string, ChannelGroupLine> {
+  const out = new Map<string, ChannelGroupLine>()
+  const interfaces = model.interfaces ?? {}
+  for (const [name, iface] of Object.entries(interfaces)) {
+    const aggregate = iface.aggregate
+    if (aggregate === undefined) continue
+    const target = Object.hasOwn(interfaces, aggregate) ? interfaces[aggregate] : undefined
+    const n = /^po(?:rt-channel)?(\d+)$/i.exec(aggregate)?.[1]
+    const group = n !== undefined && Number(n) >= 1 && Number(n) <= MAX_CHANNEL_GROUP ? Number(n) : undefined
+    const lacp = target?.aggregation?.lacp
+    const mode = lacp === 'active' || lacp === 'passive' ? ` mode ${lacp}` : lacp === 'static' ? ' mode on' : ''
+    if ((iface.type ?? interfaceType(name)) !== 'ethernet') out.set(name, { why: 'only an Ethernet interface is a member link on NX-OS' })
+    else if (target?.type !== 'aggregate') out.set(name, { why: 'names an interface that isn\'t an aggregate' })
+    else if (group === undefined) out.set(name, { why: `NX-OS bundles a member into the port-channel of its number, from 1 to ${MAX_CHANNEL_GROUP}, and this aggregate isn't named so` })
+    else if (lacp !== undefined && !mode) out.set(name, { why: 'its aggregate\'s LACP mode isn\'t one NX-OS has' })
+    else out.set(name, { line: `  channel-group ${group}${mode}`, lacp: lacp !== undefined })
+  }
+  return out
+}
+
+/** Whether an aggregate's minimum links is one NX-OS takes. */
+const writesMinLinks = (minLinks: number | undefined): minLinks is number => minLinks !== undefined && Number.isInteger(minLinks) && minLinks >= 1 && minLinks <= MAX_MIN_LINKS
 
 /** A word NX-OS reads back as one: quoted when it has a space in it. */
 const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
@@ -76,6 +106,10 @@ export function render(model: Device, context: Context): RenderResult {
   if (Object.entries(model.networkInstances ?? {}).some(([name, instance]) => name !== 'default' && writesVpn(instance))) features.add(VPN_FEATURE)
   if (Object.values(model.networkInstances ?? {}).some((instance) => instance.bgp !== undefined)) features.add(VPN_FEATURE)
   if (Object.values(model.networkInstances ?? {}).some((instance) => instance.ospf !== undefined)) features.add(OSPF_FEATURE)
+  // LACP: a member bundling with it (mode active or passive), or an aggregate's minimum links.
+  const channelGroups = planChannelGroups(model)
+  if ([...channelGroups.values()].some((c) => 'line' in c && / mode (?:active|passive)$/.test(c.line))) features.add(LACP_FEATURE)
+  if (Object.values(model.interfaces ?? {}).some((i) => i.type === 'aggregate' && writesMinLinks(i.aggregation?.minLinks))) features.add(LACP_FEATURE)
   if (features.size) {
     separator()
     for (const feature of [...features].sort()) emit(`feature ${feature}`)
@@ -358,8 +392,13 @@ export function render(model: Device, context: Context): RenderResult {
   const ospf = ospfInterfaces()
   // Access lists are planned first, as an interface applies one only when it is written (renderAcl.ts).
   const aclPlan = planFilters(model.filters, skip, skipAll)
+  /** Aggregates whose LACP mode a member's `channel-group` wrote. */
+  const lacpWritten = new Set<string>()
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
   emptyContainer(model.interfaces, ['interfaces'])
+  // NX-OS gives an aggregate's mode on its members only: with none written, it has nowhere to go.
+  for (const [name, iface] of Object.entries(model.interfaces ?? {}))
+    if (iface.aggregation?.lacp !== undefined && !lacpWritten.has(name)) skip(['interfaces', name, 'aggregation', 'lacp'], 'unsupported', 'NX-OS gives the LACP mode on each member link, and no member of this aggregate is written')
   // An OSPF interface whose interface wasn't written, with why when it is known.
   for (const entries of ospf.values()) for (const e of entries) if (!e.done) skipAll(e.value, e.at, e.why ?? 'OSPF on an interface that isn\'t written')
 
@@ -388,6 +427,7 @@ export function render(model: Device, context: Context): RenderResult {
     if (isSwitchable(name)) emit(routed ? '  no switchport' : '  switchport')
     if (iface.switching !== undefined) renderSwitching(name, iface.switching, routed)
     if (iface.mtu !== undefined) emit(`  mtu ${iface.mtu}`, [...at, 'mtu'])
+    renderLag(name, iface, at)
     const isMgmt = /^mgmt0$/i.test(name)
     // mgmt0 is always in the management VRF: said, as NX-OS shows it, whether the model says so or not.
     if (isMgmt && main?.networkInstance === undefined) emit('  vrf member management')
@@ -451,6 +491,26 @@ export function render(model: Device, context: Context): RenderResult {
   }
 
   /** A switch port's settings, after its `switchport` line. A routed port, or one NX-OS can't switch, has none. */
+  /** A member link's `channel-group` (planned with the features) and an aggregate's `lacp min-links` (model 0.5.4). */
+  function renderLag(name: string, iface: Interface, at: Segments) {
+    const aggregation = iface.aggregation
+    if (aggregation !== undefined) {
+      const lagAt = [...at, 'aggregation']
+      emptyContainer(aggregation, lagAt)
+      if (iface.type !== 'aggregate') skipAll(aggregation, lagAt, 'only an aggregate has LAG settings')
+      else if (aggregation.minLinks !== undefined) {
+        if (writesMinLinks(aggregation.minLinks)) emit(`  lacp min-links ${aggregation.minLinks}`, [...lagAt, 'minLinks'])
+        else skip([...lagAt, 'minLinks'], 'unsupported', `not a number of links from 1 to ${MAX_MIN_LINKS}`)
+      }
+    }
+    const planned = channelGroups.get(name)
+    if (iface.aggregate === undefined || planned === undefined) return
+    if ('why' in planned) return skip([...at, 'aggregate'], 'unsupported', planned.why)
+    const first = planned.lacp && !lacpWritten.has(iface.aggregate)
+    lacpWritten.add(iface.aggregate)
+    emit(planned.line, [...at, 'aggregate'], ...(first ? [['interfaces', iface.aggregate, 'aggregation', 'lacp']] : []))
+  }
+
   function renderSwitching(name: string, switching: Switching, routed: boolean) {
     const at = ['interfaces', name, 'switching']
     if (!isSwitchable(name) || routed) {

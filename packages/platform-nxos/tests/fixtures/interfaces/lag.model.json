@@ -1,0 +1,64 @@
+{
+  "modelVersion": "0.5.4",
+  "device": {
+    "system": {
+      "hostname": "leaf-1"
+    },
+    "interfaces": {
+      "port-channel10": {
+        "type": "aggregate",
+        "description": "Uplink bundle to spine",
+        "switching": {
+          "mode": "trunk"
+        },
+        "aggregation": {
+          "minLinks": 2,
+          "lacp": "active"
+        }
+      },
+      "port-channel20": {
+        "type": "aggregate",
+        "description": "Static bundle to a server"
+      },
+      "Ethernet1/1": {
+        "type": "ethernet",
+        "description": "Spine link A",
+        "switching": {
+          "mode": "trunk"
+        },
+        "aggregate": "port-channel10"
+      },
+      "Ethernet1/2": {
+        "type": "ethernet",
+        "description": "Spine link B",
+        "switching": {
+          "mode": "trunk"
+        },
+        "aggregate": "port-channel10"
+      },
+      "Ethernet1/3": {
+        "type": "ethernet",
+        "aggregate": "port-channel20"
+      },
+      "Ethernet1/4": {
+        "type": "ethernet",
+        "aggregate": "port-channel20"
+      },
+      "Ethernet1/5": {
+        "type": "ethernet",
+        "description": "Joins a bundle the text doesn't configure",
+        "aggregate": "port-channel30"
+      },
+      "Ethernet1/6": {
+        "type": "ethernet",
+        "description": "Left its bundle"
+      },
+      "port-channel30": {
+        "type": "aggregate",
+        "aggregation": {
+          "lacp": "passive"
+        }
+      }
+    }
+  }
+}

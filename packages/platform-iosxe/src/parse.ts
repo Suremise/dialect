@@ -93,6 +93,15 @@ const ignored = (reason: string): StatementDisposition => ({ kind: 'ignored-by-d
 const INTEGER = /^\d+$/
 
 /** A VLAN ID as IOS writes it (`10`), from 1 to 4094, or null. */
+/**
+ * The highest channel group (Port-channel) number: the widest any Cisco platform takes (NX-OS's), as IOS's own range
+ * depends on the platform (64 on many routers, more on switches).
+ */
+export const MAX_CHANNEL_GROUP = 4096
+/** A channel group number from `s`, 1 to MAX_CHANNEL_GROUP, or null. */
+export const channelGroupNumber = (s: string): number | null => (INTEGER.test(s) && Number(s) >= 1 && Number(s) <= MAX_CHANNEL_GROUP ? Number(s) : null)
+/** The most `port-channel min-links` this plugin takes: no IOS-XE Port-channel bundles more than 16 links. */
+export const MAX_MIN_LINKS = 16
 const vlanId = (s: string): number | null => (INTEGER.test(s) && Number(s) >= 1 && Number(s) <= 4094 ? Number(s) : null)
 /** Every VLAN ID, as IOS reads `all` (and a trunk with no allowed list). */
 const ALL_VLANS: ReadonlySet<number> = new Set(Array.from({ length: 4094 }, (_, i) => i + 1))
@@ -398,6 +407,98 @@ export function parse(text: string, _context: Context): ParseResult {
     return unsupported()
   }
 
+  // ---- link aggregation (model 0.5.4): placed once every statement is read, as a member's mode is its aggregate's
+
+  /** A member link's `channel-group N [mode M]`: no mode, as IOS routers take it, bundles without LACP, as `on` does. */
+  type ChannelGroup = { readonly node: IosNode; readonly ctx: InterfaceContext; readonly group: number; readonly mode?: 'active' | 'passive' | 'on' }
+  /** Per member interface: its channel group, by the statement that put it there. */
+  const channelGroups = new Map<string, ChannelGroup>()
+
+  /**
+   * `channel-group N [mode active|passive|on]` and `no channel-group`: the interface's `aggregate`, and its mode, which
+   * the end of the text puts on the aggregate once every member's is known. A later channel group supersedes an earlier
+   * one, as on the device.
+   */
+  const mapChannelGroup = (node: IosNode, ctx: InterfaceContext): StatementDisposition => {
+    const lw = node.words.map((x) => x.toLowerCase())
+    const remove = lw[0] === 'no'
+    const a = lw.slice(remove ? 2 : 1)
+    const number = a[0] === undefined ? null : channelGroupNumber(a[0])
+    const modeWords = a.length === 1 || (a.length === 3 && a[1] === 'mode')
+    if (remove) {
+      if (a.length && (!modeWords || number === null)) return unsupported()
+      const current = channelGroups.get(ctx.name)
+      if (!current || ctx.isSub) return ignored('not in a channel group: nothing to convert')
+      if (number !== null && number !== current.group) return ignored('not in that channel group: nothing to convert')
+      channelGroups.delete(ctx.name)
+      set(current.node, ignored(`removed by line ${line(node)}`))
+      return ignored(`takes the interface out of the channel group on line ${line(current.node)}: nothing to convert`)
+    }
+    if (ctx.isSub) return unsupported('a subinterface isn\'t a member link: its main interface is')
+    if (interfaceType(ctx.name) !== 'ethernet') return unsupported('only an Ethernet interface is a member link of a Port-channel')
+    if (number === null) return unsupported(`not a channel group number from 1 to ${MAX_CHANNEL_GROUP}`)
+    if (!modeWords) return unsupported()
+    const mode = a[2]
+    if (mode === 'auto' || mode === 'desirable') return unsupported('PAgP, which the model doesn\'t have (only LACP and static)')
+    if (mode !== undefined && mode !== 'active' && mode !== 'passive' && mode !== 'on') return unsupported()
+    const previous = channelGroups.get(ctx.name)
+    if (previous) set(previous.node, ignored(`superseded by line ${line(node)}`))
+    channelGroups.set(ctx.name, { node, ctx, group: number, ...(mode ? { mode } : {}) })
+    return pending()
+  }
+
+  /**
+   * Once every statement is read: each channel group's members name their aggregate, the `Port-channelN` the text
+   * configures (as written: `Po1` is it), or one the channel group makes, as IOS does. Members that agree give the
+   * aggregate its mode (`on` is `static`, and no mode says nothing); members that don't are left out, with an error: IOS
+   * bundles a channel group's members with one mode, so the text can't be what a device runs.
+   */
+  const finishChannelGroups = () => {
+    const groups = new Map<number, ChannelGroup[]>()
+    for (const m of channelGroups.values()) groups.set(m.group, [...(groups.get(m.group) ?? []), m])
+    const interfaces = Object.keys((model.get(['interfaces']) as Obj | undefined) ?? {})
+    for (const [group, members] of groups) {
+      const modes = new Set(members.map((m) => m.mode ?? 'on'))
+      if (modes.size > 1) {
+        const lines = members.map((m) => line(m.node)).sort((x, y) => x - y)
+        for (const m of members) set(m.node, unsupported(`its channel group's members give different modes (${linesText(lines)}): left out`))
+        const first = members.find((m) => line(m.node) === lines[0])!.node
+        diagnostics.push({ severity: 'error', category: 'semantic', code: 'iosxe.channel-group-modes', message: `The members of one channel group give different modes (${linesText(lines)}): IOS bundles them with one.`, span: first.span, statement: first.id })
+        continue
+      }
+      const name = interfaces.find((n) => interfaceType(n) === 'aggregate' && Number(/\d+$/.exec(n)?.[0]) === group) ?? `Port-channel${group}`
+      const fields = model.get(['interfaces', name]) === undefined ? ensureInterface(name) : []
+      const mode = members.find((m) => m.mode !== undefined)?.mode
+      if (mode !== undefined) fields.push(model.set(['interfaces', name, 'aggregation', 'lacp'], mode === 'on' ? 'static' : mode))
+      for (const m of members) set(m.node, mapped([model.set(['interfaces', m.ctx.name, 'aggregate'], name), ...fields]))
+    }
+  }
+
+  /**
+   * `port-channel min-links N` and its `no` form, on a Port-channel: the aggregate's `minLinks`. A later one supersedes
+   * an earlier one.
+   */
+  const mapMinLinks = (node: IosNode, ctx: InterfaceContext): StatementDisposition => {
+    const lw = node.words.map((x) => x.toLowerCase())
+    const remove = lw[0] === 'no'
+    const a = lw.slice(remove ? 3 : 2)
+    const path = ['interfaces', ctx.name, 'aggregation', 'minLinks']
+    if (remove) {
+      if (a.length > 1) return unsupported()
+      const previous = owners.get(fieldPath(...path))
+      if (!previous) return ignored('not set: nothing to convert')
+      owners.delete(fieldPath(...path))
+      model.remove(path)
+      model.removeIfEmpty(['interfaces', ctx.name, 'aggregation'])
+      set(previous, ignored(`removed by line ${line(node)}`))
+      return ignored(`removes the setting on line ${line(previous)}: nothing to convert`)
+    }
+    if (ctx.isSub || interfaceType(ctx.name) !== 'aggregate') return unsupported('only a Port-channel has minimum links')
+    if (a.length !== 1 || !INTEGER.test(a[0]) || Number(a[0]) < 1 || Number(a[0]) > MAX_MIN_LINKS) return unsupported(`not a number of links from 1 to ${MAX_MIN_LINKS}`)
+    claim(fieldPath(...path), node)
+    return mapped([model.set(path, Number(a[0]))])
+  }
+
   // ---- OSPF on an interface: placed once every statement is read, as it depends on the processes and the addresses
 
   type Setting = { readonly value: string | number; readonly node: IosNode }
@@ -473,6 +574,8 @@ export function parse(text: string, _context: Context): ParseResult {
     const own = ctx.isSub ? sub : iface
 
     if (lw[0] === 'switchport' || (lw[0] === 'no' && lw[1] === 'switchport')) return mapSwitchport(node, ctx)
+    if (lw[0] === 'channel-group' || (lw[0] === 'no' && lw[1] === 'channel-group')) return mapChannelGroup(node, ctx)
+    if ((lw[0] === 'port-channel' && lw[1] === 'min-links') || (lw[0] === 'no' && lw[1] === 'port-channel' && lw[2] === 'min-links')) return mapMinLinks(node, ctx)
     const attached = acl.attach(node, sub)
     if (attached) return attached
     if ((lw[0] === 'ip' && lw[1] === 'ospf') || (lw[0] === 'no' && lw[1] === 'ip' && lw[2] === 'ospf')) return mapInterfaceOspf(node, ctx)
@@ -1609,6 +1712,7 @@ export function parse(text: string, _context: Context): ParseResult {
 
   for (const node of nodes) mapTop(node)
   for (const run of deferred) run()
+  finishChannelGroups()
 
   // Routing policy (model 0.5.0), once every list a route map names is read; BGP's route maps resolve to it below.
   const routingPolicy = policy.finish()

@@ -8,7 +8,8 @@
 // is a needs-input item, written only once answered.
 import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type RenderResult, type BgpPeer, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
 import { isIpv4, lengthMask } from './addresses'
-import { SEVERITIES } from './parse'
+import { interfaceType } from './names'
+import { channelGroupNumber, MAX_CHANNEL_GROUP, MAX_MIN_LINKS, SEVERITIES } from './parse'
 import { planFilters } from './renderAcl'
 import { planRoutingPolicy } from './renderPolicy'
 
@@ -336,8 +337,13 @@ export function render(model: Device, context: Context): RenderResult {
 
   // ---- interfaces
 
+  /** Aggregates whose LACP mode a member's `channel-group` wrote. */
+  const lacpWritten = new Set<string>()
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
   emptyContainer(model.interfaces, ['interfaces'])
+  // IOS gives an aggregate's mode on its members only: with none written, it has nowhere to go.
+  for (const [name, iface] of Object.entries(model.interfaces ?? {}))
+    if (iface.aggregation?.lacp !== undefined && !lacpWritten.has(name)) skip(['interfaces', name, 'aggregation', 'lacp'], 'unsupported', 'IOS gives the LACP mode on each member link, and no member of this aggregate is written')
   // An OSPF interface whose block wasn't written (none should be): its fields say so.
   for (const left of ospfLines.values()) for (const l of left) for (const f of l.fields) skip(f, 'unsupported', 'on an interface IOS doesn\'t write')
 
@@ -381,13 +387,15 @@ export function render(model: Device, context: Context): RenderResult {
     const named = routed !== undefined && iface.type === 'irb-or-svi' && isVlanId(routed) && new RegExp(`^(?:Vlan|Vl)0*${routed}$`, 'i').test(name)
     if (routed !== undefined && !named) skip(routedField, 'unsupported', 'IOS routes a VLAN on the interface named for it (VlanN for VLAN N), and this one isn\'t')
 
-    const hasOwn = iface.description !== undefined || iface.enabled !== undefined || iface.mtu !== undefined || iface.switching !== undefined || main !== undefined || ospfLines.has(`${name}|0`)
+    const lag = iface.aggregate !== undefined || iface.aggregation !== undefined
+    const hasOwn = iface.description !== undefined || iface.enabled !== undefined || iface.mtu !== undefined || iface.switching !== undefined || lag || main !== undefined || ospfLines.has(`${name}|0`)
     if (hasOwn || !subs.some(([index]) => index !== '0')) {
       separator()
       emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []), ...(named ? [routedField] : []))
       if (iface.description !== undefined) emit(` description ${iface.description}`, [...at, 'description'])
       if (iface.mtu !== undefined) emit(` mtu ${iface.mtu}`, [...at, 'mtu'])
       if (iface.switching !== undefined) renderSwitching(iface, at)
+      renderLag(name, iface, at)
       if (main) {
         const sub = [...at, 'subinterfaces', '0']
         if (isEmpty(main)) skip(sub, 'not-applicable', 'IOS has no unit 0 of its own: the main interface is it')
@@ -414,6 +422,38 @@ export function render(model: Device, context: Context): RenderResult {
       emitOspf(name, index)
       if (sub.enabled !== undefined) emit(sub.enabled ? ' no shutdown' : ' shutdown', [...subAt, 'enabled'])
     }
+  }
+
+  /**
+   * A member link's `channel-group N mode M`, which also says its aggregate's LACP mode (model 0.5.4), and an
+   * aggregate's `port-channel min-links`. IOS bundles a member into `Port-channelN` by N, so the aggregate must be named
+   * so; with no LACP mode, the member has no mode either, as IOS routers take it for a static bundle.
+   */
+  function renderLag(name: string, iface: Interface, at: Segments) {
+    const aggregation = iface.aggregation
+    if (aggregation !== undefined) {
+      const lagAt = [...at, 'aggregation']
+      emptyContainer(aggregation, lagAt)
+      if (iface.type !== 'aggregate') skipAll(aggregation, lagAt, 'only an aggregate has LAG settings')
+      else if (aggregation.minLinks !== undefined) {
+        if (Number.isInteger(aggregation.minLinks) && aggregation.minLinks >= 1 && aggregation.minLinks <= MAX_MIN_LINKS) emit(` port-channel min-links ${aggregation.minLinks}`, [...lagAt, 'minLinks'])
+        else skip([...lagAt, 'minLinks'], 'unsupported', `not a number of links from 1 to ${MAX_MIN_LINKS}`)
+      }
+    }
+    const aggregate = iface.aggregate
+    if (aggregate === undefined) return
+    const field = [...at, 'aggregate']
+    const target = model.interfaces && Object.hasOwn(model.interfaces, aggregate) ? model.interfaces[aggregate] : undefined
+    const group = channelGroupNumber(/^Po(?:rt-channel)?(\d+)$/i.exec(aggregate)?.[1] ?? '')
+    if ((iface.type ?? interfaceType(name)) !== 'ethernet') return skip(field, 'unsupported', 'only an Ethernet interface is a member link on IOS')
+    if (target?.type !== 'aggregate') return skip(field, 'unsupported', 'names an interface that isn\'t an aggregate')
+    if (group === null) return skip(field, 'unsupported', `IOS bundles a member into the Port-channel of its number, from 1 to ${MAX_CHANNEL_GROUP}, and this aggregate isn't named so`)
+    const lacp = target.aggregation?.lacp
+    const mode = lacp === 'active' || lacp === 'passive' ? ` mode ${lacp}` : lacp === 'static' ? ' mode on' : ''
+    if (lacp !== undefined && !mode) return skip(field, 'unsupported', 'its aggregate\'s LACP mode isn\'t one IOS has')
+    const first = lacp !== undefined && !lacpWritten.has(aggregate)
+    lacpWritten.add(aggregate)
+    emit(` channel-group ${group}${mode}`, field, ...(first ? [['interfaces', aggregate, 'aggregation', 'lacp']] : []))
   }
 
   /** A subinterface's access lists (model 0.5.1), each way and family, when the access list is written. */

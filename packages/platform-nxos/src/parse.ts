@@ -8,7 +8,7 @@
 // supersedes the first, and `no …` forms and `vrf member` clear what they remove.
 import { fieldPath, isRouteDistinguisher, type Context, type Device, type Bgp, type BgpAddressFamilyName, type Diagnostic, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { asNumber, inRange, ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
-import { OSPF_FEATURE, REQUIRED_FEATURES, VPN_FEATURE } from './features'
+import { LACP_FEATURE, OSPF_FEATURE, REQUIRED_FEATURES, VPN_FEATURE } from './features'
 import { createAclReader } from './acl'
 import { createPolicyReader } from './policy'
 import { interfaceName, interfaceType, isInterfaceName, isSwitchable, splitSubinterface } from './names'
@@ -90,6 +90,10 @@ const unsupported = (reason?: string): StatementDisposition => (reason ? { kind:
 const ignored = (reason: string): StatementDisposition => ({ kind: 'ignored-by-design', reason })
 
 const INTEGER = /^\d+$/
+/** The highest channel group (port-channel) number NX-OS takes. */
+export const MAX_CHANNEL_GROUP = 4096
+/** The most `lacp min-links` takes: a port-channel bundles at most 32 links on NX-OS. */
+export const MAX_MIN_LINKS = 32
 const SHUTDOWN = /^shut(?:d(?:o(?:w(?:n)?)?)?)?$/
 /**
  * A VRF named on a statement, or undefined for the global table: `use-vrf default` is the same thing as no VRF, and the
@@ -465,6 +469,8 @@ export function parse(text: string, _context: Context): ParseResult {
       switchPorts.push({ node, ctx })
       return mapped([])
     }
+    if (lw[0] === 'channel-group' || (lw[0] === 'no' && lw[1] === 'channel-group')) return mapChannelGroup(node, ctx)
+    if ((lw[0] === 'lacp' && lw[1] === 'min-links') || (lw[0] === 'no' && lw[1] === 'lacp' && lw[2] === 'min-links')) return mapMinLinks(node, ctx)
     if (lw[0] === 'switchport') return mapSwitchport(node, ctx)
     if (lw[0] === 'no' && lw[1] === 'switchport') return removeSwitchport(node, ctx)
     if (lw[0] === 'ip' && lw[1] === 'router' && lw[2] === 'ospf') return mapOspfEnable(node, ctx)
@@ -472,6 +478,107 @@ export function parse(text: string, _context: Context): ParseResult {
     if (lw[0] === 'ip' && lw[1] === 'ospf') return mapOspfPort(node, ctx)
     if (lw[0] === 'no' && lw[1] === 'ip' && lw[2] === 'ospf') return removeOspfPort(node, ctx)
     return unsupported()
+  }
+
+  // ---- link aggregation (model 0.5.4): placed once every statement is read, as a member's mode is its aggregate's
+
+  /** A member link's `channel-group N [force] [mode M]`: no mode bundles without LACP, as `on` does. */
+  type ChannelGroup = { readonly node: NxNode; readonly ctx: InterfaceContext; readonly group: number; readonly mode?: 'active' | 'passive' | 'on' }
+  /** Per member interface: its channel group, by the statement that put it there. */
+  const channelGroups = new Map<string, ChannelGroup>()
+
+  /**
+   * `channel-group N [force] [mode active|passive|on]` and `no channel-group`: the interface's `aggregate`, and its mode,
+   * which the end of the text puts on the aggregate once every member's is known. `force` only makes the port take the
+   * port-channel's settings as it joins, which the model has no need of. A later channel group supersedes an earlier
+   * one, as on the device.
+   */
+  const mapChannelGroup = (node: NxNode, ctx: InterfaceContext): StatementDisposition => {
+    const lw = node.words.map((x) => x.toLowerCase())
+    const remove = lw[0] === 'no'
+    const a = lw.slice(remove ? 2 : 1)
+    const number = inRange(a[0], 1, MAX_CHANNEL_GROUP)
+    const rest = a.slice(a[1] === 'force' ? 2 : 1)
+    const modeWords = rest.length === 0 || (rest.length === 2 && rest[0] === 'mode')
+    if (remove) {
+      if (a.length && (!modeWords || number === null)) return unsupported()
+      const current = channelGroups.get(ctx.name)
+      if (!current || ctx.isSub) return ignored('not in a channel group: nothing to convert')
+      if (number !== null && number !== current.group) return ignored('not in that channel group: nothing to convert')
+      channelGroups.delete(ctx.name)
+      set(current.node, ignored(`removed by line ${line(node)}`))
+      return ignored(`takes the interface out of the channel group on line ${line(current.node)}: nothing to convert`)
+    }
+    if (ctx.isSub) return unsupported('a subinterface isn\'t a member link: its main interface is')
+    if (interfaceType(ctx.name) !== 'ethernet') return unsupported('only an Ethernet interface is a member link of a port-channel')
+    if (number === null) return unsupported(`not a channel group number from 1 to ${MAX_CHANNEL_GROUP}`)
+    const mode = rest[1]
+    if (!modeWords || (mode !== undefined && mode !== 'active' && mode !== 'passive' && mode !== 'on')) return unsupported()
+    const previous = channelGroups.get(ctx.name)
+    if (previous) set(previous.node, ignored(`superseded by line ${line(node)}`))
+    channelGroups.set(ctx.name, { node, ctx, group: number, ...(mode ? { mode } : {}) })
+    return mapped([])
+  }
+
+  /**
+   * Once every statement is read: each channel group's members name their aggregate, the `port-channelN` the text
+   * configures (as written), or one the channel group makes, as NX-OS does. Members that agree give the aggregate its
+   * mode (`on` is `static`, and no mode says nothing); members that don't are left out, with an error: NX-OS bundles a
+   * channel group's members with one mode, so the text can't be what a device runs.
+   */
+  const finishChannelGroups = () => {
+    const groups = new Map<number, ChannelGroup[]>()
+    for (const m of channelGroups.values()) groups.set(m.group, [...(groups.get(m.group) ?? []), m])
+    const interfaces = Object.keys((model.get(['interfaces']) as Obj | undefined) ?? {})
+    for (const [group, members] of groups) {
+      const modes = new Set(members.map((m) => m.mode ?? 'on'))
+      if (modes.size > 1) {
+        const lines = members.map((m) => line(m.node)).sort((x, y) => x - y)
+        for (const m of members) set(m.node, unsupported(`its channel group's members give different modes (${linesText(lines)}): left out`))
+        const first = members.find((m) => line(m.node) === lines[0])!.node
+        diagnostics.push({ severity: 'error', category: 'semantic', code: 'nxos.channel-group-modes', message: `The members of one channel group give different modes (${linesText(lines)}): NX-OS bundles them with one.`, span: first.span, statement: first.id })
+        continue
+      }
+      const name = interfaces.find((n) => interfaceType(n) === 'aggregate' && Number(/\d+$/.exec(n)?.[0]) === group) ?? `port-channel${group}`
+      const fields: string[] = []
+      if (model.get(['interfaces', name]) === undefined) fields.push(model.set(['interfaces', name, 'type'], 'aggregate'))
+      const mode = members.find((m) => m.mode !== undefined)?.mode
+      if (mode !== undefined) fields.push(model.set(['interfaces', name, 'aggregation', 'lacp'], mode === 'on' ? 'static' : mode))
+      for (const m of members) set(m.node, mapped([model.set(['interfaces', m.ctx.name, 'aggregate'], name), ...fields]))
+    }
+  }
+
+  /** `lacp min-links N` and its `no` form, on a port-channel: the aggregate's `minLinks`. A later one supersedes an earlier one. */
+  const mapMinLinks = (node: NxNode, ctx: InterfaceContext): StatementDisposition => {
+    const lw = node.words.map((x) => x.toLowerCase())
+    const remove = lw[0] === 'no'
+    const a = lw.slice(remove ? 3 : 2)
+    const path = ['interfaces', ctx.name, 'aggregation', 'minLinks']
+    if (remove) return a.length > 1 ? unsupported() : unclaim(fieldPath(...path), node, 'minimum links', path, 2)
+    if (ctx.isSub || interfaceType(ctx.name) !== 'aggregate') return unsupported('only a port-channel has minimum links')
+    const n = a.length === 1 ? inRange(a[0], 1, MAX_MIN_LINKS) : null
+    if (n === null) return unsupported(`not a number of links from 1 to ${MAX_MIN_LINKS}`)
+    claim(fieldPath(...path), node)
+    minLinks.push({ node, path })
+    return mapped([model.set(path, n)])
+  }
+  /** `lacp min-links` statements, which `no feature lacp` takes away with LACP. */
+  const minLinks: { readonly node: NxNode; readonly path: Segments }[] = []
+
+  /** `no feature lacp`: members bundling with LACP, and minimum links, go with it. Whether NX-OS keeps them is not guessed. */
+  const clearLacp = (node: NxNode) => {
+    const why = unsupported(`LACP's, which line ${line(node)} turns off: left out`)
+    for (const [name, m] of channelGroups) {
+      if (m.mode !== 'active' && m.mode !== 'passive') continue
+      channelGroups.delete(name)
+      set(m.node, why)
+    }
+    for (const m of minLinks.splice(0)) {
+      if (owners.get(fieldPath(...m.path)) !== m.node) continue
+      owners.delete(fieldPath(...m.path))
+      model.prune(m.path, 2)
+      set(m.node, why)
+    }
   }
 
   const mapInterface = (node: NxNode): void => {
@@ -1698,6 +1805,7 @@ export function parse(text: string, _context: Context): ParseResult {
         bgpAs = undefined
       }
       if (feature === OSPF_FEATURE) clearOspf(node)
+      if (feature === LACP_FEATURE) clearLacp(node)
       return unsupported('turns a feature off: the model holds no features')
     }
     features.set(feature, node)
@@ -1775,6 +1883,7 @@ export function parse(text: string, _context: Context): ParseResult {
 
   for (const node of nodes) mapTop(node)
   buildRoutes()
+  finishChannelGroups()
   // Routing policy (model 0.5.0), once every list a route map names is read; BGP's route maps resolve to it (checkBgp).
   const routingPolicy = policy.finish()
   if (routingPolicy) model.set(['routingPolicy'], routingPolicy)
@@ -1999,6 +2108,10 @@ export function parse(text: string, _context: Context): ParseResult {
   const bgpFeature = features.get(VPN_FEATURE)
   if (bgpFeature && instances.some((i) => i.bgp !== undefined)) set(bgpFeature, ignored('needed by BGP: written whenever BGP is'))
   else if (bgpFeature && instances.some((i) => i.routeDistinguisher !== undefined || i.routeTargets !== undefined)) set(bgpFeature, ignored('needed by VRF route distinguishers and targets: written whenever one is'))
+  // `feature lacp` is needed by an aggregate's LACP mode (active or passive) and its minimum links.
+  const lacpFeature = features.get(LACP_FEATURE)
+  const lags = Object.values((model.get(['interfaces']) as Obj | undefined) ?? {}).filter(isObject).map((i) => i.aggregation).filter(isObject)
+  if (lacpFeature && lags.some((a) => a.lacp === 'active' || a.lacp === 'passive' || a.minLinks !== undefined)) set(lacpFeature, ignored('needed by LACP: written whenever an aggregate\'s LACP mode or minimum links is'))
 
   // Access lists (model 0.5.1), and each interface's, once every interface is final: one applied to an interface the
   // model doesn't have, or naming an ACL that isn't converted, is left out.

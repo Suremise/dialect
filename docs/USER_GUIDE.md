@@ -208,6 +208,17 @@ VLAN ID (`Vlan100`), with a warning otherwise. Cisco IOS-XR converts no Layer 2 
 VLAN interfaces are listed as not converted, both ways (VLAN-tagged subinterfaces do convert). IRB units and VLAN
 interfaces are named as [Interface names](#interface-names) says.
 
+**Link aggregation.** Cisco IOS / IOS-XE and NX-OS convert bundles: each member's `channel-group N mode
+active|passive|on` (or no mode) puts it in `Port-channelN` (NX-OS `port-channelN`) with its LACP mode, and a
+Port-channel's minimum links (`port-channel min-links` on IOS / IOS-XE, `lacp min-links` on NX-OS) converts too. A
+member whose Port-channel the config doesn't configure brings it in, as the device does. Members of one bundle with
+different modes stop the conversion with an error, since no device runs that, and PAgP (`mode auto` or `desirable`) is
+listed as not converted. Converting to NX-OS writes `feature lacp` when the bundle uses LACP. A member is written only
+once its bundle has the target's name: take the suggested name for the aggregate (Junos `ae0` → `Port-channel1`) and
+its members follow; until then they are listed as not converted. A bundle without LACP is written with no mode
+(`channel-group 1`), which IOS routers and NX-OS take as a static bundle; Catalyst switches want `mode on`, so add it
+when the target is one.
+
 **OSPF.** Every platform converts OSPF, one process per routing table (the global one and each VRF's): the router ID,
 areas (stub, NSSA, authentication) and their interfaces (cost, point-to-point or broadcast, passive, hello and dead
 intervals). Cisco IOS / IOS-XE enables OSPF on an interface with `ip ospf … area` or a `network` statement, NX-OS with

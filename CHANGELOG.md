@@ -22,6 +22,11 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS / IOS-XE and NX-OS bundles (port-channels) convert:** each member's `channel-group` with its LACP mode
+  (active, passive or on), the Port-channel's minimum links, and on NX-OS the `feature lacp` LACP needs. Converting a
+  Junos `ae0` with its members gives `Port-channel1` (`port-channel1` on NX-OS) with the same members and mode, once
+  you take the suggested name. Members of one bundle with different modes stop the conversion with an error, and PAgP
+  isn't converted.
 - **Cisco IOS / IOS-XE VLANs, switch ports, VLAN interfaces, OSPF and BGP convert:** VLANs and their names, access and
   trunk ports (allowed VLANs with add, remove and except, a native VLAN), VLAN interfaces, OSPF enabled by `ip ospf …
   area` or `network` statements (areas, stub and NSSA, authentication, cost, network type, passive, timers) and BGP

@@ -137,6 +137,9 @@
             "30",
             "40"
           ]
+        },
+        "aggregation": {
+          "lacp": "active"
         }
       },
       "Port-channel2": {
@@ -147,6 +150,9 @@
           "allowedVlans": [
             "20"
           ]
+        },
+        "aggregation": {
+          "lacp": "passive"
         }
       },
       "Loopback0": {
@@ -217,7 +223,8 @@
             "40"
           ]
         },
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-channel1"
       },
       "TenGigabitEthernet1/0/2": {
         "type": "ethernet",
@@ -232,7 +239,8 @@
             "40"
           ]
         },
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-channel1"
       },
       "TenGigabitEthernet1/0/3": {
         "type": "ethernet",
@@ -243,7 +251,8 @@
             "20"
           ]
         },
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-channel2"
       },
       "TenGigabitEthernet1/0/4": {
         "type": "ethernet",
@@ -254,7 +263,8 @@
             "20"
           ]
         },
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-channel2"
       },
       "TenGigabitEthernet1/0/5": {
         "type": "ethernet",

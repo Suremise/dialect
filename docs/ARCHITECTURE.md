@@ -559,8 +559,8 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.5.3 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default,
-0.5.0's routing policy, 0.5.1's access lists and 0.5.3's entry descriptions), with `detect`, `parse`, `render` and `nameInterface`.
+`modelApi: '>=0.5.4 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default,
+0.5.0's routing policy, 0.5.1's access lists, 0.5.3's entry descriptions and 0.5.4's LAGs), with `detect`, `parse`, `render` and `nameInterface`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
   statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
@@ -643,6 +643,19 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     out whole (its `switchport` statements `unsupported`) and so is its VLAN interface, with its addresses. A
     `switchport access vlan` creates a VLAN that doesn't exist, one deleted before too, where it is read, as IOS does:
     it stays when the port moves on to another VLAN or becomes routed, until a later `no vlan` deletes it again.
+  - **Link aggregation (#108, model 0.5.4):** `channel-group N [mode active|passive|on]` on an Ethernet main interface
+    makes it a member link: its `aggregate` is the `Port-channelN` the text configures, as written (`Po1`, or
+    `Port-Channel1`, matched by type and number), or else one the channel group makes, as IOS does, mapped by its
+    members. N runs from 1 to 4096 (`MAX_CHANNEL_GROUP`, the widest Cisco range: IOS's own depends on the platform).
+    Once every statement is read, the members of one channel group give the aggregate its `lacp` when they agree
+    (`on` is `static`; no mode, which IOS routers take for a static bundle, says nothing and agrees with `on`), each
+    member's statement mapping the aggregate's `lacp` too. Members that don't agree are all `unsupported`, their
+    membership left out, with an error diagnostic, `iosxe.channel-group-modes`, by lines only: IOS bundles a channel
+    group with one mode, so the text isn't one a device runs, and a conversion of it renders nothing. PAgP (`auto`, `desirable`) is `unsupported`, and so is a channel group on a
+    subinterface or on anything but an Ethernet interface. A later `channel-group` supersedes an earlier one;
+    `no channel-group [N …]` removes it (`ignored-by-design`, and so is the statement it removes). `port-channel
+    min-links N` on a Port-channel is its `aggregation.minLinks` (1 to 16, `MAX_MIN_LINKS`), and `no port-channel
+    min-links` removes it.
   - **OSPF (#63):** `router ospf P [vrf V]` is that instance's `ospf` (`processId` P; one a VRF, so a second process
     in a VRF is left out, as is one in a VRF the text doesn't define), with `router-id`, `area A stub|nssa` and
     `area A authentication [message-digest]` (an option the model can't hold, `no-summary`, leaves the statement
@@ -735,6 +748,12 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then
   its mode, as `show running-config` orders them (an empty allowed list as `none`); a routed VLAN is rendered by the
   interface's name, `interface VlanN`, and is `unsupported` on an interface of another name or a subinterface.
+  A member link (model 0.5.4) is ` channel-group N mode M` after its switch port lines, N from its aggregate's name,
+  which must be `Port-channelN` (or `PoN`) of type `aggregate`; the aggregate's `lacp` is the mode (`static` as `on`,
+  none as no mode at all), marked rendered on its first member's line. A member of an aggregate named otherwise (a
+  Junos `ae0` the interface map hasn't renamed), or one that isn't Ethernet, is `unsupported`, and so is an
+  aggregate's `lacp` with no member written: IOS has nowhere else to say it. `minLinks` is ` port-channel min-links N`
+  in the aggregate's block, `unsupported` beyond 16.
   OSPF follows the interfaces, one `router ospf` an instance (an interface routing in another VRF than the instance
   is `unsupported`) (the global table's first; the model's process number
   where it is one and free, else the lowest free one), with the area types and authentication, then the network
@@ -818,7 +837,12 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   cases are `no 10` in an access list and `no ip access-group` as negation, a port past 65535, a malformed host and a
   non-contiguous wildcard as malformed values, an interface applying an access list the text doesn't define, and the
   implicit deny; `tests/fixtures/filters` has every access list form it converts and the non-contiguous wildcard
-  negative fixture, and the corpus cases include Aerleon's IOS outputs.
+  negative fixture, and the corpus cases include Aerleon's IOS outputs. Its LAGs (model 0.5.4): `tests/fixtures/interfaces/lag`
+  round-trips members of each mode, a Port-channel the text doesn't configure and `no channel-group`, and `lag.test.ts`
+  covers the rest: conflicting modes, `no channel-group` and `no port-channel min-links` (negation), malformed group
+  numbers and minimum links, and what the render leaves out. The kit has no probe kinds for LAGs, so these stand in for
+  them. Its convert case is a Junos-shaped model (as the Junos plugin's parse gives `ae0` and two members) converted
+  to IOS-XE: `Port-channel1` with both members and the mode kept.
 - **Detect (`detect.ts`):** counts IOS's own signs (a dotted mask on `ip address`, `ip route`, `service timestamps`, a
   `^C` banner, `ip access-list standard|extended NAME`, numbered `access-list N`, an entry's address and wildcard) and
   discounts NX-OS's (`feature`, `vrf context`), IOS-XR's (`ipv4 address`, `ipv4 access-list`, four-part interface
@@ -832,9 +856,9 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
 The second Cisco platform, built like the IOS / IOS-XE plugin (its code copied, not imported: plugins don't depend on
-each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.5.3 <1.0.0'`, for model 0.4's
-VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's routing policy, 0.5.1's access lists and
-0.5.3's entry descriptions), with `detect`, `parse`, `render`, and `describeInterface` and
+each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.5.4 <1.0.0'`, for model 0.4's
+VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's routing policy, 0.5.1's access lists,
+0.5.3's entry descriptions and 0.5.4's LAGs), with `detect`, `parse`, `render`, and `describeInterface` and
 `nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as IOS's, nested by NX-OS's two-space indents; `!Command:` and `!Time:` headers are
@@ -890,10 +914,12 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
     own. They are BGP's (L3VPN): `feature bgp` is `ignored-by-design` when a converted route distinguisher or target
     needs it, and `unsupported` otherwise, like the rest of BGP; `no feature bgp` leaves out the ones before it.
   - **`feature` lines:** one a converted statement needs (`interface-vlan` for Vlan interfaces, `tunnel` for Tunnel
-    interfaces, `ospf` for OSPF, `bgp` for BGP and a VRF's route distinguisher and targets; `features.ts`) is
+    interfaces, `ospf` for OSPF, `bgp` for BGP and a VRF's route distinguisher and targets, `lacp` for an aggregate's
+    LACP mode, active or passive, or its minimum links; `features.ts`) is
     `ignored-by-design`, since the render writes it back whenever it is needed. Every other feature turns on a service
-    the model doesn't hold, and is `unsupported`. `no feature ospf` and `no feature bgp` leave out what the feature's
-    configuration before them said, as the device deletes it.
+    the model doesn't hold, and is `unsupported`. `no feature ospf`, `no feature bgp` and `no feature lacp` (the
+    members bundling with LACP and the minimum links before it) leave out what the feature's configuration before them
+    said, as the device deletes it.
   - **VLANs:** `vlan 10` and `vlan 4,6-8` define each VLAN of the list (`vlans`, by ID), with `name` for a single VLAN;
     `no vlan` removes those VLANs (a statement about others too keeps them). VLAN 1 is built in: a port or an SVI that
     uses it brings `vlans["1"]` into the model, and `no vlan 1` is `unsupported`.
@@ -906,6 +932,13 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
     with IP configuration, are `unsupported`. `switchport` alone is `ignored-by-design` on a port with no IP
     configuration and `no switchport` on one with some (an address, a VRF, subinterfaces or OSPF; the render writes
     both back), each `unsupported` otherwise.
+  - **Link aggregation (#108, model 0.5.4):** IOS-XE's (#108) with NX-OS's syntax, kept alike: `channel-group N
+    [force] [mode active|passive|on]` on an Ethernet main interface names its `port-channelN` (as written, or made by
+    the channel group), N from 1 to 4096; members that agree give the aggregate its `lacp` (no mode, NX-OS's static
+    bundle, says nothing and agrees with `on`), and members that don't are `unsupported` with an error,
+    `nxos.channel-group-modes`, by lines. `force` only makes the port take the port-channel's settings as it joins,
+    which the model has no need of. `lacp min-links N` (1 to 32) on a port-channel is its `minLinks`; `no
+    channel-group` and `no lacp min-links` remove theirs.
   - **SVIs:** `interface Vlan10` is an `irb-or-svi` interface routing for VLAN 10 on subinterface `0` when VLAN 10 is
     defined; without it, it stays an interface of type `vlan` with no routed VLAN, as before model 0.4.
   - **OSPF:** per interface, as NX-OS enables it: `ip router ospf TAG area A` (any area form, dotted in the model) puts
@@ -980,7 +1013,10 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
 - **Render (`render.ts`):** every leaf of model 0.4 and of 0.5's routing policy gets a disposition; a later version's fields get none, for the
   ledger to report. The text relies on no switch default: it writes each `feature` a written statement needs before it,
   and `switchport` or `no switchport` on every Ethernet and port-channel interface (`no switchport` with an address or
-  subinterfaces, a VRF or OSPF). Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
+  subinterfaces, a VRF or OSPF). A member link (model 0.5.4) is `  channel-group N[ mode M]` after its MTU, as IOS-XE's
+  render writes it (`static` as `mode on`, no `lacp` as no mode), its aggregate named `port-channelN` (`PoN`); the
+  members are planned before the features, so `feature lacp` is written exactly when a member's mode is active or
+  passive or an aggregate's `lacp min-links` (1 to 32) is written. What NX-OS can't say is `unsupported` as on IOS-XE. Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
   `address-family ipv4 unicast` and `ipv6 unicast` (the model's are the VRF's), with the VRF's own `import map` and
   `export map` (model 0.5.2, as IOS-XE's, with `nxos.vrf-policy-mode`, a map that can't be written taking its
   direction's route targets with it), after `feature bgp`, and before the
@@ -1067,7 +1103,8 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
   lists beyond that, and the corpus cases include Aerleon's NX-OS outputs. `phase2.test.ts` covers the phase 2 areas beyond their fixtures, and checks that each phase 2 warning comes from a
   saved source fixture or a saved model from another platform (`tests/models`: `<case>.model.json`, its expected
   `.rendered.cfg` and `.warnings.json`), for what an NX-OS parse can't produce (an IRB not named `Vlan<ID>`, OSPF
-  enabled by `network` statements, a Junos policy's fall-through, a Junos filter).
+  enabled by `network` statements, a Junos policy's fall-through, a Junos filter). `lag.test.ts` and
+  `tests/fixtures/interfaces/lag` cover its LAGs as the IOS plugin's do, with `feature lacp` and `no feature lacp`.
 
 ## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
 
