@@ -1,0 +1,38 @@
+hostname edge-1
+ip domain name example.net
+ip domain list example.net
+ip name-server 192.0.2.53
+ip name-server 198.51.100.53
+!
+interface GigabitEthernet0/0/0
+ description uplink to core
+ ip address 192.0.2.1 255.255.255.252
+!
+interface GigabitEthernet0/0/1.10
+ description customer A
+ encapsulation dot1Q 10
+ ip address 198.51.100.1 255.255.255.252
+!
+interface TenGigabitEthernet0/1/0
+ mtu 9192
+ shutdown
+!
+interface Loopback0
+ ip address 203.0.113.1 255.255.255.255
+!
+ip route 0.0.0.0 0.0.0.0 192.0.2.2
+ip route 10.0.0.0 255.0.0.0 192.0.2.2 200
+ip route 192.0.2.128 255.255.255.128 Null0
+ip route 198.51.100.64 255.255.255.192 GigabitEthernet0/0/0 192.0.2.2
+!
+ntp server 192.0.2.123 prefer
+ntp server 198.51.100.123
+!
+logging trap warnings
+logging host 192.0.2.114
+!
+snmp-server location rack 4
+snmp-server contact noc
+snmp-server community example-ro RO
+!
+end

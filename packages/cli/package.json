@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@dialect/core": "0.0.0",
+    "@dialect/platform-iosxe": "0.0.0",
     "@dialect/platform-junos": "0.0.0"
   },
   "devDependencies": {

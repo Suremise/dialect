@@ -3,6 +3,7 @@
 import type { Diagnostic, PlatformPlugin, Tool, ToolResult } from '@dialect/core'
 import { detect } from './detect'
 import { displaySet } from './displaySet'
+import { describeInterface } from './names'
 import { parse } from './parse'
 import { render } from './render'
 
@@ -64,5 +65,6 @@ export const junos: PlatformPlugin = {
   detect,
   parse,
   render,
+  describeInterface,
   tools: () => [displaySetTool]
 }

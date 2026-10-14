@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => dialog)
 vi.mock('@tauri-apps/plugin-fs', () => fs)
 vi.mock('@tauri-apps/plugin-opener', () => opener)
 
-const { baseName, desktopPlatform } = await import('../src/desktopPlatform')
+const { baseName, desktopPlatform, FILTERS } = await import('../src/desktopPlatform')
 
 const tauri = join(__dirname, '..', 'src-tauri')
 const config = JSON.parse(readFileSync(join(tauri, 'tauri.conf.json'), 'utf8'))
@@ -46,6 +46,18 @@ describe('the desktop platform', () => {
     fs.writeTextFile.mockClear()
     await desktopPlatform.saveText('edge-1.set', 'x')
     expect(fs.writeTextFile).not.toHaveBeenCalled()
+  })
+
+  it('offers config files, or interface maps (CSV or JSON) when it opens or saves one', async () => {
+    dialog.open.mockResolvedValue(null)
+    dialog.save.mockResolvedValue(null)
+    await desktopPlatform.openFile()
+    expect(dialog.open).toHaveBeenLastCalledWith(expect.objectContaining({ filters: FILTERS.config }))
+    await desktopPlatform.openFile('interface-map')
+    expect(dialog.open).toHaveBeenLastCalledWith(expect.objectContaining({ filters: FILTERS['interface-map'] }))
+    await desktopPlatform.saveText('interfaces.csv', 'ge-0/0/0,Gi1\n', 'interface-map')
+    expect(dialog.save).toHaveBeenLastCalledWith(expect.objectContaining({ defaultPath: 'interfaces.csv', filters: FILTERS['interface-map'] }))
+    expect(FILTERS['interface-map'][0].extensions).toEqual(['csv', 'json', 'txt'])
   })
 
   it('reads a dropped file from the drop event, not through the fs plugin', async () => {

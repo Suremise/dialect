@@ -5,11 +5,13 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
-import { Compartment, EditorState, StateEffect, StateField, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, RangeSet, StateEffect, StateField, type Extension } from '@codemirror/state'
 import {
   Decoration,
   drawSelection,
   EditorView,
+  gutter,
+  GutterMarker,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -26,6 +28,8 @@ import { junos } from './junosLanguage'
 export interface LineMark {
   line: number
   kind: 'error' | 'warning' | 'link'
+  /** What the gutter marker says on hover (errors and warnings). */
+  title?: string
 }
 
 export interface EditorProps {
@@ -42,6 +46,8 @@ export interface EditorProps {
   dark: boolean
   /** For tests and the problems panel: names the pane (`data-pane`). */
   pane: 'source' | 'output'
+  /** A gutter that marks the error and warning lines, with what they say on hover. */
+  issueGutter?: boolean
 }
 
 const setMarks = StateEffect.define<LineMark[]>()
@@ -63,6 +69,49 @@ const marksField = StateField.define<DecorationSet>({
   },
   provide: (field) => EditorView.decorations.from(field)
 })
+
+/** An error or warning line's marker in the issue gutter. */
+class IssueMarker extends GutterMarker {
+  constructor(
+    readonly kind: 'error' | 'warning',
+    readonly title: string
+  ) {
+    super()
+  }
+  eq(other: IssueMarker): boolean {
+    return other.kind === this.kind && other.title === this.title
+  }
+  toDOM(): Node {
+    const el = document.createElement('span')
+    el.className = `cm-issue cm-issue-${this.kind}`
+    el.title = this.title
+    el.setAttribute('aria-label', this.title)
+    return el
+  }
+}
+
+/** One marker per line: an error over warnings, with every message on the line in its title. */
+const issuesField = StateField.define<RangeSet<GutterMarker>>({
+  create: () => RangeSet.empty,
+  update(markers, tr) {
+    let next = markers.map(tr.changes)
+    for (const effect of tr.effects) {
+      if (!effect.is(setMarks)) continue
+      const byLine = new Map<number, LineMark[]>()
+      for (const m of effect.value) if (m.kind !== 'link' && m.line >= 1 && m.line <= tr.state.doc.lines) byLine.set(m.line, [...(byLine.get(m.line) ?? []), m])
+      const ranges = [...byLine.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([line, marks]) => {
+          const kind = marks.some((m) => m.kind === 'error') ? 'error' : 'warning'
+          return new IssueMarker(kind, [...new Set(marks.map((m) => m.title ?? m.kind))].join('\n')).range(tr.state.doc.line(line).from)
+        })
+      next = RangeSet.of(ranges)
+    }
+    return next
+  }
+})
+
+const issueGutter: Extension = [issuesField, gutter({ class: 'cm-issue-gutter', markers: (view) => view.state.field(issuesField) })]
 
 const highlight = HighlightStyle.define([
   { tag: [tags.comment, tags.lineComment], color: 'var(--syntax-comment)', fontStyle: 'italic' },
@@ -91,6 +140,10 @@ function theme(dark: boolean): Extension {
       '.cm-mark-error': { backgroundColor: 'var(--mark-error)', boxShadow: 'inset 3px 0 0 var(--error)' },
       '.cm-mark-warning': { backgroundColor: 'var(--mark-warning)', boxShadow: 'inset 3px 0 0 var(--warning)' },
       '.cm-mark-link': { backgroundColor: 'var(--accent-soft)', boxShadow: 'inset 3px 0 0 var(--accent)' },
+      '.cm-issue-gutter .cm-gutterElement': { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '14px' },
+      '.cm-issue': { display: 'block', width: '8px', height: '8px', borderRadius: '50%' },
+      '.cm-issue-error': { backgroundColor: 'var(--error)' },
+      '.cm-issue-warning': { backgroundColor: 'var(--warning)', borderRadius: '1px', transform: 'rotate(45deg) scale(0.85)' },
       '.cm-panels': { backgroundColor: 'var(--bg-elevated)', color: 'var(--fg)' },
       '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border-subtle)' },
       '.cm-textfield': { backgroundColor: 'var(--bg-input)', color: 'var(--fg)', border: '1px solid var(--border)', borderRadius: '3px' },
@@ -128,6 +181,7 @@ export function Editor(props: EditorProps) {
       state: EditorState.create({
         doc: props.value,
         extensions: [
+          props.issueGutter ? issueGutter : [],
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightActiveLine(),

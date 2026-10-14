@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Convert
+- **Junos to Cisco IOS / IOS-XE** on the command line: `dialect convert --from junos --to iosxe [--map file]
+  [--allow-incomplete] <file|->`. What didn't carry over is listed on stderr by line, with the reason, and never quotes
+  the config.
+- **Convert in the app**, the web build and the desktop app: a Convert mode beside Display set, with the target
+  platform to choose. What didn't carry over is listed in the problems panel and marked in the source's gutter, with
+  the reason on hover, and the source and output lines are linked as in display set. An **Interfaces** table names
+  each interface on the target: type a name, take the suggestion, or load and save a map file.
+- **Interface names are never guessed.** Every interface needs a name on the target, from a `--map` file (`from,to`
+  lines or JSON). Dialect suggests names (`ge-0/0/0` → `GigabitEthernet0/0/0`) but uses none unasked: with interfaces
+  left unnamed, `convert` gives their lines and exits 3, unless `--allow-incomplete` is given. `--write-map` writes
+  every interface, with suggestions, to a map file to fill in. Two interfaces are never given one name: such names are
+  refused, so neither is lost.
+
 ### Display set
 - **Junos display set**, in the Junos plugin: hierarchical config to the `set` lines Junos prints, with
   `deactivate` and `protect` lines after the statements they cover, as Juniper documents. Annotations and unknown tags
