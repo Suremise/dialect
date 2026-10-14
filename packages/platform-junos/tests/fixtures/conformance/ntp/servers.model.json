@@ -1,0 +1,19 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "ntp": {
+        "servers": {
+          "192.0.2.10": {},
+          "192.0.2.11": {
+            "version": 4,
+            "prefer": true
+          },
+          "ntp.example.net": {
+            "networkInstance": "mgmt_junos"
+          }
+        }
+      }
+    }
+  }
+}

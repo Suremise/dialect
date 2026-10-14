@@ -196,6 +196,12 @@ describe('the parser', () => {
     ])
   })
 
+  it("reads an annotation ended by ';' as one with no statement after it (Batfish's nested comments)", () => {
+    const result = displaySet('policy-options {\n    /* trailing semicolon */;\n    prefix-list p;\n}\n')
+    expect(result.ok && result.lines.map((l) => l.text)).toEqual(['set policy-options prefix-list p'])
+    expect(result.ok && result.warnings).toEqual([{ code: 'stray-annotation', message: "annotation isn't followed by a statement, so it isn't shown", line: 2, column: 5 }])
+  })
+
   it('reports the other syntax errors with their positions', () => {
     expect(parseError('system {\n    /* never closed\n}\n')).toEqual({ message: 'unterminated /* annotation */', line: 2, column: 5 })
     expect(parseError('system {\n    name-server [ 192.0.2.1')).toEqual({ message: "missing ']' for the '[' at line 2, column 17", line: 2, column: 28 })

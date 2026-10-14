@@ -1,0 +1,8 @@
+set interfaces interface-range ACCESS member-range ge-0/0/0 to ge-0/0/2
+set interfaces interface-range ACCESS member xe-0/0/1
+set interfaces interface-range ACCESS member "xe-0/1/[0-3]"
+set interfaces interface-range ACCESS description "access ports"
+set interfaces interface-range ACCESS mtu 1514
+set interfaces interface-range ACCESS unit 0 family ethernet-switching interface-mode access
+set interfaces ge-0/0/1 description "explicit wins"
+set interfaces interface-range EMPTY description "no members"

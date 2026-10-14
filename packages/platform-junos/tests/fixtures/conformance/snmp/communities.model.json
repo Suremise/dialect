@@ -1,0 +1,23 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "snmp": {
+        "location": "rack 7, row B",
+        "contact": "noc@example.net",
+        "communities": {
+          "PLACEHOLDER-RO": {
+            "access": "read-only",
+            "clients": [
+              "192.0.2.0/24",
+              "2001:db8::/32"
+            ]
+          },
+          "PLACEHOLDER-RW": {
+            "access": "read-write"
+          }
+        }
+      }
+    }
+  }
+}

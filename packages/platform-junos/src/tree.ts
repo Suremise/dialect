@@ -76,6 +76,12 @@ export function parseConfig(src: string): ParsedConfig {
         pos++
         continue
       }
+      // `/* comment */;`: an annotation ended like a statement, with none to annotate. A bare `;` is still an error.
+      if (token.kind === 'semi' && annotation) {
+        strayAnnotation()
+        pos++
+        continue
+      }
       const node = statement()
       if (annotation) node.annotation = annotation.text
       annotation = null

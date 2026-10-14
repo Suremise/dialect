@@ -1,0 +1,14 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "junos-snmp-gh-8812",
+      "snmp": {
+        "location": "Datacenter"
+      }
+    },
+    "networkInstances": {
+      "INTERNAL": {}
+    }
+  }
+}

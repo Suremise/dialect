@@ -1,0 +1,124 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "static-routes"
+    },
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "1.0.0.0/8": {
+            "nextHops": {
+              "0": {
+                "address": "10.0.0.1"
+              }
+            }
+          },
+          "4.0.0.0/8": {
+            "nextHops": {
+              "0": {
+                "address": "10.0.0.1"
+              },
+              "1": {
+                "interface": "ge-0/0/0.0"
+              },
+              "2": {
+                "address": "10.0.0.2"
+              }
+            }
+          },
+          "6.0.0.0/8": {
+            "nextHops": {
+              "0": {
+                "address": "10.0.0.1"
+              }
+            }
+          },
+          "10.0.0.0/16": {
+            "nextHops": {
+              "0": {
+                "address": "1.2.3.4"
+              },
+              "1": {
+                "address": "1.2.3.5"
+              }
+            }
+          },
+          "12.0.0.0/8": {
+            "nextHops": {
+              "0": {
+                "address": "1.2.3.4",
+                "tag": 12
+              }
+            }
+          },
+          "13.0.0.0/8": {
+            "nextHops": {
+              "0": {
+                "address": "1.2.3.4"
+              }
+            }
+          },
+          "14.0.0.0/8": {
+            "nextHops": {
+              "0": {
+                "address": "0.0.0.0"
+              }
+            }
+          }
+        }
+      },
+      "ri2": {
+        "staticRoutes": {
+          "2.0.0.0/8": {
+            "nextHops": {
+              "0": {
+                "address": "10.0.0.2"
+              }
+            }
+          }
+        }
+      },
+      "ri3": {
+        "staticRoutes": {
+          "5.5.5.0/24": {
+            "nextHops": {
+              "0": {
+                "address": "2.3.4.5",
+                "preference": 150,
+                "metric": 6
+              },
+              "1": {
+                "interface": "ge-0/0/0.0",
+                "preference": 150,
+                "metric": 6
+              },
+              "2": {
+                "address": "1.2.3.4",
+                "preference": 180,
+                "tag": 4294967295,
+                "metric": 7
+              }
+            }
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      }
+    }
+  }
+}

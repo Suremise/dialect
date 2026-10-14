@@ -1,0 +1,22 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "networkInstances": {
+      "FOO": {
+        "staticRoutes": {
+          "1.1.1.0/24": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          }
+        },
+        "type": "vrf"
+      }
+    },
+    "system": {
+      "hostname": "apply-groups-routing-instances"
+    }
+  }
+}
