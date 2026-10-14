@@ -309,7 +309,12 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   option on it is understood; one with an option the model can't hold (`ntp server … key 1`, a community with an ACL,
   `ip route … track 1`) is `unsupported` as a whole, and so is every unknown statement and everything inside it. A later
   single-valued setting supersedes an earlier one (`ignored-by-design`, "superseded by line N"), as on the device, and
-  `no ip address` removes the addresses before it. A `secondary` address with no primary is unsupported: the model
+  `no ip address` removes the addresses before it, as do `no description`, `no ip route [vrf V] P [next hop]` (that
+  next hop of the route in that VRF or the global table, or every one; the others keep their order, renumbered),
+  `no ip name-server [vrf V] A …` (only in the VRF it names) and `no snmp-server community X` (with every statement
+  about it, its access list too) (#55). A community with any statement not converted, anywhere in the text (an access
+  list, a view), is left out whole rather than mapped open to every client, and a route's next-hop interface must be an
+  IOS interface name (`isInterfaceName()`), so a malformed address isn't taken for one. A `secondary` address with no primary is unsupported: the model
   can mark a primary but not a secondary, so it would come back as the primary. The model keys name servers by address alone,
   so the same server in a second VRF is unsupported. `vrf default` (on a name server, NTP server or syslog host) is the
   global table, mapped as if no VRF were given, since that is how it renders. Keys come from the configuration
@@ -350,7 +355,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
 - **Tests:** `tests/fixtures/<area>` are hand-written, with expected models and renders, through the conformance kit.
   `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
-  parse (no error, a complete ledger, a stable round trip).
+  parse (no error, a complete ledger, a stable round trip). `tests/probes.ts` is its adapter for the kit's probes
+  (#55): every probe runs, but a prototype key as an interface name, which IOS can't say.
 
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 

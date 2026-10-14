@@ -15,6 +15,15 @@ export function interfaceName(words: readonly string[], i: number): { name: stri
   return { name: w, used: 1 }
 }
 
+/**
+ * Whether `name` is an interface name as IOS writes one: a type in letters (and `-`), then numbers separated by `/` or
+ * `:`, and optionally `.<subinterface>` (`GigabitEthernet0/0/1`, `Gi0/1.10`, `Serial0/0/0:0`, `Null0`). A malformed
+ * address (`dead::beef::bad`) or a stray word isn't one.
+ */
+export function isInterfaceName(name: string): boolean {
+  return /^[A-Za-z][A-Za-z-]*\d+(?:[/:]\d+)*(?:\.\d+)?$/.test(name)
+}
+
 /** A subinterface's parent and index: `Gi0/1.10` → `Gi0/1`, `10`. Null for a main interface. */
 export function splitSubinterface(name: string): { parent: string; index: string } | null {
   const m = /^(.+\d)\.(\d+)$/.exec(name)
