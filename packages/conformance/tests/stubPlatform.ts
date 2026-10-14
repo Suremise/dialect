@@ -86,13 +86,18 @@ export const RULES: readonly Rule[] = [
   { name: 'ttl', match: /^protocols bgp neighbor (\S+) multihop ttl (\d+)$/, set: (m) => [[[...neighbor(m[1]), 'multihop', 'ttl'], Number(m[2])]] }
 ]
 
+// Keys come from the configuration, `__proto__` included, so the model is built from null-prototype objects with
+// own-property checks (model.ts).
 function assign(model: Record<string, unknown>, path: PathSegment[], value: unknown) {
   let at = model
-  for (const seg of path.slice(0, -1)) at = (at[seg] ??= {}) as Record<string, unknown>
+  for (const seg of path.slice(0, -1)) {
+    if (!Object.hasOwn(at, seg)) at[seg] = Object.create(null)
+    at = at[seg] as Record<string, unknown>
+  }
   const key = path[path.length - 1]
   // An empty entry doesn't replace one that already has something in it.
-  if (typeof value === 'object' && value !== null && at[key] !== undefined) return
-  at[key] = value
+  if (typeof value === 'object' && value !== null && Object.hasOwn(at, key)) return
+  at[key] = typeof value === 'object' && value !== null ? Object.assign(Object.create(null), value) : value
 }
 
 export interface StubOptions {
@@ -123,8 +128,8 @@ export function stubPlugin(options: StubOptions = {}): PlatformPlugin {
       } catch (e) {
         return { tree: [], model: {}, dispositions: {}, diagnostics: [{ severity: 'error', category: 'syntax', message: (e as Error).message }] }
       }
-      const model: Record<string, unknown> = {}
-      const dispositions: Record<string, StatementDisposition> = {}
+      const model: Record<string, unknown> = Object.create(null)
+      const dispositions: Record<string, StatementDisposition> = Object.create(null)
       const hops = new Map<string, number>()
       const nextIndex = (key: string) => {
         const n = hops.get(key) ?? 0

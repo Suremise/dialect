@@ -1,7 +1,7 @@
 // The kit's negative tests: deliberately careless mappers and renderers that the checks must catch (the build plan's
 // two counterexamples, B2). A check that let them through would let a real plugin drop config silently.
 import { describe, expect, it } from 'vitest'
-import { buildLedger, createRegistry, fieldPath, type Device, type PlatformPlugin } from '@dialect/core'
+import { buildLedger, createRegistry, fieldPath, ledgerProblems, type Device, type PlatformPlugin } from '@dialect/core'
 import { checkFixture, type Fixture } from '../src'
 import { stubPlugin } from './stubPlatform'
 
@@ -85,6 +85,24 @@ describe('a renderer that handles only a BGP neighbor\'s address and remote AS',
   it('the careful stub renders the ttl and passes all four checks', () => {
     const results = checkFixture(stubPlugin(), { name: 'bgp/multihop', source, expectedModel })
     expect(results.filter((r) => r.status === 'failed')).toEqual([])
+  })
+})
+
+describe('a renderer built for model 0.1 meeting a 0.2 model with DNS set', () => {
+  // The stub is built for 0.1: it has never heard of system.dns. A 0.2 source plugin's model reaches it in a conversion.
+  const old = stubPlugin({ modelApi: '>=0.1.0 <1.0.0' })
+  const model: Device = { system: { hostname: 'r1', dns: { servers: { '192.0.2.53': {}, '198.51.100.53': { networkInstance: 'mgmt' } }, search: ['example.net'] } } }
+  const dns = [fieldPath('system', 'dns', 'servers', '192.0.2.53'), fieldPath('system', 'dns', 'servers', '198.51.100.53', 'networkInstance'), fieldPath('system', 'dns', 'search')]
+
+  it('loads, renders what it knows, and the ledger reports every DNS field as unrendered, not dropped', () => {
+    expect(() => createRegistry([old], { modelVersion: '0.2.0' })).not.toThrow()
+    const parsed = old.parse!('system { host-name r1; }', { modelVersion: '0.2.0' })
+    const rendered = old.render!(model, { modelVersion: '0.2.0' })
+    expect(rendered.text).toBe('system {\n    host-name r1;\n}\n')
+    const ledger = buildLedger(parsed, rendered, model)
+    expect(ledger.complete).toBe(false)
+    expect(ledger.target?.unrendered.map((f) => f.path)).toEqual(dns)
+    expect(ledgerProblems(ledger)).toEqual(dns.map((p) => `unrendered: ${p}`))
   })
 })
 
