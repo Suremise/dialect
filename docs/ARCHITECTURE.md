@@ -233,8 +233,8 @@ A leak found when the check came in can have a temporary allowance (`SECRET_ALLO
 plugin, site (`statement reason`, `tool diagnostic`, `tool text`, …) and optionally the diagnostic's code, the tool or
 the fixtures' names, naming the card that fixes it. `describeConformance()` fails a plugin's allowance that none of its
 fixtures needs any more, so the fix takes the allowance with it (one scoped to fixtures of another test file is that
-file's). Today's: IOS-XE's prototype-names test uses one name as an SNMP community and a VRF, and the VRF messages
-name it (#29).
+file's). There are none today: the last ones, for IOS-XE's VRF messages naming a VRF that shared its name with an
+SNMP community, went when those messages stopped quoting the name (#29).
 
 The kit's own tests (`packages/conformance/tests`) use a test-only stub platform, a tiny brace language, to show the
 checks catch careless plugins:
