@@ -1,0 +1,7 @@
+/* The web build's own bits: the offscreen textarea the copy fallback uses. */
+.offscreen {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  opacity: 0;
+}

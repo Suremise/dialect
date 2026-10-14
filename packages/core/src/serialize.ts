@@ -32,7 +32,10 @@ export function modelVersionProblem(version: unknown, current: string = MODEL_VE
 export function deserializeModel(json: string | unknown, current: string = MODEL_VERSION): ModelDocument {
   const doc: unknown = typeof json === 'string' ? JSON.parse(json) : json
   if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) throw new TypeError('A model document is a JSON object.')
-  const { modelVersion, device } = doc as { modelVersion?: unknown; device?: unknown }
+  // Own properties only: a document's fields never come from Object.prototype.
+  const own = (key: string): unknown => (Object.hasOwn(doc, key) ? (doc as Record<string, unknown>)[key] : undefined)
+  const modelVersion = own('modelVersion')
+  const device = own('device')
   const problem = modelVersionProblem(modelVersion, current)
   if (problem) throw new TypeError(problem)
   if (typeof device !== 'object' || device === null || Array.isArray(device)) throw new TypeError('A model document has a "device" object.')

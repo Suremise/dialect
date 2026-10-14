@@ -1,0 +1,9 @@
+// The build config and the end-to-end tests, which run on Node.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts", "tests/**/*"]
+}

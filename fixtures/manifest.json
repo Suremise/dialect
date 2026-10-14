@@ -10390,8 +10390,8 @@
       "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
     },
     {
-      "path": "public/junos/whole/batfish__as2core1.conf",
-      "platform": "junos",
+      "path": "public/iosxe/whole/batfish__example-juniper_as2core1.cfg",
+      "platform": "iosxe",
       "areas": [
         "whole"
       ],
@@ -10399,7 +10399,7 @@
       "sourcePath": "tests/parsing-tests/networks/example-juniper/configs/as2core1.cfg",
       "commit": "2053179b1c5e7b24f098d37a528255fcce93c635",
       "license": "Apache-2.0",
-      "junosForm": "hierarchical",
+      "junosForm": null,
       "bytes": 2124,
       "sha256": "b1a4a073acc9857c4192d7821903e49bb1a98af7b3a7402b5c313f3fa71cb20d",
       "flags": {
@@ -10420,11 +10420,11 @@
         ],
         "publicIPv6": []
       },
-      "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
+      "notes": "Batfish 'example-juniper' lab network, which keeps this router in IOS (IOS 12.4, not Junos); lab-made. Differs from networks/example's batfish__as2core1.cfg."
     },
     {
-      "path": "public/junos/whole/batfish__as2dept1.conf",
-      "platform": "junos",
+      "path": "public/iosxe/whole/batfish__example-juniper_as2dept1.cfg",
+      "platform": "iosxe",
       "areas": [
         "whole"
       ],
@@ -10432,7 +10432,7 @@
       "sourcePath": "tests/parsing-tests/networks/example-juniper/configs/as2dept1.cfg",
       "commit": "2053179b1c5e7b24f098d37a528255fcce93c635",
       "license": "Apache-2.0",
-      "junosForm": "hierarchical",
+      "junosForm": null,
       "bytes": 2454,
       "sha256": "dde8b719b917f3f849aaa610e354512ed774ba83b60bd5086f579a003f9fe949",
       "flags": {
@@ -10454,11 +10454,11 @@
         ],
         "publicIPv6": []
       },
-      "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
+      "notes": "Batfish 'example-juniper' lab network, which keeps this router in IOS (IOS 12.4, not Junos); lab-made. Differs from networks/example's batfish__as2dept1.cfg."
     },
     {
-      "path": "public/junos/whole/batfish__as2dist1.conf",
-      "platform": "junos",
+      "path": "public/iosxe/whole/batfish__example-juniper_as2dist1.cfg",
+      "platform": "iosxe",
       "areas": [
         "whole"
       ],
@@ -10466,7 +10466,7 @@
       "sourcePath": "tests/parsing-tests/networks/example-juniper/configs/as2dist1.cfg",
       "commit": "2053179b1c5e7b24f098d37a528255fcce93c635",
       "license": "Apache-2.0",
-      "junosForm": "hierarchical",
+      "junosForm": null,
       "bytes": 2525,
       "sha256": "0bccde36c8cc4d1258db6c06df98466532293fe499b6455b2b840b67f7e396cd",
       "flags": {
@@ -10491,11 +10491,11 @@
         ],
         "publicIPv6": []
       },
-      "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
+      "notes": "Batfish 'example-juniper' lab network, which keeps this router in IOS (IOS 12.4, not Junos); lab-made. Differs from networks/example's batfish__as2dist1.cfg."
     },
     {
-      "path": "public/junos/whole/batfish__as3border1.conf",
-      "platform": "junos",
+      "path": "public/iosxe/whole/batfish__example-juniper_as3border1.cfg",
+      "platform": "iosxe",
       "areas": [
         "whole"
       ],
@@ -10503,7 +10503,7 @@
       "sourcePath": "tests/parsing-tests/networks/example-juniper/configs/as3border1.cfg",
       "commit": "2053179b1c5e7b24f098d37a528255fcce93c635",
       "license": "Apache-2.0",
-      "junosForm": "hierarchical",
+      "junosForm": null,
       "bytes": 3174,
       "sha256": "cec5e49fdc99ec397a73ebdb4104d7602ab6c5d4734f0b22d0ab34332b4e101e",
       "flags": {
@@ -10524,7 +10524,7 @@
         ],
         "publicIPv6": []
       },
-      "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
+      "notes": "Batfish 'example-juniper' lab network, which keeps this router in IOS (IOS 12.4, not Junos); lab-made. Differs from networks/example's batfish__as3border1.cfg."
     },
     {
       "path": "public/junos/whole/batfish__junos-srx-1.set",

@@ -16,15 +16,21 @@ product decisions.
   - the **desktop app** (Tauri 2, Windows, NSIS installer only, no MSI);
   - the **offline web build**, one self-contained HTML file opened from disk, for laptops where installing isn't
     allowed;
-  - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout.
+  - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout: results to stdout, warnings and errors
+    to stderr with their line and column. Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
+    unreadable input.
 - **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
-  content security policy blocks remote content in both shells.
+  content security policy blocks remote content in both shells. The web build's allows only its own inlined script
+  and styles, by hash, and no network at all.
 
 ## 2. Stack and repository
 
 - **TypeScript (strict mode)** for the core, the plugins and the UI. Desktop app via **Tauri 2**; the only Rust is
   Tauri's thin, mostly generated shell, and no conversion logic lives there: conversion runs in the webview, from the
   same bundled code as the web build. (Replaces the spike's first Python + PySide6 recommendation.)
+- **UI:** React 19, zustand 5 and **CodeMirror 6** for the editors. The spike planned Monaco, but it needs
+  `unsafe-inline` styles and `blob:` workers, which the web build's CSP doesn't allow, and is 3.1 MB to CodeMirror's
+  0.3 MB (docs/ARCHITECTURE.md, "Editor").
 - **npm workspaces monorepo**, every package under the `@dialect/` scope:
 
   | Folder | Package | What |
@@ -50,9 +56,9 @@ product decisions.
 ## 3. License
 
 - **The whole project is MIT.**
-- **The license rule has two categories:**
-  - **Shipped, or copied into the repo** (anything bundled into the desktop app, the web build or the CLI; the Tauri
-    runtime crates; the installer's components; copied code and test data): MIT or equally permissive. The allowlist is
+- **The license rule has three categories:**
+  - **Shipped** (anything bundled into the desktop app, the web build or the CLI; the Tauri runtime crates; the
+    installer's components; copied code that ends up in a product): MIT or equally permissive. The allowlist is
     MIT, MIT-0, Apache-2.0 (its NOTICE text kept), BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Zlib, Unicode-3.0, BSL-1.0,
     CC0-1.0 and Unlicense. **MPL-2.0 used unmodified is pre-approved** (e.g. Tauri's MPL crates); if one is ever
     modified, its changed files stay MPL and open. GPL, LGPL, AGPL, other copyleft (CPL, MS-RL) and no license are not
@@ -60,12 +66,18 @@ product decisions.
   - **Build-only** (never ships: compilers, linters, test runners, the icon pipeline's sharp/libvips): any open-source
     license, GPL and LGPL included. They are **listed** in the generated `docs/BUILD_ONLY_PACKAGES.md`, not just allowed
     silently, and one with no license or a non-open-source license fails.
+  - **Copied, not shipped** (third-party material copied into the repo that never ships: the test configs in
+    `fixtures/`): the same allowlist as shipped, but its attribution is its license text (and NOTICE file, if it has
+    one) in `fixtures/LICENSES/`, with each file's provenance in `fixtures/manifest.json`, and it isn't listed in
+    `THIRD_PARTY_NOTICES.md`. If any of it ever ships (as samples, say), it moves to the shipped category.
+    `npm run licenses` and a unit test check every source against the allowlist and `fixtures/LICENSES/` (decided
+    2026-10-14).
   - Anything else fails unless it is a recorded exception (`EXCEPTIONS` in `scripts/licensePolicy.mjs`): the package,
     its license, why, and who decided. Only the user decides one.
 - **`THIRD_PARTY_NOTICES.md` is generated** from what actually ships (`npm run licenses`): every package with a link,
   version, license and full license text, the products it ships in (a package that publishes no license file, or that
   only another platform installs, needs a reviewed supplement with its text, or the check fails), plus hand-written
-  entries for material that isn't a package (`scripts/notices`), such as the jcc test fixtures entry. From B7 it also covers the Rust crates in
+  entries for material that ships but isn't a package (`scripts/notices`; copied, not shipped material isn't listed). From B7 it also covers the Rust crates in
   the Tauri binary (runtime crates only) and the installer's components. **Every link is a working `https://` URL, or
   there is none.** `npm run licenses -- --check` and a unit test fail when either generated file is stale or the rule
   is broken.
@@ -90,8 +102,8 @@ product decisions.
 - **Only cleaned-up configs go into the repo.** Before committing one, remove passwords and password hashes, SNMP
   communities, keys, public IP addresses, hostnames and customer names. Use the documentation ranges `192.0.2.0/24`,
   `198.51.100.0/24`, `203.0.113.0/24` and `2001:db8::/32`.
-- Third-party test data copied in keeps its attribution in `THIRD_PARTY_NOTICES.md` and must be MIT or equally
-  permissive.
+- Third-party test data copied in must be MIT or equally permissive and keeps its attribution in `fixtures/LICENSES/`
+  (copied, not shipped: see §3).
 
 ## 6. Trademarks
 

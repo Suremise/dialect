@@ -39,8 +39,13 @@ const NOTES = {}
  */
 export const SUPPLEMENTS = {}
 
-/** Material that isn't an npm package, written by hand in scripts/notices, shown under "Other material". */
-const OTHER = [{ title: 'juniper-config-converter ("jcc") test fixtures', file: 'jcc.md' }]
+/**
+ * Material that ships but isn't an npm package (copied or adapted code, from B7 the installer's components), written by
+ * hand in scripts/notices, shown under "Other material". Copied material that doesn't ship, such as the test configs in
+ * fixtures/, isn't listed: fixtures/LICENSES/ is its attribution (docs/SPEC.md, License).
+ * @type {readonly { title: string, file: string }[]}
+ */
+export const OTHER = []
 
 const shownLicense = (name, license) =>
   `${license ?? 'no license field; see the license text'}${CHOSEN[name] ? `, used under ${CHOSEN[name]}` : ''}${NOTES[name] ? `; ${NOTES[name]}` : ''}`
@@ -204,7 +209,7 @@ const productList = (products) => [...products].sort().map((p) => PRODUCT_NAMES[
  * whose full license text it can't give. `noticesDir` holds the hand-written entries and supplements' texts
  * (scripts/notices).
  */
-export function noticesText(inv, noticesDir) {
+export function noticesText(inv, noticesDir, other = OTHER) {
   const out = [
     '# Third-party notices',
     '',
@@ -227,8 +232,9 @@ export function noticesText(inv, noticesDir) {
       for (const f of files) out.push(...(files.length > 1 ? [`*${f.file}*`, ''] : []), '```text', f.text, '```', '')
     }
   }
-  out.push('# Other material', '', 'Not npm packages: material the project uses or adapts, such as test data.', '')
-  for (const o of OTHER) out.push(`## ${o.title}`, '', licenseText(readFileSync(join(noticesDir, o.file), 'utf8')), '')
+  out.push('# Other material', '', 'Not npm packages: material Dialect includes or adapts, such as copied code.', '')
+  if (!other.length) out.push('No other third-party material ships in Dialect yet.', '')
+  for (const o of other) out.push(`## ${o.title}`, '', licenseText(readFileSync(join(noticesDir, o.file), 'utf8')), '')
   return { text: out.join('\n'), packages: inv.shipped.length, problems: entries.map((e) => e.problem).filter(Boolean) }
 }
 
@@ -263,8 +269,8 @@ export function buildOnlyText(inv, exceptions = EXCEPTIONS) {
  * Both generated files for the checkout at `root`, and every problem: shipped dependencies missing from the lockfile,
  * shipped packages without a full license text, and packages that break the license rule.
  */
-export function generateLicenses(root, { products = PRODUCTS, noticesDir = join(root, 'scripts', 'notices'), exceptions = EXCEPTIONS, supplements = SUPPLEMENTS } = {}) {
+export function generateLicenses(root, { products = PRODUCTS, noticesDir = join(root, 'scripts', 'notices'), exceptions = EXCEPTIONS, supplements = SUPPLEMENTS, other = OTHER } = {}) {
   const inv = inventory(root, products, supplements)
-  const notices = noticesText(inv, noticesDir)
+  const notices = noticesText(inv, noticesDir, other)
   return { inventory: inv, notices, buildOnly: buildOnlyText(inv, exceptions), problems: [...inv.problems, ...notices.problems, ...licenseProblems(inv, exceptions)] }
 }

@@ -1,0 +1,19 @@
+set routing-instances INSTANCE routing-options static route 192.0.2.1/31 discard
+set routing-instances INSTANCE protocols bgp group GROUP1 type external
+set routing-instances INSTANCE protocols bgp group GROUP1 peer-as 65328
+set routing-instances INSTANCE protocols bgp group GROUP1 neighbor 192.0.2.2
+set routing-instances INSTANCE protocols bgp group GROUP1 neighbor 192.0.2.3
+deactivate routing-instances INSTANCE protocols bgp group GROUP1 neighbor 192.0.2.3
+set routing-instances INSTANCE protocols bgp group GROUP1 neighbor 192.0.2.4
+set routing-instances INSTANCE protocols bgp group GROUP1 neighbor 192.0.2.5
+deactivate routing-instances INSTANCE protocols bgp group GROUP1 neighbor 192.0.2.5
+set routing-instances INSTANCE protocols bgp group GROUP2 type external
+set routing-instances INSTANCE protocols bgp group GROUP2 peer-as 64901
+set routing-instances INSTANCE protocols bgp group GROUP2 neighbor 192.0.2.6
+set routing-instances INSTANCE protocols bgp group GROUP2 neighbor 192.0.2.7
+set routing-instances INSTANCE protocols bgp group GROUP2 neighbor 192.0.2.8
+set routing-instances INSTANCE protocols bgp group GROUP2 neighbor 192.0.2.9
+set routing-instances INSTANCE protocols bgp graceful-restart
+set routing-instances INSTANCE protocols bgp multipath
+set routing-instances INSTANCE interface xe-0/0/0.510
+set routing-instances INSTANCE instance-type virtual-router

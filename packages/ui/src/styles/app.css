@@ -1,0 +1,425 @@
+/* ==========================================================================
+   Dialect: the UI's styles. The accent tokens (violet) come from branding/theme-tokens.css; the surfaces, text and
+   status colours below are Hive's (src/renderer/src/styles/app.css), which `npm run contrast` checks the accent
+   against. Dark is the default; [data-theme] on <html> picks the theme.
+   ========================================================================== */
+@import '../../../../branding/theme-tokens.css';
+
+:root,
+[data-theme='dark'] {
+  --bg: #1e1e1e;
+  --bg-title: #1f1f1f;
+  --bg-panel: #1e1e1e;
+  --bg-sidebar: #252526;
+  --bg-elevated: #2d2d30;
+  --bg-input: #313131;
+  --bg-hover: #2a2d2e;
+  --bg-active: #37373d;
+  --border: #4a4a4e;
+  --border-subtle: #3a3a3d;
+  --fg: #cccccc;
+  --fg-strong: #e8e8e8;
+  --fg-muted: #b0b0b0;
+  --fg-faint: #a0a0a0;
+  --fg-decor: #6f6f6f;
+  --info: #3b9eff;
+  --success: #4ec96b;
+  --warning: #f5c451;
+  --error: #f2555a;
+  --status-hover: rgba(255, 255, 255, 0.12);
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --scrollbar: rgba(121, 121, 121, 0.4);
+  --scrollbar-hover: rgba(160, 160, 160, 0.55);
+
+  /* The editors. */
+  --editor-line: rgba(255, 255, 255, 0.04);
+  --editor-selection: rgba(167, 139, 250, 0.3);
+  --mark-error: rgba(242, 85, 90, 0.16);
+  --mark-warning: rgba(245, 196, 81, 0.12);
+  --syntax-comment: #8a9a7b;
+  --syntax-string: #e2a57a;
+  --syntax-keyword: var(--accent-ink);
+  --syntax-tag: #f0a0c8;
+  --syntax-number: #9cd3b4;
+  --syntax-punctuation: #a0a0a0;
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --bg: #ffffff;
+  --bg-title: #f3f3f3;
+  --bg-panel: #ffffff;
+  --bg-sidebar: #f3f3f3;
+  --bg-elevated: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: #e8e8e8;
+  --bg-active: #e4e6f1;
+  --border: #d4d4d4;
+  --border-subtle: #e5e5e5;
+  --fg: #3b3b3b;
+  --fg-strong: #1f1f1f;
+  --fg-muted: #555555;
+  --fg-faint: #676767;
+  --fg-decor: #9a9a9a;
+  --info: #0969da;
+  --success: #1a7f37;
+  --warning: #9a6700;
+  --error: #cf222e;
+  --status-hover: rgba(0, 0, 0, 0.12);
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  --scrollbar: rgba(100, 100, 100, 0.3);
+  --scrollbar-hover: rgba(100, 100, 100, 0.5);
+
+  --editor-line: rgba(0, 0, 0, 0.035);
+  --editor-selection: rgba(124, 58, 237, 0.22);
+  --mark-error: rgba(207, 34, 46, 0.1);
+  --mark-warning: rgba(154, 103, 0, 0.1);
+  --syntax-comment: #5d7048;
+  --syntax-string: #a3480f;
+  --syntax-keyword: var(--accent-ink);
+  --syntax-tag: #a8326e;
+  --syntax-number: #17714a;
+  --syntax-punctuation: #676767;
+  color-scheme: light;
+}
+
+/* ---------- Base ---------- */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+  background-clip: content-box;
+}
+
+.icon {
+  flex-shrink: 0;
+}
+.icon-error {
+  color: var(--error);
+}
+.icon-warning {
+  color: var(--warning);
+}
+.icon-ok {
+  color: var(--success);
+}
+
+/* ---------- Layout ---------- */
+.app {
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr) minmax(80px, 20%) 24px;
+  height: 100%;
+  position: relative;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  background: var(--bg-title);
+  border-bottom: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+.titlebar-logo {
+  width: 18px;
+  height: 18px;
+}
+.titlebar-name {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.titlebar-mode {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.toolbar {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.toolbar-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border-subtle);
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-panel);
+}
+.pane + .pane {
+  border-left: 1px solid var(--border-subtle);
+}
+.pane-header {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.pane-detail {
+  margin-left: auto;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  font-size: 12px;
+  color: var(--fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* ---------- Problems ---------- */
+.problems {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--border);
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px 0 16px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg);
+  flex-shrink: 0;
+}
+.section-header .count {
+  margin-left: auto;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fg-muted);
+}
+.problem-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 4px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.problem-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  color: var(--fg-muted);
+}
+.problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 16px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.problem:hover {
+  background: var(--bg-hover);
+}
+.problem-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.problem-place {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* ---------- Status bar ---------- */
+.statusbar {
+  display: flex;
+  align-items: stretch;
+  padding: 0 4px;
+  background: var(--status-bg);
+  color: var(--status-fg);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+}
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+.status-item .icon {
+  width: 14px;
+  height: 14px;
+}
+.status-item .icon-error {
+  color: inherit;
+}
+.status-spacer {
+  flex: 1;
+}
+.status-item.notice {
+  background: var(--status-hover);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn.primary {
+  background: var(--accent-fill);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-fill-hover);
+  border-color: transparent;
+}
+.btn.subtle {
+  background: transparent;
+  border-color: var(--border);
+}
+.btn.icon-only {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* ---------- Drag and drop ---------- */
+.drop-overlay {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 16px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Narrow windows: the panes stack, the button labels go. */
+@media (max-width: 760px) {
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .pane + .pane {
+    border-left: none;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .toolbar .btn:not(.icon-only) {
+    font-size: 0;
+    gap: 0;
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+  .titlebar-mode {
+    display: none;
+  }
+}
