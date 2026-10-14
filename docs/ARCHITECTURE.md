@@ -570,7 +570,8 @@ checks catch careless plugins:
   non-contiguous wildcard taken as one, a filter whose implicit action differs written with no word, and one relying
   on the stub's own implicit action written with no word; since 0.5.4, a member link naming an aggregate it doesn't
   make (`interface e1 member agg1`; the stub makes it, as IOS does, and `agg…` names an aggregate), with the
-  existing switches for a membership `no` that removes nothing and a minimum links out of range. Each fails its probe; the
+  existing switches for a membership `no` that removes nothing and a minimum links out of range, and one that bounds
+  minimum links above but takes 0 (the adapters' case is 0, the bound a careless reader misses). Each fails its probe; the
   careful stub, which keeps the per-term rule itself, passes them all (`tests/probes.test.ts`);
 - a 0.4.1 renderer leaves every routing policy field unrendered; renders that convert part of a term, or leave out a
   term that rejects while converting the rest of its policy, fail the ledger check, and leaving out a term that changes

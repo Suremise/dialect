@@ -52,6 +52,8 @@ export type ProbeBug =
   | 'implicit-reliance'
   /** A member link names its aggregate without making it, so the name resolves to nothing. */
   | 'aggregate'
+  /** Minimum links bounded above but not below: 65 is refused, and 0 taken as one. */
+  | 'min-links-zero'
 
 type Obj = Record<string, unknown>
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -186,7 +188,7 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
           return mapped(put(['interfaces', w[1], 'aggregate'], w[3]), ...made)
         }
         if (w[0] === 'interface' && w[2] === 'min-links' && w.length === 4) {
-          const n = bounded(w[3], 1, 64, bug.has('malformed'))
+          const n = bug.has('min-links-zero') && w[3] === '0' ? 0 : bounded(w[3], 1, 64, bug.has('malformed'))
           return n === null ? unsupported('not a number of links from 1 to 64') : mapped(put(['interfaces', w[1], 'aggregation', 'minLinks'], n))
         }
         if (w[0] === 'interface' && w[2] === 'filter-in' && w.length === 4) {
@@ -622,7 +624,8 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     port: { source: 'filter F ipv4\nfilter F seq 10 accept protocol 6 dport 70000', value: '70000' },
     'filter-prefix': { source: 'filter F ipv4\nfilter F seq 10 accept source 10.0.0.1/8', value: '10.0.0.1/8' },
     wildcard: { source: 'filter F ipv4\nfilter F seq 10 accept source-wildcard 10.0.0.0 0.255.0.255', value: '0.255.0.255' },
-    'min-links': { source: 'interface agg1\ninterface agg1 min-links 999', value: '999' }
+    // Zero, the bound a careless reader misses: no links up would leave the aggregate always down, or never.
+    'min-links': { source: 'interface agg1\ninterface agg1 min-links 0', value: '0', line: 2 }
   },
   vrfScoping: {
     delete: { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A', vrf: 'A' },

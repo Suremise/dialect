@@ -166,7 +166,7 @@ export const probes: ProbeAdapter = {
     port: { source: entry('permit tcp any any eq 70000'), value: '70000' },
     'filter-prefix': { source: entry('permit ipv4 10.0.0.1/8 any'), value: '10.0.0.1/8' },
     wildcard: { source: entry('deny ipv4 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' },
-    'min-links': { source: lines('interface Bundle-Ether1', ' bundle minimum-active links 999'), value: '999' }
+    'min-links': { source: lines('interface Bundle-Ether1', ' bundle minimum-active links 0'), value: '0', line: 2 }
   },
   vrfScoping: {
     delete: { base: routes(), changed: lines(routes(), 'no vrf A'), vrf: 'A' },

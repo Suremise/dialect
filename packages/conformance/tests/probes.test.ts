@@ -96,6 +96,7 @@ describe('runProbes', () => {
     // Model 0.5.4's (#107): a membership negated, a minimum links out of range, a member naming an aggregate it doesn't make.
     ['negation', 'negation', 'parse: interfaces.e1.aggregate is still in the model after it was cleared'],
     ['malformed', 'malformed', 'parse: the malformed value is in the model'],
+    ['min-links-zero', 'malformed', 'parse: L2 on the malformed value\'s line is mapped'],
     ['aggregate', 'unknown-reference', 'parse made an invalid model: A member link names an aggregate interface the model doesn\'t have. (interfaces.e1.aggregate)']
   ]
   for (const [bug, probe, problem] of cases) {

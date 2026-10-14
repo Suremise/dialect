@@ -152,7 +152,7 @@ export const probes: ProbeAdapter = {
   },
   malformed: {
     port: { source: lines('set firewall family inet filter F term T from destination-port 70000', 'set firewall family inet filter F term T then accept'), value: '70000', line: 1 },
-    'min-links': { source: lines('set interfaces ae0 aggregated-ether-options minimum-links 999'), value: '999', line: 1 },
+    'min-links': { source: lines('set interfaces ae0 aggregated-ether-options minimum-links 0'), value: '0', line: 1 },
     'filter-prefix': { source: lines('set firewall family inet filter F term T from source-address 10.0.0.256/24', 'set firewall family inet filter F term T then accept'), value: '10.0.0.256/24', line: 1 },
     // Junos takes a mask after the slash; one that isn't contiguous is a wildcard the model never approximates.
     wildcard: { source: lines('set firewall family inet filter F term T from source-address 10.0.0.0/255.0.255.0', 'set firewall family inet filter F term T then accept'), value: '10.0.0.0/255.0.255.0', line: 1 },
@@ -310,7 +310,7 @@ export const hierarchicalProbes: ProbeAdapter = {
   },
   malformed: {
     port: { source: tree(inetFilter(['term T', [['from', ['destination-port 70000']], ['then', ['accept']]]])), value: '70000' },
-    'min-links': { source: tree(['interfaces', [['ae0', [['aggregated-ether-options', ['minimum-links 999']]]]]]), value: '999' },
+    'min-links': { source: tree(['interfaces', [['ae0', [['aggregated-ether-options', ['minimum-links 0']]]]]]), value: '0', line: 4 },
     'filter-prefix': { source: tree(inetFilter(['term T', [['from', ['source-address 10.0.0.256/24']], ['then', ['accept']]]])), value: '10.0.0.256/24' },
     wildcard: { source: tree(inetFilter(['term T', [['from', ['source-address 10.0.0.0/255.0.255.0']], ['then', ['accept']]]])), value: '10.0.0.0/255.0.255.0' },
     prefix: { source: tree(['policy-options', [['prefix-list L', ['10.0.0.256/24']]]]), value: '10.0.0.256/24' },
