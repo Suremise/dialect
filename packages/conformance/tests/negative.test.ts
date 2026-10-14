@@ -201,6 +201,23 @@ describe('a renderer built for model 0.3 meeting a 0.4 model, area by area', () 
   })
 })
 
+describe('a renderer built for model 0.4.0 meeting 0.4.1\'s eBGP default policy', () => {
+  // The stub renders a BGP neighbor's peer AS, and has never heard of the source's default for eBGP peers without a
+  // policy, which a 0.4.1 parser (IOS-XR's, say) puts in the model.
+  const old = stubPlugin({ modelApi: '>=0.4.0 <1.0.0' })
+  const model: Device = { networkInstances: { default: { bgp: { neighbors: { '10.0.0.2': { peerAs: 65001 } }, ebgpDefaultPolicy: { import: 'reject', export: 'reject' } } } } }
+  const added = ['import', 'export'].map((side) => fieldPath('networkInstances', 'default', 'bgp', 'ebgpDefaultPolicy', side))
+
+  it('loads, and the ledger reports each side as unrendered, not dropped', () => {
+    expect(() => createRegistry([old], { modelVersion: '0.4.1' })).not.toThrow()
+    expect(modelProblems(model)).toEqual([])
+    const rendered = old.render!(model, { modelVersion: '0.4.1' })
+    const ledger = buildLedger(old.parse!('', { modelVersion: '0.4.1' }), rendered, model)
+    expect(ledger.complete).toBe(false)
+    expect(ledger.target?.unrendered.map((f) => f.path).sort()).toEqual([...added].sort())
+  })
+})
+
 describe('a parse whose model doesn\'t hold together (core\'s modelProblems())', () => {
   const vrf = fieldPath('interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'networkInstance')
 

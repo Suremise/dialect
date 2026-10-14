@@ -20,7 +20,7 @@
 // while the ledger reports any populated field it has never heard of as unrendered.
 
 /** The shared model's version (docs/SPEC.md §4). Bump minor for additions, major for breaking changes. */
-export const MODEL_VERSION = '0.4.0'
+export const MODEL_VERSION = '0.4.1'
 
 /** A map from a collection's natural key to its entries. */
 export type Keyed<T> = Readonly<Record<string, T>>
@@ -305,6 +305,23 @@ export interface Bgp {
   readonly groups?: Keyed<BgpGroup>
   /** By the neighbor's address (`192.0.2.2`, `2001:db8::2`). */
   readonly neighbors?: Keyed<BgpNeighbor>
+  /**
+   * What the source platform does with an eBGP peer's routes when no policy applies: its default, not configuration
+   * (RFC 8212). A parser sets the side(s) that apply when the instance has an eBGP peer without an import or export
+   * policy; a renderer whose own default differs raises a semantic warning. Since model 0.4.1.
+   */
+  readonly ebgpDefaultPolicy?: BgpDefaultPolicy
+}
+
+/**
+ * A platform's default for an eBGP peer with no policy, per direction (since model 0.4.1): `accept` takes the routes
+ * (Junos, IOS-XE), `reject` drops them (IOS-XR, after RFC 8212).
+ */
+export interface BgpDefaultPolicy {
+  /** Routes received from an eBGP peer with no import policy. */
+  readonly import?: 'accept' | 'reject'
+  /** Routes sent to an eBGP peer with no export policy: `accept` advertises them. */
+  readonly export?: 'accept' | 'reject'
 }
 
 /** What a group and a neighbor both say; a neighbor's own setting wins over its group's. */
