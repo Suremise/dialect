@@ -1,8 +1,9 @@
 // IOS-XR access lists beyond their fixtures (#88): sequence numbers as IOS-XR gives them, the one-line form, edits and
 // removals, the port operators, and what an interface applies.
 import { describe, expect, it } from 'vitest'
+import { checkFixture } from '@dialect/conformance'
 import { MODEL_VERSION } from '@dialect/core'
-import { parse as parseText, render as renderModel } from '../src'
+import plugin, { parse as parseText, render as renderModel } from '../src'
 
 const context = { modelVersion: MODEL_VERSION }
 const parse = (text: string) => parseText(text, context)
@@ -35,6 +36,35 @@ describe('ports, addresses and options', () => {
     const port = (op: string) => terms(entryText(`permit tcp any any ${op}`))?.['10']?.matches?.destinationPorts
     expect([port('eq www'), port('gt 1023'), port('lt 1024'), port('range 8080 8090'), port('range 22 22'), port('gt 65534')]).toEqual([['80'], ['1024-65535'], ['0-1023'], ['8080-8090'], ['22'], ['65535']])
     expect(parse(entryText('permit tcp any any neq 23')).dispositions.L2).toEqual({ kind: 'unsupported', reason: 'neq: two ranges the simple form doesn\'t write' })
+  })
+
+  it('writes every port range back in a form IOS-XR takes and reads as the same, at the bounds, both ways and families', () => {
+    // As the parse reads each, then a later deciding entry, so an entry that didn't read back would leave the list out.
+    const forms: [said: string, range: string][] = [
+      ['range 0 65535', '0-65535'],
+      ['eq 0', '0'],
+      ['eq 65535', '65535'],
+      ['lt 1', '0'],
+      ['lt 2', '0-1'],
+      ['gt 65534', '65535'],
+      ['gt 65533', '65534-65535'],
+      ['range 1 65534', '1-65534'],
+      ['gt 0', '1-65535'],
+      ['lt 65535', '0-65534']
+    ]
+    for (const family of ['ipv4', 'ipv6'] as const)
+      for (const side of ['source', 'destination'] as const)
+        for (const [said, range] of forms) {
+          const entry = side === 'source' ? `permit tcp any ${said} any` : `permit tcp any any ${said}`
+          const text = lines(`${family} access-list F`, ` 10 ${entry}`, ` 20 deny ${family} any any`)
+          const what = `${family} ${side} ${said}`
+          const parsed = parse(text)
+          const t = parsed.model.filters?.[family]?.F.terms?.['10']
+          expect(t?.matches?.[side === 'source' ? 'sourcePorts' : 'destinationPorts'], what).toEqual([range])
+          // Rendered, then read back: the same model, and through the kit's checks.
+          const fixture = { name: what, source: text, expectedModel: parsed.model }
+          expect(checkFixture(plugin, fixture).filter((r) => r.status === 'failed').flatMap((r) => r.problems), what).toEqual([])
+        }
   })
 
   it('takes a contiguous wildcard as a prefix, and never approximates a non-contiguous one', () => {

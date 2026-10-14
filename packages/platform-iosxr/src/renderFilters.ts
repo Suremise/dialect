@@ -126,7 +126,8 @@ export function planFilters(filters: Filters | undefined, skip: (field: Segments
       fields.push([...mAt, leaf])
       const [lo, hi] = r.split('-').map(Number)
       if (hi === undefined) return ` eq ${lo}`
-      return lo === 0 ? ` lt ${hi + 1}` : hi === 65535 ? ` gt ${lo - 1}` : ` range ${lo} ${hi}`
+      // `lt` and `gt` where they fit, within 0 to 65535: the whole range has neither, and is `range 0 65535`.
+      return lo === 0 && hi < 65535 ? ` lt ${hi + 1}` : hi === 65535 && lo > 0 ? ` gt ${lo - 1}` : ` range ${lo} ${hi}`
     }
     const srcPorts = ports('sourcePorts')
     const dstPorts = ports('destinationPorts')
