@@ -24,7 +24,7 @@
 // A policy term is converted whole or not at all (the per-term rule): a term with a line the stub can't take is left out
 // with all its lines unsupported, and its whole policy too when leaving it out isn't safe (termSkipSafe()); so is a
 // filter's (filterTermSkipSafe()), its attachments with it.
-import { communityType, fieldPath, filterTermSkipSafe, isPortRange, parsePrefix, pathSegments, populatedLeaves, termSkipSafe, type Context, type Device, type Diagnostic, type FieldDisposition, type ParseResult, type PathSegment, type PlatformPlugin, type Policy, type RenderResult, type StatementDisposition, type SyntaxNode } from '@dialect/core'
+import { communityType, fieldPath, filterReliesOnImplicitAction, filterTermSkipSafe, isPortRange, parsePrefix, pathSegments, populatedLeaves, termSkipSafe, type Context, type Device, type Diagnostic, type FieldDisposition, type ParseResult, type PathSegment, type PlatformPlugin, type Policy, type RenderResult, type StatementDisposition, type SyntaxNode } from '@dialect/core'
 import type { ProbeAdapter } from '../src'
 
 /** The bug classes the probes look for, each as the stub can be told to make it. */
@@ -47,6 +47,8 @@ export type ProbeBug =
   | 'regex'
   /** A filter whose platform default for an undecided packet isn't the stub's is written with no word said. */
   | 'implicit'
+  /** A filter that relies on its implicit action is written with no word said when the default is the stub's. */
+  | 'implicit-reliance'
 
 type Obj = Record<string, unknown>
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -505,6 +507,7 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
           emit(`filter ${name} ${family}`)
           dispositions[fieldPath(...at, 'implicitAction')] = { kind: 'not-applicable', reason: 'the stub\'s filters deny what no term decides' }
           if (filter.implicitAction !== 'deny' && !bug.has('implicit')) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'probe-stub.implicit-action', message: 'A filter discards what no term decides, and the stub\'s deny it.', field: fieldPath(...at, 'implicitAction') })
+          else if (filterReliesOnImplicitAction(filter) && !bug.has('implicit') && !bug.has('implicit-reliance')) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'probe-stub.implicit-action', message: 'Packets no term decides are denied by the platform\'s implicit action, not by a term.', field: fieldPath(...at, 'implicitAction') })
           if (filter.description !== undefined) dispositions[fieldPath(...at, 'description')] = { kind: 'unsupported', reason: 'the stub\'s filters have no description' }
           for (const [seq, t] of terms) {
             const term = [...at, 'terms', seq]

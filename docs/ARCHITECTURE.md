@@ -189,7 +189,9 @@ ideas from Capirca and Aerleon's term model (ideas only).
   packet no term decides, kept with the data as a policy's `fallThrough` is and required the same way. `discard` for
   Junos (dropped silently), `deny` for a Cisco ACL's implicit deny (dropped, with an ICMP unreachable as the
   interface's `ip unreachables` says). A renderer gives it `not-applicable` and raises a semantic warning when its
-  platform's differs, or when the source relied on it (no final term decides every packet).
+  platform's differs, or when the filter relies on it (`filterReliesOnImplicitAction()`: no term matching every packet
+  accepts, discards or rejects it), even when the defaults agree; a filter of its own default that decides every
+  packet gets none.
 - A term's `matches` all hold for a packet to match (within a list, any entry): `sourcePrefixes`,
   `destinationPrefixes` and `prefixes` (either; Junos `address`), in CIDR form of the filter's family (a Cisco `host`
   is a /32 or /128); `sourcePrefixLists`, `destinationPrefixLists` and `prefixLists` (either), naming
@@ -448,9 +450,11 @@ what comes out the same way for every platform (`runProbes()`):
    kit's own sets (`PROBE-AS-PATH`, `PROBE-COMMUNITY-SET`) in each other dialect leaves each regex `unsupported`, or
    `rendered` with a semantic warning (not info) on the regex or its set, and never `not-applicable`;
 8. **the implicit action** (model 0.5.1): a source with one filter, whose `implicitAction` the parse gives (the
-   plugin's own). A render of the kit's own filter (`PROBE-FILTER`, accepting TCP port 22) with the other platform's
-   implicit action gives that leaf a disposition and raises a semantic warning (not info) on the filter or one of its
-   fields.
+   plugin's own). The kit renders its own filter (`PROBE-FILTER`, accepting TCP port 22) four ways: with the plugin's
+   implicit action and the other one, each relying on it or ending in a catch-all term that discards every other
+   packet. Each render gives `implicitAction` a disposition; a filter that relies on its implicit action, or whose
+   implicit action isn't the plugin's, gets a semantic warning (not info) on the filter or one of its fields; one of
+   the plugin's own that decides every packet gets none.
 
 Model 0.5.0 also adds cases to the probes above: negation of a policy term and of a prefix list entry, and a malformed
 prefix and prefix length; 0.5.1, negation of a filter term and of a filter's attachment, and a malformed port, filter
@@ -487,7 +491,8 @@ checks catch careless plugins:
   address, AS number or VLAN ID taken as one, and a `no` in one VRF that removes the same thing (a route, a BGP
   neighbor, an OSPF interface) everywhere; since 0.5.0, a prefix or length out of range taken as one, a name kept
   that nothing defines, and another dialect's regex written as its own; since 0.5.1, a port, filter prefix or
-  non-contiguous wildcard taken as one, and a filter whose implicit action differs written with no word. Each fails its probe; the
+  non-contiguous wildcard taken as one, a filter whose implicit action differs written with no word, and one relying
+  on the stub's own implicit action written with no word. Each fails its probe; the
   careful stub, which keeps the per-term rule itself, passes them all (`tests/probes.test.ts`);
 - a 0.4.1 renderer leaves every routing policy field unrendered; renders that convert part of a term, or leave out a
   term that rejects while converting the rest of its policy, fail the ledger check, and leaving out a term that changes

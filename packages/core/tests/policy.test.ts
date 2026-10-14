@@ -1,7 +1,7 @@
 // termSkipSafe() and filterTermSkipSafe() (policy.ts): whether a policy's or filter's term can be left out while the
 // rest is converted, the per-term rule's question (docs/ARCHITECTURE.md).
 import { describe, expect, it } from 'vitest'
-import { filterTermSkipSafe, termSkipSafe, type Filter, type FilterAction, type Policy, type PolicyTerm } from '../src'
+import { filterReliesOnImplicitAction, filterTermSkipSafe, termSkipSafe, type Filter, type FilterAction, type Policy, type PolicyTerm } from '../src'
 
 /** A policy of `terms`, keyed 10, 20, 30… in order. */
 const policy = (...terms: PolicyTerm[]): Policy => ({ fallThrough: 'reject', terms: Object.fromEntries(terms.map((t, i) => [String((i + 1) * 10), t])) })
@@ -49,6 +49,19 @@ describe('termSkipSafe', () => {
     terms['10'] = { actions: { tag: 7 } }
     expect(termSkipSafe({ fallThrough: 'reject', terms }, '10')).toBe(false)
     expect(termSkipSafe({ fallThrough: 'reject', terms }, '20')).toBe(true)
+  })
+})
+
+describe('filterReliesOnImplicitAction', () => {
+  it('is true unless a term matching every packet accepts, discards or rejects it', () => {
+    expect(filterReliesOnImplicitAction({ implicitAction: 'deny' })).toBe(true)
+    expect(filterReliesOnImplicitAction({ implicitAction: 'deny', terms: { '10': { matches: { protocols: [6] }, actions: { action: 'accept' } } } })).toBe(true)
+    // Counting everything decides nothing; a term with an empty matches object matches everything.
+    expect(filterReliesOnImplicitAction({ implicitAction: 'discard', terms: { '10': { actions: { action: 'next-term', count: 'all' } } } })).toBe(true)
+    for (const action of ['accept', 'discard', 'reject'] as const) {
+      expect(filterReliesOnImplicitAction({ implicitAction: 'discard', terms: { '10': { matches: { protocols: [6] }, actions: { action: 'accept' } }, '20': { actions: { action } } } }), action).toBe(false)
+      expect(filterReliesOnImplicitAction({ implicitAction: 'discard', terms: { '20': { matches: {}, actions: { action } } } }), action).toBe(false)
+    }
   })
 })
 

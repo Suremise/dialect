@@ -41,6 +41,15 @@ export function termSkipSafe(policy: Policy, key: string): boolean {
 }
 
 /**
+ * Whether some packets reach `filter`'s implicit action (since model 0.5.1): no term decides every packet, that is, none
+ * matches everything (no matches) and accepts, discards or rejects. A renderer warns when a filter relies on it, even
+ * when its platform's implicit action is the same, so the reader knows the filter's end is the platform's.
+ */
+export function filterReliesOnImplicitAction(filter: Filter): boolean {
+  return !Object.values(filter.terms ?? {}).some((t) => t?.actions?.action !== 'next-term' && t?.actions?.action !== undefined && Object.keys(t?.matches ?? {}).length === 0)
+}
+
+/**
  * Whether leaving term `key` of `filter` out (as `unsupported`, whole) and converting the rest still has every later
  * term see the same packets (since model 0.5.1): the term decides nothing (`next-term`: it only counts or logs). A last
  * term always can be. When it can't be, the whole filter is `unsupported` instead.

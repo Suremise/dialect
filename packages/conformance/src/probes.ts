@@ -12,8 +12,8 @@
 //    peer naming a missing policy, maps no statement and leaves no name that resolves to nothing;
 // 7. regexes kept as written (model 0.5.0): a community or AS-path regex reaches the model verbatim with its dialect,
 //    and one of another dialect is never rendered as if it were the plugin's own;
-// 8. the implicit action (model 0.5.1): a filter whose platform default for an undecided packet differs from the
-//    plugin's is rendered with a semantic warning, never silently.
+// 8. the implicit action (model 0.5.1): a filter that relies on its platform's default for an undecided packet, or
+//    whose default differs from the plugin's, is rendered with a semantic warning, never silently.
 // Every probe source also goes through the five fixture checks (checks.ts), the secrets check among them: a probe
 // source with a secret (a community, the prototype keys used as one) has it checked like any fixture's.
 // A probe a plugin can't run yet (an area it doesn't support) is declared `notApplicable` with why, never left out:
@@ -22,7 +22,7 @@
 // them: one left out
 // isn't run (probesNotGiven() lists it, and describeConformance() shows it as a skipped test), so an older adapter runs
 // as it did.
-import { fieldPath, MODEL_VERSION, modelProblems, statementsOf, type Context, type Device, type PathSegment, type PlatformPlugin, type RegexDialect } from '@dialect/core'
+import { fieldPath, filterReliesOnImplicitAction, MODEL_VERSION, modelProblems, statementsOf, type Context, type Device, type PathSegment, type PlatformPlugin, type RegexDialect } from '@dialect/core'
 import { checkFixture, type CheckResult } from './checks'
 import { findSecrets, type SecretsOptions } from './secrets'
 
@@ -546,15 +546,23 @@ export function runProbes(plugin: PlatformPlugin, adapter: ProbeAdapter, { model
     const own = new Set((['ipv4', 'ipv6'] as const).flatMap((family) => Object.values(parsed.model.filters?.[family] ?? {}).map((f) => f?.implicitAction)))
     if (own.size !== 1 || ![...own].every((a) => a === 'discard' || a === 'deny')) problems.push(`parse: the source's filters say ${own.size} implicit actions of the model's, not the plugin's one`)
     else {
-      // From the kit's own model, with the other platform's default: the render says the two differ.
-      const other = own.has('discard') ? 'deny' : 'discard'
-      const model: Device = { filters: { ipv4: { [PROBE_FILTER]: { implicitAction: other, terms: { '10': { matches: { protocols: [6], destinationPorts: ['22'] }, actions: { action: 'accept' } } } } } } }
-      const rendered = render(model)
+      // From the kit's own filter, with each platform's default, relying on it (only SSH is decided) or not (a final
+      // catch-all term discards the rest): a warning when it relies on it or the defaults differ, and none when a
+      // filter of the plugin's own default decides every packet.
+      const mine = [...own][0] as 'discard' | 'deny'
       const filter = fieldPath('filters', 'ipv4', PROBE_FILTER)
       const field = fieldPath('filters', 'ipv4', PROBE_FILTER, 'implicitAction')
-      if (!Object.hasOwn(rendered.dispositions, field)) problems.push(`render of a filter whose implicit action is ${other}: ${field} has no disposition`)
-      if (!rendered.diagnostics.some((x) => x.category === 'semantic' && x.severity !== 'info' && x.field !== undefined && (x.field === filter || x.field.startsWith(`${filter}.`))))
-        problems.push(`render of a filter whose implicit action is ${other}: no semantic warning on the filter, though the plugin's platform does otherwise with a packet no term decides`)
+      for (const implicitAction of [mine, mine === 'discard' ? 'deny' : 'discard'] as const)
+        for (const catchAll of [false, true]) {
+          const terms = { '10': { matches: { protocols: [6], destinationPorts: ['22'] }, actions: { action: 'accept' as const } }, ...(catchAll ? { '20': { actions: { action: 'discard' as const } } } : {}) }
+          const relies = filterReliesOnImplicitAction({ implicitAction, terms })
+          const rendered = render({ filters: { ipv4: { [PROBE_FILTER]: { implicitAction, terms } } } })
+          const what = `render of a filter whose implicit action is ${implicitAction}${implicitAction === mine ? ', the plugin\'s own,' : ''} ${relies ? 'relying on it' : 'with a final term deciding every packet'}`
+          const warned = rendered.diagnostics.some((x) => x.category === 'semantic' && x.severity !== 'info' && x.field !== undefined && (x.field === filter || x.field.startsWith(`${filter}.`)))
+          if (!Object.hasOwn(rendered.dispositions, field)) problems.push(`${what}: ${field} has no disposition`)
+          if ((relies || implicitAction !== mine) && !warned) problems.push(`${what}: no semantic warning on the filter, though ${relies ? 'some packets reach its implicit action' : 'the plugin\'s platform does otherwise with a packet no term decides'}`)
+          if (!relies && implicitAction === mine && warned) problems.push(`${what}: a semantic warning on the filter, though no packet reaches its implicit action and the plugin's platform does the same`)
+        }
     }
     problems.push(...fixtureChecks('implicit-action', implicit.source))
     add('implicit-action', 'all', problems)

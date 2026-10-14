@@ -86,7 +86,10 @@ describe('runProbes', () => {
     ['negation', 'negation', 'parse: filters.ipv4.F.terms.10 is still in the model after it was cleared'],
     ['negation', 'negation', 'parse: interfaces.e1.subinterfaces.0.filters.ipv4.input is still in the model after it was cleared'],
     ['reference', 'unknown-reference', 'parse made an invalid model: A subinterface applies a filter the model doesn\'t have in that family. (interfaces.e1.subinterfaces["0"].filters.ipv4.input)'],
-    ['implicit', 'implicit-action', 'render of a filter whose implicit action is discard: no semantic warning on the filter, though the plugin\'s platform does otherwise with a packet no term decides']
+    ['implicit', 'implicit-action', 'render of a filter whose implicit action is discard relying on it: no semantic warning on the filter, though some packets reach its implicit action'],
+    ['implicit', 'implicit-action', 'render of a filter whose implicit action is discard with a final term deciding every packet: no semantic warning on the filter, though the plugin\'s platform does otherwise with a packet no term decides'],
+    // A renderer that warns only when the defaults differ: a filter relying on the plugin's own default goes unsaid.
+    ['implicit-reliance', 'implicit-action', 'render of a filter whose implicit action is deny, the plugin\'s own, relying on it: no semantic warning on the filter, though some packets reach its implicit action']
   ]
   for (const [bug, probe, problem] of cases) {
     it(`fails a stub with the ${bug} bug on the ${probe} probe: ${problem}`, () => {
@@ -320,7 +323,7 @@ describe('runProbes', () => {
     expect(probesNotGivenByModel(adapter05())).toEqual([['0.5.1', NOT_GIVEN_051]])
   })
 
-  it('passes a filter rendered with its implicit action\'s difference said; fails one that says it only as info, or on another filter', () => {
+  it('passes a filter rendered with its implicit action said; fails one that says it only as info, on another filter, or for a filter that decides every packet', () => {
     /** The stub, its implicit-action warning changed by `edit`. */
     const saying = (edit: (d: Diagnostic) => Diagnostic): PlatformPlugin => ({
       ...probeStub(),
@@ -332,9 +335,19 @@ describe('runProbes', () => {
     const implicit = (plugin: PlatformPlugin) => probe(plugin, 'implicit-action').flatMap((r) => r.problems)
     expect(implicit(probeStub())).toEqual([])
     expect(implicit(saying((d) => ({ ...d, field: fieldPath('filters', 'ipv4', 'PROBE-FILTER') })))).toEqual([])
-    const missing = 'render of a filter whose implicit action is discard: no semantic warning on the filter, though the plugin\'s platform does otherwise with a packet no term decides'
+    const missing = 'render of a filter whose implicit action is deny, the plugin\'s own, relying on it: no semantic warning on the filter, though some packets reach its implicit action'
     expect(implicit(saying((d) => ({ ...d, severity: 'info' })))).toContain(missing)
     expect(implicit(saying((d) => ({ ...d, field: fieldPath('filters', 'ipv4', 'PROBE-FILTER-2', 'implicitAction') })))).toContain(missing)
+    // Warning on every filter, a catch-all one of the plugin's own default included, is noise that hides the real ones.
+    const always: PlatformPlugin = {
+      ...probeStub(),
+      render: (model, context) => {
+        const r = probeStub().render!(model, context)
+        const filters = Object.keys(model.filters?.ipv4 ?? {}).map((name): Diagnostic => ({ severity: 'warning', category: 'semantic', message: 'Check the end of this filter.', field: fieldPath('filters', 'ipv4', name, 'implicitAction') }))
+        return { ...r, diagnostics: [...r.diagnostics, ...filters] }
+      }
+    }
+    expect(implicit(always)).toEqual(['render of a filter whose implicit action is deny, the plugin\'s own, with a final term deciding every packet: a semantic warning on the filter, though no packet reaches its implicit action and the plugin\'s platform does the same'])
   })
 
   it('passes a render that translates another dialect\'s regex and says so; fails one that leaves it out as not applicable', () => {
