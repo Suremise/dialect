@@ -77,6 +77,8 @@ only when the package doesn't work without it, and say why on the card.
 - **Tests wait for conditions, never for time**: poll what you expect to see (`vi.waitFor`, `expect.poll`, each with a
   named bound) rather than sleep and then check, or read state once right after an action. A timeout bounds a hung run
   and is never the fix. Each test cleans up its own state and passes under load, not only alone.
+- The web build's tests (`apps/web/tests`) drive **Microsoft Edge** through playwright-core. Edge comes with Windows,
+  so no browser is downloaded. They build the page first, as the CLI's tests build the CLI.
 - Temp folders come from `tempDir()` (`tests/tempDir.ts`), by their long, real paths, never under `os.tmpdir()`
   directly (CI's temp folder is an 8.3 short path; `tests/tempDir.test.ts` fails on it).
 - git and npm started by tests get `childEnv()` (`tests/childEnv.ts`), so a shell's `GIT_*` or `npm_*` variables can't
@@ -95,4 +97,3 @@ only when the package doesn't work without it, and say why on the card.
 | `scripts/licenses.mjs`, `thirdPartyNotices.mjs`, `licensePolicy.mjs`, `licenseText.mjs`, `notices/` | The generated notices, the build-only list and the license check |
 | `scripts/build-icons.mjs`, `check-contrast.mjs`, `branding/` | The icon pipeline and the theme tokens |
 | `tests/` | Repo-wide tests: licenses, install scripts, line endings, temp folders |
-| `spike/` | Throwaway prototype code from the spike; the reference for B3's port, deleted after it |
