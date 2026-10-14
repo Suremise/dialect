@@ -51,8 +51,9 @@ export const displaySetTool: JunosTool = {
 export const junos: PlatformPlugin = {
   id: 'junos',
   name: 'Junos',
-  // 0.2.0: its parse fills system.dns, which a 0.1 core doesn't know. Minor versions only add, so every 0.x from there.
-  modelApi: '>=0.2.0 <1.0.0',
+  // 0.3.0: its parse fills subinterfaces' networkInstance and VRFs' route distinguishers and targets, which a 0.2 core
+  // doesn't know. Minor versions only add, so every 0.x from there.
+  modelApi: '>=0.3.0 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },

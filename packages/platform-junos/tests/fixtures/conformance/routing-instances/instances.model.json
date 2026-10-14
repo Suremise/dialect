@@ -1,0 +1,103 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "interfaces": {
+      "ge-0/0/2": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "CUST-B",
+            "ipv4": {
+              "addresses": {
+                "203.0.113.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        }
+      },
+      "ge-0/0/1": {
+        "vlanTagging": true,
+        "type": "ethernet",
+        "subinterfaces": {
+          "10": {
+            "vlanId": 10,
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 30
+                }
+              }
+            },
+            "networkInstance": "CUST-A"
+          }
+        }
+      },
+      "lo0": {
+        "subinterfaces": {
+          "1": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.101": {
+                  "prefixLength": 32
+                }
+              }
+            },
+            "networkInstance": "CUST-A"
+          }
+        },
+        "type": "loopback"
+      },
+      "ge-0/0/3": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "TRANSIT"
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "CUST-B": {
+        "type": "vrf",
+        "routeDistinguisher": "192.0.2.1:200",
+        "routeTargets": {
+          "import": [
+            "65000:201"
+          ],
+          "export": [
+            "65000:202"
+          ]
+        }
+      },
+      "CUST-A": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:100",
+        "routeTargets": {
+          "import": [
+            "65000:100"
+          ],
+          "export": [
+            "65000:100"
+          ]
+        }
+      },
+      "CUST-C": {
+        "type": "vrf",
+        "routeDistinguisher": "4200000000:300",
+        "routeTargets": {
+          "import": [
+            "4200000000:300"
+          ],
+          "export": [
+            "4200000000:300"
+          ]
+        }
+      },
+      "TRANSIT": {
+        "type": "virtual-router"
+      }
+    }
+  }
+}

@@ -521,7 +521,8 @@ The third Cisco platform, built like the NX-OS plugin (its code copied, not impo
   more), the right one scores highest.
 - **Tests:** as the other Cisco plugins': hand-written fixtures per area through the kit (`tests/fixtures/<area>`,
   `policy` among them), chosen corpus files against expected models in `tests/corpus/`, and every file of
-  `fixtures/public/iosxr` through the kit's checks.
+  `fixtures/public/iosxr` through the kit's checks. Its probe adapter (`tests/probes.ts`, #51) gives every probe in
+  IOS-XR syntax, except the prototype keys as an interface name, which IOS-XR can't have (a name is a type and numbers).
 - **For BGP (B10), not yet:** IOS-XR applies RFC 8212 to eBGP, so a neighbor with no route policy in a direction sends
   and accepts nothing. A converted eBGP neighbor will need an explicit `route-policy … in` and `out` (a pass-all policy
   where the source had none), or it comes up and exchanges no routes.
@@ -593,8 +594,8 @@ The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_P
 B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
 areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.2.0 <1.0.0'`, for model
-  0.2's DNS), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.3.0 <1.0.0'`, for model
+  0.3's VRF membership, route distinguishers and route targets), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
   `displaySetTool`: id `display-set`, name "Display set". `run(text)`
   returns the set lines as text, one per line, each ended by a newline (none on an error), and `sourceLines`, the
   statement's source line for each output line (a quoted value with line breaks makes one set line several output
@@ -658,7 +659,7 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `any <severity>` (`info` is informational, `any` debug), `port`, `routing-instance` and `facility-override`;
   interfaces with `description`, `disable`, `mtu`, `vlan-tagging`, units with `description`, `disable`, `vlan-id` and
   `family inet`/`inet6` (`address A/L [primary]`, `mtu`); static routes in `routing-options static` and `rib
-  inet6.0 static`, and in routing instances (`instance-type vrf`, `rib R.inet6.0`): `next-hop` (an address or an
+  inet6.0 static`, and in routing instances (`rib R.inet6.0`): `next-hop` (an address or an
   interface), `qualified-next-hop` with its own `preference`, `metric`, `tag` and `interface`, `discard`, `reject`,
   and the route's `preference`, `metric` and `tag`, applied to each hop without its own; SNMP `location`, `contact`
   and communities with `authorization` and `clients`. A statement is `mapped` only when everything it says went into
@@ -670,13 +671,35 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   out of the model, so it can't come out answering clients it shouldn't. The interface type comes from the name
   (`ge-`, `xe-`, `et-` ethernet, `ae` aggregate, `lo` loopback, `irb` vlan, `fxp`/`em`/`me` management, `gr-`/`st`
   tunnels). Reasons never quote the configuration.
-- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.2 with a disposition and a
+- **Routing instances (#46):** `instance-type vrf` or `virtual-router` is the network instance's `type`;
+  `interface ge-0/0/0.0` is that unit's `networkInstance` (Junos binds units, so an interface without its unit is
+  `unsupported`; `irb.100` and `lo0.1` are units), and makes sure the instance and the unit exist; `route-distinguisher`
+  is its `routeDistinguisher` and `vrf-target target:X` both its `routeTargets`, with `vrf-target import` and `export`
+  overriding their side (the plain one is `ignored-by-design` when both do). Junos writes a 4-byte AS with `L`
+  (`4200000000L:100`): the model writes it plain (`communities.ts`, `fromJunos()` and `toJunos()`); `L` on a 2-byte AS,
+  `vrf-target auto`, `vrf-import` and `vrf-export` policies are `unsupported`. Groups apply as everywhere (R1–R12). **A
+  unit named in two instances is in neither:** Junos refuses that, so it's an error diagnostic naming the lines (not
+  the unit), and every statement that named it is `unsupported`. **An instance of another type** (`mac-vrf`, `evpn`,
+  `forwarding`…) is converted not at all, as SNMP communities are: its route distinguisher, targets and units mean
+  something else there. Which type an instance has is settled as any single setting is (the configuration over a
+  group, an earlier group over a later one), so a group's `mac-vrf` under the instance's own `vrf` is superseded and
+  the VRF converts.
+- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.3 with a disposition and a
   later version's fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
   with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
   `unsupported` with why: a route's description, NTP and syslog source interfaces (Junos uses addresses), a drop beside
-  other next hops (with a warning), a routing instance that isn't a VRF. **An SNMP community whose client list can't
-  be written (empty, or not prefixes) is left out whole**, with a warning that names no community.
+  other next hops (with a warning), an instance type Junos doesn't have. **An SNMP community whose client list can't
+  be written (empty, or not prefixes) is left out whole**, with a warning that names no community. A routing instance
+  has its `instance-type`, an `interface` line per unit that names it, its `route-distinguisher` and `vrf-target` (one
+  target each way: the same both ways is `vrf-target target:X`, else `vrf-target { import …; export …; }`; more than one
+  needs vrf-import or vrf-export policies, so it is `unsupported`). A virtual router and the global table have no route
+  distinguisher or targets (`unsupported`), and a unit naming an instance the model doesn't have is `unsupported`.
+  **A VRF Junos can't commit isn't made whole by guessing:** one without a route distinguisher, or without a route
+  target for a side, is written with what it has, and each missing part is a needs-input item
+  (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
+  answer in another form is left unused, with a warning). A route target answer goes to every side without one Junos
+  can write (left out, empty, malformed or more than one); the item is withdrawn only once the answer is written.
 - `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's
   (`hostname`, `!`, `interface GigabitEthernet…`).
 - **Tests:** the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
