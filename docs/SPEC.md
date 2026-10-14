@@ -92,7 +92,10 @@ product decisions.
     `npm run licenses` and a unit test check every source against the allowlist and `fixtures/LICENSES/` (decided
     2026-10-14).
   - Anything else fails unless it is a recorded exception (`EXCEPTIONS` in `scripts/licensePolicy.mjs`): the package,
-    its license, why, and who decided. Only the user decides one.
+    its license, why, and who decided. Only the user decides one. **Recorded:** Microsoft's WebView2 bootstrapper and
+    offline installer may ship inside the Windows installers, unmodified, under Microsoft's redistribution terms
+    (Darren, 2026-10-14, #89), with a notices entry giving those terms and their link
+    (`scripts/notices/webview2-installers.md`).
 - **`THIRD_PARTY_NOTICES.md` is generated** from what actually ships (`npm run licenses`): every package with a link,
   version, license and full license text, the products it ships in (a package that publishes no license file, or that
   only another platform installs, needs a reviewed supplement with its text, or the check fails), plus hand-written
