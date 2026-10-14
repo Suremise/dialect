@@ -280,7 +280,7 @@ each workspace's `typecheck` script.
 - **Lint:** oxlint with `--deny-warnings` (`.oxlintrc.json`: correctness errors, suspicious warnings).
 - **Tests:** Vitest (`vitest.config.ts`), from `tests/` and each package's `tests/`.
 - **CI:** `.github/workflows/ci.yml`, on Windows with Node 24 and npm 12: `npm ci`, typecheck, lint, tests and the
-  license check.
+  license check; and the desktop job (The desktop app, below): cargo-deny, the installer and the smoke test.
 
 ## Licenses
 
@@ -301,7 +301,9 @@ each workspace's `typecheck` script.
   which then gives its link and text on every machine; without one the check fails.
 - `docs/BUILD_ONLY_PACKAGES.md` lists every build-only package with its version and license.
 - `scripts/licensePolicy.mjs` judges each package's SPDX expression against its category's list (`SHIPPED_ALLOWED`
-  or `OPEN_SOURCE`), with the recorded `EXCEPTIONS`.
+  or `OPEN_SOURCE`), with the recorded `EXCEPTIONS`. Its `chosenLicense()` says which license a package or crate
+  offering a choice is used under (MIT where offered, else the first allowed choice, at each `OR`), which each notices
+  entry shows (`shownLicense()`: "MIT OR Apache-2.0, used under MIT").
 - `scripts/licenseText.mjs` keeps the text steps pure: line endings, whether to rewrite a file, and what changed.
 - `scripts/fixtureLicenses.mjs` checks the copied, not shipped fixtures: every source in `fixtures/manifest.json` has
   a license on the shipped allowlist and its text in `fixtures/LICENSES/`, with its NOTICE file when `FIXTURE_NOTICES`
@@ -515,12 +517,13 @@ when one is needed, is `@codemirror/merge`.
 
 ## The web build (`apps/web`)
 
-`npm run build -w @dialect/web` writes one file, `apps/web/dist/dialect.html` (about 570 KB), that runs from `file://`
+`npm run build -w @dialect/web` writes one file, `apps/web/dist/dialect.html` (about 1.1 MB), that runs from `file://`
 with no server and no network.
 
 - `src/main.tsx` renders the UI with `src/webPlatform.ts`: a file picker, downloads (a `blob:` link), and the clipboard
   API with the copy command as its fallback.
-- `vite.config.ts`: the React plugin, then vite-plugin-singlefile, which inlines the script and the styles, then
+- `vite.config.ts`: the React plugin, then `dialect-inline`, which inlines the script and the styles (the build makes
+  one of each: no code splitting, no preload helper, assets as `data:` URLs) and fails on any other file, then
   `dialect-csp`, which fills in the page's Content Security Policy from their SHA-256 hashes: `default-src 'none'`,
   `script-src` and `style-src` only those hashes, `img-src data:` (the icon), and `base-uri`, `form-action` and
   `object-src` `'none'`. No `unsafe-inline`, no `blob:` or remote sources, no `connect-src`. The build fails if the page
@@ -568,6 +571,12 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
   `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs tauri-driver
   (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver matching the installed WebView2 (from
   `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`), through `MSEDGEDRIVER` or `PATH`.
+- **CI:** the `desktop` job in `.github/workflows/ci.yml` (`windows-latest`) does the same. It caches cargo's registry
+  and `src-tauri/target`, and keeps tauri-driver and cargo-deny cached in `~/.cargo-tools`. It runs
+  `cargo deny --locked check` in `src-tauri`, then reads the runner's WebView2 version from the registry
+  (`HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`, `pv`), downloads
+  that msedgedriver and sets `MSEDGEDRIVER`. Then it runs `npm run build` and the smoke test, and uploads the installer
+  as the `dialect-installer` artifact (14 days, no release).
 
 ## Branding
 
