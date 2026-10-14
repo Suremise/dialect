@@ -33,7 +33,7 @@ const CASES: readonly (readonly [area: string, path: string])[] = [
   ['vlans', 'vlans/batfish__interface-vlan.set'],
   ['vlans', 'interfaces/batfish__irb-interfaces.set'],
   ['ospf', 'ospf/batfish__ospf-intervals.set'],
-  ['ospf', 'ospf/batfish__unit-tests_juniper_ospf_stub_areas.set'],
+  ['ospf', 'ospf/batfish__ospf-interface-network-type.set'],
   ['bgp', 'bgp/batfish__bgp-description.set'],
   ['bgp', 'bgp/batfish__bgp-type-internal.set']
 ]

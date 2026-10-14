@@ -658,6 +658,14 @@ export function parse(text: string, _context: Context): ParseResult {
     const n = Number(s)
     return [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.')
   }
+  /** Per instance and area, every OSPF statement about the area: one whose type can't be carried converts not at all. */
+  const areaStatements = new Map<string, number[]>()
+  /** Per instance, area and interface reference, every OSPF statement about the interface. */
+  const interfaceStatements = new Map<string, number[]>()
+  /** `interface-type` statements of a type the model has no word for (`nbma`, `p2mp`), by statement: the interface. */
+  const untyped = new Map<number, { readonly at: Segments; readonly key: string }>()
+  /** `stub` or `nssa` statements with options (`no-summaries`, `default-metric`…), by statement: their instance and area. */
+  const optioned = new Map<number, { readonly instance: string; readonly area: string }>()
   /** Each OSPF interface statement: where its interface is in the model, and its reference, checked once interfaces are settled. */
   const ospfRefs: { readonly index: number; readonly at: Segments; readonly ref: string }[] = []
   /** Per instance and neighbor address, the groups that name it and their statements: Junos takes a neighbor in one group. */
@@ -678,17 +686,26 @@ export function parse(text: string, _context: Context): ParseResult {
     const area = areaId(r[1])
     if (area === null) return unsupported('not an OSPF area ID (dotted, or a number)')
     const a = [...at, 'areas', area]
+    const areaKey = `${instance}\u0000${area}`
+    areaStatements.set(areaKey, [...(areaStatements.get(areaKey) ?? []), i])
     const withArea = (fields: (string | null)[]) => mapped([container(at), container(a), ...fields])
     const s = r.slice(2)
     if (!s.length) return withArea([])
     if ((s[0] === 'stub' || s[0] === 'nssa') && s.length === 1) return withArea([put(i, [...a, 'type'], s[0])])
-    if (s[0] === 'stub' || s[0] === 'nssa') return unsupported(`${s[0] === 'stub' ? 'a stub' : 'an NSSA'} area's options (no-summaries, default-metric…) come later`)
+    if (s[0] === 'stub' || s[0] === 'nssa') {
+      // It sets the area's type as a plain stub or nssa would, so the ranks decide which the area has: settled below.
+      claim(fieldPath(...a, 'type'), i)
+      optioned.set(i, { instance, area })
+      return unsupported(`${s[0] === 'stub' ? 'a stub' : 'an NSSA'} area's options (no-summaries, default-metric…) come later`)
+    }
     if (s[0] === 'authentication-type' && s.length === 2 && (s[1] === 'simple' || s[1] === 'md5')) return withArea([put(i, [...a, 'authentication'], s[1])])
     if (s[0] !== 'interface' || s[1] === undefined) return unsupported()
     const ref = s[1]
     if (ref === 'all') return unsupported('OSPF on every interface (interface all): the model names each interface')
     const f = [...a, 'interfaces', ref]
     const t = s.slice(2)
+    const interfaceKey = `${areaKey}\u0000${ref}`
+    interfaceStatements.set(interfaceKey, [...(interfaceStatements.get(interfaceKey) ?? []), i])
     const withInterface = (fields: (string | null)[]) => {
       const enabled = model.set([...f, 'enabledBy'], 'interface')
       incidental.add(enabled)
@@ -699,7 +716,13 @@ export function parse(text: string, _context: Context): ParseResult {
     if (!t.length) return withInterface([])
     if (t[0] === 'passive' && t.length === 1) return withInterface([put(i, [...f, 'passive'], true)])
     if (t[0] === 'metric' && t.length === 2 && isInteger(t[1], 65535) && Number(t[1]) >= 1) return withInterface([put(i, [...f, 'cost'], Number(t[1]))])
-    if (t[0] === 'interface-type' && t.length === 2) return t[1] === 'p2p' ? withInterface([put(i, [...f, 'networkType'], 'point-to-point')]) : unsupported('an OSPF interface type the model has no word for (it has point-to-point and broadcast)')
+    if (t[0] === 'interface-type' && t.length === 2) {
+      if (t[1] === 'p2p') return withInterface([put(i, [...f, 'networkType'], 'point-to-point')])
+      // It sets the network type as p2p would, so the ranks decide which the interface has: settled below.
+      claim(fieldPath(...f, 'networkType'), i)
+      untyped.set(i, { at: f, key: interfaceKey })
+      return unsupported('an OSPF interface type the model has no word for (it has point-to-point and broadcast)')
+    }
     if (t[0] === 'hello-interval' && seconds(255)) return withInterface([put(i, [...f, 'helloInterval'], Number(t[1]))])
     if (t[0] === 'dead-interval' && seconds(65535)) return withInterface([put(i, [...f, 'deadInterval'], Number(t[1]))])
     // The key is never carried: the model says only how the interface authenticates.
@@ -777,8 +800,35 @@ export function parse(text: string, _context: Context): ParseResult {
       const subs = m && isObject(interfaces[m[1]]) ? (interfaces[m[1]] as Obj).subinterfaces : undefined
       return m !== null && isObject(subs) && Object.hasOwn(subs, String(Number(m[2])))
     }
+    // An area whose type, in the end, is a stub or NSSA with options the model can't carry converts not at all: its
+    // interfaces in an area of another type (normal, or a lower-ranked type) would change how the area routes.
+    for (const [index, { instance, area }] of optioned) {
+      const at = ['networkInstances', instance, 'ospf', 'areas', area]
+      if (owners.get(fieldPath(...at, 'type')) !== index) continue
+      for (const i of areaStatements.get(`${instance}\u0000${area}`) ?? []) {
+        if (i !== index && results[i].kind !== 'unsupported') results[i] = unsupported("the area is a stub or NSSA with options that aren't converted, so none of it is")
+      }
+      model.remove(at)
+      for (let k = at.length - 1; k >= 3; k--) model.removeIfEmpty(at.slice(0, k))
+      if (instance === 'default') model.removeIfEmpty(at.slice(0, 2))
+      model.removeIfEmpty(['networkInstances'])
+    }
+
+    // Likewise an interface whose network type, in the end, is one the model has no word for: as broadcast or with a
+    // lower-ranked type it would form adjacencies another way.
+    for (const [index, { at, key }] of untyped) {
+      if (owners.get(fieldPath(...at, 'networkType')) !== index || model.get(at) === undefined) continue
+      for (const i of interfaceStatements.get(key) ?? []) {
+        if (i !== index && results[i].kind !== 'unsupported') results[i] = unsupported("the interface's OSPF network type isn't converted, so none of its OSPF settings are")
+      }
+      model.remove(at)
+      for (let k = at.length - 1; k >= 3; k--) model.removeIfEmpty(at.slice(0, k))
+      if (at[1] === 'default') model.removeIfEmpty(at.slice(0, 2))
+      model.removeIfEmpty(['networkInstances'])
+    }
+
     for (const { index, at, ref } of ospfRefs) {
-      if (exists(ref) || results[index].kind !== 'mapped') continue
+      if (exists(ref) || results[index].kind !== 'mapped' || model.get(at) === undefined) continue
       results[index] = unsupported("names an interface the configuration doesn't have, or that isn't converted")
       model.remove(at)
       // Up to the instance, which goes too when it was only there for its OSPF (the global table).

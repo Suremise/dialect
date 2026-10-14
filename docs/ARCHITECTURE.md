@@ -893,7 +893,11 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   model's `cost`), `interface-type p2p`, `hello-interval`, `dead-interval` and `authentication` (`simple-password`,
   `md5 N key`), each interface `enabledBy: 'interface'`. An OSPF interface the model doesn't have, or doesn't convert
   (an IRB unit with no VLAN), is `unsupported` and out of the model, so `model.unknown-interface` holds; `interface
-  all`, other interface types, `ospf3` and OSPF policies are `unsupported`. BGP: `group G` with `type`, `peer-as`,
+  all`, `ospf3` and OSPF policies are `unsupported`. **An area or interface whose type can't be carried converts not
+  at all:** a `stub` or `nssa` with options (`no-summaries`, `default-metric`…) and an `interface-type` the model has no
+  word for (`nbma`, `p2mp`) take the type as a plain one would, by precedence, and when one ends up the type, every
+  statement of its area or interface is `unsupported` and out of the model, so it never comes out a normal area or a
+  broadcast interface. BGP: `group G` with `type`, `peer-as`,
   `description`, `local-address`, `multihop [ttl N]`, `family inet|inet6 unicast`, `import`/`export` (names only, in
   order; an expression is `unsupported`) and `authentication-key`, and `neighbor N` in it with the same settings
   (`group` set); a peer is in the model only once one of its settings converts. **Junos refuses a neighbor in two
@@ -925,7 +929,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   interface the source enabled by a `network` statement** is written per interface, with a `junos.ospf-enabled-by-network`
   semantic warning: Junos names each interface, where the statement also took in later ones. BGP neighbors go in their
   group; one the model gives without a group (Cisco) goes in `ibgp` or `ebgp` by its peer AS against the local AS, or
-  `peers` when that can't be told. A group's `type` is written only when the model has it (Junos tells internal from
+  `peers` when that can't be told: groups of their own, named so no group the model has or a neighbor names is one
+  (`ibgp-2`…), so an ungrouped neighbor inherits nothing. A group's `type` is written only when the model has it (Junos tells internal from
   external by the peer AS otherwise). An `updateSource` (an interface) and per-family policies are `unsupported`.
   `ebgpDefaultPolicy` is `not-applicable`, and a side the source `reject`s raises `junos.ebgp-default-policy` naming
   the `bgp` line: Junos accepts and advertises when no policy applies. **Keys are asked for, never made up:** each

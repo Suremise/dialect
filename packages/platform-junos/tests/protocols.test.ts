@@ -148,6 +148,61 @@ describe('what Junos refuses, and what converts not at all', () => {
   })
 })
 
+describe('an OSPF area or interface whose type is not converted', () => {
+  const ge = 'set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24'
+  const areaOf = (p: ParseResult, id: string) => p.model.networkInstances?.default?.ospf?.areas?.[id]
+
+  it.each([['stub no-summaries'], ['stub default-metric 10'], ['nssa no-summaries'], ['nssa default-lsa default-metric 10']])('a %s area converts not at all, its interfaces neither: never a normal area', (options) => {
+    const p = parse(set(ge, `set protocols ospf area 1 ${options}`, 'set protocols ospf area 1 interface ge-0/0/0.0 passive', 'set protocols ospf area 0 interface lo0.0'), context)
+    expect(areaOf(p, '0.0.0.1')).toBeUndefined()
+    expect(kinds(p).slice(1, 3)).toEqual(['unsupported', 'unsupported'])
+    expect(Object.values(p.dispositions)[2]).toMatchObject({ reason: "the area is a stub or NSSA with options that aren't converted, so none of it is" })
+  })
+
+  it('settles the area type by precedence: options winning over a group, or a plain type winning over them', () => {
+    // The configuration's nssa with options wins over a group's stub: the area isn't a stub, nor converted.
+    const options = parse(set(ge, 'set groups G protocols ospf area 1 stub', 'set apply-groups G', 'set protocols ospf area 1 nssa no-summaries', 'set protocols ospf area 1 interface ge-0/0/0.0'), context)
+    expect(areaOf(options, '0.0.0.1')).toBeUndefined()
+    // The configuration's plain stub wins over a group's stub with options: a stub area, its options superseded.
+    const plain = parse(set(ge, 'set groups G protocols ospf area 1 stub no-summaries', 'set apply-groups G', 'set protocols ospf area 1 stub', 'set protocols ospf area 1 interface ge-0/0/0.0'), context)
+    expect(areaOf(plain, '0.0.0.1')).toEqual({ type: 'stub', interfaces: { 'ge-0/0/0.0': { enabledBy: 'interface' } } })
+    // In set form the later replaces the earlier: stub, then stub with options, is the options.
+    const later = parse(set(ge, 'set protocols ospf area 1 stub', 'set protocols ospf area 1 stub no-summaries', 'set protocols ospf area 1 interface ge-0/0/0.0'), context)
+    expect(areaOf(later, '0.0.0.1')).toBeUndefined()
+  })
+
+  it('an interface whose network type is one the model has no word for converts not at all, never as broadcast', () => {
+    const p = parse(set(ge, 'set protocols ospf area 0 interface ge-0/0/0.0 metric 10', 'set protocols ospf area 0 interface ge-0/0/0.0 interface-type nbma', 'set protocols ospf area 0 interface lo0.0'), context)
+    expect(p.model.networkInstances).toBeUndefined()
+    expect(kinds(p).slice(1)).toEqual(['unsupported', 'unsupported', 'unsupported'])
+    // A p2p that wins over a group's nbma converts.
+    const p2p = parse(set(ge, 'set groups G protocols ospf area 0 interface ge-0/0/0.0 interface-type nbma', 'set apply-groups G', 'set protocols ospf area 0 interface ge-0/0/0.0 interface-type p2p'), context)
+    expect(areaOf(p2p, '0.0.0.0')?.interfaces?.['ge-0/0/0.0']).toEqual({ enabledBy: 'interface', networkType: 'point-to-point' })
+  })
+})
+
+describe('BGP neighbors without a group, from another platform', () => {
+  it('go in groups of their own, never in a model group of the same name, inheriting nothing of it', () => {
+    const peer = { type: 'external', peerAs: 64500, importPolicies: ['BLOCK'], localAddress: '192.0.2.1', authentication: true } as const
+    const model: Device = {
+      networkInstances: {
+        default: {
+          bgp: {
+            localAs: 65000,
+            groups: { ibgp: peer, ebgp: peer, peers: peer, 'ibgp-2': peer },
+            neighbors: { '192.0.2.2': { peerAs: 65000 }, '192.0.2.3': { peerAs: 64501 }, '192.0.2.4': {}, '192.0.2.5': { peerAs: 65000 }, '192.0.2.6': { group: 'ebgp', peerAs: 64502 } }
+          }
+        }
+      }
+    }
+    const r = render(model, context)
+    const reparsed = parse(r.text, context).model.networkInstances!.default.bgp!
+    expect(Object.fromEntries(Object.entries(reparsed.neighbors!).map(([address, n]) => [address, n.group]))).toEqual({ '192.0.2.6': 'ebgp', '192.0.2.2': 'ibgp-3', '192.0.2.5': 'ibgp-3', '192.0.2.3': 'ebgp-2', '192.0.2.4': 'peers-2' })
+    for (const name of ['ibgp-3', 'ebgp-2', 'peers-2']) expect(reparsed.groups![name]).toEqual({})
+    expect(ledgerProblems(buildLedger(parse('', context), r, model))).toEqual([])
+  })
+})
+
 describe('render from another platform', () => {
   it("writes OSPF and BGP in Junos terms, saying what it can't", () => {
     const model: Device = {

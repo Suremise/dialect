@@ -1,0 +1,89 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "ospf-interface-network-type"
+    },
+    "interfaces": {
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.0.0": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/1": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.1.0": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/2": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.2.0": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/3": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.3.0": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "ge-0/0/0.0": {
+                  "enabledBy": "interface",
+                  "networkType": "point-to-point"
+                }
+              }
+            },
+            "0.0.0.1": {
+              "interfaces": {
+                "ge-0/0/1.0": {
+                  "enabledBy": "interface"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

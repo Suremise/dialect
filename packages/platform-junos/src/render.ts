@@ -673,7 +673,18 @@ export function render(model: Device, context: Context): RenderResult {
     }
 
     // Each neighbor in its group: Junos has every neighbor in one. One the model gives without a group goes in `ibgp` or
-    // `ebgp`, by whether its peer AS is the local AS.
+    // `ebgp`, by whether its peer AS is the local AS, or `peers`: a group of its own, named so that no group the model
+    // has or a neighbor names is it (`ibgp-2`…), so it inherits nothing of one.
+    const taken = new Set([...groups.keys(), ...Object.values(bgp.neighbors ?? {}).flatMap((n) => (n.group !== undefined ? [n.group] : []))])
+    const made = new Map<string, string>()
+    const synthetic = (base: string): string => {
+      if (made.has(base)) return made.get(base)!
+      let name = base
+      for (let n = 2; taken.has(name); n++) name = `${base}-${n}`
+      taken.add(name)
+      made.set(base, name)
+      return name
+    }
     for (const [address, neighbor] of Object.entries(bgp.neighbors ?? {})) {
       const n = [...at, 'neighbors', address]
       if (!isIpv4(address) && !isIpv6(address)) {
@@ -681,7 +692,7 @@ export function render(model: Device, context: Context): RenderResult {
         continue
       }
       const internal = neighbor.peerAs !== undefined && bgp.localAs !== undefined ? neighbor.peerAs === bgp.localAs : undefined
-      const name = neighbor.group ?? (internal === undefined ? 'peers' : internal ? 'ibgp' : 'ebgp')
+      const name = neighbor.group ?? synthetic(internal === undefined ? 'peers' : internal ? 'ibgp' : 'ebgp')
       if (!groups.has(name)) groups.set(name, { name, neighbors: [] })
       const group = groups.get(name)!
       const fields: Segments[] = [...self(neighbor, n)]
