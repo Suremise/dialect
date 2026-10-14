@@ -8,21 +8,40 @@ import { secretValues, unconvertedReason } from '../src/unconverted'
 
 const parse = (text: string) => plugin.parse!(text, { modelVersion: MODEL_VERSION })
 const lines = (...l: string[]) => l.join('\n')
+const GENERIC = 'a statement this converter doesn\'t read'
+const WITHHELD = 'a statement whose reason is withheld, as it would repeat a value of this configuration'
+const configTools = ['display-set']
+
+/** `text` leaks none of `secret` through checkSecrets, nor as the kit finds its secrets itself (checkFixture). */
+function expectNoLeak(text: string, secret: string) {
+  expect(checkSecrets(plugin, text, [secret], { allowances: [], configTools }).leaks, text).toEqual([])
+  const secrets = checkFixture(plugin, { name: secret.trim(), source: text, expectedModel: parse(text).model }, { allowances: [], configTools }).find((r) => r.check === 'secrets')
+  expect(secrets?.status, text).toBe('passed')
+}
+
+/** Every unsupported statement of `text` has `reason`. */
+function expectReasons(text: string, reason: string) {
+  const unsupported = Object.values(parse(text).dispositions).filter((d) => d.kind === 'unsupported')
+  expect(unsupported.length, text).toBeGreaterThan(0)
+  for (const d of unsupported) expect(d, text).toEqual({ kind: 'unsupported', reason })
+}
 
 describe('reasons for what isn\'t converted', () => {
   it('come from the statement\'s keywords', () => {
     expect(parse('set class-of-service interfaces ge-0/0/0 unit 0').dispositions.L1).toEqual({ kind: 'unsupported', reason: 'class of service comes later' })
-    expect(parse('set frobnicate now').dispositions.L1).toEqual({ kind: 'unsupported', reason: 'a statement this converter doesn\'t read' })
+    expect(parse('set frobnicate now').dispositions.L1).toEqual({ kind: 'unsupported', reason: GENERIC })
   })
 
-  it('never hold a secret that is also a keyword: the next reason that doesn\'t, or the last resort', () => {
+  it('never hold a secret that is also a keyword: the next reason that doesn\'t, the withheld one, or the last resort', () => {
     const cos = ['set class-of-service interfaces ge-0/0/0 unit 0', lines('class-of-service {', '    interfaces {', '        ge-0/0/0 {', '            unit 0;', '        }', '    }', '}')] as const
     const cases: [secret: string, statement: readonly [set: string, hierarchical: string], reason: string][] = [
-      ['service', cos, 'a statement this converter doesn\'t read'],
-      // In the table's reason (a routing instance's) and the generic one: the last resort.
-      ['converter', ['set routing-instances R frobnicate x', lines('routing-instances {', '    R {', '        frobnicate x;', '    }', '}')], '—'],
+      ['service', cos, GENERIC],
       // In the table's reason only.
-      ['comes', cos, 'a statement this converter doesn\'t read']
+      ['comes', cos, GENERIC],
+      // In the table's reason (a routing instance's) and the generic one: withheld.
+      ['converter', ['set routing-instances R frobnicate x', lines('routing-instances {', '    R {', '        frobnicate x;', '    }', '}')], WITHHELD],
+      // In the table's reason (a routing policy's), the generic one and the withheld one: the last resort.
+      ['this', ['set policy-options frobnicate x', lines('policy-options {', '    frobnicate x;', '}')], '—']
     ]
     // Each community bare and quoted, in set and hierarchical form; checkSecrets also tries the text cut after it and
     // with an unterminated quote.
@@ -32,14 +51,8 @@ describe('reasons for what isn\'t converted', () => {
     ]
     for (const [secret, statement, reason] of cases)
       for (const text of [...forms(secret, statement), ...forms(`"${secret}"`, statement)]) {
-        const result = parse(text)
-        const unsupported = Object.values(result.dispositions).filter((d) => d.kind === 'unsupported')
-        expect(unsupported.length, text).toBeGreaterThan(0)
-        for (const d of unsupported) expect(d, text).toEqual({ kind: 'unsupported', reason })
-        expect(checkSecrets(plugin, text, [secret], { allowances: [], configTools: ['display-set'] }).leaks, text).toEqual([])
-        // And as the kit finds the secret itself.
-        const secrets = checkFixture(plugin, { name: secret, source: text, expectedModel: result.model }, { allowances: [], configTools: ['display-set'] }).find((r) => r.check === 'secrets')
-        expect(secrets?.status, text).toBe('passed')
+        expectReasons(text, reason)
+        expectNoLeak(text, secret)
       }
   })
 
@@ -49,14 +62,23 @@ describe('reasons for what isn\'t converted', () => {
       lines('set class-of-service interfaces ge-0/0/0 unit 0', 'set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 authentication md5 1 key "later"'),
       lines('class-of-service {', '    interfaces {', '        ge-0/0/0 {', '            unit 0;', '        }', '    }', '}', 'protocols {', '    ospf {', '        area 0.0.0.0 {', '            interface ge-0/0/0.0 {', '                authentication {', '                    md5 1 key "later";', '                }', '            }', '        }', '    }', '}')
     ]
+    for (const text of texts) expectNoLeak(text, 'later')
+    expect(secretValues('set protocols ospf area 0 interface ge-0/0/0.0 authentication md5 1 key "later ""')).toContain('later')
+  })
+
+  it('never hold a quoted secret whose spaces bring it to four characters', () => {
+    // The kit takes ` the ` as the secret: trimmed, `the` would be too short to count, and `…: the model…` would hold it.
+    const texts = [
+      lines('set chassis frobnicate', 'set system tacplus-server 192.0.2.1 secret " the "'),
+      lines('chassis {', '    frobnicate;', '}', 'system {', '    tacplus-server 192.0.2.1 {', '        secret " the ";', '    }', '}')
+    ]
     for (const text of texts) {
-      const result = parse(text)
-      expect(checkSecrets(plugin, text, ['later'], { allowances: [], configTools: ['display-set'] }).leaks, text).toEqual([])
-      const secrets = checkFixture(plugin, { name: 'later', source: text, expectedModel: result.model }, { allowances: [], configTools: ['display-set'] }).find((r) => r.check === 'secrets')
-      expect(secrets?.status, text).toBe('passed')
+      expect(Object.values(parse(text).dispositions), text).toContainEqual({ kind: 'unsupported', reason: GENERIC })
+      expectNoLeak(text, ' the ')
     }
-    expect(secretValues('set protocols ospf area 0 interface ge-0/0/0.0 authentication md5 1 key "later ""')).toEqual(['later'])
-    expect(secretValues('set security ike policy P pre-shared-key ascii-text "psk value"')).toEqual(['psk value'])
+    expect(secretValues('set system tacplus-server 192.0.2.1 secret " the "')).toContain(' the ')
+    // With the kit's quote opened after it, the value is ` the  `: less the space that adds, ` the ` again.
+    expect(secretValues('set system tacplus-server 192.0.2.1 secret " the  ""')).toContain(' the ')
   })
 
   it('find the configuration\'s secrets as the kit does, four characters or more', () => {
@@ -84,10 +106,17 @@ describe('reasons for what isn\'t converted', () => {
       '    }',
       '}'
     )
-    expect(secretValues(text).sort()).toEqual(['$6$abcd$efgh', '$9$wxyz', 'comes', 'converter', 'ntpvalue', 'psk value', 'tacsecret'].sort())
+    const found = secretValues(text)
+    expect(found).toEqual(expect.arrayContaining(['$6$abcd$efgh', '$9$wxyz', 'comes', 'converter', 'ntpvalue', 'psk value', 'tacsecret']))
+    expect(found).not.toContain('RO')
     // Cut short, as the kit's broken copies are: an unterminated quote, a community with no `{` yet.
-    expect(secretValues('set snmp community "comes')).toEqual(['comes'])
+    expect(secretValues('set snmp community "comes')).toContain('comes')
     expect(secretValues('snmp {\n    community converter')).toEqual(['converter'])
-    expect(unconvertedReason(['class-of-service', 'interfaces'], ['comes'])).toBe('a statement this converter doesn\'t read')
+  })
+
+  it('compare secrets with reasons in any case', () => {
+    expect(unconvertedReason(['class-of-service', 'interfaces'], ['comes'])).toBe(GENERIC)
+    expect(unconvertedReason(['class-of-service', 'interfaces'], ['COMES'])).toBe(GENERIC)
+    expect(unconvertedReason(['frobnicate'], ['Converter'])).toBe(WITHHELD)
   })
 })

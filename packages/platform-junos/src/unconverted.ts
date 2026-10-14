@@ -72,20 +72,23 @@ const PROTOCOLS: Readonly<Record<string, string>> = {
 const INSTANCE_LAYER2 = new Set(['vlans', 'bridge-domains', 'switch-options', 'protocols-l2', 'vtep-source-interface', 'service-type'])
 
 const GENERIC = "a statement this converter doesn't read"
+/** The reason when a secret of the configuration is in the table's and the generic one: it says nothing of the statement. */
+const WITHHELD = 'a statement whose reason is withheld, as it would repeat a value of this configuration'
 /**
- * The reason of last resort, when a secret of the configuration is a word of every other (an SNMP community named
- * `comes`, say): a value one character long, which no secret of the conformance kit's (four characters or more) is.
+ * The reason of last resort, when a secret is in every other (an SNMP community named `this`, say): a value one
+ * character long, which no secret of the conformance kit's (four characters or more) is.
  */
 const LAST_RESORT = '—'
 
 /**
  * Why `words` (a statement's full path, as `set` says it) isn't converted, in words of this file's alone, and never
- * containing one of `secrets` (secretValues()): a fixed text is a value of the config too when a secret is one of its
- * words.
+ * containing one of `secrets` (secretValues()), in any case: a fixed text is a value of the config too when a secret is
+ * one of its words. The table's reason, else the generic one, else WITHHELD, else LAST_RESORT, whichever holds none.
  */
 export function unconvertedReason(words: readonly string[], secrets: readonly string[] = []): string {
-  const safe = (reason: string) => !secrets.some((s) => reason.includes(s))
-  return [tableReason(words), GENERIC].find(safe) ?? LAST_RESORT
+  const lower = secrets.map((s) => s.toLowerCase())
+  const safe = (reason: string) => !lower.some((s) => reason.toLowerCase().includes(s))
+  return [tableReason(words), GENERIC, WITHHELD].find(safe) ?? LAST_RESORT
 }
 
 /** The keyword tables' reason for `words`. */
@@ -147,11 +150,13 @@ export function secretValues(text: string): string[] {
   const out = new Set<string>()
   for (const pattern of SECRETS)
     for (const m of text.matchAll(pattern)) {
-      // A quote at either end isn't the secret's, as the kit takes it: `"comes"`, or `"comes` cut short. Nor is
-      // whitespace at either end: a quote opened after a secret turns `key "later"` into `key "later ""`, whose quoted
-      // value is `later ` (a reason ending in `later` doesn't hold that), and a shorter value is the stricter check.
-      const value = m[m.length - 1].replace(/^"+/, '').replace(/"+$/, '').trim()
-      if (value.length >= 4) out.add(value)
+      // The value as written; without a quote at either end, as the kit takes it (`"comes"`, or `"comes` cut short),
+      // with its spaces (`key " the "`); less the space a quote opened after a secret adds (`key "later"` becomes
+      // `key "later ""`, whose quoted value is `later `, which a reason ending in `later` doesn't hold; `key " the "`
+      // becomes `key " the  ""`); and trimmed. Each when four characters or more.
+      const raw = m[m.length - 1]
+      const value = raw.replace(/^"+/, '').replace(/"+$/, '')
+      for (const candidate of [raw, value, value.replace(/ $/, ''), value.trim()]) if (candidate.length >= 4) out.add(candidate)
     }
   return [...out]
 }

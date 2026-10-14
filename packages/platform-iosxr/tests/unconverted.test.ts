@@ -8,20 +8,24 @@ import { secretValues, unconvertedReason } from '../src/unconverted'
 
 const parse = (text: string) => plugin.parse!(text, { modelVersion: MODEL_VERSION })
 const lines = (...l: string[]) => l.join('\n')
+const GENERIC = 'a statement this converter doesn\'t read'
+const WITHHELD = 'a statement whose reason is withheld, as it would repeat a value of this configuration'
 
 describe('reasons for what isn\'t converted', () => {
   it('come from the keywords of the top-level statement', () => {
     expect(parse('multicast-routing').dispositions.L1).toEqual({ kind: 'unsupported', reason: 'multicast comes later' })
-    expect(parse('frobnicate now').dispositions.L1).toEqual({ kind: 'unsupported', reason: 'a statement this converter doesn\'t read' })
+    expect(parse('frobnicate now').dispositions.L1).toEqual({ kind: 'unsupported', reason: GENERIC })
   })
 
-  it('never hold a secret that is also a keyword: the next reason that doesn\'t, or the last resort', () => {
+  it('never hold a secret that is also a keyword: the next reason that doesn\'t, the withheld one, or the last resort', () => {
     const cases: [secret: string, statement: string, reason: string][] = [
-      ['multicast', 'multicast-routing', 'a statement this converter doesn\'t read'],
-      // In the table's reason (a VRF's) and the generic one: the last resort.
-      ['converter', lines('vrf BLUE', ' frobnicate'), '—'],
+      ['multicast', 'multicast-routing', GENERIC],
       // In the table's reason only.
-      ['later', 'multicast-routing', 'a statement this converter doesn\'t read']
+      ['later', 'multicast-routing', GENERIC],
+      // In the table's reason (a VRF's) and the generic one: withheld.
+      ['converter', lines('vrf BLUE', ' frobnicate'), WITHHELD],
+      // In the table's reason, the generic one and the withheld one: the last resort.
+      ['this', lines('vrf BLUE', ' frobnicate'), '—']
     ]
     // Each community bare and quoted; checkSecrets also tries the text cut after it and with an unterminated quote.
     for (const [secret, statement, reason, spelled] of cases.flatMap(([s, st, r]) => [[s, st, r, s], [s, st, r, `"${s}"`]] as const)) {
@@ -52,10 +56,17 @@ describe('reasons for what isn\'t converted', () => {
       ' key 1',
       '  key-string password keystring'
     )
-    expect(secretValues(text).sort()).toEqual(['$6$abcd$efgh', '0822455D0A16', 'clearpass', 'keystring', 'multicast', 'ntpsecret', 'radiuskey', 'tacacskey'].sort())
+    const found = secretValues(text)
+    expect(found).toEqual(expect.arrayContaining(['$6$abcd$efgh', '0822455D0A16', 'clearpass', 'keystring', 'multicast', 'ntpsecret', 'radiuskey', 'tacacskey']))
+    expect(found).not.toContain('RO')
     // Cut short, as the kit's broken copies are: an unterminated quote.
-    expect(secretValues('snmp-server community "multicast')).toEqual(['multicast'])
+    expect(secretValues('snmp-server community "multicast')).toContain('multicast')
     expect(secretValues('tacacs-server host 192.0.2.1\n key 7 tacacskey "')).toContain('tacacskey')
-    expect(unconvertedReason(['multicast-routing'], ['multicast'])).toBe('a statement this converter doesn\'t read')
+  })
+
+  it('compare secrets with reasons in any case', () => {
+    expect(unconvertedReason(['multicast-routing'], ['multicast'])).toBe(GENERIC)
+    expect(unconvertedReason(['multicast-routing'], ['MultiCast'])).toBe(GENERIC)
+    expect(unconvertedReason(['vrf'], ['CONVERTER'])).toBe(WITHHELD)
   })
 })

@@ -90,9 +90,11 @@ const SNMP: Readonly<Record<string, string>> = {
 }
 
 const GENERIC = "a statement this converter doesn't read"
+/** The reason when a secret of the configuration is in the table's and the generic one: it says nothing of the statement. */
+const WITHHELD = 'a statement whose reason is withheld, as it would repeat a value of this configuration'
 /**
- * The reason of last resort, when a secret of the configuration is a word of every other (an SNMP community named
- * `multicast`, say): a value one character long, which no secret of the conformance kit's (four characters or more) is.
+ * The reason of last resort, when a secret is in every other (an SNMP community named `this`, say): a value one
+ * character long, which no secret of the conformance kit's (four characters or more) is.
  */
 const LAST_RESORT = '—'
 
@@ -107,12 +109,14 @@ function tableReason(top: readonly string[]): string {
 
 /**
  * Why a statement inside the top-level statement whose lowercased words are `top` isn't converted, from keywords
- * alone, and never containing one of `secrets` (secretValues()): a fixed text is a value of the config too when a
- * secret is one of its words (#114).
+ * alone, and never containing one of `secrets` (secretValues()), in any case: a fixed text is a value of the config
+ * too when a secret is one of its words (#114). The table's reason, else the generic one, else WITHHELD, else
+ * LAST_RESORT, whichever holds none.
  */
 export function unconvertedReason(top: readonly string[], secrets: readonly string[] = []): string {
-  const safe = (reason: string) => !secrets.some((s) => reason.includes(s))
-  return [tableReason(top), GENERIC].find(safe) ?? LAST_RESORT
+  const lower = secrets.map((s) => s.toLowerCase())
+  const safe = (reason: string) => !lower.some((s) => reason.toLowerCase().includes(s))
+  return [tableReason(top), GENERIC, WITHHELD].find(safe) ?? LAST_RESORT
 }
 
 // The secret values of an IOS-XR configuration, as the conformance kit's patterns find them, with IOS-XR's own forms:
@@ -139,9 +143,11 @@ export function secretValues(text: string): string[] {
   const out = new Set<string>()
   for (const pattern of SECRETS)
     for (const m of text.matchAll(pattern)) {
-      // A quote at either end isn't the secret's, as the kit takes it: `"multicast"`, or `"multicast` cut short.
-      const value = m[m.length - 1].replace(/^"+/, '').replace(/"+$/, '')
-      if (value.length >= 4) out.add(value)
+      // The value as written, and without a quote at either end, as the kit takes it (`"multicast"`, or `"multicast`
+      // cut short), and trimmed. Each when four characters or more.
+      const raw = m[m.length - 1]
+      const value = raw.replace(/^"+/, '').replace(/"+$/, '')
+      for (const candidate of [raw, value, value.trim()]) if (candidate.length >= 4) out.add(candidate)
     }
   return [...out]
 }
