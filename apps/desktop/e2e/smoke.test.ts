@@ -23,6 +23,9 @@ const app = join(desktop, 'src-tauri', 'target', 'release', 'dialect.exe')
 const FIXTURES = join(__dirname, '../../../packages/platform-junos/tests/fixtures/display-set')
 /** How long the app may take to show what an action leads to: a bound for a hung app, not a wait. */
 const UI_WAIT = { timeout: 15_000, interval: 100 }
+/** About's notice, word for word (card #42). */
+const NOTICE =
+  "© 2026 Darren Marshall. Dialect is independently developed and isn't affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc."
 
 /** A program on PATH, or null. */
 function onPath(name: string): string | null {
@@ -137,7 +140,7 @@ describe('the desktop app', () => {
     expect(await page().execute(() => (window as unknown as { __inlineRan?: boolean }).__inlineRan ?? false)).toBe(false)
   })
 
-  it('shows About with the version and WebView2, and renders each Docs page', async () => {
+  it('shows About with the version, WebView2, the OS and the notice, and renders each Docs page', async () => {
     const version = JSON.parse(readFileSync(join(desktop, '..', '..', 'package.json'), 'utf8')).version as string
     const click = (selector: string, label: string): Promise<boolean> =>
       page().execute(
@@ -151,13 +154,13 @@ describe('the desktop app', () => {
       )
     expect(await click('button', 'Help')).toBe(true)
     expect(await click('[role=menuitem]', 'About Dialect')).toBe(true)
-    await expect.poll(() => testIdText('about-info'), UI_WAIT).toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Desktop app\\s+WebView\\s+WebView2 \\d+\\.\\d+\\.\\d+\\.\\d+$`))
-    expect(await page().execute(() => document.querySelector<HTMLElement>('[role=dialog]')?.innerText ?? '')).toContain('Dialect is not affiliated with or endorsed by Juniper Networks or Cisco Systems.')
+    await expect.poll(() => testIdText('about-info'), UI_WAIT).toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Desktop app\\s+WebView\\s+WebView2 \\d+\\.\\d+\\.\\d+\\.\\d+\\s+OS\\s+Windows 1[01]$`))
+    expect(await testIdText('about-notice')).toBe(NOTICE)
     const heading = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('.docs-page h1')?.innerText ?? null)
-    // From About's links, then the Docs list.
-    expect(await click('[role=dialog] button', 'User Guide')).toBe(true)
-    await expect.poll(heading, UI_WAIT).toBe('Dialect user guide')
-    for (const [label, title] of [['Release Notes', 'Release Notes'], ['License', 'License'], ['Third-Party Notices', 'Third-party notices']]) {
+    // From About's license link, then the Docs list.
+    expect(await click('[role=dialog] button', 'MIT License')).toBe(true)
+    await expect.poll(heading, UI_WAIT).toBe('License')
+    for (const [label, title] of [['User Guide', 'Dialect user guide'], ['Release Notes', 'Release Notes'], ['Third-Party Notices', 'Third-party notices']]) {
       expect(await click('.docs-nav-item', label)).toBe(true)
       await expect.poll(heading, UI_WAIT).toBe(title)
     }

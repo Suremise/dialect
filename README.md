@@ -31,7 +31,7 @@ MIT, see `LICENSE`. Third-party material that ships is listed in `THIRD_PARTY_NO
 
 ## Trademarks
 
-Juniper, Junos and Cisco are trademarks of their respective owners. Dialect is not affiliated with or endorsed by Juniper Networks or Cisco Systems.
+© 2026 Darren Marshall. Dialect is independently developed and isn't affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc.
 
 ## Contributing rules
 

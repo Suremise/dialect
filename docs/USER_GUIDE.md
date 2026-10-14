@@ -206,6 +206,8 @@ The Docs view takes the place of the source and output panes; **← Display set*
 does too. A link to another of these documents opens it there. A web link opens in your browser (the desktop app's
 default browser, or a new tab in the web build): the only time Dialect leads online, and only when you click one.
 
-**About Dialect** shows the version, which build it is (desktop app or web build) and the WebView2 or browser version,
-with links to the Docs pages. **Copy** copies the version information, for a bug report. Dialect is not affiliated with
-or endorsed by Juniper Networks or Cisco Systems.
+**About Dialect** shows the version, which build it is (desktop app or web build), the WebView2 or browser version and
+the operating system, with links to the License and the Third-Party Notices. **Copy** copies the version information,
+for a bug report, and **Release Notes** opens the release notes. Dialect is independently developed and isn't
+affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of
+Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc.
