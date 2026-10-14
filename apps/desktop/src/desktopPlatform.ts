@@ -2,7 +2,9 @@
 // no scope of its own (src-tauri/capabilities), so it reads and writes only the files the user picks in a dialog, which
 // the dialog plugin adds to its scope. A dropped file is read from the drop event, as in the web build: the window
 // leaves drops to the page (dragDropEnabled: false in tauri.conf.json), so the UI's drop handler gets the file. Links
-// open in the default browser through the opener plugin, which the capability allows for https URLs only.
+// open in the default browser through the opener plugin, which the capability allows for https URLs only. File → Exit
+// closes the window (core:window:allow-close), which quits the app.
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -31,7 +33,7 @@ export const desktopPlatform: Platform = {
   async openFile(kind = 'config'): Promise<OpenedFile | null> {
     const path = await open({ multiple: false, directory: false, filters: FILTERS[kind] })
     if (typeof path !== 'string') return null
-    return { name: baseName(path), text: await readTextFile(path) }
+    return { name: baseName(path), text: await readTextFile(path), path }
   },
   openDropped(data) {
     // Taken now: the drop event's files are only there while it's being handled.
@@ -41,7 +43,12 @@ export const desktopPlatform: Platform = {
   },
   async saveText(suggestedName, text, kind = 'config') {
     const path = await save({ defaultPath: suggestedName, filters: FILTERS[kind] })
-    if (!path) return
+    if (!path) return null
+    await writeTextFile(path, text)
+    return { path }
+  },
+  async saveTextTo(path, text) {
+    // A path the dialog gave this session, so the fs plugin's scope still has it.
     await writeTextFile(path, text)
   },
   async readClipboard() {
@@ -54,5 +61,9 @@ export const desktopPlatform: Platform = {
   },
   async openLink(url) {
     await openUrl(url)
+  },
+  async exit() {
+    // The only window: closing it quits the app.
+    await getCurrentWindow().close()
   }
 }

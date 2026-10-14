@@ -142,9 +142,35 @@ product decisions.
   they read and write (`platform-junos`).
 - The app says it isn't affiliated with or endorsed by either vendor.
 
-## 7. In-app About and Docs
+## 7. The window: tabs and menus (UI shell)
 
-- Like Hive: an **About dialog** (Help → About Dialect) and a **Docs view** that bundles the user guide
+- **The same in the desktop app and the web build:** an in-app menu bar, a strip of document tabs and the tab shown.
+- **Tabs:** one per conversion or Docs page. A new tab (File → New Tab, Ctrl+T, or "+") asks what the user is doing:
+  each plugin tool (today Display set, Junos) or convert from Junos to each target (today Cisco IOS / IOS-XE), listed
+  from the plugin registry so new platforms and tools appear without UI changes. Each tab keeps its own job, source,
+  file name, output, interface map, problems and editors' undo history. Its title is the file name and job
+  ("phase1.conf → IOS-XE", or "Untitled"), with a dot while its output is unsaved and the full path in a tooltip.
+  Closing one with unsaved output (×, middle-click, Ctrl+W) asks first: save and close, close without saving, or
+  cancel. Each Docs page has one tab, shown again rather than opened twice.
+- **On restart** the tabs come back with their jobs, file names and Docs pages, and which was shown, but **never config
+  contents**, nor the output or the interface names: configs can hold secrets. A restored tab offers to reopen its file.
+  Contents live in memory only, never in localStorage, sessionStorage or IndexedDB (the web tests check all three).
+- **Menus:** File (New Tab, Open, Save Output, Save Output As, Close Tab, and Exit in the desktop app only), Edit (Undo,
+  Redo, Copy Output, Paste), View (the theme: system, light or dark), Window (each open tab, the current one ticked,
+  then Next and Previous Tab: Ctrl+Tab, Ctrl+Shift+Tab, and Ctrl+1–9) and Help (User Guide, Release Notes, License,
+  Third-Party Notices, About Dialect). Every item is a command in one registry with its keybinding, as in Hive. A
+  browser keeps Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+1–9 for itself, so the web build also has, and shows, Alt+T, Alt+W,
+  Alt+PgDn/PgUp and Alt+1–9.
+- **Keyboard and accessibility:** WAI-ARIA's menubar and tablist patterns: Alt or F10 to the bar, the arrow keys, Home,
+  End, Enter and Esc in the menus; the arrow keys and Delete in the tab strip; roles, `aria-checked`, `aria-selected`
+  and visible focus.
+- **Every control is visibly a control:** buttons, tabs, menus and inputs have a distinct edge from the panel behind
+  them (3:1 at least, in light and dark), the current tab is marked with the accent, and focus rings show. A narrow
+  window keeps the menu bar and scrolls the tab strip sideways.
+
+## 8. In-app About and Docs
+
+- Like Hive: an **About dialog** (Help → About Dialect) and **Docs** pages, each in its own tab (§7), that bundle the user guide
   ([USER_GUIDE.md](USER_GUIDE.md)), the release notes ([CHANGELOG.md](../CHANGELOG.md)), the License and the
   Third-Party Notices, in the desktop app and the web build alike (B16).
 - The documents are the committed files, bundled at build time and rendered with marked and DOMPurify; a test fails
@@ -161,18 +187,18 @@ product decisions.
   link opens outside the app (the default browser through Tauri's opener plugin, which the desktop app may use for
   `https://` URLs only; a new tab in the web build).
 
-## 8. Icon and theme
+## 9. Icon and theme
 
 - The icon is concept **B, Braces to block**: a violet circle with a `{` opening onto indented lines (`branding/`).
 - **Its violet palette is Dialect's theme colour** and runs through the whole app, as Hive's amber does. The tokens
   are in `branding/theme-tokens.css` and documented in `branding/README.md`; the UI uses them from B6 onwards.
 
-## 9. Working agreements
+## 10. Working agreements
 
 - Agents commit on their own once a card passes review (unlike Hive, without waiting to be asked). No push, remote or
   release unless the user asks.
 
-## 10. Open questions
+## 11. Open questions
 
 From the spike report, still for the user to decide:
 

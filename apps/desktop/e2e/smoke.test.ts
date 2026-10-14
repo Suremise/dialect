@@ -1,8 +1,9 @@
 // The desktop app's smoke test: the built app (src-tauri/target/release/dialect.exe, run from the build output, not
 // installed) driven through tauri-driver and Microsoft Edge WebDriver (e2e/webdriver.ts). It drops a fixture on the window,
-// which the desktop Platform reads, and checks the display set output; then About and the Docs pages, that the CSP blocks
-// inline scripts and the network, and that the fs plugin reads no file the user hasn't picked and the opener no link but
-// an https one. The logic itself is the web build's, tested there.
+// which the desktop Platform reads, and checks the display set output; then About and the Docs tabs, convert in a tab of
+// its own and a switch back through the Window menu, that the CSP blocks inline scripts and the network, that the fs
+// plugin reads no file the user hasn't picked and the opener no link but an https one, and last that File → Exit quits.
+// The logic itself is the web build's, tested there.
 //
 // Needs Rust (the build), tauri-driver (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver that
 // matches the installed WebView2, found through MSEDGEDRIVER (its path) or on PATH. `npm run test:smoke -w
@@ -84,13 +85,48 @@ const page = (): Session => {
   return session
 }
 
-/** A test id's text, or null while it isn't shown. */
-const testIdText = (id: string): Promise<string | null> => page().execute((testId: string) => document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.innerText ?? null, id)
+/** Clicks the element `selector` finds with this text, trimmed; false if there is none. */
+const click = (selector: string, label: string): Promise<boolean> =>
+  page().execute(
+    (sel: string, text: string) => {
+      const target = [...document.querySelectorAll<HTMLElement>(sel)].find((el) => el.textContent?.trim() === text)
+      target?.click()
+      return !!target
+    },
+    selector,
+    label
+  )
 
-/** The text an editor pane shows (CodeMirror draws the lines in view, which a short fixture fits in). */
+/** Runs a menu bar item: the menu, then the item by its label. */
+async function menu(name: string, item: string): Promise<void> {
+  expect(await click('[role=menubar] [data-menubar-item]', name)).toBe(true)
+  await expect.poll(() => click('[role=menu] .menu-label', item), UI_WAIT).toBe(true)
+}
+
+/** Drops a file on the source editor of the tab shown: the UI's drop handler (capture phase) gives it to platform.openDropped. */
+const drop = (name: string, content: string): Promise<unknown> =>
+  page().execute(
+    (file: string, text: string) => {
+      const target = document.querySelector('[role=tabpanel]:not([hidden]) [data-pane="source"]')!
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([text], file, { type: 'text/plain' }))
+      for (const type of ['dragenter', 'dragover', 'drop']) target.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }))
+    },
+    name,
+    content
+  )
+
+/** A test id's text in the tab shown, or outside the tabs (About), or null while it isn't shown. */
+const testIdText = (id: string): Promise<string | null> =>
+  page().execute((testId: string) => {
+    const all = [...document.querySelectorAll<HTMLElement>(`[data-testid="${testId}"]`)]
+    return (all.find((el) => el.closest('[role=tabpanel]:not([hidden])')) ?? all.find((el) => !el.closest('[role=tabpanel]')))?.innerText ?? null
+  }, id)
+
+/** The text an editor pane of the tab shown has (CodeMirror draws the lines in view, which a short fixture fits in). */
 const paneText = (pane: string): Promise<string | null> =>
   page().execute((name: string) => {
-    const host = document.querySelector(`[data-pane="${name}"]`)
+    const host = document.querySelector(`[role=tabpanel]:not([hidden]) [data-pane="${name}"]`)
     const content = host?.shadowRoot?.querySelector<HTMLElement>('.cm-content')
     return content ? [...content.querySelectorAll<HTMLElement>('.cm-line')].map((line) => line.textContent ?? '').join('\n') : null
   }, pane)
@@ -98,14 +134,7 @@ const paneText = (pane: string): Promise<string | null> =>
 describe('the desktop app', () => {
   it('opens a dropped fixture through the Platform and shows its display set', async () => {
     await expect.poll(() => paneText('source'), UI_WAIT).not.toBeNull()
-    const conf = readFileSync(join(FIXTURES, 'config_1.conf'), 'utf8')
-    // Dropped on the source editor: the UI's drop handler (capture phase) gives it to platform.openDropped.
-    await page().execute((content: string) => {
-      const target = document.querySelector('[data-pane="source"]')!
-      const transfer = new DataTransfer()
-      transfer.items.add(new File([content], 'smoke.conf', { type: 'text/plain' }))
-      for (const type of ['dragenter', 'dragover', 'drop']) target.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }))
-    }, conf)
+    await drop('smoke.conf', readFileSync(join(FIXTURES, 'config_1.conf'), 'utf8'))
     await expect.poll(() => testIdText('source-name'), UI_WAIT).toBe('smoke.conf')
     const expected = readFileSync(join(FIXTURES, 'config_1.set'), 'utf8')
       .split(/\r?\n/)
@@ -140,33 +169,25 @@ describe('the desktop app', () => {
     expect(await page().execute(() => (window as unknown as { __inlineRan?: boolean }).__inlineRan ?? false)).toBe(false)
   })
 
-  it('shows About with the version, WebView2, the OS and the notice, and renders each Docs page', async () => {
+  it('shows About with the version, WebView2, the OS and the notice, and renders each Docs page in a tab', async () => {
     const version = JSON.parse(readFileSync(join(desktop, '..', '..', 'package.json'), 'utf8')).version as string
-    const click = (selector: string, label: string): Promise<boolean> =>
-      page().execute(
-        (sel: string, text: string) => {
-          const target = [...document.querySelectorAll<HTMLElement>(sel)].find((el) => el.textContent?.trim() === text)
-          target?.click()
-          return !!target
-        },
-        selector,
-        label
-      )
-    expect(await click('button', 'Help')).toBe(true)
-    expect(await click('[role=menuitem]', 'About Dialect')).toBe(true)
+    await menu('Help', 'About Dialect')
     await expect.poll(() => testIdText('about-info'), UI_WAIT).toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Desktop app\\s+WebView\\s+WebView2 \\d+\\.\\d+\\.\\d+\\.\\d+\\s+OS\\s+Windows 1[01]$`))
     expect(await testIdText('about-notice')).toBe(NOTICE)
-    const heading = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('.docs-page h1')?.innerText ?? null)
+    const heading = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('[role=tabpanel]:not([hidden]) .docs-page h1')?.innerText ?? null)
     // From About's license link, then the Docs list.
     expect(await click('[role=dialog] button', 'MIT License')).toBe(true)
     await expect.poll(heading, UI_WAIT).toBe('License')
     for (const [label, title] of [['User Guide', 'Dialect user guide'], ['Release Notes', 'Release Notes'], ['Third-Party Notices', 'Third-party notices']]) {
-      expect(await click('.docs-nav-item', label)).toBe(true)
+      expect(await click('[role=tabpanel]:not([hidden]) .docs-nav-item', label)).toBe(true)
       await expect.poll(heading, UI_WAIT).toBe(title)
     }
     // The notices list the app's Rust crates too.
-    expect(await page().execute(() => [...document.querySelectorAll('.docs-page h2')].some((h) => /^tauri [\d.]+ \(crate\)$/.test(h.textContent ?? '')))).toBe(true)
-    expect(await click('.docs-back', '← Display set')).toBe(true)
+    expect(await page().execute(() => [...document.querySelectorAll('[role=tabpanel]:not([hidden]) .docs-page h2')].some((h) => /^tauri [\d.]+ \(crate\)$/.test(h.textContent ?? '')))).toBe(true)
+    // Each page in its own tab, beside the display set's.
+    const titles = (): Promise<string[]> => page().execute(() => [...document.querySelectorAll('[role=tab] .tab-title')].map((t) => t.textContent ?? ''))
+    expect(await titles()).toEqual(['smoke.conf → Display set', 'License', 'User Guide', 'Release Notes', 'Third-Party Notices'])
+    expect(await click('[role=tab] .tab-title', 'smoke.conf → Display set')).toBe(true)
     await expect.poll(() => paneText('source'), UI_WAIT).not.toBeNull()
   })
 
@@ -178,13 +199,11 @@ describe('the desktop app', () => {
         target?.click()
         return !!target
       }, label)
-    expect(await clickButton('Convert')).toBe(true)
-    await page().execute((content: string) => {
-      const target = document.querySelector('[data-pane="source"]')!
-      const transfer = new DataTransfer()
-      transfer.items.add(new File([content], 'phase1.conf', { type: 'text/plain' }))
-      for (const type of ['dragenter', 'dragover', 'drop']) target.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }))
-    }, readFileSync(join(convertFixtures, 'phase1.conf'), 'utf8'))
+    // A convert tab of its own, from File → New Tab.
+    await menu('File', 'New Tab…')
+    await expect.poll(() => click('[role=dialog] .picker-label', 'Convert: Junos → Cisco IOS / IOS-XE'), UI_WAIT).toBe(true)
+    await expect.poll(() => paneText('source'), UI_WAIT).not.toBeNull()
+    await drop('phase1.conf', readFileSync(join(convertFixtures, 'phase1.conf'), 'utf8'))
     await expect.poll(() => testIdText('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
     // One name taken by hand, the rest as suggested.
     expect(await clickButton('Use Loopback0 for lo0')).toBe(true)
@@ -194,15 +213,17 @@ describe('the desktop app', () => {
     const expected = readFileSync(join(convertFixtures, 'phase1.iosxe'), 'utf8').trimEnd()
     await expect.poll(() => paneText('output'), UI_WAIT).toBe(expected)
     expect(await testIdText('problem-count')).toBe('4 warnings')
-    const firstProblem = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('.problem.warning .problem-message')?.innerText ?? null)
+    const firstProblem = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('[role=tabpanel]:not([hidden]) .problem.warning .problem-message')?.innerText ?? null)
     expect(await firstProblem()).toBe('Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards')
     // The source gutter marks it once the line is in view.
-    await page().execute(() => document.querySelector<HTMLElement>('.problem.warning')?.click())
+    await page().execute(() => document.querySelector<HTMLElement>('[role=tabpanel]:not([hidden]) .problem.warning')?.click())
     const gutterTitles = (): Promise<string[]> =>
-      page().execute(() => [...(document.querySelector('[data-pane="source"]')?.shadowRoot?.querySelectorAll<HTMLElement>('.cm-issue-warning') ?? [])].map((m) => m.title))
+      page().execute(() => [...(document.querySelector('[role=tabpanel]:not([hidden]) [data-pane="source"]')?.shadowRoot?.querySelectorAll<HTMLElement>('.cm-issue-warning') ?? [])].map((m) => m.title))
     await expect.poll(gutterTitles, UI_WAIT).toContain('Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards')
-    expect(await clickButton('Display set')).toBe(true)
+    // Back to the display set tab through the Window menu: it is as it was.
+    await menu('Window', 'smoke.conf → Display set •')
     await expect.poll(() => testIdText('interface-count'), UI_WAIT).toBeNull()
+    expect(await testIdText('output-summary')).toBe('3 commands')
   })
 
   it('opens no link but an https one in the browser', async () => {
@@ -230,5 +251,14 @@ describe('the desktop app', () => {
       )
     })
     expect(result).toMatch(/^refused: .*(forbidden|scope|not allowed)/i)
+  })
+
+  // Last: it quits the app.
+  it('quits on File → Exit, once told the unsaved output would go', async () => {
+    const running = (): number => Number(execFileSync('powershell', ['-NoProfile', '-Command', `@(Get-Process dialect -ErrorAction SilentlyContinue | Where-Object Path -eq '${app}').Count`], { encoding: 'utf8' }).trim())
+    expect(running()).toBe(1)
+    await menu('File', 'Exit')
+    await expect.poll(() => click('[role=dialog] button', 'Exit without saving'), UI_WAIT).toBe(true)
+    await expect.poll(running, UI_WAIT).toBe(0)
   })
 })
