@@ -1,0 +1,160 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "as2core1",
+      "logging": {
+        "remoteServers": {
+          "1.1.1.1": {},
+          "2.1.2.2": {}
+        }
+      },
+      "domainName": "lab.local"
+    },
+    "interfaces": {
+      "Loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "2.1.2.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet0/0": {
+        "type": "ethernet",
+        "enabled": false
+      },
+      "GigabitEthernet0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "2.12.11.2": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet1/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "2.12.21.2": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet2/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "2.23.11.2": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet3/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "2.23.12.2": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 2,
+          "routerId": "2.1.2.1",
+          "groups": {
+            "as2": {
+              "peerAs": 2
+            }
+          },
+          "neighbors": {
+            "2.1.1.1": {
+              "group": "as2",
+              "updateSource": "Loopback0",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            },
+            "2.1.1.2": {
+              "group": "as2",
+              "updateSource": "Loopback0",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            },
+            "2.1.3.1": {
+              "group": "as2",
+              "updateSource": "Loopback0",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            },
+            "2.1.3.2": {
+              "group": "as2",
+              "updateSource": "Loopback0",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            }
+          }
+        },
+        "ospf": {
+          "areas": {
+            "0.0.0.1": {
+              "interfaces": {
+                "Loopback0": {
+                  "enabledBy": "network"
+                },
+                "GigabitEthernet0/0": {
+                  "enabledBy": "network"
+                },
+                "GigabitEthernet1/0": {
+                  "enabledBy": "network"
+                },
+                "GigabitEthernet2/0": {
+                  "enabledBy": "network"
+                },
+                "GigabitEthernet3/0": {
+                  "enabledBy": "network"
+                }
+              }
+            }
+          },
+          "processId": "1",
+          "routerId": "2.1.2.1"
+        }
+      }
+    }
+  }
+}
+

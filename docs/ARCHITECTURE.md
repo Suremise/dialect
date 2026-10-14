@@ -450,8 +450,9 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.4.0 <1.0.0'`, for model 0.4's VLANs, switch ports and routed VLANs), with `detect`, `parse`, `render`
-and `nameInterface`.
+`modelApi: '>=0.4.1 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, and 0.4.1's eBGP
+default), with `detect`,
+`parse`, `render` and `nameInterface`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
   statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
@@ -528,12 +529,63 @@ and `nameInterface`.
     out whole (its `switchport` statements `unsupported`) and so is its VLAN interface, with its addresses. A
     `switchport access vlan` creates a VLAN that doesn't exist, one deleted before too, where it is read, as IOS does:
     it stays when the port moves on to another VLAN or becomes routed, until a later `no vlan` deletes it again.
-- **Render (`render.ts`):** gives every leaf of model 0.3, and of 0.4's VLANs, switch ports and routed VLANs, a
-  disposition (DNS as one `ip name-server` line per server) and leaves the rest (OSPF, BGP, a later version's fields)
-  without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,
+  - **OSPF (#63):** `router ospf P [vrf V]` is that instance's `ospf` (`processId` P; one a VRF, so a second process
+    in a VRF is left out, as is one in a VRF the text doesn't define), with `router-id`, `area A stub|nssa` and
+    `area A authentication [message-digest]` (an option the model can't hold, `no-summary`, leaves the statement
+    `unsupported`). An interface is in an area by its own `ip ospf P area A` (`enabledBy: 'interface'`, which wins;
+    with no `router ospf P` the process is made in the interface's VRF, as IOS does), or else by the most specific
+    `network ADDR WILDCARD area A` of a process in its VRF matching its primary IPv4 address (`enabledBy: 'network'`).
+    Process numbers are 1 to 65535 wherever they are named (`01` is 1).
+    A network statement that enables no interface is `unsupported`: the model keeps OSPF per interface, not ranges for
+    interfaces to come. `passive-interface X|default` (and `no passive-interface X` under `default`) and the interface's
+    `ip ospf cost|network point-to-point|broadcast|hello-interval|dead-interval|authentication` go on its area entry,
+    and are `ignored-by-design` where OSPF doesn't run. Keys (`ip ospf authentication-key`, `message-digest-key`) are
+    never carried (`ignored-by-design`): authentication is flagged by its type, and a target asks for the key. The `no`
+    forms remove what they name; `no router ospf P` removes the process and every interface's `ip ospf P area`.
+  - **BGP (#63):** `router bgp ASN` (plain or asdot; IOS runs one AS, so another is `unsupported`) is the global
+    table's `bgp`, with `bgp router-id`; `address-family ipv4|ipv6 vrf V` is VRF V's (V must be defined), with the
+    same AS. `neighbor X` is a neighbor by address or a peer group by name (`neighbor G peer-group`, defined before
+    use): `remote-as` (`peerAs`), `peer-group G` (`group`), `description`, `update-source` (left out when it names no
+    interface of the model), `ebgp-multihop [ttl]`, and `password`, flagged as `authentication: true` and never
+    carried. In an address family, `neighbor X activate` and `route-map NAME in|out` (by name only, with a warning,
+    `iosxe.route-map-name-only`, that its body isn't converted) are the peer's `addressFamilies`, built once the text
+    is read: a family is there only when the peer carries it, so a route map alone activates nothing (in a family the
+    peer doesn't carry it is `unsupported`), and `no neighbor X activate` takes the family out with its route maps, as
+    on the device. A peer group's member carries the group's families too, and its own route map there (a member can
+    customise its inbound policy) is kept on its own family entry. A VRF's neighbor carries the family it is defined
+    in; one taken out of it is left out (`unsupported`), as IOS defines a VRF's neighbors in their family, which would
+    activate it, and the render writes no VRF neighbor that carries no family, its own or its group's. Under `bgp default ipv4-unicast`, IOS's
+    default, a global IPv4 neighbor carries IPv4 unless `no neighbor X activate` says otherwise (IPv6 neighbors haven't
+    been activated in IPv4 by default since 12.2(33)SRE4); `no bgp default ipv4-unicast` leaves only the explicit ones.
+    `no neighbor X` (or `… remote-as`) removes the peer, a peer group with its members; `no router bgp` removes BGP
+    everywhere. An instance with an eBGP peer (its own or its group's peer AS, not the local one) carrying a family
+    with no route map in a direction gets `ebgpDefaultPolicy` `accept` for that side (model 0.4.1): IOS's default.
+- **Render (`render.ts`):** gives every leaf of model 0.3 and of 0.4's areas a disposition (DNS as one
+  `ip name-server` line per server) and leaves a later version's fields without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,
   and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then
   its mode, as `show running-config` orders them (an empty allowed list as `none`); a routed VLAN is rendered by the
-  interface's name, `interface VlanN`, and is `unsupported` on an interface of another name or a subinterface. Each VRF is a `vrf definition` before
+  interface's name, `interface VlanN`, and is `unsupported` on an interface of another name or a subinterface.
+  OSPF follows the interfaces, one `router ospf` an instance (an interface routing in another VRF than the instance
+  is `unsupported`) (the global table's first; the model's process number
+  where it is one and free, else the lowest free one), with the area types and authentication, then the network
+  statements and passive interfaces. An interface the model enables per interface gets `ip ospf P area A` in its own
+  block, with its cost, network type and timers; one enabled by a network statement gets an exact one
+  (`network ADDR 0.0.0.0 area A` on its primary address, so the round trip keeps `enabledBy`), with a semantic
+  warning, `iosxe.ospf-network-exact`, that later interfaces in the source's range aren't taken in. BGP is one
+  `router bgp ASN`: `no bgp default ipv4-unicast`, the peer groups then the neighbors, an `address-family ipv4|ipv6`
+  with each peer's `activate` and route maps (a peer's own policies go in each family it carries; IOS applies one route
+  map a direction, so a list of several is `unsupported`; each written policy gets the name-only warning), then each
+  VRF's `address-family … vrf V` with its peers. A group typed `internal` with no peer AS gets the local AS; a local
+  address is `unsupported` (IOS sources a session from an interface); a VRF's BGP in another AS is left out. **Secrets
+  are needs-input items:** an OSPF key (or key chain's name) and a BGP password are `secret` items whose `field` is
+  the flag's path (the interface's authentication, or the area's it inherits), written only once `context.inputs`
+  answers them (`ospfKeyInputId()`, `bgpPasswordInputId()`), never as a placeholder; until then the key line is left
+  out (a key chain's `ip ospf authentication key-chain` and a BGP password with it, their fields `unsupported` with
+  why), and the kit's round trip excuses those leaves (`tests/fixtures/bgp/secrets`). `ebgpDefaultPolicy` is
+  `not-applicable` (a default, not configuration); a source that rejects (IOS-XR, RFC 8212) gets a semantic warning,
+  `iosxe.ebgp-default-accept`, by field and the `router bgp` line, never a peer, as IOS-XE accepts and advertises
+  routes a peer with no route map. `tests/models/` holds saved models from other platforms for what an IOS-XE parse
+  can't produce, each with its expected render and warnings. Each VRF is a `vrf definition` before
   the interfaces, with its `rd` and its route targets VRF-wide (the model's are the VRF's), and the address families
   its interfaces' addresses and routes need (IPv4 also for a VRF with an RD or route targets); an interface's
   `vrf forwarding V` comes before its addresses, which it would otherwise clear, and `ip route vrf V` after. `type`
@@ -548,8 +600,9 @@ and `nameInterface`.
   `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
   parse (no error, a complete ledger, a stable round trip). `tests/probes.ts` is its adapter for the kit's probes
-  (#55): every probe runs, but a prototype key as an interface name, which IOS can't say; of model 0.4's cases, a VLAN
-  name and a malformed VLAN ID so far.
+  (#55): every probe runs, but a prototype key as an interface name, which IOS can't say. Its model 0.4 cases are a
+  VLAN name and a BGP peer group as prototype keys, `no neighbor` and `no network` as negation, a malformed VLAN ID and
+  AS number, and OSPF and BGP changes in one VRF of three.
 - **Convert suggestions (`names.ts`):** `nameInterface()` names an Ethernet port by its speed, `Port-channel`,
   `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. A Junos `irb.100`
   gets `Vlan100` only once the core's convert names an IRB unit on its own (#41): today it names the `irb` interface

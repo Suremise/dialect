@@ -1,0 +1,42 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "interfaces": {
+      "Loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 65000,
+          "routerId": "192.0.2.1",
+          "neighbors": {
+            "198.51.100.2": {
+              "peerAs": 65001,
+              "description": "Transit with no policy",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "reject",
+            "export": "reject"
+          }
+        }
+      }
+    }
+  }
+}
