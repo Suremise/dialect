@@ -551,7 +551,7 @@ describe('configuration names that are Object.prototype\'s own (__proto__, const
   })
 
   it('in a logging level are not a severity', () => {
-    expect(parse('logging host 192.0.2.1\nlogging trap constructor').dispositions.L2).toEqual({ kind: 'unsupported' })
+    expect(parse('logging host 192.0.2.1\nlogging trap constructor').dispositions.L2).toEqual({ kind: 'unsupported', reason: 'not a syslog severity, by name or from 0 to 7' })
   })
 })
 
@@ -719,9 +719,10 @@ describe('VLANs, switch ports and VLAN interfaces (model 0.4.0)', () => {
       expect(at(bad.trim()), bad).toEqual({ kind: 'unsupported', reason: bad.includes('allowed') ? 'not a list of VLAN IDs from 1 to 4094' : 'not a VLAN ID from 1 to 4094' })
       expect(result.model.interfaces?.Gi1?.switching, bad).toEqual({ allowedVlans: ['10'] })
     }
-    for (const bad of ['vlan 4095', 'vlan 10-5', 'interface Vlan4095', 'interface Vlan10.5']) expect(parse(bad).dispositions.L1, bad).toEqual({ kind: 'unsupported' })
+    const why: Record<string, string> = { 'vlan 4095': 'not a list of VLAN IDs from 1 to 4094', 'vlan 10-5': 'not a list of VLAN IDs from 1 to 4094', 'interface Vlan4095': 'a VLAN interface for no VLAN ID from 1 to 4094', 'interface Vlan10.5': 'IOS has no VLAN interface with a subinterface' }
+    for (const [bad, reason] of Object.entries(why)) expect(parse(bad).dispositions.L1, bad).toEqual({ kind: 'unsupported', reason })
     // IOS VLAN names are one word.
-    expect(parse('vlan 10\n name a b').dispositions.L2).toEqual({ kind: 'unsupported' })
+    expect(parse('vlan 10\n name a b').dispositions.L2).toEqual({ kind: 'unsupported', reason: 'a VLAN name of more than one word, which IOS doesn\'t take' })
   })
 
   it('"no" forms remove what they name, and "no switchport" every switch port setting before it', () => {
@@ -1021,7 +1022,7 @@ describe('BGP (model 0.4.0)', () => {
     expect(at(result, 'neighbor 192.0.2.3 peer-group NOPE')).toEqual({ kind: 'unsupported', reason: 'names a peer group the configuration doesn\'t define' })
     // asdot: 1.10 is 65546.
     expect(bgp(result)?.neighbors?.['192.0.2.4']?.peerAs).toBe(65546)
-    expect(at(result, 'router bgp 65001')).toEqual({ kind: 'unsupported' })
+    expect(at(result, 'router bgp 65001')).toEqual({ kind: 'unsupported', reason: 'IOS runs one BGP AS: a second is left out' })
     expect(bgp(result)?.localAs).toBe(65000)
   })
 
