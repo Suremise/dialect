@@ -1,7 +1,7 @@
 // modelProblems(), isRouteDistinguisher(), isVlanId(), isAsNumber() and model 0.5.0's isIpAddress(), parsePrefix(),
 // communityType() and isPositionKey(): what a model must hold beyond its types (validate.ts).
 import { describe, expect, it } from 'vitest'
-import { communityType, deserializeModel, fieldPath, isAsNumber, isIpAddress, isPortRange, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, populatedLeaves, serializeModel, type CommunityType, type Device, type PrefixMatchForm, type RegexDialect, type VrfPolicyMode } from '../src'
+import { communityType, deserializeModel, fieldPath, isAsNumber, isIpAddress, isPortRange, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, populatedLeaves, serializeModel, type CommunityType, type Device, type LacpMode, type PrefixMatchForm, type RegexDialect, type VrfPolicyMode } from '../src'
 
 describe('isRouteDistinguisher', () => {
   it('takes the three forms: ASN:nn, IP:nn and ASN4:nn, at their bounds', () => {
@@ -520,6 +520,57 @@ describe('modelProblems, model 0.5.3', () => {
       expect(found.map((d) => [d.code, d.field]), String(bad)).toEqual([['model.description', at('description')]])
       expect(found[0].message).not.toContain('CANARY_SECRET')
     }
+  })
+})
+
+describe('modelProblems, model 0.5.4', () => {
+  it('finds nothing wrong in an aggregate with members, an LACP mode and minimum links', () => {
+    for (const lacp of ['active', 'passive', 'static'] as const)
+      expect(modelProblems({ interfaces: { ae0: { type: 'aggregate', aggregation: { lacp, minLinks: 1 } }, 'ge-0/0/0': { aggregate: 'ae0' }, 'ge-0/0/1': { type: 'ethernet', aggregate: 'ae0' } } })).toEqual([])
+    // Prototype keys as names: JSON.parse makes `__proto__` an own key, as a plugin's null-prototype map does.
+    expect(modelProblems({ interfaces: JSON.parse('{"toString":{"type":"aggregate","aggregation":{}},"__proto__":{"aggregate":"toString"}}') })).toEqual([])
+  })
+
+  it('reports a member naming a missing aggregate, a non-aggregate or itself an aggregate, quoting none of the names', () => {
+    const device: Device = {
+      interfaces: {
+        ae0: { type: 'aggregate' },
+        lo0: { type: 'loopback' },
+        'ge-0/0/0': { aggregate: 'CANARY_SECRET' },
+        'ge-0/0/1': { aggregate: 'toString' },
+        'ge-0/0/2': { aggregate: 'lo0' },
+        'ge-0/0/3': { aggregate: 7 as unknown as string },
+        ae1: { type: 'aggregate', aggregate: 'ae0' }
+      }
+    }
+    const found = modelProblems(device)
+    expect(found.map((d) => [d.code, d.field])).toEqual([
+      ['model.unknown-aggregate', fieldPath('interfaces', 'ge-0/0/0', 'aggregate')],
+      ['model.unknown-aggregate', fieldPath('interfaces', 'ge-0/0/1', 'aggregate')],
+      ['model.aggregate-type', fieldPath('interfaces', 'ge-0/0/2', 'aggregate')],
+      ['model.unknown-aggregate', fieldPath('interfaces', 'ge-0/0/3', 'aggregate')],
+      ['model.aggregate-member', fieldPath('interfaces', 'ae1', 'aggregate')]
+    ])
+    for (const d of found) expect(d.message).not.toContain('CANARY_SECRET')
+  })
+
+  it('reports LAG settings on an interface that isn\'t an aggregate, an unknown LACP mode and minimum links below 1 or not whole', () => {
+    const at = (name: string, ...leaf: string[]) => fieldPath('interfaces', name, 'aggregation', ...leaf)
+    const device: Device = {
+      interfaces: {
+        'ge-0/0/0': { aggregation: { lacp: 'active' } },
+        ae0: { type: 'aggregate', aggregation: { lacp: 'on' as LacpMode, minLinks: 0 } },
+        ae1: { type: 'aggregate', aggregation: { minLinks: 1.5 } },
+        ae2: { type: 'aggregate', aggregation: { minLinks: '2' as unknown as number } }
+      }
+    }
+    expect(modelProblems(device).map((d) => [d.code, d.field])).toEqual([
+      ['model.aggregation-interface', at('ge-0/0/0')],
+      ['model.lacp-mode', at('ae0', 'lacp')],
+      ['model.min-links', at('ae0', 'minLinks')],
+      ['model.min-links', at('ae1', 'minLinks')],
+      ['model.min-links', at('ae2', 'minLinks')]
+    ])
   })
 })
 

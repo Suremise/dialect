@@ -69,6 +69,9 @@ function references(model: Device): { path: string; value: string }[] {
   if (ntp !== undefined) out.push({ path: fieldPath('system', 'ntp', 'sourceInterface'), value: ntp })
   const logging = model.system?.logging?.sourceInterface
   if (logging !== undefined) out.push({ path: fieldPath('system', 'logging', 'sourceInterface'), value: logging })
+  // Since model 0.5.4: a member link names its aggregate.
+  for (const [name, ifc] of Object.entries(model.interfaces ?? {}))
+    if (ifc.aggregate !== undefined) out.push({ path: fieldPath('interfaces', name, 'aggregate'), value: ifc.aggregate })
   for (const [instance, ni] of Object.entries(model.networkInstances ?? {})) {
     for (const [prefix, route] of Object.entries(ni.staticRoutes ?? {}))
       for (const [index, hop] of Object.entries(route.nextHops ?? {}))
@@ -327,6 +330,7 @@ function withReferences(model: Device, interfaces: Device['interfaces'], ref: (v
     ...(model.system.ntp?.sourceInterface !== undefined ? { ntp: { ...model.system.ntp, sourceInterface: ref(model.system.ntp.sourceInterface) } } : {}),
     ...(model.system.logging?.sourceInterface !== undefined ? { logging: { ...model.system.logging, sourceInterface: ref(model.system.logging.sourceInterface) } } : {})
   }
+  const members = interfaces && keyed(Object.entries(interfaces).map(([n, i]) => [n, i.aggregate !== undefined ? { ...i, aggregate: ref(i.aggregate) } : i] as const))
   const route = (r: StaticRoute): StaticRoute =>
     r.nextHops ? { ...r, nextHops: keyed(Object.entries(r.nextHops).map(([i, hop]) => [i, hop.interface !== undefined ? { ...hop, interface: ref(hop.interface) } : hop] as const)) } : r
   const ospf = (o: Ospf): Ospf =>
@@ -342,7 +346,7 @@ function withReferences(model: Device, interfaces: Device['interfaces'], ref: (v
   return {
     ...model,
     ...(system ? { system: system as System } : {}),
-    ...(interfaces ? { interfaces } : {}),
+    ...(members ? { interfaces: members } : {}),
     ...(model.networkInstances ? { networkInstances: keyed(Object.entries(model.networkInstances).map(([n, ni]) => [n, instance(ni)] as const)) } : {})
   }
 }
