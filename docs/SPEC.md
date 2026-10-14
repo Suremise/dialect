@@ -151,7 +151,9 @@ product decisions.
   file name, output, interface map, problems and editors' undo history. Its title is the file name and job
   ("phase1.conf → IOS-XE", or "Untitled"), with a dot while its output is unsaved and the full path in a tooltip.
   Closing one with unsaved output (×, middle-click, Ctrl+W) asks first: save and close, close without saving, or
-  cancel. Each Docs page has one tab, shown again rather than opened twice.
+  cancel. Each Docs page has one tab, shown again rather than opened twice. Leaving Dialect with unsaved output asks
+  too: File → Exit, the desktop window's ✕ or Alt+F4 ask in the app's Exit dialog, and closing or reloading the web
+  build's browser tab has the browser ask (`beforeunload`).
 - **On restart** the tabs come back with their jobs, file names and Docs pages, and which was shown, but **never config
   contents**, nor the output or the interface names: configs can hold secrets. A restored tab offers to reopen its file.
   Contents live in memory only, never in localStorage, sessionStorage or IndexedDB (the web tests check all three).

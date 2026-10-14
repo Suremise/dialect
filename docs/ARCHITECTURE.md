@@ -742,8 +742,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 The React UI both shells share: `<App platform={…} />`, where `Platform` (`src/platform.ts`) is the shell's file and
 clipboard access (open, open a dropped file, save, read and write the clipboard), which build it is (`kind`, `version`)
 and how it opens a web link (`openLink`). Two parts are optional, for a shell that can do them: `saveTextTo` writes
-again to a path an earlier save returned (the desktop app; a download can't be written to again), and `exit` quits
-(File → Exit, the desktop app only). Open and save take what the file holds (`FileKind`: a config, or an interface
+again to a path an earlier save returned (the desktop app; a download can't be written to again), `exit` quits (File →
+Exit, the desktop app only), and `guardClose(mayClose)` guards the window's own close (its ✕, Alt+F4, a browser tab's
+close or reload): the UI's `mayClose` says no while a tab's output is unsaved, and shows the Exit dialog where the
+shell can quit itself; the web build's guard is a `beforeunload` handler, so the browser asks. Open and save take what the file holds (`FileKind`: a config, or an interface
 map), so the shells offer the right file types. The UI never touches files itself: even a dropped file is read by the shell,
 from the drop event's data. Both shells take the version from the root `package.json` (a named JSON import, so only
 that field is bundled).
@@ -869,12 +871,16 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
 - **The Platform** (`src/desktopPlatform.ts`): Open and Save output use `@tauri-apps/plugin-dialog`'s open and save
   dialogs, then `@tauri-apps/plugin-fs` to read or write that path; an opened file's path is the tab's tooltip, and a
   saved one's is where Save output writes again this session (`saveTextTo`, in the fs scope the dialog gave it).
-  `exit` closes the window through `@tauri-apps/api/window`. A dropped file is read from the drop event, as in
+  `exit` destroys the window through `@tauri-apps/api/window` (not `close()`, which would ask the guard again).
+  `guardClose` is the window's `onCloseRequested`: with a listener, Tauri leaves the close to the page, which destroys
+  the window unless the guard prevents it. A dropped file is read from the drop event, as in
   the web build: the window sets `dragDropEnabled: false`, so the page gets the HTML drop and the UI hands it to
   `openDropped`. The clipboard is WebView2's clipboard API. `openLink` (a Docs link) is `@tauri-apps/plugin-opener`'s
   `openUrl`, which starts the default browser.
-- **Capabilities** (`src-tauri/capabilities/default.json`): `core:window:allow-close` (File → Exit closes the only
-  window, which quits the app), `dialog:allow-open`, `dialog:allow-save`,
+- **Capabilities** (`src-tauri/capabilities/default.json`): `core:event:allow-listen` and `allow-unlisten` (the close
+  guard's listener), `core:window:allow-destroy` (Exit, and a close the guard allows: the only window, so the app
+  quits), `core:window:allow-close` (the close request itself, which the smoke test makes as the ✕ would),
+  `dialog:allow-open`, `dialog:allow-save`,
   `fs:allow-read-text-file` and `fs:allow-write-text-file`, with no fs scope: the dialog plugin adds each file the user
   picks to the fs scope, so the page can read or write those files and no other (the smoke test checks
   `C:\Windows\win.ini` is refused). `opener:allow-open-url` with the scope `https://*` (the opener's glob, whose `*`
@@ -895,7 +901,8 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
   switches back through the Window menu, then checks that the CSP refuses an inline
   script, a remote image and a fetch (WebDriver's own scripts aren't subject to the CSP, so it checks what the page
   does), that the fs plugin refuses a file nobody picked and that the opener refuses anything but https, and last that
-  File → Exit (past the unsaved output question) ends the app's process. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
+  the window's own close request with unsaved output shows the Exit dialog and stays open on Cancel, and that File →
+  Exit (past the unsaved output question) ends the app's process. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
   `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs tauri-driver
   (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver matching the installed WebView2 (from
   `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`), through `MSEDGEDRIVER` or `PATH`.

@@ -1,12 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window opens and saves the files the user picks (the dialog plugin adds each picked file to the fs plugin's scope, which has no other paths), opens https links from the Docs in the browser, and closes its window for File → Exit.",
+  "description": "The main window opens and saves the files the user picks (the dialog plugin adds each picked file to the fs plugin's scope, which has no other paths), opens https links from the Docs in the browser, and guards its window's close: a close-requested listener keeps it open while output is unsaved and otherwise destroys it, as File → Exit does (close: the request itself, which the smoke test makes as the window's ✕ would).",
   "windows": [
     "main"
   ],
   "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
     "core:window:allow-close",
+    "core:window:allow-destroy",
     "dialog:allow-open",
     "dialog:allow-save",
     "fs:allow-read-text-file",

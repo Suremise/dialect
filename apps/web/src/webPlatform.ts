@@ -71,5 +71,16 @@ export const webPlatform: Platform = {
   async openLink(url) {
     // A new tab, which may go online: the page itself still can't (its CSP).
     window.open(url, '_blank', 'noopener,noreferrer')
+  },
+  guardClose(mayClose) {
+    // The browser asks, in its own words, when a page cancels its unload: a page can't show its own dialog there.
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      if (mayClose()) return
+      e.preventDefault()
+      // Older browsers ask only when returnValue is set.
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }
 }

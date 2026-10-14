@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const dialog = vi.hoisted(() => ({ open: vi.fn(), save: vi.fn() }))
 const fs = vi.hoisted(() => ({ readTextFile: vi.fn(), writeTextFile: vi.fn() }))
 const opener = vi.hoisted(() => ({ openUrl: vi.fn() }))
-const appWindow = vi.hoisted(() => ({ close: vi.fn() }))
+const appWindow = vi.hoisted(() => ({ close: vi.fn(), destroy: vi.fn(), onCloseRequested: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => dialog)
 vi.mock('@tauri-apps/plugin-fs', () => fs)
 vi.mock('@tauri-apps/plugin-opener', () => opener)
@@ -57,9 +57,27 @@ describe('the desktop platform', () => {
     expect(fs.writeTextFile).toHaveBeenCalledWith('D:\\out\\edge-1.set', 'set system host-name edge-2\n')
   })
 
-  it('exits by closing its window (File → Exit)', async () => {
+  it('exits by destroying its window (File → Exit, asked already), not by asking the close guard again', async () => {
     await desktopPlatform.exit!()
-    expect(appWindow.close).toHaveBeenCalledOnce()
+    expect(appWindow.destroy).toHaveBeenCalledOnce()
+    expect(appWindow.close).not.toHaveBeenCalled()
+  })
+
+  it("guards the window's own close: kept open while the UI says not yet, and the guard stops", async () => {
+    const unlisten = vi.fn()
+    appWindow.onCloseRequested.mockResolvedValue(unlisten)
+    let may = false
+    const stop = desktopPlatform.guardClose!(() => may)
+    const handler = appWindow.onCloseRequested.mock.calls[0][0] as (event: { preventDefault: () => void }) => void
+    const kept = { preventDefault: vi.fn() }
+    handler(kept)
+    expect(kept.preventDefault).toHaveBeenCalledOnce()
+    may = true
+    const closed = { preventDefault: vi.fn() }
+    handler(closed)
+    expect(closed.preventDefault).not.toHaveBeenCalled()
+    stop()
+    await vi.waitFor(() => expect(unlisten).toHaveBeenCalledOnce())
   })
 
   it('offers config files, or interface maps (CSV or JSON) when it opens or saves one', async () => {
@@ -128,7 +146,10 @@ describe('the Tauri config', () => {
   it('lets the page open and save only through the dialogs, with no fs scope of its own, open https links only, and close its window', () => {
     expect(capability.windows).toEqual(['main'])
     expect(capability.permissions).toEqual([
+      'core:event:allow-listen',
+      'core:event:allow-unlisten',
       'core:window:allow-close',
+      'core:window:allow-destroy',
       'dialog:allow-open',
       'dialog:allow-save',
       'fs:allow-read-text-file',

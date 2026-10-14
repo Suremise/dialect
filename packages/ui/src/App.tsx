@@ -15,7 +15,7 @@ import { DOCS } from './help/docs'
 import { DocsView } from './help/DocsView'
 import { useHelp } from './help/state'
 import type { Platform } from './platform'
-import { jobs, tabTitle, useStore } from './store'
+import { isUnsaved, jobs, tabTitle, useStore } from './store'
 
 function useSystemDark(): boolean {
   const query = useMemo(() => (typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null), [])
@@ -74,6 +74,19 @@ export function App({ platform }: { platform: Platform }) {
     const timer = setTimeout(dismissNotice, 5000)
     return () => clearTimeout(timer)
   }, [notice])
+
+  // The window's own close (its ✕, a browser tab's close or reload) asks first while a tab's output is unsaved: in the
+  // Exit dialog where the shell can quit itself (the desktop app), else in the browser's own question.
+  useEffect(
+    () =>
+      platform.guardClose?.(() => {
+        const s = useStore.getState()
+        if (!s.tabs.some(isUnsaved)) return true
+        if (platform.exit) s.setExiting(true)
+        return false
+      }),
+    [platform]
+  )
 
   // The shortcuts, after the editors have had their keys (Undo, Redo, search): a key one used is left alone.
   useEffect(() => {

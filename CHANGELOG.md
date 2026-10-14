@@ -12,6 +12,8 @@
   which keeps Ctrl+T, Ctrl+W and Ctrl+Tab for itself, the web build uses Alt+T, Alt+W and Alt+PgDn.
 - **Tabs come back after a restart** with their file names, but never your configs: Dialect doesn't keep configs
   anywhere. Reopen the file from the tab.
+- **Nothing unsaved is lost on the way out:** File → Exit, the desktop window's ✕ and Alt+F4 ask first while a tab's
+  output is unsaved, and the web build has the browser ask before its tab closes or reloads.
 - **Controls stand out:** buttons, tabs and menus have a visible edge, the current tab is marked in violet, and the
   keyboard focus shows.
 

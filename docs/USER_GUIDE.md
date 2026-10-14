@@ -39,6 +39,9 @@ you're on below that.
   desktop app) or name.
 - **Closing a tab**: its **×**, a middle-click, **File → Close Tab** (Ctrl+W) or Delete on the focused tab. If its
   output hasn't been saved, Dialect asks first: **Save and close**, **Close without saving**, or **Cancel**.
+- **Closing Dialect** with a tab's output unsaved asks first too: in the desktop app, **File → Exit**, the window's
+  **✕** or Alt+F4 ask whether to exit without saving; in the web build, closing or reloading the browser tab has the
+  browser ask whether to leave the page (in its own words: a page can't say more there).
 - **The Docs pages** (User Guide, Release Notes, License, Third-Party Notices) each open in a tab of their own, beside
   your conversions. Asking for a page that's already open shows its tab.
 - **When you start Dialect again**, your tabs come back with their jobs and file names, but **never their configs**:
