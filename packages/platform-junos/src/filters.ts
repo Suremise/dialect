@@ -103,15 +103,20 @@ function address(value: string, family: Family): string | { why: string } {
   return isModelPrefix(prefix) ? prefix : { why: 'a prefix with host bits set' }
 }
 
-/** A Junos port match (`22`, `ssh`, `1024-65535`) as the model's port or range, or null. */
-function port(value: string): string | null {
+/**
+ * A Junos port match (`22`, `ssh`, `ftp-data`, `1024-65535`, `ftp-data-ssh`) as the model's port or range, or null.
+ * Port names have hyphens of their own, so a whole name is one port, and a range is the one split at a hyphen whose
+ * two sides are each a port.
+ */
+export function port(value: string): string | null {
   const one = (s: string) => (Object.hasOwn(PORT_NUMBERS, s) ? PORT_NUMBERS[s] : number(s, 65535))
-  const [a, b, ...rest] = value.split('-')
-  if (rest.length) return null
-  const first = one(a)
-  if (b === undefined) return first === null ? null : String(first)
-  const last = one(b)
-  return first === null || last === null || first >= last ? null : `${first}-${last}`
+  const whole = one(value)
+  if (whole !== null) return String(whole)
+  const ranges = [...value.matchAll(/-/g)].map((m) => [one(value.slice(0, m.index)), one(value.slice(m.index + 1))]).filter(([a, b]) => a !== null && b !== null) as [number, number][]
+  // Two splits that both read (a name ending where another begins) would be a guess: none is taken.
+  if (ranges.length !== 1) return null
+  const [first, last] = ranges[0]
+  return first < last ? `${first}-${last}` : null
 }
 
 /** Numbers or a range of them (`10-20`), or a name of `names`, each from 0 to `max`: every value, or null. */

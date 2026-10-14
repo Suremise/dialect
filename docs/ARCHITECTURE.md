@@ -1308,7 +1308,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `source-`/`destination-address` and `address` (a bare address is a /32 or /128; one with host bits or a mask isn't
   converted, never approximated), `source-`/`destination-prefix-list` and `prefix-list` (a list the routing policy
   converted with prefixes of the filter's family), `protocol` (inet) and `next-header` (inet6) by name or number,
-  `source-`/`destination-port` and `port` (names, numbers, ranges), `icmp-type` (names per family, numbers, ranges,
+  `source-`/`destination-port` and `port` (numbers, names, a hyphenated one whole, and ranges, split at the one
+  hyphen whose sides are ports), `icmp-type` (names per family, numbers, ranges,
   expanded) and `icmp-code` (numbers, ranges), `dscp` (inet) and `traffic-class` (inet6) by number or code point,
   `tcp-established`, `tcp-initial` (`syn & !ack`), `tcp-flags` (flags joined by `&`, each maybe `!`), `first-fragment`
   and `is-fragment`. `then`: `accept`, `discard`, `reject` (with no ICMP message), `next term` (one setting, the later

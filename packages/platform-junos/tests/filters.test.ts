@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { buildLedger, ledgerProblems, modelProblems, MODEL_VERSION, type Device, type ParseResult, type RenderResult } from '@dialect/core'
 import { parse, render } from '../src'
+import { PORT_NUMBERS, port } from '../src/filters'
 
 const context = { modelVersion: MODEL_VERSION }
 const set = (...lines: string[]): string => lines.join('\n') + '\n'
@@ -62,6 +63,40 @@ describe('names Junos gives values', () => {
     expect(term('icmp-type [ echo-request 13-14 ]', 'icmp-code 0-1')).toEqual({ icmpTypes: [8, 13, 14], icmpCodes: [0, 1] })
     expect(term('dscp [ ef af11 cs6 ]')).toEqual({ dscp: [46, 10, 48] })
   })
+  // Every port name Junos has that the parser declares, hyphenated ones too (ftp-data, netbios-ns…): a whole name is one
+  // port, never split as a range.
+  describe.each(Object.entries(PORT_NUMBERS))('port name %s', (name, number) => {
+    it.each([
+      ['source-port', 'sourcePorts'],
+      ['destination-port', 'destinationPorts'],
+      ['port', 'ports']
+    ] as const)('%s, in inet and inet6 filters, is port %i, and an attached filter keeps its allow term through render', (word, field) => {
+      for (const family of ['inet', 'inet6'] as const) {
+        const model = family === 'inet' ? 'ipv4' : 'ipv6'
+        const source = set(
+          `set firewall family ${family} filter F term T from ${word} ${name}`,
+          `set firewall family ${family} filter F term T then accept`,
+          `set interfaces ge-0/0/0 unit 0 family ${family} filter input F`
+        )
+        const p = parse(source, context)
+        expect(unsupportedLines(p), `${family} ${word}`).toEqual([])
+        expect(p.model.filters?.[model]?.F.terms?.['1'], `${family} ${word}`).toEqual({ name: 'T', matches: { [field]: [String(number)] }, actions: { action: 'accept' } })
+        const back = parse(render(p.model, context).text, context)
+        expect(back.model.filters, `${family} ${word}`).toEqual(p.model.filters)
+        expect(back.model.interfaces?.['ge-0/0/0'].subinterfaces?.['0'].filters?.[model]?.input, `${family} ${word}`).toBe('F')
+      }
+    })
+  })
+
+  it('reads a range of names or numbers split at the one hyphen whose sides are ports, and leaves an unclear one out', () => {
+    expect(port('ftp-data-ssh')).toBe('20-22')
+    expect(port('1024-netbios-ssn')).toBeNull()
+    expect(port('netbios-ns-netbios-ssn')).toBe('137-139')
+    expect(port('ssh-ftp-data')).toBeNull()
+    expect(port('1000-2000')).toBe('1000-2000')
+    expect(port('kerberos-sec')).toBe('88')
+  })
+
   it('reads inet6 filters by next-header and traffic-class, and ICMPv6 names', () => {
     const p = parse(set('set firewall family inet6 filter F term T from next-header icmpv6', 'set firewall family inet6 filter F term T from icmp-type neighbor-solicit', 'set firewall family inet6 filter F term T from traffic-class af41'), context)
     expect(p.model.filters?.ipv6?.F.terms?.['1']).toEqual({ name: 'T', matches: { protocols: [58], icmpTypes: [135], dscp: [34] }, actions: { action: 'accept' } })
