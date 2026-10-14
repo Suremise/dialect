@@ -5,7 +5,7 @@
 // written statement needs, and `switchport` or `no switchport` on every Ethernet and port-channel interface, so the
 // result doesn't depend on the switch's defaults. Secrets the model only flags (an OSPF key, a BGP password) are
 // needs-input items, written when answered (Context.inputs) and never made up.
-import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type BgpPeer, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type OspfInterface, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type BgpPeer, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type OspfInterface, type RenderResult, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
 import { isIpv4, isIpv6 } from './addresses'
 import { featuresFor, OSPF_FEATURE, VPN_FEATURE } from './features'
 import { isSwitchable } from './names'
