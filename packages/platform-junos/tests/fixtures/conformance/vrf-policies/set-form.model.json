@@ -1,0 +1,61 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "networkInstances": {
+      "GREEN": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:3",
+        "routeTargets": {
+          "import": [
+            "65000:3"
+          ],
+          "export": [
+            "65000:3"
+          ]
+        },
+        "importPolicies": [
+          "GREEN-IN"
+        ],
+        "vrfPolicyMode": "replaces-route-targets"
+      }
+    },
+    "routingPolicy": {
+      "communitySets": {
+        "GREEN": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "target:65000:3"
+              ]
+            }
+          }
+        }
+      },
+      "policies": {
+        "GREEN-IN": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "T",
+              "matches": {
+                "communitySets": [
+                  "GREEN"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "actions": {
+                "flow": "reject"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

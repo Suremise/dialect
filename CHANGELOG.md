@@ -22,6 +22,10 @@
   keyboard focus shows.
 
 ### Convert
+- **Junos VRF policies convert:** a routing instance's `vrf-import` and `vrf-export` policies, in order, are converted
+  and written back, and a VRF with a policy for a side needs no route target there. Converting a Cisco VRF's import
+  or export map to Junos leaves it out with a warning: a Cisco map filters routes after the route targets, while
+  Junos's replaces them, so the meaning can't be kept.
 - **Junos firewall filters convert:** `firewall family inet` and `inet6` filters (and the older `firewall filter`),
   with their terms' conditions (addresses and prefix lists by source, destination or either, protocol and
   next-header, ports and ranges by number or name, ICMP types and codes, DSCP and traffic class, TCP established,
@@ -53,7 +57,7 @@
   whole policy is listed as not converted. Junos's own readings are respected: route filters match by longest prefix,
   so nested ones that would match differently aren't converted, nor a term with both route filters and prefix lists.
   Converting to Junos warns when the source rejects routes no term decides (a Cisco route map), as Junos passes them
-  to the next policy. `vrf-import` and `vrf-export` aren't converted yet.
+  to the next policy.
 - **Cisco NX-OS and IOS-XR join convert**, in the app and on the command line: convert from any of Junos, IOS / IOS-XE,
   NX-OS and IOS-XR to any other (`dialect convert --from nxos --to iosxr …`). In the app, a new tab's Convert row has
   the platform to convert from and the one to convert to, and a convert tab can change either.

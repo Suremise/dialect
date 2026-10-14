@@ -432,9 +432,35 @@ export function render(model: Device, context: Context): RenderResult {
     if (notHere) {
       if (instance.routeDistinguisher !== undefined) skip(rdField, 'unsupported', notHere)
       for (const side of ['import', 'export'] as const) if (instance.routeTargets?.[side] !== undefined) skip(rtField(side), 'unsupported', notHere)
+      for (const field of ['importPolicies', 'exportPolicies'] as const) if (instance[field] !== undefined) skip([...at, field], 'unsupported', notHere.replace('route distinguisher or route targets', 'VRF import or export policies'))
+      if (instance.vrfPolicyMode !== undefined) skip([...at, 'vrfPolicyMode'], 'not-applicable', notHere.replace('route distinguisher or route targets', 'VRF import or export policies'))
       return out
     }
     const isVrf = instance.type === 'vrf'
+
+    // The VRF's own policies (model 0.5.2): vrf-import and vrf-export, which on Junos replace vrf-target that way. From
+    // a source where they filter after the route targets (Cisco's import and export maps), the meaning can't be kept:
+    // as vrf-import the map would take in routes of any VPN its terms match, and as vrf-export send routes with no route
+    // target unless it adds one. They are left out, and said.
+    const policySides = new Set<'import' | 'export'>()
+    const policyLines: Out[] = []
+    const mode = instance.vrfPolicyMode
+    if (mode !== undefined) skip([...at, 'vrfPolicyMode'], 'not-applicable', "the source platform's semantics, not configuration: on Junos, vrf-import and vrf-export replace vrf-target")
+    let filtersAfter = false
+    for (const [field, word, side] of [['importPolicies', 'vrf-import', 'import'], ['exportPolicies', 'vrf-export', 'export']] as const) {
+      const list = instance[field]
+      if (list === undefined) continue
+      if (!list.length) skip([...at, field], 'not-applicable', 'no policies: nothing to write')
+      else if (mode !== 'replaces-route-targets') {
+        skip([...at, field], 'unsupported', "the source's VRF policies filter routes after its route targets; Junos's replace the route targets, so the meaning can't be kept")
+        filtersAfter = true
+      } else if (list.some((p) => !routing.written.has(p))) skip([...at, field], 'unsupported', "names a policy that isn't written: Junos commits a VRF's policy only when it has it")
+      else {
+        policyLines.push(leaf(list.length === 1 ? `${word} ${quote(list[0])}` : `${word} [ ${list.map(quote).join(' ')} ]`, [...at, field]))
+        policySides.add(side)
+      }
+    }
+    if (filtersAfter) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.vrf-policy-mode', message: "A VRF's import or export map filters routes after its route targets on the source; on Junos vrf-import and vrf-export replace the route targets, so they aren't converted: add a policy that matches or adds the route targets." })
 
     let rd: string | null = null
     if (instance.routeDistinguisher !== undefined) {
@@ -443,22 +469,26 @@ export function render(model: Device, context: Context): RenderResult {
     } else if (isVrf && (rd = answer(routeDistinguisherInputId(name), fromJunos)) !== null) out.push(leaf(`route-distinguisher ${toJunos(rd)}`))
     else if (isVrf) needsInput.push({ id: routeDistinguisherInputId(name), kind: 'other', message: 'This VRF needs a route distinguisher on Junos (ASN:nn or IP:nn), which the source doesn\'t give.', field: fieldPath(...at) })
 
+    // After the route distinguisher, as Junos writes them.
+    out.push(...policyLines)
+
     // Each side's one target, or null when it has none Junos can write here.
     const sides: Record<'import' | 'export', string | null> = { import: null, export: null }
     for (const side of ['import', 'export'] as const) {
       const list = instance.routeTargets?.[side]
       if (list === undefined) continue
       if (!list.length) skip(rtField(side), 'not-applicable', 'no route targets: nothing to write')
-      else if (list.length > 1) skip(rtField(side), 'unsupported', 'more than one route target needs a vrf-import or vrf-export policy, which comes later')
+      else if (list.length > 1) skip(rtField(side), 'unsupported', 'more than one route target needs a vrf-import or vrf-export policy that matches or adds them, which the model doesn\'t give')
       else if (!isRouteDistinguisher(list[0])) skip(rtField(side), 'unsupported', 'not a route target in a form the model has')
       else sides[side] = list[0]
     }
-    // A side with no target Junos can write takes the user's answer, if any; while one is missing, it is asked for.
-    if (isVrf && (sides.import === null || sides.export === null)) {
+    // A side with no target Junos can write takes the user's answer, if any; while one is missing, it is asked for. A side
+    // with a vrf-import or vrf-export policy written needs none: the policy replaces it.
+    if (isVrf && ((sides.import === null && !policySides.has('import')) || (sides.export === null && !policySides.has('export')))) {
       const given = answer(routeTargetInputId(name), (value) => targetFromJunos(value) ?? fromJunos(value))
       if (given === null) needsInput.push({ id: routeTargetInputId(name), kind: 'other', message: "This VRF needs a route target on Junos (target:ASN:nn or target:IP:nn) for the routes it imports or exports, which the source doesn't give.", field: fieldPath(...at) })
       // Every side still without a target Junos can write takes it: left out, empty, malformed or more than one.
-      else for (const side of ['import', 'export'] as const) if (sides[side] === null) sides[side] = given
+      else for (const side of ['import', 'export'] as const) if (sides[side] === null && !policySides.has(side)) sides[side] = given
     }
     const given = (side: 'import' | 'export'): Segments[] => (instance.routeTargets?.[side]?.length === 1 && isRouteDistinguisher(instance.routeTargets[side][0]) ? [rtField(side)] : [])
     if (sides.import !== null && sides.import === sides.export) out.push(leaf(`vrf-target target:${toJunos(sides.import)}`, ...given('import'), ...given('export')))

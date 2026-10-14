@@ -1243,8 +1243,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   is its `routeDistinguisher` and `vrf-target target:X` both its `routeTargets`, with `vrf-target import` and `export`
   overriding their side (the plain one is `ignored-by-design` when both do). Junos writes a 4-byte AS with `L`
   (`4200000000L:100`): the model writes it plain (`communities.ts`, `fromJunos()` and `toJunos()`); `L` on a 2-byte AS,
-  `vrf-target auto`, `vrf-import` and `vrf-export` policies are `unsupported` (the model has no place for a VRF's
-  policies yet, #83). Groups apply as everywhere (R1–R12). **A
+  and `vrf-target auto` are `unsupported`. `vrf-import` and `vrf-export` (#95, model 0.5.2) are the instance's
+  `importPolicies` and `exportPolicies`, in order, with `vrfPolicyMode: 'replaces-route-targets'` (on Junos they
+  replace the vrf-target that way), each side a chain converted whole as a BGP peer's is: one naming a policy that
+  isn't converted leaves the side out. Groups apply as everywhere (R1–R12). **A
   unit named in two instances is in neither:** Junos refuses that, so it's an error diagnostic naming the lines (not
   the unit), and every statement that named it is `unsupported`. **An instance of another type** (`mac-vrf`, `evpn`,
   `forwarding`…) is converted not at all, as SNMP communities are: its route distinguisher, targets and units mean
@@ -1390,6 +1392,13 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
   answer in another form is left unused, with a warning). A route target answer goes to every side without one Junos
   can write (left out, empty, malformed or more than one); the item is withdrawn only once the answer is written.
+  **A VRF's own policies** are `vrf-import` and `vrf-export` after its route distinguisher, each only when every
+  policy it names is written (else `unsupported`), and a side with one needs no route target, so none is asked for.
+  `vrfPolicyMode` is `not-applicable`. From a source whose maps filter **after** the route targets (Cisco,
+  `after-route-targets`) the meaning can't be kept: as `vrf-import` a map would take in routes of any VPN its terms
+  match, and as `vrf-export` send routes with no route target unless it adds one. Such policies are `unsupported`, with
+  a `junos.vrf-policy-mode` warning, and the route targets are written as they are (`tests/fixtures/vrf-policy-mode/`,
+  one fixture per direction).
   **Routing policy** is `policy-options` (`renderPolicy.ts`), after the protocols, and BGP's `junos.policy-by-name`
   warning now says only that a policy it names isn't written (a model with the names alone, from a 0.4 parser, or a
   policy left out). A Junos prefix list is one for both families, only permits and matches exactly: the model's lists

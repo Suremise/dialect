@@ -1,0 +1,128 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "networkInstances": {
+      "RED": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:1",
+        "importPolicies": [
+          "RED-IN"
+        ],
+        "vrfPolicyMode": "replaces-route-targets",
+        "exportPolicies": [
+          "RED-OUT"
+        ]
+      },
+      "BLUE": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:2",
+        "routeTargets": {
+          "import": [
+            "65000:2"
+          ],
+          "export": [
+            "65000:2"
+          ]
+        },
+        "importPolicies": [
+          "BLUE-IN",
+          "RED-IN"
+        ],
+        "vrfPolicyMode": "replaces-route-targets"
+      }
+    },
+    "routingPolicy": {
+      "communitySets": {
+        "RED": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "target:65000:1"
+              ]
+            }
+          }
+        },
+        "HUB": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "target:65000:100"
+              ]
+            }
+          }
+        }
+      },
+      "policies": {
+        "RED-IN": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "TARGETS",
+              "matches": {
+                "communitySets": [
+                  "RED",
+                  "HUB"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "actions": {
+                "flow": "reject"
+              }
+            }
+          }
+        },
+        "RED-OUT": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "LOCAL",
+              "matches": {
+                "protocols": [
+                  "connected",
+                  "static"
+                ]
+              },
+              "actions": {
+                "communityAdd": {
+                  "sets": [
+                    "RED"
+                  ]
+                },
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "actions": {
+                "flow": "reject"
+              }
+            }
+          }
+        },
+        "BLUE-IN": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "HUB",
+              "matches": {
+                "communitySets": [
+                  "HUB"
+                ]
+              },
+              "actions": {
+                "localPreference": 200,
+                "flow": "next-policy"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
