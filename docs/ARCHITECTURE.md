@@ -13,6 +13,8 @@ packages/
   conformance/      @dialect/conformance    dev-only: Vitest conformance kit + negative tests for plugins
   platform-junos/   @dialect/platform-junos tree parser, display set tool, map/render
   platform-iosxe/   @dialect/platform-iosxe indentation-tree parser, map/render for phase 1, detect
+  platform-nxos/    @dialect/platform-nxos  indentation-tree parser (banners whole), map/render for phase 1, detect
+  platform-iosxr/   @dialect/platform-iosxr indentation-tree parser (route policies, sets, banners whole), map/render for phase 1, detect
   cli/              @dialect/cli            Node CLI: display-set and convert, files and stdin/stdout
   ui/               @dialect/ui             React UI shared by both shells
 apps/
@@ -21,8 +23,8 @@ apps/
 docs/  scripts/  tests/  branding/
 ```
 
-`core` and `conformance` hold B2's contracts (below), and `platform-iosxe` and `platform-junos` are the plugins built on them (below); the
-other packages are stubs for now. Packages are **source packages**: their `exports` point at
+`core` and `conformance` hold B2's contracts (below), and `platform-junos`, `platform-iosxe`, `platform-nxos` and
+`platform-iosxr` are the plugins built on them (below); `cli`, `ui` and the two apps use them. Packages are **source packages**: their `exports` point at
 TypeScript, and whichever shell bundles them compiles them (Vite, from group C). Nothing is emitted by `tsc`, which
 only checks.
 
