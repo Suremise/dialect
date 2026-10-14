@@ -1,14 +1,9 @@
-// Platform-neutral: no Node or DOM types, so the code runs unchanged in Node, the desktop app's webview and a browser.
+// Dev-only, on Node: it reads plugins' fixture files and runs under Vitest.
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": [
-      "ES2023"
-    ],
-    "types": []
+    "lib": ["ES2023"],
+    "types": ["node"]
   },
-  "include": [
-    "src/**/*",
-    "tests/**/*"
-  ]
+  "include": ["src/**/*", "tests/**/*"]
 }

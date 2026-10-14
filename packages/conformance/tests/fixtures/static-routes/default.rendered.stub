@@ -1,0 +1,7 @@
+routing-options {
+    static {
+        route 0.0.0.0/0 next-hop 192.0.2.254;
+        route 0.0.0.0/0 next-hop 192.0.2.253;
+        route 203.0.113.0/24 next-hop 198.51.100.126;
+    }
+}

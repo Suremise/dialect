@@ -1,0 +1,13 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "ntp": {
+        "servers": {
+          "192.0.2.123": {},
+          "198.51.100.123": { "prefer": true }
+        }
+      }
+    }
+  }
+}
