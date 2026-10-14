@@ -1,0 +1,25 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "ios-logging",
+      "logging": {
+        "remoteServers": {
+          "10.1.1.101": {
+            "facility": "local7",
+            "severity": "notice"
+          },
+          "10.1.1.102": {
+            "facility": "local7",
+            "severity": "notice"
+          },
+          "10.1.1.103": {
+            "networkInstance": "MGMT-TOR",
+            "facility": "local7",
+            "severity": "notice"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "cisco_domain",
+      "domainName": "my.domain.name",
+      "dns": {
+        "servers": {
+          "1.2.3.4": {
+            "networkInstance": "blip"
+          }
+        }
+      }
+    }
+  }
+}

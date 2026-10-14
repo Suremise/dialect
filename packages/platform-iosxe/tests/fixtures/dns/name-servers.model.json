@@ -1,0 +1,19 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "edge-r7",
+      "domainName": "example.net",
+      "dns": {
+        "search": ["example.net", "lab.example.net"],
+        "servers": {
+          "192.0.2.53": {},
+          "198.51.100.53": {},
+          "2001:db8::53": {},
+          "203.0.113.53": { "networkInstance": "MGMT" },
+          "203.0.113.54": { "networkInstance": "MGMT" }
+        }
+      }
+    }
+  }
+}

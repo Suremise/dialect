@@ -1,0 +1,17 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "edge-r6",
+      "snmp": {
+        "location": "Rack 4, Room 101",
+        "contact": "noc@example.net",
+        "communities": {
+          "PLACEHOLDER-RO": { "access": "read-only" },
+          "PLACEHOLDER-RW": { "access": "read-write" },
+          "PLACEHOLDER-PLAIN": {}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "edge-r5",
+      "logging": {
+        "sourceInterface": "Loopback0",
+        "remoteServers": {
+          "192.0.2.50": { "severity": "warning", "facility": "local6" },
+          "192.0.2.51": { "networkInstance": "MGMT", "severity": "warning", "facility": "local6" },
+          "192.0.2.52": { "port": 1514, "severity": "warning", "facility": "local6" },
+          "198.51.100.50": { "severity": "warning", "facility": "local6" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "ios-ntp",
+      "ntp": {
+        "servers": {
+          "10.1.1.11": {}
+        }
+      }
+    }
+  }
+}

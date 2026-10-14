@@ -1,0 +1,101 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "cisco_ip_route"
+    },
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "1.2.3.4/32": {
+            "nextHops": {
+              "0": {
+                "address": "2.3.4.5"
+              }
+            }
+          },
+          "1.2.39.17/32": {
+            "nextHops": {
+              "0": {
+                "interface": "Serial5/0:2"
+              }
+            }
+          },
+          "1.2.39.22/32": {
+            "nextHops": {
+              "0": {
+                "address": "1.2.32.39",
+                "preference": 210
+              }
+            }
+          },
+          "1.2.39.32/32": {
+            "nextHops": {
+              "0": {
+                "interface": "Serial5/1:5",
+                "address": "1.2.32.59",
+                "preference": 240
+              }
+            }
+          },
+          "1.2.39.69/32": {
+            "nextHops": {
+              "0": {
+                "interface": "POS5/3:10"
+              }
+            }
+          },
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "interface": "loopback66",
+                "preference": 100
+              },
+              "1": {
+                "interface": "loopback99",
+                "preference": 150
+              },
+              "2": {
+                "interface": "dialer1",
+                "preference": 250
+              },
+              "3": {
+                "interface": "Dialer2",
+                "preference": 253
+              }
+            }
+          },
+          "1.2.3.0/25": {
+            "description": "bippety",
+            "nextHops": {
+              "0": {
+                "address": "2.3.4.5",
+                "preference": 10
+              }
+            }
+          },
+          "::/0": {
+            "nextHops": {
+              "0": {
+                "interface": "loopback66",
+                "preference": 100
+              },
+              "1": {
+                "interface": "loopback99",
+                "preference": 150
+              },
+              "2": {
+                "interface": "dialer1",
+                "preference": 250
+              },
+              "3": {
+                "interface": "Dialer2",
+                "preference": 253
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
