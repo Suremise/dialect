@@ -52,6 +52,24 @@ describe('access lists (model 0.5.1)', () => {
     expect(roundTrips(last)).toEqual([])
   })
 
+  it('writes the full port range as a range, and takes a /0 as any, both ways, in both families', () => {
+    const text = lines('ip access-list F', '  10 permit tcp any range 0 65535 any range 0 65535', '  20 permit udp 0.0.0.0/0 0.0.0.0/0 range 0 65535', 'ipv6 access-list F6', '  10 permit tcp ::/0 range 0 65535 ::/0 range 0 65535', '  20 deny ipv6 any any')
+    const result = parse(text)
+    expect(result.model.filters?.ipv4?.F?.terms?.['20']?.matches).toEqual({ protocols: [17], destinationPorts: ['0-65535'] })
+    expect(result.model.filters?.ipv6?.F6?.terms?.['10']?.matches).toEqual({ protocols: [6], sourcePorts: ['0-65535'], destinationPorts: ['0-65535'] })
+    expect(render(result.model).text).toContain('  10 permit tcp any range 0 65535 any range 0 65535\n')
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('warns where an IPv6 access list relies on its end, which some platforms open to neighbor discovery, and not with a final catch-all', () => {
+    const relies = parse(lines('ipv6 access-list F', '  10 permit tcp any any eq 22'))
+    expect(relies.diagnostics.map((d) => [d.code, d.field])).toEqual([['nxos.ipv6-acl-neighbor-discovery', 'filters.ipv6.F']])
+    expect(render(relies.model).diagnostics.map((d) => d.code)).toEqual(['nxos.filter-implicit-deny', 'nxos.ipv6-acl-neighbor-discovery'])
+    const explicit = parse(lines('ipv6 access-list F', '  10 permit tcp any any eq 22', '  20 deny ipv6 any any'))
+    expect(explicit.diagnostics).toEqual([])
+    expect(render(explicit.model).diagnostics).toEqual([])
+  })
+
   it('keeps any name as an own key, and leaves Object.prototype alone', () => {
     const before = Object.getOwnPropertyNames(Object.prototype).sort()
     const text = lines('ip access-list __proto__', '  10 permit ip any any', 'ipv6 access-list constructor', '  10 permit ipv6 any any', 'interface Ethernet1/1', '  no switchport', '  ip address 192.0.2.1/24', '  ip access-group __proto__ in', '  ipv6 traffic-filter constructor out')

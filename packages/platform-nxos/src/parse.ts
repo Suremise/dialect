@@ -1919,6 +1919,7 @@ export function parse(text: string, _context: Context): ParseResult {
   // model doesn't have, or naming an ACL that isn't converted, is left out.
   const acls = acl.finish()
   if (acls.filters) model.set(['filters'], acls.filters)
+  diagnostics.push(...acls.diagnostics)
   for (const a of acls.attachments) {
     if (a.why) set(a.node, unsupported(a.why))
     else if (model.get(['interfaces', a.path[1]]) === undefined) set(a.node, unsupported('on an interface the model doesn\'t have'))

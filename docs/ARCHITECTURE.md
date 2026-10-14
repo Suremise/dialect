@@ -680,7 +680,11 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     an IPv6 prefix; for TCP and UDP `eq`, `neq` (two ranges), `gt`, `lt` and `range` with IOS's port names; an ICMP
     type and code by number or name; `established`, `match-all +flag -flag` and bare flags, `fragments`
     (`non-initial`), `dscp` and `log`. **A wildcard is a prefix only when it is contiguous** (its address's wildcard
-    bits cleared, as IOS does); a non-contiguous one leaves its entry `unsupported`, never approximated. **Remarks**
+    bits cleared, as IOS does); a non-contiguous one leaves its entry `unsupported`, never approximated; a /0 is `any`,
+    left out, as the model says every address. **IPv6 lists' end varies by platform:** some IOS platforms permit
+    neighbor discovery (nd-na, nd-ns) before the implicit deny, others don't, so a list that relies on its end (no final
+    entry deciding every packet) keeps the model's deny with the warning `iosxe.ipv6-acl-neighbor-discovery`, on parse
+    and on render; a final catch-all makes it the same everywhere, and raises none. **Remarks**
     before an entry, joined by a space, are its `description` (model 0.5.3): the entry maps it, and the remarks are
     `ignored-by-design` as carried by it (a term's statements are its entry's, as remarks sit beside the other
     entries); one after the last entry describes nothing. `no N` removes an entry (with its remarks), `no ip
@@ -759,7 +763,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     `unsupported`. `reject` is written as `deny` with the warning `iosxe.filter-reject` (IOS sends the unreachable by
     the interface's `ip unreachables`). `implicitAction` is `not-applicable`, and a list whose source discards silently
     (Junos), or that relies on its end (`filterReliesOnImplicitAction()`), gets `iosxe.filter-implicit-deny` on its
-    header line. `tests/models/junos-filter` shows them.
+    header line, and an IPv6 list that relies on its end `iosxe.ipv6-acl-neighbor-discovery` as well. The full port
+    range is `range 0 65535` (`lt` and `gt` only where they stay in range). `tests/models/junos-filter` shows them.
 - **Tests:** `tests/fixtures/<area>` are hand-written, with expected models and renders, through the conformance kit.
   `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
@@ -907,7 +912,9 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
     `statistics per-entry` is `ignored-by-design` (NX-OS's counters have no names, the model's do); a top-level `exit`
     is `ignored-by-design`. An interface applies one with `ip access-group NAME in|out` and `ipv6 traffic-filter NAME
     in|out`, or on a switch port `ip port access-group NAME in` and `ipv6 port traffic-filter NAME in`: the model says
-    the same of both, on the subinterface (`out` on a port is `unsupported`).  - **A VRF's deletion** (`no vrf context V`) leaves V's OSPF and BGP so far out as `unsupported`, as its interfaces'
+    the same of both, on the subinterface (`out` on a port is `unsupported`). An IPv6 list relying on its end gets
+    `nxos.ipv6-acl-neighbor-discovery`, as NX-OS's implicit neighbor discovery permits vary too.
+  - **A VRF's deletion** (`no vrf context V`) leaves V's OSPF and BGP so far out as `unsupported`, as its interfaces'
     membership is (#47).
   - **SNMP communities:** a community with any statement not converted, anywhere in the text (an access list in any
     form, `use-ipv4acl … use-ipv6acl …` on one line included; a group other than network-operator or network-admin;
@@ -967,7 +974,8 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
     list; addresses as `any` or a prefix; entries indented by two spaces at their sequence numbers; a description as a
     remark at the number before its entry's, which must be free (else the term is `unsupported`, as NX-OS numbers
     remarks too); TCP flags bare, so a flag that must be clear is `unsupported`. An interface writes its routed form,
-    or on a switch port (no IP configuration) its port form, which filters what comes in only.  - **Secrets the model only flags** are `secret` needs-input items, each naming the `authentication` leaf, written
+    or on a switch port (no IP configuration) its port form, which filters what comes in only.
+  - **Secrets the model only flags** are `secret` needs-input items, each naming the `authentication` leaf, written
     when the answer is one NX-OS takes and never made up: an OSPF key per interface (`nxos.ospf-key:<the OSPF
     interface's path>`; for MD5, `ID KEY`; an area's authentication asks on each interface without its own), a key
     chain's name, and a BGP password (`nxos.bgp-password:<the peer's path>`). A key chain's and a password's field is

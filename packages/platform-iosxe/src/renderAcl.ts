@@ -18,7 +18,7 @@ type Family = 'ipv4' | 'ipv6'
 export interface AclLine {
   readonly text: string
   readonly fields: readonly Segments[]
-  readonly warning?: Omit<Diagnostic, 'span'>
+  readonly warnings?: readonly Omit<Diagnostic, 'span'>[]
 }
 
 export interface AclPlan {
@@ -51,7 +51,8 @@ function ports(ranges: readonly string[] | undefined): string | null | undefined
   const bounds = ranges.map((r) => r.split('-').map(Number)).map(([a, b]) => [a, b ?? a] as const)
   if (bounds.length === 1) {
     const [a, b] = bounds[0]
-    return a === b ? `eq ${a}` : a === 0 ? `lt ${b + 1}` : b === 65535 ? `gt ${a - 1}` : `range ${a} ${b}`
+    // lt and gt only where they stay in range: 0-65535 is a range.
+    return a === b ? `eq ${a}` : a === 0 && b < 65535 ? `lt ${b + 1}` : b === 65535 && a > 0 ? `gt ${a - 1}` : `range ${a} ${b}`
   }
   // neq P: everything but P, as 0-(P-1) and (P+1)-65535.
   if (bounds.length === 2) {
@@ -167,7 +168,7 @@ export function planFilters(filters: Filters | undefined, skip: (field: Segments
       if (t.matches !== undefined && !Object.keys(t.matches).length) skip([...termAt, 'matches'], 'not-applicable', 'configured empty: nothing to write')
       const reject = t.actions.action === 'reject'
       const text = family === 'ipv4' ? ` ${p.key} ${p.e}` : ` sequence ${p.key} ${p.e}`
-      out.push({ text, fields, ...(reject ? { warning: { severity: 'warning', category: 'semantic', code: 'iosxe.filter-reject', message: 'A term that rejects with an ICMP unreachable is written as deny: IOS sends the unreachable by the interface\'s "ip unreachables", on by default.', field: fieldPath(...termAt, 'actions', 'action') } } : {}) })
+      out.push({ text, fields, ...(reject ? { warnings: [{ severity: 'warning', category: 'semantic', code: 'iosxe.filter-reject', message: 'A term that rejects with an ICMP unreachable is written as deny: IOS sends the unreachable by the interface\'s "ip unreachables", on by default.', field: fieldPath(...termAt, 'actions', 'action') }] } : {}) })
     }
     // The end of the list: IOS denies what no entry decides.
     const implicit = [...at, 'implicitAction']
@@ -178,14 +179,16 @@ export function planFilters(filters: Filters | undefined, skip: (field: Segments
       if (relies || filter.implicitAction !== 'deny')
         out[0] = {
           ...out[0],
-          warning: {
+          warnings: [{
             severity: 'warning',
             category: 'semantic',
             code: 'iosxe.filter-implicit-deny',
             message: filter.implicitAction === 'deny' ? 'The access list relies on its implicit deny for packets no entry decides, as the source does.' : 'The source drops packets no term decides silently; the IOS access list denies them, and the interface may send an ICMP unreachable ("ip unreachables").',
             field: fieldPath(...at)
-          }
+          }]
         }
+      // An IPv6 list's end isn't the same on every IOS platform: some permit neighbor discovery before the implicit deny.
+      if (family === 'ipv6' && relies) out[0] = { ...out[0], warnings: [...(out[0].warnings ?? []), { severity: 'warning', category: 'semantic', code: 'iosxe.ipv6-acl-neighbor-discovery', message: 'An IPv6 access list relies on its implicit end, where some IOS platforms first permit neighbor discovery (nd-na, nd-ns), which the source may not: give it a final entry deciding every packet to make it the same everywhere.', field: fieldPath(...at) }] }
     }
     lines.push(...out)
     written[family].add(name)

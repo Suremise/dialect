@@ -330,7 +330,7 @@ export function render(model: Device, context: Context): RenderResult {
     if (!l.text.startsWith(' ')) separator()
     emit(l.text, ...l.fields)
     const n = lines.length
-    if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
+    for (const w of l.warnings ?? []) diagnostics.push({ ...w, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
   }
 
   function renderInterface(name: string, iface: Interface) {

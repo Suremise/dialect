@@ -10,7 +10,7 @@
 // wildcard is a prefix only when it is contiguous: a non-contiguous one leaves its entry out, never approximated. Every
 // ACL ends in IOS's implicit deny. An ACL with no entries, or one the text doesn't define, lets every packet through
 // when applied, which the model can't say: an interface applying one is left out.
-import { fieldPath, filterTermSkipSafe, parsePrefix, type Filter, type FilterMatches, type FilterTerm, type StatementDisposition } from '@dialect/core'
+import { fieldPath, filterReliesOnImplicitAction, filterTermSkipSafe, parsePrefix, type Filter, type FilterMatches, type FilterTerm, type Diagnostic, type StatementDisposition } from '@dialect/core'
 import { inRange, ipv6Prefix, isIpv4, maskLength } from './addresses'
 import type { IosNode } from './tree'
 
@@ -130,7 +130,7 @@ export function readEntry(family: Family, words: readonly string[], standard: bo
   if (standard) {
     const source = readAddress(family, words, i, true)
     if ('why' in source) return source
-    if (source.prefix !== undefined) matches.sourcePrefixes = [source.prefix]
+    if (source.prefix !== undefined && !source.prefix.endsWith('/0')) matches.sourcePrefixes = [source.prefix]
     i += source.used
     if (lw[i] === 'log' && i === words.length - 1) {
       log = true
@@ -154,7 +154,8 @@ export function readEntry(family: Family, words: readonly string[], standard: bo
     for (const side of ['source', 'destination'] as const) {
       const a = readAddress(family, words, i)
       if ('why' in a) return a
-      if (a.prefix !== undefined) matches[side === 'source' ? 'sourcePrefixes' : 'destinationPrefixes'] = [a.prefix]
+      // A /0 matches every address, as `any` does: the model says it the same way, by leaving it out.
+      if (a.prefix !== undefined && !a.prefix.endsWith('/0')) matches[side === 'source' ? 'sourcePrefixes' : 'destinationPrefixes'] = [a.prefix]
       i += a.used
       const ports = portProtocol ? readPorts(portProtocol, words, i) : undefined
       if (ports && 'why' in ports) return ports
@@ -419,8 +420,9 @@ export function createAclReader(dispositions: Record<string, StatementDispositio
   }
 
   /** The ACLs left in the model, and each attachment's path and value (to set) or why it can't be kept. */
-  const finish = (): { filters?: { ipv4?: Record<string, Filter>; ipv6?: Record<string, Filter> }; attachments: { node: IosNode; path: readonly string[]; name: string; why?: string }[] } => {
+  const finish = (): { filters?: { ipv4?: Record<string, Filter>; ipv6?: Record<string, Filter> }; attachments: { node: IosNode; path: readonly string[]; name: string; why?: string }[]; diagnostics: Diagnostic[] } => {
     const out: Record<Family, [string, Filter][]> = { ipv4: [], ipv6: [] }
+    const diagnostics: Diagnostic[] = []
     const converted = new Set<string>()
     for (const [key, state] of acls) {
       const name = key.slice(5)
@@ -459,7 +461,11 @@ export function createAclReader(dispositions: Record<string, StatementDispositio
       const head = state.headers.find((h) => dispositions[h.id]?.kind === 'mapped') ?? kept[0][1].node
       const d = dispositions[head.id]
       if (d?.kind === 'mapped') set(head, mapped([...d.fields, fieldPath(...at, 'implicitAction')]))
-      out[state.family].push([name, { terms: keyed(kept.map(([seq, e]) => [String(seq), e.term!])), implicitAction: 'deny' }])
+      const filter: Filter = { terms: keyed(kept.map(([seq, e]) => [String(seq), e.term!])), implicitAction: 'deny' }
+      out[state.family].push([name, filter])
+      // An IPv6 list's end isn't the same on every platform: some permit neighbor discovery before the implicit deny.
+      // The model keeps the deny, so a list that relies on its end says so. A final catch-all makes it the same everywhere.
+      if (state.family === 'ipv6' && filterReliesOnImplicitAction(filter)) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.ipv6-acl-neighbor-discovery', message: 'An IPv6 access list relies on its implicit end, where some IOS platforms first permit neighbor discovery (nd-na, nd-ns): the model keeps only the deny. End it with an explicit entry to make it the same everywhere.', field: fieldPath(...at), statement: head.id })
       converted.add(key)
     }
     const filters: Obj = {}
@@ -470,7 +476,7 @@ export function createAclReader(dispositions: Record<string, StatementDispositio
       name: x.name,
       ...(converted.has(keyOf(x.family, x.name)) ? {} : { why: acls.has(keyOf(x.family, x.name)) ? 'names an access list that isn\'t converted' : 'names an access list the configuration doesn\'t define: IOS lets every packet through then, which the model can\'t say' })
     }))
-    return { ...(Object.keys(filters).length ? { filters: filters as { ipv4?: Record<string, Filter>; ipv6?: Record<string, Filter> } } : {}), attachments: attached }
+    return { ...(Object.keys(filters).length ? { filters: filters as { ipv4?: Record<string, Filter>; ipv6?: Record<string, Filter> } } : {}), attachments: attached, diagnostics }
   }
 
   return { top, attach, finish }
