@@ -7,8 +7,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const dialog = vi.hoisted(() => ({ open: vi.fn(), save: vi.fn() }))
 const fs = vi.hoisted(() => ({ readTextFile: vi.fn(), writeTextFile: vi.fn() }))
+const opener = vi.hoisted(() => ({ openUrl: vi.fn() }))
 vi.mock('@tauri-apps/plugin-dialog', () => dialog)
 vi.mock('@tauri-apps/plugin-fs', () => fs)
+vi.mock('@tauri-apps/plugin-opener', () => opener)
 
 const { baseName, desktopPlatform } = await import('../src/desktopPlatform')
 
@@ -53,6 +55,13 @@ describe('the desktop platform', () => {
     expect(fs.readTextFile).not.toHaveBeenCalled()
   })
 
+  it('says it is the desktop build, with the repo version, and opens links with the opener plugin', async () => {
+    expect(desktopPlatform.kind).toBe('desktop')
+    expect(desktopPlatform.version).toBe(JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'package.json'), 'utf8')).version)
+    await desktopPlatform.openLink('https://github.com/cure53/DOMPurify')
+    expect(opener.openUrl).toHaveBeenCalledWith('https://github.com/cure53/DOMPurify')
+  })
+
   it('names a file from a Windows or POSIX path', () => {
     expect(baseName('C:\\a\\b\\c.conf')).toBe('c.conf')
     expect(baseName('/home/me/c.conf')).toBe('c.conf')
@@ -90,8 +99,14 @@ describe('the Tauri config', () => {
     expect(config.app.windows.map((w: { dragDropEnabled: boolean }) => w.dragDropEnabled)).toEqual([false])
   })
 
-  it('lets the page open and save only through the dialogs, with no fs scope of its own', () => {
+  it('lets the page open and save only through the dialogs, with no fs scope of its own, and open https links only', () => {
     expect(capability.windows).toEqual(['main'])
-    expect(capability.permissions).toEqual(['dialog:allow-open', 'dialog:allow-save', 'fs:allow-read-text-file', 'fs:allow-write-text-file'])
+    expect(capability.permissions).toEqual([
+      'dialog:allow-open',
+      'dialog:allow-save',
+      'fs:allow-read-text-file',
+      'fs:allow-write-text-file',
+      { identifier: 'opener:allow-open-url', allow: [{ url: 'https://*' }] }
+    ])
   })
 })

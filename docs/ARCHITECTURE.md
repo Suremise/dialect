@@ -448,8 +448,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 ## The UI (`packages/ui`)
 
 The React UI both shells share: `<App platform={…} />`, where `Platform` (`src/platform.ts`) is the shell's file and
-clipboard access (open, open a dropped file, save, read and write the clipboard). The UI never touches files itself:
-even a dropped file is read by the shell, from the drop event's data.
+clipboard access (open, open a dropped file, save, read and write the clipboard), which build it is (`kind`, `version`)
+and how it opens a web link (`openLink`). The UI never touches files itself: even a dropped file is read by the shell,
+from the drop event's data. Both shells take the version from the root `package.json` (a named JSON import, so only
+that field is bundled).
 
 - `src/store.ts`: one zustand store, with the source text and its name, the display set output and each output line's
   source line, the problems (the syntax error or the warnings), the theme choice, and requests to reveal a place in an
@@ -463,6 +465,17 @@ even a dropped file is read by the shell, from the drop event's data.
   the tool's `sourceLines`.
 - `src/editor/`: the CodeMirror 6 editor component, and Junos colouring as a stream language (colouring only: the
   parser does the real work).
+- `src/help/` (B16, Hive's Docs view and About dialog): `docs.ts` bundles `docs/USER_GUIDE.md`, `CHANGELOG.md`,
+  `LICENSE` and `THIRD_PARTY_NOTICES.md` with Vite's `?raw`; `Markdown.tsx` renders one with marked, cleans it with
+  DOMPurify, gives headings GitHub's ids and keeps every link from navigating the page (another bundled document
+  opens in the view, `#heading` scrolls, `https://` goes to `platform.openLink`); `DocsView.tsx` takes the place of
+  the panes; `AboutDialog.tsx` shows the version, the build and the engine (`engine.ts`: `navigator.userAgentData`'s
+  full version where there is one, else the user agent string); `HelpMenu.tsx` opens them (F1: the guide, Esc: back);
+  `state.ts` is their own small store. `tests/help.test.ts` fails when a bundled document isn't the committed file, so
+  with the license check the app's notices are always the current ones. The rendered HTML stays inside the CSP: no
+  inline styles or scripts (DOMPurify drops scripts and handlers; marked writes none), so the web build's hash-only
+  policy is unchanged. The notices are most of the web build's size: about 1.1 MB in all.
+- `src/styles/help.css`: the menu, the Docs view, the Markdown pages and the About dialog, imported by `app.css`.
 - `src/styles/app.css`: Hive's surface and text colours, and the violet accent from `branding/theme-tokens.css`.
   `[data-theme]` on `<html>` picks light or dark; the app follows the system unless the user picks one (kept in
   `localStorage` when the browser allows it).
@@ -510,16 +523,19 @@ with no server and no network.
 `src/desktopPlatform.ts`) into `dist/`, cargo builds `src-tauri` with it embedded, and the bundler makes the NSIS
 installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe` (about 1.7 MB; the exe is 4 MB).
 
-- **Rust:** `src-tauri/src/main.rs` only opens the window and adds the dialog and fs plugins. Conversion runs in the
-  webview, from the same TypeScript as the web build.
+- **Rust:** `src-tauri/src/main.rs` only opens the window and adds the dialog, fs and opener plugins. Conversion runs
+  in the webview, from the same TypeScript as the web build.
 - **The Platform** (`src/desktopPlatform.ts`): Open and Save output use `@tauri-apps/plugin-dialog`'s open and save
   dialogs, then `@tauri-apps/plugin-fs` to read or write that path. A dropped file is read from the drop event, as in
   the web build: the window sets `dragDropEnabled: false`, so the page gets the HTML drop and the UI hands it to
-  `openDropped`. The clipboard is WebView2's clipboard API.
+  `openDropped`. The clipboard is WebView2's clipboard API. `openLink` (a Docs link) is `@tauri-apps/plugin-opener`'s
+  `openUrl`, which starts the default browser.
 - **Capabilities** (`src-tauri/capabilities/default.json`): `dialog:allow-open`, `dialog:allow-save`,
   `fs:allow-read-text-file` and `fs:allow-write-text-file`, with no fs scope: the dialog plugin adds each file the user
   picks to the fs scope, so the page can read or write those files and no other (the smoke test checks
-  `C:\Windows\win.ini` is refused).
+  `C:\Windows\win.ini` is refused). `opener:allow-open-url` with the scope `https://*` (the opener's glob, whose `*`
+  spans `/`): the page can open https links and nothing else (the smoke test checks an `http://` and a `file://` URL and
+  a path are refused).
 - **CSP** (`tauri.conf.json`, `app.security.csp`): `default-src 'none'`, `script-src 'self'`, `style-src 'self'`,
   `img-src 'self' data:`, `connect-src ipc: http://ipc.localhost`, and `'none'` for `base-uri`, `form-action` and
   `object-src`. Tauri adds its own scripts' hashes. The editors' styles are constructed stylesheets in shadow roots,
@@ -531,9 +547,9 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
 - **Tests:** `tests/desktop.test.ts` (in `npm test`) checks the Platform with the plugins mocked, and the config and
   capability above. `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
   (`tauri build --no-bundle`), starts it from the build output through tauri-driver and Edge WebDriver, drops a
-  fixture and checks its display set, then that the CSP refuses an inline script, a remote image and a fetch (WebDriver's
-  own scripts aren't subject to the CSP, so it checks what the page does) and that the fs plugin refuses a file nobody
-  picked. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
+  fixture and checks its display set, opens About and each Docs page, then checks that the CSP refuses an inline
+  script, a remote image and a fetch (WebDriver's own scripts aren't subject to the CSP, so it checks what the page
+  does), that the fs plugin refuses a file nobody picked and that the opener refuses anything but https. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
   `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs tauri-driver
   (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver matching the installed WebView2 (from
   `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`), through `MSEDGEDRIVER` or `PATH`.

@@ -138,7 +138,16 @@ product decisions.
 
 - Like Hive: an **About dialog** (Help → About Dialect) and a **Docs view** that bundles the user guide
   ([USER_GUIDE.md](USER_GUIDE.md)), the release notes ([CHANGELOG.md](../CHANGELOG.md)), the License and the
-  Third-Party Notices.
+  Third-Party Notices, in the desktop app and the web build alike (B16).
+- The documents are the committed files, bundled at build time and rendered with marked and DOMPurify; a test fails
+  when what the UI bundles differs from the committed file, and the license check keeps the committed notices current.
+  The notices make the web build's single file about 1.1 MB (0.59 MB without the Docs).
+- About shows the version, the build (desktop or web), the WebView2 or browser version and the line "Dialect is not
+  affiliated with or endorsed by Juniper Networks or Cisco Systems", with links into the Docs pages and Copy for the
+  version information.
+- Links in the Docs never navigate the app's own page: a link to another bundled document opens it, and an `https://`
+  link opens outside the app (the default browser through Tauri's opener plugin, which the desktop app may use for
+  `https://` URLs only; a new tab in the web build).
 
 ## 8. Icon and theme
 

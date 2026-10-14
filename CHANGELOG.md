@@ -26,6 +26,9 @@
 - **The desktop app** for Windows: the same display set in its own window, from a per-user installer (no admin rights
   needed). Open and save with the Windows dialogs or drop a file on the window; the app can touch only the files you
   pick and reaches no network. Unsigned for now, so SmartScreen may warn.
+- **Help, About and Docs** in the desktop app and the web build: the user guide (F1), the release notes, the license
+  and the third-party notices in the app, and About Dialect with the version, the build and the WebView2 or browser
+  version.
 
 ### Repository
 - **The monorepo is in place.** npm workspaces for the core, the conformance kit, the Junos plugin, the CLI, the UI and

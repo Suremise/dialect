@@ -1,6 +1,6 @@
 // What the UI needs from the shell it runs in. The web build implements it with a file picker, downloads and the
-// browser's clipboard (apps/web); the desktop app will with Tauri's dialog and fs plugins (B7). The UI itself never
-// touches files.
+// browser's clipboard (apps/web); the desktop app with Tauri's dialog, fs and opener plugins (apps/desktop). The UI
+// itself never touches files.
 
 export interface OpenedFile {
   name: string
@@ -8,6 +8,10 @@ export interface OpenedFile {
 }
 
 export interface Platform {
+  /** Which build this is, for About. */
+  kind: 'web' | 'desktop'
+  /** Dialect's version. */
+  version: string
   /** Asks the user for a file to open. Null if they cancel. */
   openFile: () => Promise<OpenedFile | null>
   /**
@@ -20,4 +24,6 @@ export interface Platform {
   /** The clipboard's text. Rejects if the shell isn't allowed to read it; the UI then asks for Ctrl+V. */
   readClipboard: () => Promise<string>
   writeClipboard: (text: string) => Promise<void>
+  /** Opens an https link from the Docs outside the app (a browser tab, or the default browser). */
+  openLink: (url: string) => Promise<void>
 }

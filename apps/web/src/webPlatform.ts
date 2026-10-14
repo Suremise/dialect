@@ -1,6 +1,8 @@
 // The web build's file and clipboard access: a file picker, downloads, and the browser's clipboard (with the older
 // copy command as a fallback, since a page opened from file:// may not get the clipboard API).
 import type { OpenedFile, Platform } from '@dialect/ui'
+// Dialect's version: the repo's (Vite keeps only this field).
+import { version } from '../../../package.json'
 
 function pickFile(): Promise<File | null> {
   return new Promise((resolve) => {
@@ -26,6 +28,8 @@ function copyWithCommand(text: string): void {
 }
 
 export const webPlatform: Platform = {
+  kind: 'web',
+  version,
   async openFile(): Promise<OpenedFile | null> {
     const file = await pickFile()
     return file ? { name: file.name, text: await file.text() } : null
@@ -58,5 +62,9 @@ export const webPlatform: Platform = {
     } catch {
       copyWithCommand(text)
     }
+  },
+  async openLink(url) {
+    // A new tab, which may go online: the page itself still can't (its CSP).
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }

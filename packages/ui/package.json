@@ -10,7 +10,7 @@
     "./styles.css": "./src/styles/app.css"
   },
   "scripts": {
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p . && tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -21,6 +21,8 @@
     "@dialect/core": "0.0.0",
     "@dialect/platform-junos": "0.0.0",
     "@lezer/highlight": "^1.2.3",
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zustand": "^5.0.15"

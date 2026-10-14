@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react
 import iconUrl from '../../../branding/icon-small.svg'
 import { CheckIcon, CopyIcon, ErrorIcon, OpenIcon, PasteIcon, SaveIcon, ThemeIcon, WarningIcon } from './components/Icons'
 import { Editor, type LineMark } from './editor/Editor'
+import { AboutDialog } from './help/AboutDialog'
+import { DocsView } from './help/DocsView'
+import { HelpMenu } from './help/HelpMenu'
+import { useHelp } from './help/state'
 import type { Platform } from './platform'
 import { outputName, useStore, type ThemeChoice } from './store'
 
@@ -27,6 +31,7 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 export function App({ platform }: { platform: Platform }) {
   const { source, sourceName, output, sourceLines, problems, theme, reveal, notice } = useStore()
   const { setSource, setTheme, revealAt, notify, dismissNotice } = useStore.getState()
+  const docsPage = useHelp((s) => s.docsPage)
   const systemDark = useSystemDark()
   const dark = theme === 'system' ? systemDark : theme === 'dark'
   // Lines linked to the other pane's cursor: output lines → their source statement, and back.
@@ -81,7 +86,10 @@ export function App({ platform }: { platform: Platform }) {
   const open = useCallback(async () => {
     try {
       const file = await platform.openFile()
-      if (file) setSource(file.text, file.name)
+      if (file) {
+        setSource(file.text, file.name)
+        useHelp.getState().closeDocs()
+      }
     } catch (e) {
       notify('error', `Couldn't open the file: ${(e as Error).message}`)
     }
@@ -146,7 +154,11 @@ export function App({ platform }: { platform: Platform }) {
     e.stopPropagation()
     // The shell reads it (as it opens and saves files), here from the event's data.
     platform.openDropped(e.dataTransfer).then(
-      (file) => file && setSource(file.text, file.name),
+      (file) => {
+        if (!file) return
+        setSource(file.text, file.name)
+        useHelp.getState().closeDocs()
+      },
       (err: Error) => notify('error', `Couldn't open the dropped file: ${err.message}`)
     )
   }
@@ -175,13 +187,16 @@ export function App({ platform }: { platform: Platform }) {
             <SaveIcon /> Save output
           </button>
           <span className="toolbar-sep" />
+          <HelpMenu />
           <button className="btn subtle icon-only" onClick={() => setTheme(NEXT_THEME[theme])} title={`${THEME_LABEL[theme]}: click for ${THEME_LABEL[NEXT_THEME[theme]].toLowerCase()}`} aria-label={THEME_LABEL[theme]}>
             <ThemeIcon />
           </button>
         </div>
       </header>
 
-      <main className="workbench">
+      {/* While the Docs show, the panes are hidden, not unmounted: the editors keep their state and undo history. */}
+      {docsPage && <DocsView platform={platform} />}
+      <main className="workbench" hidden={!!docsPage}>
         <section className="pane" aria-label="Source">
           <div className="pane-header">
             <span>Source</span>
@@ -222,7 +237,7 @@ export function App({ platform }: { platform: Platform }) {
         </section>
       </main>
 
-      <section className="problems" aria-label="Problems">
+      <section className="problems" aria-label="Problems" hidden={!!docsPage}>
         <div className="section-header">
           <span>Problems</span>
           <span className="count" data-testid="problem-count">
@@ -277,6 +292,8 @@ export function App({ platform }: { platform: Platform }) {
           Offline: nothing leaves this computer
         </span>
       </footer>
+
+      <AboutDialog platform={platform} />
 
       {dragging && (
         <div className="drop-overlay" aria-hidden="true">
