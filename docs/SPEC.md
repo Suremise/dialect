@@ -128,8 +128,15 @@ product decisions.
   on to the next policy, Cisco rejects) is kept with the model and a target whose fall-through differs says so, and
   where a platform reads the same words another way (Junos matches route filters by longest match) the term isn't
   converted rather than converted wrongly. Junos converts `policy-options` (prefix lists, communities, AS paths and
-  policy-statements) and resolves BGP `import` and `export` to them (#76); `vrf-import` and `vrf-export` wait for a
-  place in the model (#83).
+  policy-statements) and resolves BGP `import` and `export` to them (#76), and a VRF's `vrf-import` and `vrf-export`
+  (#95, model 0.5.2). A VRF's policies keep the platform's meaning: on Junos they replace the route targets, on Cisco
+  a VRF's import and export maps filter after them; where a target can't say the source's meaning, they aren't
+  converted and a warning says so.
+- **Filters and ACLs (phase 3, model 0.5.1)** convert by the same per-term rule: a term whole or not at all, the
+  whole filter when leaving one out could change what a later term decides, and a unit applying a filter that isn't
+  converted applies nothing. A filter's end is kept with the model (Junos discards silently, a Cisco ACL denies) and
+  a target says so when its own differs or the filter relies on it. Non-contiguous wildcard masks are never
+  approximated. Junos converts `firewall family inet|inet6` filters and their attachment to units (#86).
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
   With all four plugins registered (#50), the CLI and the app convert from any of them to any other.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,
@@ -152,7 +159,13 @@ product decisions.
   as written and never translated between platforms. Where the target treats a route no term decides differently, it
   says so: IOS/IOS-XE and NX-OS, whose route maps deny such a route, add a final permit sequence for a Junos policy
   that passes it on (BGP's default accepts it), with a semantic warning. A BGP route map the Cisco config never defines
-  isn't converted (IOS then denies every route).
+  isn't converted (IOS then denies every route). **IOS-XR's RPL converts in its simple forms only** (#79): prefix,
+  community and AS-path sets, and route policies that are a flat sequence of `if … then … [else …] endif` blocks and
+  top-level actions; each set and policy is one statement, converted whole or left out whole (nested `if`, `elseif`,
+  `or`, parameters, `apply`, inline sets and elements the model can't hold leave it out). A block that passes a route
+  on to later statements is left out with its policy, as the model's terms accept or reject. A VRF's own import and
+  export route policies (model 0.5.2) convert too, and IOS-XR warns when the source's (Junos) replaces the VRF's route
+  targets, where IOS-XR's filters after them.
 - **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
   left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
   contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos

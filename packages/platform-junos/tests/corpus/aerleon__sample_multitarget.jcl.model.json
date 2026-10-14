@@ -1,0 +1,186 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "edge-inbound": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "deny-from-bogons",
+              "matches": {
+                "sourcePrefixes": [
+                  "0.0.0.0/8",
+                  "192.0.0.0/24",
+                  "192.0.2.0/24",
+                  "198.18.0.0/15",
+                  "198.51.100.0/24",
+                  "203.0.113.0/24",
+                  "224.0.0.0/4",
+                  "240.0.0.0/4"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "2": {
+              "name": "deny-from-reserved",
+              "matches": {
+                "sourcePrefixes": [
+                  "0.0.0.0/8",
+                  "10.0.0.0/8",
+                  "100.64.0.0/10",
+                  "127.0.0.0/8",
+                  "169.254.0.0/16",
+                  "172.16.0.0/12",
+                  "192.168.0.0/16",
+                  "224.0.0.0/4",
+                  "240.0.0.0/4"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "3": {
+              "name": "deny-to-rfc1918",
+              "matches": {
+                "destinationPrefixes": [
+                  "10.0.0.0/8",
+                  "172.16.0.0/12",
+                  "192.168.0.0/16"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "4": {
+              "name": "permit-mail-services",
+              "matches": {
+                "destinationPrefixes": [
+                  "200.1.1.4/32",
+                  "200.1.1.5/32"
+                ],
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "25",
+                  "465",
+                  "587",
+                  "995"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "5": {
+              "name": "permit-web-services",
+              "matches": {
+                "destinationPrefixes": [
+                  "200.1.1.1/32",
+                  "200.1.1.2/32"
+                ],
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "80",
+                  "443"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "6": {
+              "name": "permit-tcp-established",
+              "matches": {
+                "destinationPrefixes": [
+                  "200.1.1.1/32",
+                  "200.1.1.2/32",
+                  "200.1.1.3/32",
+                  "200.1.1.4/32",
+                  "200.1.1.5/32"
+                ],
+                "protocols": [
+                  6
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "7": {
+              "name": "permit-udp-established",
+              "matches": {
+                "destinationPrefixes": [
+                  "200.1.1.1/32",
+                  "200.1.1.2/32",
+                  "200.1.1.3/32",
+                  "200.1.1.4/32",
+                  "200.1.1.5/32"
+                ],
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "1024-65535"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "8": {
+              "name": "default-deny",
+              "actions": {
+                "action": "discard"
+              }
+            }
+          }
+        },
+        "edge-outbound": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "deny-to-bad-destinations",
+              "matches": {
+                "destinationPrefixes": [
+                  "0.0.0.0/8",
+                  "10.0.0.0/8",
+                  "100.64.0.0/10",
+                  "127.0.0.0/8",
+                  "169.254.0.0/16",
+                  "172.16.0.0/12",
+                  "192.0.0.0/24",
+                  "192.0.2.0/24",
+                  "192.168.0.0/16",
+                  "198.18.0.0/15",
+                  "198.51.100.0/24",
+                  "203.0.113.0/24",
+                  "224.0.0.0/4",
+                  "240.0.0.0/4"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "2": {
+              "name": "default-accept",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -4,7 +4,7 @@
 // terms, where what Junos would read another way is left out whole and says why. Messages never quote a name or a value.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { buildLedger, ledgerProblems, modelProblems, MODEL_VERSION, type Device, type ParseResult, type RenderResult } from '@dialect/core'
+import { buildLedger, deserializeModel, ledgerProblems, modelProblems, MODEL_VERSION, type Device, type ParseResult, type RenderResult } from '@dialect/core'
 import { parse, render } from '../src'
 import { longestMatchAgrees } from '../src/prefixes'
 
@@ -39,8 +39,7 @@ describe('the per-term ledger of each negative fixture', () => {
     ['as-path-group', [1, 2, 3], ['P'], 'AS-path groups'],
     ['group-term-order', [1, 3], [], "terms from a group beside the policy's own: their order isn't converted"],
     ['insert', [1, 2, 3], [], 'insert reorders the terms'],
-    ['bgp-chain', [4, 5], ['A'], 'an import chain naming a policy nothing defines is left out whole; the export chain converts'],
-    ['vrf-import', [4], ['V-IN'], "the model has no place for a VRF's policies yet"]
+    ['bgp-chain', [4, 5], ['A'], 'an import chain naming a policy nothing defines is left out whole; the export chain converts']
   ]
   for (const [name, lines, policies, why] of cases) {
     it(`${name}: ${why}`, () => {
@@ -173,5 +172,38 @@ describe('render from another platform’s model', () => {
     }
     const r = render(model, context)
     expect(told(r).filter((m) => m.includes(secret))).toEqual([])
+  })
+})
+
+describe("a VRF's import and export policies (model 0.5.2)", () => {
+  // From a Cisco source, where the map filters after the route targets, one fixture per direction: the meaning can't be
+  // kept by vrf-import or vrf-export, which replace the route targets on Junos, so the side is left out and said.
+  for (const side of ['import', 'export'] as const) {
+    it(`leaves a Cisco ${side} map out, with a semantic warning, and keeps the route targets`, () => {
+      const model = deserializeModel(readFileSync(new URL(`./fixtures/vrf-policy-mode/${side}.model.json`, import.meta.url), 'utf8')).device
+      expect(modelProblems(model)).toEqual([])
+      const r = render(model, context)
+      const field = `networkInstances.RED.${side}Policies`
+      expect(r.dispositions[field]).toMatchObject({ kind: 'unsupported', reason: expect.stringContaining("the meaning can't be kept") })
+      expect(r.dispositions['networkInstances.RED.vrfPolicyMode']).toMatchObject({ kind: 'not-applicable' })
+      expect(r.diagnostics.filter((d) => d.code === 'junos.vrf-policy-mode')).toHaveLength(1)
+      expect(r.text).not.toMatch(/vrf-(import|export)/)
+      expect(r.text).toContain('vrf-target target:65000:1;')
+      expect(ledgerProblems(buildLedger(parse('', context), r, model))).toEqual([])
+    })
+  }
+
+  it('writes a Junos source’s back, and asks for no route target a policy replaces', () => {
+    const p = parse(set('set policy-options policy-statement IN then accept', 'set policy-options policy-statement OUT then accept', 'set routing-instances V instance-type vrf', 'set routing-instances V route-distinguisher 65000:9', 'set routing-instances V vrf-import IN', 'set routing-instances V vrf-export OUT'), context)
+    expect(p.model.networkInstances?.V).toMatchObject({ importPolicies: ['IN'], exportPolicies: ['OUT'], vrfPolicyMode: 'replaces-route-targets' })
+    const r = render(p.model, context)
+    expect(r.text).toContain('        route-distinguisher 65000:9;\n        vrf-import IN;\n        vrf-export OUT;\n')
+    expect(r.needsInput ?? []).toEqual([])
+    expect(r.diagnostics).toEqual([])
+  })
+
+  it('a side with no policy still asks for its route target', () => {
+    const p = parse(set('set policy-options policy-statement IN then accept', 'set routing-instances V instance-type vrf', 'set routing-instances V route-distinguisher 65000:9', 'set routing-instances V vrf-import IN'), context)
+    expect(render(p.model, context).needsInput?.map((n) => n.id)).toEqual(['junos.vrf-target:V'])
   })
 })

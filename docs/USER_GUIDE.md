@@ -197,7 +197,8 @@ name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP
 or write is listed as not converted, with why. Junos also converts VLANs, switch ports (access and trunk, with a
 native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches (the older non-ELS syntax is listed
 as not converted), OSPF and BGP (areas and interfaces, groups and neighbors), and routing policy: prefix lists,
-communities, AS paths and policy-statements, with the policies BGP imports and exports. A policy converts term by
+communities, AS paths and policy-statements, with the policies BGP and VRFs import and export, and firewall filters (inet
+and inet6) with the units they're applied on. A policy or a filter converts term by
 term: a term Dialect can't convert in full is listed as not converted, whole, and when leaving it out would change
 what a later term does, the whole policy is. Regular expressions are kept as written and never translated to another
 platform's. Keys (OSPF and BGP authentication) are never carried over: Dialect asks you for each one. Cisco NX-OS also converts VLANs,
@@ -205,6 +206,18 @@ switch ports (access and trunk), VLAN interfaces, OSPF and BGP; an OSPF key or a
 converting to NX-OS asks for it. Cisco IOS-XR also converts OSPF and BGP; converting to IOS-XR asks for an OSPF key or
 a BGP password the same way, and for a route policy for each eBGP neighbor that has none, since IOS-XR exchanges no
 routes with it without one.
+
+Cisco IOS-XR also converts routing policy in RPL's simple forms: prefix sets, community sets (communities and
+`ios-regex`), AS-path sets (`ios-regex`), and route policies made of flat `if … then … endif` blocks (with an `else`)
+and top-level actions, matching a prefix set, a community set, an AS-path set or a tag (joined with `and`) and setting
+the local preference, MED, communities, AS-path prepends, next hop and tag, with `done`, `drop` and `pass`. A set or
+route policy converts whole or not at all: one with a nested `if`, `elseif`, `or` or `not`, parameters, `apply`, an
+inline set, or an element Dialect has no form for (a community wildcard or range, `dfa-regex`, `passes-through`) is
+listed as not converted. So is a policy whose block passes a route on to later statements, which Dialect can't keep
+exactly. BGP neighbors' route policies and a VRF's `import`/`export route-policy` name the converted policies; one
+the config doesn't define, or that isn't converted, is listed as not converted. Converting a Junos policy to IOS-XR
+adds a final `pass` with a warning, as an IOS-XR policy drops what nothing passes, and warns about a VRF import or
+export policy, which on Junos replaces the VRF's route targets and on IOS-XR filters after them.
 
 Cisco IOS / IOS-XE also converts routing policy: prefix lists, community lists (standard, expanded and numbered),
 AS-path access lists and route maps (matching prefix lists, communities, AS paths and tags; setting the local

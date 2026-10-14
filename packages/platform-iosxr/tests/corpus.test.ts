@@ -32,6 +32,11 @@ export const CASES: readonly (readonly [area: string, path: string])[] = [
   ['logging', 'mgmt/batfish__xr-logging.cfg'],
   ['snmp', 'mgmt/batfish__xr-snmp-server.cfg'],
   ['policy', 'policy/batfish__unit-tests_ios_xr_route_policy.cfg'],
+  // RPL's simple forms (#79): a flat policy with done, pass and else, prefix sets in both families, and community sets
+  // only of elements the model has no form for.
+  ['policy', 'policy/batfish__route-policy-done.cfg'],
+  ['policy', 'policy/batfish__prefix-set.cfg'],
+  ['policy', 'policy/batfish__community-set.cfg'],
   ['ospf', 'ospf/batfish__unit-tests_ios_xr_ospf.cfg'],
   ['ospf', 'ospf/batfish__ospf-interface.cfg'],
   ['bgp', 'bgp/batfish__xr-bgp.cfg'],

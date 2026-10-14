@@ -1,0 +1,298 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "system": {
+      "hostname": "pe1"
+    },
+    "networkInstances": {
+      "CUST": {
+        "type": "vrf",
+        "routeTargets": {
+          "import": [
+            "65000:10"
+          ]
+        },
+        "importPolicies": [
+          "CUST-IMPORT"
+        ],
+        "vrfPolicyMode": "after-route-targets"
+      },
+      "default": {
+        "bgp": {
+          "localAs": 65000,
+          "routerId": "192.0.2.1",
+          "neighbors": {
+            "198.51.100.1": {
+              "peerAs": 64512,
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "TRANSIT-IN"
+                  ],
+                  "exportPolicies": [
+                    "TRANSIT-OUT"
+                  ]
+                }
+              }
+            },
+            "198.51.100.2": {
+              "peerAs": 64513,
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "DROP-ALL"
+                  ],
+                  "exportPolicies": [
+                    "DROP-ALL"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "LOOPBACKS": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "192.0.2.0/24",
+                "minLength": 32,
+                "maxLength": 32,
+                "form": "ge"
+              },
+              "2": {
+                "action": "permit",
+                "prefix": "198.51.100.0/24",
+                "minLength": 24,
+                "maxLength": 28,
+                "form": "le"
+              },
+              "3": {
+                "action": "permit",
+                "prefix": "203.0.113.0/24",
+                "minLength": 25,
+                "maxLength": 27,
+                "form": "ge-le"
+              },
+              "4": {
+                "action": "permit",
+                "prefix": "10.0.0.0/8",
+                "minLength": 16,
+                "maxLength": 16
+              },
+              "5": {
+                "action": "permit",
+                "prefix": "172.16.0.0/12",
+                "minLength": 12,
+                "maxLength": 12,
+                "form": "exact"
+              }
+            }
+          }
+        },
+        "ipv6": {
+          "LOOPBACKS": {
+            "entries": {
+              "6": {
+                "action": "permit",
+                "prefix": "2001:db8::/32",
+                "minLength": 64,
+                "maxLength": 128,
+                "form": "ge-le"
+              }
+            }
+          }
+        }
+      },
+      "communitySets": {
+        "CUSTOMER": {
+          "type": "standard",
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65000:100"
+              ]
+            },
+            "2": {
+              "action": "permit",
+              "members": [
+                "no-export"
+              ]
+            },
+            "3": {
+              "action": "permit",
+              "members": [
+                "no-export-subconfed"
+              ]
+            },
+            "4": {
+              "action": "permit",
+              "regexes": [
+                "_65000:9[0-9]_"
+              ]
+            },
+            "5": {
+              "action": "permit",
+              "regexes": [
+                "_65000:(1,|2  )"
+              ]
+            }
+          }
+        },
+        "TAGGED": {
+          "type": "standard",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65000:200"
+              ]
+            }
+          }
+        }
+      },
+      "asPathSets": {
+        "FROM-PEER": {
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "^65001_"
+            },
+            "2": {
+              "action": "permit",
+              "regex": "_65002$"
+            },
+            "3": {
+              "action": "permit",
+              "regex": "_65003  65004_"
+            }
+          }
+        }
+      },
+      "policies": {
+        "TRANSIT-IN": {
+          "terms": {
+            "1": {
+              "matches": {
+                "communitySets": [
+                  "CUSTOMER"
+                ],
+                "prefixLists": {
+                  "ipv4": [
+                    "LOOPBACKS"
+                  ],
+                  "ipv6": [
+                    "LOOPBACKS"
+                  ]
+                }
+              },
+              "actions": {
+                "localPreference": 200,
+                "med": 10,
+                "communityAdd": {
+                  "sets": [
+                    "TAGGED"
+                  ]
+                },
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "matches": {
+                "asPathSets": [
+                  "FROM-PEER"
+                ]
+              },
+              "actions": {
+                "asPathPrepend": [
+                  65000,
+                  65000
+                ],
+                "communityDelete": {
+                  "sets": [
+                    "CUSTOMER"
+                  ]
+                },
+                "nextHop": "192.0.2.254",
+                "flow": "accept"
+              }
+            },
+            "3": {
+              "matches": {
+                "tags": [
+                  99
+                ]
+              },
+              "actions": {
+                "flow": "reject"
+              }
+            },
+            "4": {
+              "actions": {
+                "tag": 7,
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "TRANSIT-OUT": {
+          "terms": {
+            "1": {
+              "matches": {
+                "communitySets": [
+                  "TAGGED"
+                ]
+              },
+              "actions": {
+                "communitySet": {
+                  "sets": [
+                    "TAGGED"
+                  ]
+                },
+                "nextHopSelf": true,
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "actions": {
+                "flow": "reject"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "CUST-IMPORT": {
+          "terms": {
+            "1": {
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "LOOPBACKS"
+                  ],
+                  "ipv6": [
+                    "LOOPBACKS"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "DROP-ALL": {
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}

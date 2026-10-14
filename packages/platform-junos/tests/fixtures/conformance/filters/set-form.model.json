@@ -1,0 +1,131 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "interfaces": {
+      "ge-0/0/1": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.5": {
+                  "prefixLength": 30
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "LEGACY"
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/2": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "filters": {
+              "ipv4": {
+                "output": "LEGACY"
+              }
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "FROM-GROUP": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "ALL",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        },
+        "LEGACY": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "SSH",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "count": "SSH",
+                "action": "accept",
+                "log": true
+              }
+            },
+            "2": {
+              "name": "NEW",
+              "matches": {
+                "tcpFlags": {
+                  "set": [
+                    "syn"
+                  ],
+                  "clear": [
+                    "ack"
+                  ]
+                }
+              },
+              "actions": {
+                "count": "NEW-SESSIONS",
+                "action": "accept"
+              }
+            },
+            "3": {
+              "name": "ICMP",
+              "matches": {
+                "icmpTypes": [
+                  3,
+                  4,
+                  5,
+                  8
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "4": {
+              "name": "MARKED",
+              "matches": {
+                "dscp": [
+                  34,
+                  46
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      },
+      "ipv6": {
+        "V6": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "ALL",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

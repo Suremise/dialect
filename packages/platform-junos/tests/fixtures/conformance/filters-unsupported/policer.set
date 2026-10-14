@@ -1,0 +1,4 @@
+set firewall family inet filter F term LIMIT from protocol icmp
+set firewall family inet filter F term LIMIT then policer ICMP-1M
+set firewall family inet filter F term LIMIT then accept
+set firewall family inet filter F term REST then accept

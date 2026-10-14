@@ -391,11 +391,11 @@ export function render(model: Device, context: Context): RenderResult {
       const directions = filters[family]
       if (!directions) continue
       emptyContainer(directions, [...at, 'filters', family])
-      for (const [direction, word] of [['input', 'in'], ['output', 'out']] as const) {
+      for (const [direction, way] of [['input', 'in'], ['output', 'out']] as const) {
         const name = directions[direction]
         if (name === undefined) continue
         const field = [...at, 'filters', family, direction]
-        if (aclPlan.written[family].has(name)) emit(` ${family === 'ipv4' ? 'ip access-group' : 'ipv6 traffic-filter'} ${name} ${word}`, field)
+        if (aclPlan.written[family].has(name)) emit(` ${family === 'ipv4' ? 'ip access-group' : 'ipv6 traffic-filter'} ${name} ${way}`, field)
         else skip(field, 'unsupported', 'names an access list IOS can\'t write')
       }
     }

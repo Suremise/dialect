@@ -123,7 +123,7 @@ describe('vrf-target', () => {
     ['set routing-instances A vrf-target 65000:1', 'not a route target in a form the model has (target:ASN:nn or target:IP:nn)'],
     ['set routing-instances A route-distinguisher 100L:1', 'not a route distinguisher in a form the model has (ASN:nn, IP:nn or a 4-byte AS with L)'],
     ['set routing-instances A route-distinguisher 65000:99999999999', 'not a route distinguisher in a form the model has (ASN:nn, IP:nn or a 4-byte AS with L)'],
-    ['set routing-instances A vrf-import IMPORT-POLICY', "a VRF's import and export policies: the model has no place for them yet"]
+    ['set routing-instances A vrf-import IMPORT-POLICY', "names a policy the configuration doesn't define, or that isn't converted: none of the routing instance's policies that way are, as they run as a chain"]
   ])('leaves %s unsupported', (line, reason) => {
     const p = parse(set(line), context)
     expect(Object.values(p.dispositions)).toEqual([{ kind: 'unsupported', reason }])
@@ -190,7 +190,7 @@ describe('render from another platform', () => {
     }
     const r = render(model, context)
     expect(r.text).toContain('    RED {\n        instance-type vrf;\n        interface GigabitEthernet1.0;\n        route-distinguisher 4200000000L:1;\n        vrf-target {\n            export target:65000:1;\n        }\n    }\n')
-    expect(r.dispositions['networkInstances.RED.routeTargets.import']).toMatchObject({ kind: 'unsupported', reason: 'more than one route target needs a vrf-import or vrf-export policy, which comes later' })
+    expect(r.dispositions['networkInstances.RED.routeTargets.import']).toMatchObject({ kind: 'unsupported', reason: "more than one route target needs a vrf-import or vrf-export policy that matches or adds them, which the model doesn't give" })
     expect(r.dispositions['interfaces.GigabitEthernet2.subinterfaces["0"].networkInstance']).toMatchObject({ kind: 'unsupported', reason: "names a routing instance the model doesn't have" })
     expect(r.dispositions['interfaces.GigabitEthernet3.subinterfaces["0"].networkInstance']).toMatchObject({ kind: 'not-applicable' })
     expect(r.dispositions['networkInstances.default.routeDistinguisher']).toMatchObject({ kind: 'unsupported', reason: 'the global routing table has no route distinguisher or route targets' })

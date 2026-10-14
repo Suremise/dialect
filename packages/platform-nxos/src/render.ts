@@ -400,13 +400,13 @@ export function render(model: Device, context: Context): RenderResult {
       const directions = filters[family]
       if (!directions) continue
       emptyContainer(directions, [...at, 'filters', family])
-      for (const [direction, word] of [['input', 'in'], ['output', 'out']] as const) {
+      for (const [direction, way] of [['input', 'in'], ['output', 'out']] as const) {
         const name = directions[direction]
         if (name === undefined) continue
         const field = [...at, 'filters', family, direction]
         if (!aclPlan.written[family].has(name)) skip(field, 'unsupported', 'names an access list NX-OS can\'t write')
         else if (port && direction === 'output') skip(field, 'unsupported', 'a switch port\'s access list filters what comes in only on NX-OS')
-        else emit(`  ${family === 'ipv4' ? 'ip' : 'ipv6'}${port ? ' port' : ''} ${family === 'ipv4' ? 'access-group' : 'traffic-filter'} ${name} ${word}`, field)
+        else emit(`  ${family === 'ipv4' ? 'ip' : 'ipv6'}${port ? ' port' : ''} ${family === 'ipv4' ? 'access-group' : 'traffic-filter'} ${name} ${way}`, field)
       }
     }
   }

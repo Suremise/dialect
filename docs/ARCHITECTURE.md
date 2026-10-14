@@ -1002,8 +1002,9 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
 ## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
 
 The third Cisco platform, built like the NX-OS plugin (its code copied, not imported). Its default export is the
-`PlatformPlugin` (`id: 'iosxr'`, `modelApi: '>=0.4.1 <1.0.0'`, for model 0.4's OSPF and BGP and 0.4.1's eBGP default
-policy), with `detect`, `parse`, `render`, and `describeInterface` and `nameInterface` for convert's suggested names.
+`PlatformPlugin` (`id: 'iosxr'`, `modelApi: '>=0.5.2 <1.0.0'`, for model 0.4's OSPF and BGP, 0.4.1's eBGP default
+policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`, `render`, and `describeInterface` and
+`nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as NX-OS's, nested by IOS-XR's one-space indents; `!` lines are separators and `!!`
   headers comments. Three bodies are delimited, not indented, and each is kept whole, verbatim, as one atomic statement
@@ -1049,7 +1050,11 @@ policy), with `detect`, `parse`, `render`, and `describeInterface` and `nameInte
   - **Route targets:** IOS-XR sets them per address family, one per line (`import route-target V`) or listed in a
     block (`import route-target` with a value a line). As NX-OS, they map only when every unicast family's agree, as
     sets in each direction, and are all `unsupported` when one isn't converted (`stitching`, an asdot AS `1.10:12`).
-    Other families (`ipv4 multicast`, `flowspec`) and a VRF's import and export route policies are `unsupported`.
+    Other families (`ipv4 multicast`, `flowspec`) are `unsupported`. A VRF's `import route-policy P` and `export
+    route-policy P` (model 0.5.2) are its `importPolicies` and `exportPolicies`, with `vrfPolicyMode`
+    `after-route-targets` (IOS-XR's map filters what the route targets import or export); like the route targets, the
+    model's is the VRF's, so each family must name the same one, and it must be a policy the text converts, or the
+    statements are `unsupported`.
   - **Route distinguishers** are BGP's on IOS-XR: `router bgp N` → `vrf X` → `rd` maps a VRF's (`rd auto` is
     `unsupported`), and `no rd` removes it.
   - **OSPF:** `router ospf P` (the global table) and `vrf V` inside it (V's), with `router-id`, `area A` (any form,
@@ -1068,9 +1073,9 @@ policy), with `detect`, `parse`, `render`, and `describeInterface` and `nameInte
     `neighbor X [remote-as N]` and `neighbor-group G` (a group) take `remote-as`, `use neighbor-group G` (a neighbor's
     group; nested in a group, `unsupported`), `update-source`, `ebgp-multihop [N]` (with no TTL, `multihop: {}`),
     `description`, `password` (flagged: `authentication`, never carried), `no shutdown` (`ignored-by-design`) and
-    `address-family ipv4|ipv6 unicast` with `route-policy NAME in|out` (by name only, with the warning
-    `iosxr.route-policy-name-only`, which gives the line, not the name; one with parameters is `unsupported`; RPL
-    bodies stay atomic and `unsupported`). `vrf V` under it is V's BGP, with the AS as V's `localAs`. A global
+    `address-family ipv4|ipv6 unicast` with `route-policy NAME in|out`, naming a policy the text converts (below),
+    else `unsupported` (one the text doesn't define, which IOS-XR refuses, one not converted, or one with parameters),
+    checked once every statement is read and before RFC 8212 is said. `vrf V` under it is V's BGP, with the AS as V's `localAs`. A global
     `address-family ipv4|ipv6 unicast` is `ignored-by-design` (the render writes it where a peer carries the family);
     what is inside it, other families, `af-group`, `session-group` and `use` of them, and neighbor ranges are
     `unsupported`. `no neighbor`, `no neighbor-group`, `no address-family`, each setting's `no` form, `no vrf V` under
@@ -1084,6 +1089,35 @@ policy), with `detect`, `parse`, `render`, and `describeInterface` and `nameInte
     not configuration. A policy on IPv4 doesn't cover IPv6.
   - **A VRF's deletion** (`no vrf X`) leaves its OSPF and BGP so far, and its route distinguisher, out as `unsupported`:
     what the device keeps of them isn't certain.
+  - **Routing policy (#79, model 0.5.0, `policy.ts`): RPL's simple forms.** Each set and route policy is one atomic
+    statement (the tree), so each is converted whole or `unsupported` whole, never in part; the last definition of a
+    name counts (an earlier one is `replaced by line N`), and `no route-policy|prefix-set|community-set|as-path-set
+    NAME` removes it. Converted once every statement is read, as a policy may name a set defined after it.
+    - `prefix-set`: entries in order, keyed by their place from 1, each in the family of its prefix (one set can be in
+      both, under one name): `P` (`exact`), `le N`, `ge N`, `ge N le M` (their forms) and `eq N` (no form), in the
+      model's ranges (`ge` longer than the prefix). An empty set is `unsupported`, as what a match on it does isn't
+      certain.
+    - `community-set` (type `standard`): each element its own permit entry, as `matches-any` reads it: `A:B`,
+      `no-export`, `no-advertise`, `local-AS` (`no-export-subconfed`), `accept-own`, `graceful-shutdown`, and `ios-regex
+      '…'` (dialect `cisco`). `as-path-set`: each `ios-regex` its own permit entry. A regex is kept byte for byte, its
+      spaces and commas inside the quotes included; only whitespace outside them is made one space. Wildcards, ranges, `internet`,
+      `dfa-regex`, `passes-through`, `length` and the rest leave the set out; other set kinds (`extcommunity-set`,
+      `rd-set` …) are `unsupported`.
+    - `route-policy NAME` (no parameters): a flat sequence of `if <match> then <actions> [else <actions>] endif` blocks
+      and top-level actions, each block a term (an `else` a term with no match). Matches, joined with `and`, one of each:
+      `destination in SET` (the set's families), `community matches-any SET`, `as-path in SET`, `tag eq N`. Actions:
+      `set local-preference|med|tag N`, `set next-hop A|self`, `set community SET [additive]`, `delete community in
+      SET`, `prepend as-path AS [N]`, and `done` (accept), `drop` (reject) or `pass`. A block's community actions are
+      read only in the order the render writes them, deleted, then replaced, then added, as RPL runs a block's
+      statements in turn: a block that adds or replaces before it deletes leaves its policy out. A policy that sets or
+      adds a community set with a regex is left out too, as IOS-XR refuses it (one only matches or deletes). **RPL's
+      semantics are kept exactly:** a block that passes a route (`pass`, or a set with no `done` or `drop`) lets it on to later statements,
+      accepted at the end unless one drops it, which the model's flows can't say; so it is a term that accepts only
+      where nothing later can see that route (the last block, or the `then` of a last `if` with an `else`), and
+      anywhere else the policy is `unsupported`. Nothing may follow `done` or `drop` in a block, nor any block a
+      top-level decision. A policy with no statement drops every route: no terms. `fallThrough` is `reject` (RPL drops
+      what nothing passes). Nested `if`, `elseif`, `or`, `not`, parameters, `apply`, inline sets and every other
+      statement leave the policy out, and so does a set it names that the text doesn't define or doesn't convert.
   - **SNMP communities:** one with any statement not converted, anywhere (an access list in any form, `IPv4 ACL`,
     `IPv6 ACL` or a bare ACL; `SystemOwner` or `SDROwner`; `no snmp-server community X …` removing part of it), is left
     out whole. An `encrypted` community doesn't carry over and is `unsupported`.
@@ -1114,10 +1148,36 @@ policy), with `detect`, `parse`, `render`, and `describeInterface` and `nameInte
     then each VRF as `vrf V` with its `rd`. A Junos `internal` group writes `remote-as` with the local AS;
     `localAddress` is `unsupported`. Route policies go per family, one each way: a policy for the whole peer goes into
     each family it carries (its group's too) unless the family has its own, and a chain of policies is `unsupported`.
-    `ebgpDefaultPolicy` is `not-applicable`: the source's default. Warnings: `iosxr.route-policy-name-only`,
-    `iosxr.bgp-no-address-family` (it carries no routes).
+    A route policy is named when the model's policy of that name is written; one the model has but IOS-XR can't write
+    is `unsupported`; one the model doesn't have at all (a source that keeps policy names alone) is written by name with
+    the warning `iosxr.route-policy-name-only`. `ebgpDefaultPolicy` is `not-applicable`: the source's default.
+    Warnings: `iosxr.route-policy-name-only`, `iosxr.bgp-no-address-family` (it carries no routes).
+  - **A VRF's own policies (model 0.5.2):** `import|export route-policy P` under each address family written, by the
+    same naming rule as BGP's (one each way; a chain is `unsupported`). `vrfPolicyMode` is `not-applicable`, and a
+    source whose policy replaces the route targets (Junos, `replaces-route-targets`) raises `iosxr.vrf-policy-mode`, as
+    IOS-XR's filters after them. A network instance whose only VRF-level settings are its policies is still written as
+    `vrf X`. The global table's are `unsupported`.
+  - **Routing policy (#79, `renderPolicy.ts`):** planned first (BGP and VRFs name a policy only when it is written) and
+    written before OSPF and BGP: `prefix-set` (a name's IPv4 and IPv6 lists in one set, entries by position; lengths as
+    `le`, `ge`, `ge … le` or `eq`, the `form` written when it reads back the same, else `not-applicable`; a list
+    description is `unsupported`), `community-set` and `as-path-set`, then `route-policy`. **A set is written whole or
+    not at all**: one IOS-XR can't write in full (a deny, an entry with several members, which `matches-any` can't say,
+    a community it has no word for, an extended or large set, no entries, **another dialect's regex, never
+    translated**) is `unsupported` whole, and a term naming it can't be written either. **A policy follows the per-term
+    rule:** a term is an `if` block (top-level statements with no match) ending in `done` (accept) or `drop` (reject);
+    one IOS-XR can't write (a flow that goes on, which IOS-XR would pass, a match it doesn't have, more than one set or
+    tag, a prefix list named in one family of a set that has both, values instead of a set's name for communities, a
+    community set with a regex set or added, an AS-path prepend of different ASes) is `unsupported` whole; community
+    actions are written deleted, then replaced, then added, and the whole policy is when leaving it out isn't safe
+    (`termSkipSafe()`). A term's name is `not-applicable`. **The fall-through:** `reject` is `not-applicable`, RPL's
+    drop; `next-policy` (Junos) gets a final top-level `pass` and the warning `iosxr.policy-fall-through`, on the field
+    and that line, as an IOS-XR policy drops what nothing passes and BGP's default accepts it (the `pass` counts as a
+    later term when judging what can be left out); a policy whose written terms already decide every route gets
+    neither.
   - **RFC 8212:** an eBGP neighbor with no policy one way (its own or its group's) exchanges nothing that way on
-    IOS-XR. Each such neighbor is a needs-input item (`iosxr.ebgp-policy:<the neighbor's path>`, kind `other`) asking
+    IOS-XR. A policy counts only where a `route-policy` line is written: one the model names that IOS-XR can't write
+    (its body, or a chain) covers nothing, and a neighbor's own that isn't written leaves its group's, which IOS-XR
+    inherits. Each such neighbor is a needs-input item (`iosxr.ebgp-policy:<the neighbor's path>`, kind `other`) asking
     for an existing route policy's name, written each way the neighbor has none in each family it carries; no `pass`
     policy is made up. When the source accepted those routes (`ebgpDefaultPolicy` `accept` that way: Junos, IOS-XE,
     NX-OS), the render also raises `iosxr.ebgp-default-policy`.
@@ -1137,12 +1197,15 @@ policy), with `detect`, `parse`, `render`, and `describeInterface` and `nameInte
   `vrf definition`), NX-OS's and Junos's. Over the corpus, wherever any of the three Cisco plugins is sure (0.4 or
   more), the right one scores highest.
 - **Tests:** as the other Cisco plugins': hand-written fixtures per area through the kit (`tests/fixtures/<area>`,
-  `policy` among them), chosen corpus files against expected models in `tests/corpus/`, and every file of
-  `fixtures/public/iosxr` through the kit's checks. Its probe adapter (`tests/probes.ts`, #51) gives every probe in
+  `policy` among them: `policy/simple` with every RPL form converted, `policy/unsupported` with each construct left out
+  whole, which `plugin.test.ts` pins reason by reason), chosen corpus files against expected models in `tests/corpus/`
+  (`policy/` files among them), and every file of `fixtures/public/iosxr` through the kit's checks. Its probe adapter (`tests/probes.ts`, #51) gives every probe in
   IOS-XR syntax, except the prototype keys as an interface name, which IOS-XR can't have (a name is a type and numbers),
-  and as a VLAN name (Layer 2 isn't converted this phase). `phase2.test.ts` covers OSPF and BGP beyond their fixtures,
-  RFC 8212 with a Junos-sourced model among them, and checks that each phase 2 warning comes from a saved source
-  fixture or a saved model from another platform (`tests/models`, as NX-OS's).
+  and as a VLAN name (Layer 2 isn't converted this phase); model 0.5.0's cases in RPL (a term and an entry go with
+  their policy and set, which `no route-policy|prefix-set` removes; a set is one statement from its first line), and
+  not yet 0.5.1's filters. `phase2.test.ts` covers OSPF and BGP beyond their fixtures, RFC 8212 with a Junos-sourced
+  model among them, and checks that each phase 2 and 3 warning comes from a saved source fixture or a saved model from
+  another platform (`tests/models`, as NX-OS's; `junos-policy` for the fall-through, a Junos regex and a VRF policy).
 
 ## TypeScript
 
@@ -1211,8 +1274,9 @@ The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_P
 B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
 areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.5.0 <1.0.0'`, for model
-  0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's routing policy), with
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.5.2 <1.0.0'`, for model
+  0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's routing policy, 0.5.1's
+  filters and 0.5.2's VRF policies, so a core older than 0.5.2 refuses it), with
   `detect`, `parse`,
   `render`, `nameInterface` (an aggregate another platform describes, Cisco `Port-channelN` or `Bundle-EtherN`, is
   suggested as `ae(N-1)`, as the user decided; nothing else yet) and the capabilities per area. Its `tools()` has one tool,
@@ -1296,8 +1360,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   is its `routeDistinguisher` and `vrf-target target:X` both its `routeTargets`, with `vrf-target import` and `export`
   overriding their side (the plain one is `ignored-by-design` when both do). Junos writes a 4-byte AS with `L`
   (`4200000000L:100`): the model writes it plain (`communities.ts`, `fromJunos()` and `toJunos()`); `L` on a 2-byte AS,
-  `vrf-target auto`, `vrf-import` and `vrf-export` policies are `unsupported` (the model has no place for a VRF's
-  policies yet, #83). Groups apply as everywhere (R1–R12). **A
+  and `vrf-target auto` are `unsupported`. `vrf-import` and `vrf-export` (#95, model 0.5.2) are the instance's
+  `importPolicies` and `exportPolicies`, in order, with `vrfPolicyMode: 'replaces-route-targets'` (on Junos they
+  replace the vrf-target that way), each side a chain converted whole as a BGP peer's is: one naming a policy that
+  isn't converted leaves the side out. Groups apply as everywhere (R1–R12). **A
   unit named in two instances is in neither:** Junos refuses that, so it's an error diagnostic naming the lines (not
   the unit), and every statement that named it is `unsupported`. **An instance of another type** (`mac-vrf`, `evpn`,
   `forwarding`…) is converted not at all, as SNMP communities are: its route distinguisher, targets and units mean
@@ -1381,6 +1447,33 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   read** leaves a policy out whole too: terms only a group gives beside the configuration's own, and a set-form
   `insert`, `rename` or `copy` under it (`statements.ts` lists them as `reshaped`), which reorder or rename what the
   statements say. Lists and communities `rename`d or `copy`d likewise.
+- **Firewall filters (`filters.ts`, #86):** `firewall family inet|inet6 filter F` (and the older `firewall filter F`,
+  which is inet) is `filters.ipv4.F` or `.ipv6.F`, `implicitAction: 'discard'` (Junos drops silently what no term
+  decides), its terms keyed from 1 in order as a policy's are (by the configuration's own first statement; a group's
+  only-terms beside the configuration's, or a set-form `insert`/`rename`/`copy`, leave the filter out whole). `from`:
+  `source-`/`destination-address` and `address` (a bare address is a /32 or /128; one with host bits or a mask isn't
+  converted, never approximated), `source-`/`destination-prefix-list` and `prefix-list` (a list the routing policy
+  converted with prefixes of the filter's family), `protocol` (inet) and `next-header` (inet6) by name or number,
+  `source-`/`destination-port` and `port` (numbers, names, a hyphenated one whole, and ranges, split at the one
+  hyphen whose sides are ports), `icmp-type` (names per family, numbers, ranges,
+  expanded) and `icmp-code` (numbers, ranges), `dscp` (inet) and `traffic-class` (inet6) by number or code point,
+  `tcp-established`, `tcp-initial` (`syn & !ack`), `tcp-flags` (flags joined by `&`, each maybe `!`), `first-fragment`
+  and `is-fragment`. `then`: `accept`, `discard`, `reject` (with no ICMP message), `next term` (one setting, the later
+  winning), `count`, and `log` or `syslog` (both the model's `log`); a term with no action accepts, as Junos's does.
+  **The per-term rule:** a term with anything else (a policer, `routing-instance`, `next-ip`, a nested `filter`, an
+  `-except` match, `address … except`, a `to` condition) or naming a prefix list that isn't converted is `unsupported`
+  whole; so is one with addresses and prefix lists of one direction, which Junos takes as one list where the model
+  needs both. Leaving it out must be what core's `filterTermSkipSafe()` allows (the last term, or one whose action is
+  `next term` with nothing unknown in it: a term with no action accepts, and an unknown action may decide), else every
+  statement of the filter is `unsupported`. A filter-level setting is `unsupported` with the filter, except
+  `interface-specific` (counters and policers per interface), which leaves which packets the filter decides alone, so
+  only its own statement is `unsupported`. Other families (`ethernet-switching`, `any`…), policers and interface sets
+  come later. `interfaces X unit N family inet|inet6 filter input|output F` is the subinterface's `filters`, by
+  family and direction, once F converted in that family (else `unsupported`: the unit applies nothing that way);
+  `input-list`/`output-list` and the single filter that way replace each other, by rank then order, and a list that
+  wins isn't converted; `filter group` comes later. Filters settle after the routing policy (their prefix lists) and
+  before VLANs, so an IRB unit that routes for no VLAN takes its attachments with it. Groups apply as everywhere
+  (R1–R12).
 - **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.4.1 with a disposition. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
   with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
@@ -1416,6 +1509,13 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
   answer in another form is left unused, with a warning). A route target answer goes to every side without one Junos
   can write (left out, empty, malformed or more than one); the item is withdrawn only once the answer is written.
+  **A VRF's own policies** are `vrf-import` and `vrf-export` after its route distinguisher, each only when every
+  policy it names is written (else `unsupported`), and a side with one needs no route target, so none is asked for.
+  `vrfPolicyMode` is `not-applicable`. From a source whose maps filter **after** the route targets (Cisco,
+  `after-route-targets`) the meaning can't be kept: as `vrf-import` a map would take in routes of any VPN its terms
+  match, and as `vrf-export` send routes with no route target unless it adds one. Such policies are `unsupported`, with
+  a `junos.vrf-policy-mode` warning, and the route targets are written as they are (`tests/fixtures/vrf-policy-mode/`,
+  one fixture per direction).
   **Routing policy** is `policy-options` (`renderPolicy.ts`), after the protocols, and BGP's `junos.policy-by-name`
   warning now says only that a policy it names isn't written (a model with the names alone, from a 0.4 parser, or a
   policy left out). A Junos prefix list is one for both families, only permits and matches exactly: the model's lists
@@ -1433,6 +1533,18 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   field, and when `termSkipSafe()` doesn't allow leaving it out, so is every field of its policy. `fallThrough` is
   `not-applicable`, and `reject` (a route map's implicit deny, RPL's drop) raises `junos.policy-fall-through` naming the
   policy's line: Junos passes such a route to the next policy, then the protocol's default.
+  **Filters** are `firewall` (`renderFilters.ts`), after `policy-options`: `family inet|inet6 { filter F { term T { from
+  {…} then {…} } } }`, an ACL entry (no name) under its sequence number, an address of the family's full length
+  written bare, protocols `tcp`, `udp`, `icmp`/`icmp6` by name and others by number (`next-header` and
+  `traffic-class` in inet6), ports and ranges as numbers, `tcp-flags "syn & !ack"`, and `count`, `log` and the action
+  in `then`. A term is written whole or not at all: one Junos can't say (a prefix list not written for the family,
+  addresses and prefix lists of one direction together, a TCP flag Junos has no name for, `ece` and `cwr`) is
+  `unsupported`, and when `filterTermSkipSafe()` doesn't allow leaving it out, so is the filter. `implicitAction` is
+  `not-applicable`, and raises `junos.filter-implicit-action` on the filter's `implicitAction` field (a path, never in
+  the message) naming its line when the source's is `deny` (a Cisco ACL, which may send an ICMP unreachable) or the
+  filter relies on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {
+  filter { input F; output G; } }`, beside the family's own settings or alone, each only when the firewall writes that
+  filter (else `unsupported`: Junos commits a unit's filter only when it has it).
 - `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's
   (`hostname`, `!`, `interface GigabitEthernet…`).
 - **Tests:** the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
@@ -1464,7 +1576,13 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   expected models include an access, a trunk, an IRB, two OSPF, two BGP and three routing policy files, and the probes
   give every model 0.4 and 0.5.0 case (VLAN name and BGP group uses, policy names as prototype keys, BGP, OSPF, policy
   term and prefix list entry negation, malformed AS numbers, VLAN IDs, prefixes and lengths, OSPF and BGP scoping,
-  unknown references and regexes).
+  unknown references and regexes), and every 0.5.1 case (filter term and attachment negation, a malformed port,
+  filter prefix and mask, an unknown filter, the implicit action). `tests/filters.test.ts`: filters beyond the
+  fixtures (`tests/fixtures/conformance/filters/`, one hierarchical with its render and attachments, one in set form
+  with groups, duplicates, superseded actions and an `input-list` replaced): the per-term ledger of each negative
+  fixture in `tests/fixtures/conformance/filters-unsupported/`, Junos's names for values, groups in `firewall`, and
+  render from another platform's model (an ACL's sequence numbers, its implicit deny, a filter or unit left out)
+  naming nothing. The corpus's expected models include two filter files.
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)

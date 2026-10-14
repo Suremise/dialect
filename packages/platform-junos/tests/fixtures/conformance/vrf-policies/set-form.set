@@ -1,0 +1,11 @@
+set policy-options community GREEN members target:65000:3
+set policy-options policy-statement GREEN-IN term T from community GREEN
+set policy-options policy-statement GREEN-IN term T then accept
+set policy-options policy-statement GREEN-IN then reject
+set routing-instances GREEN instance-type vrf
+set routing-instances GREEN route-distinguisher 65000:3
+set routing-instances GREEN vrf-target target:65000:3
+set routing-instances GREEN vrf-import GREEN-IN
+set routing-instances GREEN vrf-import GREEN-IN
+set routing-instances GREEN vrf-export GREEN-OUT
+set routing-instances GREEN vrf-export UNDEFINED

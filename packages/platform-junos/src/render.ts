@@ -9,10 +9,11 @@
 // A VRF can't be committed on Junos without a route distinguisher and route targets: one the model gives without them
 // is written with what it has, and each missing part is a needs-input item (`routeDistinguisherInputId()`,
 // `routeTargetInputId()`), answered through Context.inputs. Nothing is made up.
-import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpGroup, type BgpPeer, type Ospf, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type NextHop, type RenderResult, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpGroup, type BgpPeer, type Ospf, type Context, type Device, type Diagnostic, type FieldDisposition, type FilterDirections, type Interface, type NeedsInput, type NetworkInstance, type NextHop, type RenderResult, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
 import { isIpv4, isIpv6, parsePrefix } from './addresses'
 import { fromJunos, targetFromJunos, toJunos } from './communities'
 import { SEVERITIES } from './parse'
+import { firewall } from './renderFilters'
 import { policyOptions, type Out } from './renderPolicy'
 import { quote } from './words'
 
@@ -186,6 +187,12 @@ export function render(model: Device, context: Context): RenderResult {
   /** A VLAN as `vlan members` names it: by its name when the model has it, else by its ID. */
   const memberName = (entry: string): string => (entry === '1-4094' ? 'all' : vlanNames.get(String(Number(entry))) ?? entry)
 
+  // ---- routing policy and filters, written further down: first, so BGP knows which policies it names are written,
+  // a filter which prefix lists, and a unit which filters it applies.
+
+  const routing = model.routingPolicy ? policyOptions(model.routingPolicy, { dispositions, diagnostics }) : { out: null, written: new Set<string>(), lists: new Map<string, ReadonlySet<'ipv4' | 'ipv6'>>() }
+  const filtering = model.filters ? firewall(model.filters, { dispositions, diagnostics, lists: routing.lists }) : { out: null, written: new Set<string>() }
+
   // ---- interfaces
 
   const interfaces: Out[] = []
@@ -260,14 +267,29 @@ export function render(model: Device, context: Context): RenderResult {
     if (sub.enabled === false) out.push(leaf('disable', [...at, 'enabled']))
     else if (sub.enabled) skip([...at, 'enabled'], 'not-applicable', 'a Junos unit is enabled unless disabled')
     if (sub.vlanId !== undefined) out.push(leaf(`vlan-id ${sub.vlanId}`, [...at, 'vlanId']))
-    if (sub.ipv4) out.push(familyOf(sub.ipv4, [...at, 'ipv4'], false))
-    if (sub.ipv6) out.push(familyOf(sub.ipv6, [...at, 'ipv6'], true))
+    emptyContainer(sub.filters, [...at, 'filters'])
+    if (sub.ipv4 || sub.filters?.ipv4) out.push(familyOf(sub.ipv4 ?? {}, [...at, 'ipv4'], false, attachmentsOf(sub.filters?.ipv4, [...at, 'filters', 'ipv4'], 'ipv4'), sub.ipv4 !== undefined))
+    if (sub.ipv6 || sub.filters?.ipv6) out.push(familyOf(sub.ipv6 ?? {}, [...at, 'ipv6'], true, attachmentsOf(sub.filters?.ipv6, [...at, 'filters', 'ipv6'], 'ipv6'), sub.ipv6 !== undefined))
     out.push(...own)
     return out.length ? box(`unit ${index}`, out, ...self(sub, at)) : leaf(`unit ${index}`, ...self(sub, at))
   }
 
-  function familyOf(family: AddressFamily, at: Segments, v6: boolean): Out {
+  /** A unit's filters for a family: `filter { input F; output G; }`, each a filter the firewall writes. */
+  function attachmentsOf(directions: FilterDirections | undefined, at: Segments, family: 'ipv4' | 'ipv6'): Out[] {
+    if (directions === undefined) return []
+    emptyContainer(directions, at)
     const out: Out[] = []
+    for (const direction of ['input', 'output'] as const) {
+      const name = directions[direction]
+      if (name === undefined) continue
+      if (filtering.written.has(`${family}\u0000${name}`)) out.push(leaf(`${direction} ${quote(name)}`, [...at, direction]))
+      else skip([...at, direction], 'unsupported', "names a filter that isn't written: Junos commits a unit's filter only when it has it")
+    }
+    return out.length ? [box('filter', out)] : []
+  }
+
+  function familyOf(family: AddressFamily, at: Segments, v6: boolean, filters: readonly Out[] = [], given = true): Out {
+    const out: Out[] = [...filters]
     emptyContainer(family.addresses, [...at, 'addresses'])
     if (family.mtu !== undefined) out.push(leaf(`mtu ${family.mtu}`, [...at, 'mtu']))
     for (const [address, a] of Object.entries(family.addresses ?? {})) {
@@ -282,7 +304,7 @@ export function render(model: Device, context: Context): RenderResult {
       out.push(a.primary ? box(text, [leaf('primary', [...f, 'primary'])], [...f, 'prefixLength']) : leaf(text, [...f, 'prefixLength']))
     }
     const name = `family ${v6 ? 'inet6' : 'inet'}`
-    return out.length ? box(name, out) : leaf(name, ...self(family, at))
+    return out.length ? box(name, out, ...(given && isEmpty(family) && filters.length ? [at] : [])) : leaf(name, ...(given ? self(family, at) : []))
   }
 
   // ---- SNMP
@@ -331,9 +353,6 @@ export function render(model: Device, context: Context): RenderResult {
     }
   }
 
-  // Routing policy first, so BGP knows which of the policies it names are written.
-  const routing = model.routingPolicy ? policyOptions(model.routingPolicy, { dispositions, diagnostics }) : { out: null, written: new Set<string>() }
-
   const instances: Out[] = []
   emptyContainer(model.networkInstances, ['networkInstances'])
   for (const [name, instance] of Object.entries(model.networkInstances ?? {})) {
@@ -360,6 +379,7 @@ export function render(model: Device, context: Context): RenderResult {
     instances.push(out.length ? box(quote(name), out, ...self(instance, at)) : leaf(quote(name), ...self(instance, at)))
   }
   if (routing.out) top.push(routing.out)
+  if (filtering.out) top.push(filtering.out)
   if (instances.length) top.push(box('routing-instances', instances))
 
   // ---- VLANs: each by its name, with its ID and the IRB unit that routes for it
@@ -412,9 +432,35 @@ export function render(model: Device, context: Context): RenderResult {
     if (notHere) {
       if (instance.routeDistinguisher !== undefined) skip(rdField, 'unsupported', notHere)
       for (const side of ['import', 'export'] as const) if (instance.routeTargets?.[side] !== undefined) skip(rtField(side), 'unsupported', notHere)
+      for (const field of ['importPolicies', 'exportPolicies'] as const) if (instance[field] !== undefined) skip([...at, field], 'unsupported', notHere.replace('route distinguisher or route targets', 'VRF import or export policies'))
+      if (instance.vrfPolicyMode !== undefined) skip([...at, 'vrfPolicyMode'], 'not-applicable', notHere.replace('route distinguisher or route targets', 'VRF import or export policies'))
       return out
     }
     const isVrf = instance.type === 'vrf'
+
+    // The VRF's own policies (model 0.5.2): vrf-import and vrf-export, which on Junos replace vrf-target that way. From
+    // a source where they filter after the route targets (Cisco's import and export maps), the meaning can't be kept:
+    // as vrf-import the map would take in routes of any VPN its terms match, and as vrf-export send routes with no route
+    // target unless it adds one. They are left out, and said.
+    const policySides = new Set<'import' | 'export'>()
+    const policyLines: Out[] = []
+    const mode = instance.vrfPolicyMode
+    if (mode !== undefined) skip([...at, 'vrfPolicyMode'], 'not-applicable', "the source platform's semantics, not configuration: on Junos, vrf-import and vrf-export replace vrf-target")
+    let filtersAfter = false
+    for (const [field, word, side] of [['importPolicies', 'vrf-import', 'import'], ['exportPolicies', 'vrf-export', 'export']] as const) {
+      const list = instance[field]
+      if (list === undefined) continue
+      if (!list.length) skip([...at, field], 'not-applicable', 'no policies: nothing to write')
+      else if (mode !== 'replaces-route-targets') {
+        skip([...at, field], 'unsupported', "the source's VRF policies filter routes after its route targets; Junos's replace the route targets, so the meaning can't be kept")
+        filtersAfter = true
+      } else if (list.some((p) => !routing.written.has(p))) skip([...at, field], 'unsupported', "names a policy that isn't written: Junos commits a VRF's policy only when it has it")
+      else {
+        policyLines.push(leaf(list.length === 1 ? `${word} ${quote(list[0])}` : `${word} [ ${list.map(quote).join(' ')} ]`, [...at, field]))
+        policySides.add(side)
+      }
+    }
+    if (filtersAfter) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.vrf-policy-mode', message: "A VRF's import or export map filters routes after its route targets on the source; on Junos vrf-import and vrf-export replace the route targets, so they aren't converted: add a policy that matches or adds the route targets." })
 
     let rd: string | null = null
     if (instance.routeDistinguisher !== undefined) {
@@ -423,22 +469,26 @@ export function render(model: Device, context: Context): RenderResult {
     } else if (isVrf && (rd = answer(routeDistinguisherInputId(name), fromJunos)) !== null) out.push(leaf(`route-distinguisher ${toJunos(rd)}`))
     else if (isVrf) needsInput.push({ id: routeDistinguisherInputId(name), kind: 'other', message: 'This VRF needs a route distinguisher on Junos (ASN:nn or IP:nn), which the source doesn\'t give.', field: fieldPath(...at) })
 
+    // After the route distinguisher, as Junos writes them.
+    out.push(...policyLines)
+
     // Each side's one target, or null when it has none Junos can write here.
     const sides: Record<'import' | 'export', string | null> = { import: null, export: null }
     for (const side of ['import', 'export'] as const) {
       const list = instance.routeTargets?.[side]
       if (list === undefined) continue
       if (!list.length) skip(rtField(side), 'not-applicable', 'no route targets: nothing to write')
-      else if (list.length > 1) skip(rtField(side), 'unsupported', 'more than one route target needs a vrf-import or vrf-export policy, which comes later')
+      else if (list.length > 1) skip(rtField(side), 'unsupported', 'more than one route target needs a vrf-import or vrf-export policy that matches or adds them, which the model doesn\'t give')
       else if (!isRouteDistinguisher(list[0])) skip(rtField(side), 'unsupported', 'not a route target in a form the model has')
       else sides[side] = list[0]
     }
-    // A side with no target Junos can write takes the user's answer, if any; while one is missing, it is asked for.
-    if (isVrf && (sides.import === null || sides.export === null)) {
+    // A side with no target Junos can write takes the user's answer, if any; while one is missing, it is asked for. A side
+    // with a vrf-import or vrf-export policy written needs none: the policy replaces it.
+    if (isVrf && ((sides.import === null && !policySides.has('import')) || (sides.export === null && !policySides.has('export')))) {
       const given = answer(routeTargetInputId(name), (value) => targetFromJunos(value) ?? fromJunos(value))
       if (given === null) needsInput.push({ id: routeTargetInputId(name), kind: 'other', message: "This VRF needs a route target on Junos (target:ASN:nn or target:IP:nn) for the routes it imports or exports, which the source doesn't give.", field: fieldPath(...at) })
       // Every side still without a target Junos can write takes it: left out, empty, malformed or more than one.
-      else for (const side of ['import', 'export'] as const) if (sides[side] === null) sides[side] = given
+      else for (const side of ['import', 'export'] as const) if (sides[side] === null && !policySides.has(side)) sides[side] = given
     }
     const given = (side: 'import' | 'export'): Segments[] => (instance.routeTargets?.[side]?.length === 1 && isRouteDistinguisher(instance.routeTargets[side][0]) ? [rtField(side)] : [])
     if (sides.import !== null && sides.import === sides.export) out.push(leaf(`vrf-target target:${toJunos(sides.import)}`, ...given('import'), ...given('export')))

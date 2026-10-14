@@ -38,7 +38,9 @@ const CASES: readonly (readonly [area: string, path: string])[] = [
   ['bgp', 'bgp/batfish__bgp-type-internal.set'],
   ['routing-policy', 'policy/batfish__juniper-from-prefix-list.set'],
   ['routing-policy', 'policy/batfish__community.set'],
-  ['routing-policy', 'policy/batfish__unit-tests_juniper_extended_community.set']
+  ['routing-policy', 'policy/batfish__unit-tests_juniper_extended_community.set'],
+  ['filters', 'filters/batfish__firewall-filters.set'],
+  ['filters', 'filters/aerleon__sample_multitarget.jcl.conf']
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
@@ -47,7 +49,7 @@ const OPTIONS = { configTools: ['display-set'] }
 
 describe('corpus files with an expected model', () => {
   it('cover every area the plugin converts', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'static-routes', 'ntp', 'syslog', 'snmp', 'vlans', 'ospf', 'bgp', 'routing-policy']))
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'static-routes', 'ntp', 'syslog', 'snmp', 'vlans', 'ospf', 'bgp', 'routing-policy', 'filters']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {

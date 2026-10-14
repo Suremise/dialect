@@ -1,0 +1,4 @@
+set policy-options prefix-list L 192.0.2.0/24
+set firewall family inet filter F term T from source-address 198.51.100.0/24
+set firewall family inet filter F term T from source-prefix-list L
+set firewall family inet filter F term T then accept

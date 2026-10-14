@@ -1,0 +1,13 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "F": {
+          "implicitAction": "discard"
+        }
+      }
+    }
+  }
+}
+
