@@ -33,8 +33,9 @@ jobs:
       # npm test already checks this (tests/licenses.test.ts); here it has its own line in the log.
       - run: npm run licenses -- --check
 
-  # The desktop app: the NSIS installer (kept as a build artifact, never released), cargo-deny on its crates, and the
-  # smoke test (apps/desktop/e2e), which drives the built app through tauri-driver and Edge WebDriver.
+  # The desktop app: both NSIS installers and the standalone dialect.exe (kept as build artifacts, never released),
+  # cargo-deny on its crates, the smoke test (apps/desktop/e2e), which drives the built app through tauri-driver and Edge
+  # WebDriver, and dialect.exe run with no Node on the PATH.
   desktop:
     runs-on: windows-latest
     defaults:
@@ -42,9 +43,11 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v5
+      # The standalone dialect.exe is this Node's node.exe: the version scripts/notices/node.md gives the license of
+      # (packages/cli/scripts/build-exe.mjs refuses another).
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: 24.19.0
           cache: npm
       - run: npm install -g npm@12.2.0
       - run: npm ci
@@ -85,12 +88,28 @@ jobs:
           Invoke-WebRequest -Uri "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath $dir -Force
           "MSEDGEDRIVER=$(Join-Path $dir 'msedgedriver.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - run: npm run build -w @dialect/desktop
+      # Both installers (Darren's decision on #89): the normal one and the offline one, each with dialect.exe inside.
+      - run: npm run build:installers -w @dialect/desktop
       # Builds the app again without the installer, which after the build above is incremental.
       - run: npm run test:smoke -w @dialect/desktop
+      # The dialect command needs no Node: run it with every folder holding a node.exe taken off the PATH.
+      - name: dialect.exe runs with no Node
+        run: |
+          $env:Path = ($env:Path -split ';' | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'node.exe')) }) -join ';'
+          if (Get-Command node -ErrorAction SilentlyContinue) { throw 'node is still on the PATH' }
+          & packages/cli/dist/dialect.exe --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          'system { host-name r1; }' | & packages/cli/dist/dialect.exe display-set -
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: dialect-installer
           path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dialect-cli
+          path: packages/cli/dist/dialect.exe
           if-no-files-found: error
           retention-days: 14

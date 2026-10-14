@@ -1712,7 +1712,19 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   and ignores a closed stdout pipe.
 - `vite.config.ts`: `npm run build -w @dialect/cli` bundles `bin.ts` and the workspace packages it imports into one ES
   module, `dist/dialect.mjs`, for Node 24, with a `#!/usr/bin/env node` line. Only Node's own modules stay imports.
-  Vite is build-only.
+  Vite is build-only. `src/main.ts` wires `run()` to Node (both entries use it), `src/bin.ts` sets the exit code with
+  top-level `await`.
+- **The standalone `dialect.exe` (#89):** `npm run build:exe -w @dialect/cli` (`scripts/build-exe.mjs`, Windows) makes
+  the command a Node **single executable application**, so it needs no Node installed. Vite builds `src/sea.ts` into one
+  CommonJS script (`--mode sea`, as an SEA runs one CommonJS script with no top-level `await`), `node
+  --experimental-sea-config` makes it a blob, and `postject` (MIT, build-only) puts the blob into a copy of the
+  `node.exe` running the build, after taking off its Authenticode signature, which adding the blob would break.
+  Chosen over a bundler's compile because it's Node's own, and every library built into `node.exe` is permissive:
+  Node's LICENSE ships in the notices (`scripts/notices/node.md`). Bun's compile was ruled out (its JavaScriptCore is
+  LGPL). The exe is the building Node's `node.exe`, so the script refuses a Node other than the one the notice is for,
+  and CI's desktop job pins that Node. About 94 MB. `tests/exe.test.ts` builds it into a temp folder and runs it with
+  every `node.exe` taken off the PATH (`--version`, stdin, a usage error, a convert with a map, the signature gone);
+  it's skipped, saying why, with another Node.
 - `tests/cli.test.ts` builds into a temp folder with Vite's API and runs the built file with Node: the 22 display set
   fixtures, stdin, invalid input, warnings, unreadable files and usage errors; and convert on
   `tests/fixtures/convert/phase1.conf` (a Junos phase 1 config, its map `phase1.map.csv` and the IOS-XE it gives,
@@ -1879,7 +1891,13 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
   `object-src`. Tauri adds its own scripts' hashes. The editors' styles are constructed stylesheets in shadow roots,
   as in the web build, so `style-src` needs no `unsafe-inline`.
 - **Installer** (`bundle`): NSIS only, `installMode: currentUser`, `compression: zlib` (no CPL code from NSIS's LZMA),
-  the default WebView2 mode, icons from `branding/out`: `installerIcon` and `uninstallerIcon` are `icon.ico` (the setup
+  `webviewInstallMode` `embedBootstrapper` (#89; `npm run build:installers` builds a second, offline installer with
+  `offlineInstaller` merged over it, `scripts/build-installers.mjs`, renamed `Dialect_<version>_x64-offline-setup.exe`),
+  the standalone CLI as a resource (`cli/dialect.exe`, built by `beforeBuildCommand`; the app's own exe is
+  `dialect.exe` beside it), and `installerHooks` (`src-tauri/windows/hooks.nsh`): after installing, a Yes/No question
+  (yes by default, also for a silent install) adds `$INSTDIR\cli` to the user's PATH (`HKCU\Environment`, read and
+  written unexpanded through Windows PowerShell, then `WM_SETTINGCHANGE` broadcast); the uninstaller takes it off. Icons
+  from `branding/out`: `installerIcon` and `uninstallerIcon` are `icon.ico` (the setup
   file and its window, the uninstaller), Add/Remove Programs shows the app's .exe icon (`DisplayIcon`), and the
   bundle's icon list puts the same `.ico` in the app's .exe, which its window, taskbar button and Start-menu shortcut
   show. `bundle.windows.signCommand` runs `scripts/sign.mjs` on every
@@ -1887,7 +1905,8 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
   the file.
 - **Tests:** `tests/desktop.test.ts` (in `npm test`) checks the Platform with the plugins mocked, the tray's New tab
   event, and the config, capability and tray menu above. WebDriver can't reach the notification area, so the tray is
-  checked by hand (the card's manual steps). `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
+  checked by hand (the card's manual steps), as are the installers (#89's clean-machine plan: agents never run them).
+  `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
   (`tauri build --no-bundle`), starts it from the build output through tauri-driver and Edge WebDriver, drops a
   fixture and checks its display set, opens About and each Docs page in its tab, converts in a tab of its own and
   switches back through the Window menu, then checks that the CSP refuses an inline

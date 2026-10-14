@@ -10,6 +10,7 @@
   },
   "scripts": {
     "build": "vite build",
+    "build:exe": "node scripts/build-exe.mjs",
     "typecheck": "tsc -p ."
   },
   "bin": {
@@ -23,6 +24,7 @@
     "@dialect/platform-nxos": "0.0.0"
   },
   "devDependencies": {
+    "postject": "^1.0.0-alpha.6",
     "vite": "^8.3.4"
   }
 }

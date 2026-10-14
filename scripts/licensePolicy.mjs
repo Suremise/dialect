@@ -30,9 +30,21 @@ export const OPEN_SOURCE = new Set([
 /**
  * Packages allowed although their license fails the rule for their category. Each records the package (any version), the
  * license it was allowed with (a changed license fails again), the category, why, and who decided. Only the user decides.
- * @type {readonly { name: string, license: string, category: 'shipped' | 'build-only', why: string, decidedBy: string, date: string }[]}
+ * Material that isn't a package (installer components) is recorded here too, with `notices`: its hand-written entry in
+ * scripts/notices, which OTHER in thirdPartyNotices.mjs must list (tests/licenses.test.ts checks).
+ * @type {readonly { name: string, license: string, category: 'shipped' | 'build-only', why: string, decidedBy: string, date: string, notices?: string }[]}
  */
-export const EXCEPTIONS = []
+export const EXCEPTIONS = [
+  {
+    name: 'Microsoft Edge WebView2 Runtime installers',
+    license: 'LicenseRef-Microsoft-WebView2-distribution',
+    category: 'shipped',
+    why: "Every Dialect download must work with no prerequisites (#89): the installers carry Microsoft's WebView2 bootstrapper and offline installer, unmodified, run only on a PC without the WebView2 Runtime, as Microsoft's distribution guide allows",
+    decidedBy: 'Darren Marshall',
+    date: '2026-10-14',
+    notices: 'webview2-installers.md'
+  }
+]
 
 /** A package.json's declared license as one SPDX expression, from `license` (string or legacy object) or `licenses`. */
 export function declaredLicense(meta) {
