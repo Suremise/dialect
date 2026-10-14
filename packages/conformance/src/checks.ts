@@ -93,18 +93,37 @@ export function deferredSecrets(model: Device, rendered: RenderResult): string[]
 
 /**
  * `model` without the leaves at `paths` (field paths), as a copy: null-prototype objects, own keys only. An object left
- * empty only by taking them out goes too (a group whose one leaf was its key), but one the model has empty stays: it
- * is configured with nothing in it, a leaf of its own.
+ * empty only by taking them out (a group whose one leaf was its key) goes too, its path added to `emptied`; one the
+ * model has empty stays, as it is configured with nothing in it, a leaf of its own.
  */
-function without(model: unknown, paths: ReadonlySet<string>, at: readonly string[] = []): unknown {
+function without(model: unknown, paths: ReadonlySet<string>, emptied: Set<string>, at: readonly string[] = []): unknown {
   if (!isObject(model) || !paths.size) return model
   const out: Record<string, unknown> = Object.create(null)
   for (const key of Object.keys(model)) {
     const segments = [...at, key]
     if (paths.has(fieldPath(...segments))) continue
     const value = own(model, key)
-    const kept = without(value, paths, segments)
-    if (isObject(value) && Object.keys(value).length && isObject(kept) && !Object.keys(kept).length) continue
+    const kept = without(value, paths, emptied, segments)
+    if (isObject(value) && Object.keys(value).length && isObject(kept) && !Object.keys(kept).length) {
+      emptied.add(fieldPath(...segments))
+      continue
+    }
+    out[key] = kept
+  }
+  return out
+}
+
+/**
+ * `model` (the reparse) without an empty object at one of the `emptied` paths: whether a render keeps the container of
+ * a deferred key (`group G;`) or leaves it out, the round trip is the same. Nothing else is taken out.
+ */
+function withoutEmptied(model: unknown, emptied: ReadonlySet<string>, at: readonly string[] = []): unknown {
+  if (!isObject(model) || !emptied.size) return model
+  const out: Record<string, unknown> = Object.create(null)
+  for (const key of Object.keys(model)) {
+    const segments = [...at, key]
+    const kept = withoutEmptied(own(model, key), emptied, segments)
+    if (emptied.has(fieldPath(...segments)) && isObject(kept) && !Object.keys(kept).length) continue
     out[key] = kept
   }
   return out
@@ -155,7 +174,10 @@ export function checkFixture(plugin: PlatformPlugin, fixture: Fixture, { modelVe
 
   const reparsed = plugin.parse(rendered.text, context)
   const deferred = deferredSecrets(parsed.model, rendered)
-  const roundTrip = result('round-trip', [...errors('reparse', reparsed), ...invalid('reparse', reparsed.model), ...modelDifferences(without(parsed.model, new Set(deferred)), reparsed.model).map((d) => `render → reparse changed the model: ${d}`)])
+  const emptied = new Set<string>()
+  // The parse without its deferred keys, and the objects only they filled: the reparse may have those or not.
+  const expected = without(parsed.model, new Set(deferred), emptied)
+  const roundTrip = result('round-trip', [...errors('reparse', reparsed), ...invalid('reparse', reparsed.model), ...modelDifferences(expected, withoutEmptied(reparsed.model, emptied)).map((d) => `render → reparse changed the model: ${d}`)])
   checks.push(deferred.length ? { ...roundTrip, deferred } : roundTrip)
 
   checks.push(result('ledger', ledgerProblems(buildLedger(parsed, rendered))))
