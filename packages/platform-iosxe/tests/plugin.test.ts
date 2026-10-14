@@ -687,6 +687,60 @@ describe('VLANs, switch ports and VLAN interfaces (model 0.4.0)', () => {
     expect(at('no switchport')).toEqual({ kind: 'unsupported', reason: 'a routed port: the model has no setting for it' })
   })
 
+  it('a mode the model doesn\'t have replaces the one before it, which is then not converted either', () => {
+    for (const dynamic of ['dynamic auto', 'dynamic desirable']) {
+      const after = byText(iface(' switchport mode trunk', ` switchport mode ${dynamic}`))
+      expect(after.result.model.interfaces?.Gi1?.switching, dynamic).toEqual({})
+      expect(after.at('switchport mode trunk')).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 4' })
+      expect(after.at(`switchport mode ${dynamic}`)).toEqual({ kind: 'unsupported', reason: 'a switch port mode the model doesn\'t have (only access and trunk)' })
+      expect(render(after.result.model).text).not.toContain('switchport mode')
+      // The other order: the later supported mode wins, as on the device.
+      const before = byText(iface(` switchport mode ${dynamic}`, ' switchport mode access'))
+      expect(before.result.model.interfaces?.Gi1?.switching, dynamic).toEqual({ mode: 'access' })
+      expect(before.at(`switchport mode ${dynamic}`)).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 4' })
+      // And its "no" form removes it, leaving no mode.
+      const removed = byText(iface(' switchport mode trunk', ` switchport mode ${dynamic}`, ' no switchport mode'))
+      expect(removed.result.model.interfaces?.Gi1?.switching, dynamic).toEqual({})
+      expect(removed.at(`switchport mode ${dynamic}`)).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 5' })
+      expect(removed.at('no switchport mode')).toEqual({ kind: 'ignored-by-design', reason: 'removes the setting on line 4: nothing to convert' })
+    }
+    // A malformed mode is refused by the device: it replaces nothing.
+    expect(switching(iface(' switchport mode trunk', ' switchport mode banana'))).toEqual({ mode: 'trunk' })
+  })
+
+  it('never brings back a VLAN "no vlan" deleted: its ports and VLAN interface are left out instead', () => {
+    const access = byText(['vlan 10', 'interface Gi1', ' switchport mode access', ' switchport access vlan 10', 'no vlan 10'].join('\n'))
+    expect(access.result.model.vlans).toBeUndefined()
+    expect(access.result.model.interfaces?.Gi1).toEqual({ type: 'ethernet' })
+    expect(access.at('switchport access vlan 10')).toEqual({ kind: 'unsupported', reason: 'left out whole: the switch port uses a VLAN line 5 deletes' })
+    expect(access.at('switchport mode access')).toEqual({ kind: 'unsupported', reason: 'left out whole: the switch port uses a VLAN line 5 deletes' })
+    expect(access.result.diagnostics).toEqual([])
+    expect(render(access.result.model).text).not.toMatch(/vlan 10|switchport/)
+
+    const trunk = byText(['vlan 10', 'interface Gi1', ' switchport trunk allowed vlan 10,20-30', ' switchport trunk native vlan 20', 'no vlan 10'].join('\n'))
+    expect(trunk.result.model.interfaces?.Gi1?.switching).toBeUndefined()
+
+    const svi = byText(['vlan 10', 'interface Vlan10', ' ip address 192.0.2.1 255.255.255.0', 'no vlan 10'].join('\n'))
+    expect(svi.result.model.interfaces).toEqual({})
+    expect(svi.at('interface Vlan10')).toEqual({ kind: 'unsupported', reason: 'left out whole: it routes for a VLAN line 4 deletes' })
+    expect(svi.at('ip address 192.0.2.1 255.255.255.0')).toEqual({ kind: 'unsupported', reason: 'left out whole: it routes for a VLAN line 4 deletes' })
+    for (const r of [access, trunk, svi]) expect(buildLedger(r.result).complete).toBe(true)
+    expect(roundTrips(['vlan 10', 'interface Vlan10', ' ip address 192.0.2.1 255.255.255.0', 'interface Gi1', ' switchport access vlan 10', 'no vlan 10'].join('\n'))).toEqual([])
+  })
+
+  it('takes a VLAN defined again, or an access VLAN set after the deletion (IOS creates it), as there', () => {
+    const again = parse(['vlan 10', 'no vlan 10', 'vlan 10', 'interface Vlan10', 'interface Gi2', ' switchport trunk allowed vlan 10'].join('\n'))
+    expect(again.model.vlans).toEqual({ '10': {} })
+    expect(again.model.interfaces?.Vlan10?.subinterfaces?.['0']?.routedVlan).toBe(10)
+    expect(again.diagnostics).toEqual([])
+    // An access VLAN after "no vlan" creates the VLAN again, for the trunk using it too; before it, it doesn't.
+    const recreated = parse(['vlan 10', 'no vlan 10', 'interface Gi1', ' switchport access vlan 10', 'interface Gi2', ' switchport trunk allowed vlan 10'].join('\n'))
+    expect(recreated.model.vlans).toEqual({ '10': {} })
+    expect(recreated.model.interfaces?.Gi2?.switching).toEqual({ allowedVlans: ['10'] })
+    expect(recreated.diagnostics.map((d) => d.code)).toEqual(['iosxe.vlan-created'])
+    expect(parse(['vlan 10', 'interface Gi1', ' switchport access vlan 10', 'no vlan 10'].join('\n')).model.interfaces?.Gi1?.switching).toBeUndefined()
+  })
+
   it('removes VLANs with "no vlan", but never a default one', () => {
     const { result, at } = byText(['vlan 10,20', 'vlan 30', ' name THIRTY', 'no vlan 20,30', 'no vlan 1'].join('\n'))
     expect(result.model.vlans).toEqual({ '10': {} })

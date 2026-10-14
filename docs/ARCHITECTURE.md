@@ -397,7 +397,9 @@ and `nameInterface`.
   - **VLANs, switch ports and VLAN interfaces (#62, model 0.4):** `vlan N` (or a list, `vlan 100,3000`, `vlan 10-20`)
     is a VLAN, with a single VLAN's `name` (one word); `no vlan N` removes it and its name, but IOS keeps its default
     VLANs (1, 1002 to 1005). `switchport` on a main interface is its `switching` (bare, an empty one): `mode access` or
-    `trunk`, `access vlan`, `trunk native vlan`, and `trunk allowed vlan` read as the device does: a list, `all`, `none`
+    `trunk` (a later mode the model doesn't have, `dynamic auto|desirable`, `dot1q-tunnel` or `private-vlan …`, is
+    `unsupported` and still supersedes the one before it, so a negotiated port never becomes a forced trunk), `access
+    vlan`, `trunk native vlan`, and `trunk allowed vlan` read as the device does: a list, `all`, `none`
     or `except` replaces the list (the earlier statements `ignored-by-design`, superseded), `add` and `remove` change it,
     from every VLAN when it has none yet. The list is kept as IDs in order, a run of two or more as a range
     (`10,11,12` is `10-12`). `trunk encapsulation dot1q` is `ignored-by-design` (the model's only one). The `no` forms
@@ -407,7 +409,10 @@ and `nameInterface`.
     switch port setting on one is `unsupported`. A VLAN a port or VLAN interface uses that the text doesn't define (a
     switch in VTP server mode keeps its VLANs out of its configuration) is kept with no name, mapped by the first
     statement using it, with a parse warning, `iosxe.vlan-created`, naming it by `field` only; VLAN 1, which IOS always
-    has, gets none.
+    has, gets none. A VLAN `no vlan` deleted (and no later `vlan` defines again) isn't brought back: its ports are
+    inactive and its VLAN interface down on the device, which the model can't say, so a switch port using it is left
+    out whole (its `switchport` statements `unsupported`) and so is its VLAN interface, with its addresses. An access
+    VLAN set after the deletion is the exception: IOS creates the VLAN again, for every port using it.
 - **Render (`render.ts`):** gives every leaf of model 0.3, and of 0.4's VLANs, switch ports and routed VLANs, a
   disposition (DNS as one `ip name-server` line per server) and leaves the rest (OSPF, BGP, a later version's fields)
   without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,

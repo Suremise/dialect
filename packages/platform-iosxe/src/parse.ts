@@ -262,7 +262,7 @@ export function parse(text: string, _context: Context): ParseResult {
   /** Per interface: the VLANs its trunk allows (none here: every VLAN, IOS's default), and the statements that say so. */
   const trunks = new Map<string, { readonly ids: ReadonlySet<number>; readonly nodes: IosNode[] }>()
   /** Per Vlan interface: its `interface VlanN` statement, which says the VLAN it routes for. */
-  const svis = new Map<string, IosNode>()
+  const svis = new Map<string, IosNode[]>()
 
   /**
    * `switchport …` and its `no` forms on a main interface: the interface's `switching`. A later mode, access or native
@@ -324,6 +324,14 @@ export function parse(text: string, _context: Context): ParseResult {
       return mapped([fieldPath(...sw)])
     }
     if (a[0] === 'mode' && a.length === 2 && (a[1] === 'access' || a[1] === 'trunk')) return setting(settings.mode, a[1])
+    if (a[0] === 'mode' && ((a[1] === 'dynamic' && (a[2] === 'auto' || a[2] === 'desirable') && a.length === 3) || (a[1] === 'dot1q-tunnel' && a.length === 2) || (a[1] === 'private-vlan' && a.length >= 3))) {
+      // A mode the model doesn't have still replaces the one before it, as on the device: that one isn't converted
+      // either, so a negotiated port never comes out as a forced trunk.
+      claim(fieldPath(...settings.mode), node)
+      statements.push(node)
+      model.remove(settings.mode)
+      return unsupported('a switch port mode the model doesn\'t have (only access and trunk)')
+    }
     if (a[0] === 'access' && a[1] === 'vlan' && a.length === 3) {
       const id = vlanId(a[2])
       return id === null ? unsupported('not a VLAN ID from 1 to 4094') : setting(settings.access, id)
@@ -479,7 +487,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (split) model.object(['interfaces', ctx.name, 'subinterfaces', ctx.sub])
     if (routed !== null) {
       fields.push(model.set(['interfaces', ctx.name, 'subinterfaces', '0', 'routedVlan'], routed))
-      if (!svis.has(ctx.name)) svis.set(ctx.name, node)
+      svis.set(ctx.name, [...(svis.get(ctx.name) ?? []), node])
     }
     set(node, mapped(fields))
     for (const child of node.children) {
@@ -975,6 +983,8 @@ export function parse(text: string, _context: Context): ParseResult {
 
   /** Each `vlan …` statement and the VLANs it still defines (`no vlan` can take some of a list's). */
   const vlanStatements = new Map<IosNode, Set<number>>()
+  /** VLANs `no vlan` deleted and no later `vlan` defined again, by the statement that deleted them. */
+  const deletions = new Map<number, IosNode>()
 
   /** `vlan N` (or a list, `vlan 100,3000`, `vlan 10-20`): the VLANs, and a single one's `name`. */
   const mapVlan = (node: IosNode): void => {
@@ -982,7 +992,10 @@ export function parse(text: string, _context: Context): ParseResult {
     if (!ids) return unsupportedTree(node)
     vlanStatements.set(node, ids)
     set(node, mapped([...ids].map((id) => fieldPath('vlans', String(id)))))
-    for (const id of ids) model.object(['vlans', String(id)])
+    for (const id of ids) {
+      model.object(['vlans', String(id)])
+      deletions.delete(id)
+    }
     const [only] = ids.size === 1 ? ids : []
     for (const child of node.children) {
       const cw = child.words
@@ -1011,6 +1024,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const lines: number[] = []
     for (const id of ids) {
       if (DEFAULT_VLANS.has(id)) continue
+      deletions.set(id, node)
       for (const [n, defined] of vlanStatements) {
         if (!defined.delete(id)) continue
         lines.push(line(n))
@@ -1174,18 +1188,53 @@ export function parse(text: string, _context: Context): ParseResult {
   // out of the configuration, and IOS creates an access VLAN a port names): kept as VLANs with no name, mapped by the
   // first statement that uses them, which a render writes. A warning says so, by field (value-free), except for VLAN 1,
   // which IOS always has and never writes.
+  //
+  // A VLAN `no vlan` deleted (and no later `vlan` defined again) is another matter: the device has no such VLAN, its
+  // ports are inactive and its VLAN interface is down, which the model can't say, so they are left out rather than the
+  // VLAN brought back. The exception is an access VLAN set after the deletion, which IOS creates again itself (for
+  // every port that uses it).
   const uses = new Map<number, IosNode>()
   const use = (id: unknown, node: IosNode | undefined) => {
     if (typeof id === 'number' && node && !uses.has(id)) uses.set(id, node)
   }
-  for (const [name, iface] of Object.entries((model.root as Device).interfaces ?? {})) {
+  const interfaces = Object.entries((model.root as Device).interfaces ?? {})
+  for (const [name, iface] of interfaces) {
+    const access = iface.switching?.accessVlan
+    const owner = owners.get(fieldPath('interfaces', name, 'switching', 'accessVlan'))
+    const deletion = access === undefined ? undefined : deletions.get(access)
+    if (deletion && owner && line(owner) > line(deletion)) deletions.delete(access!)
+  }
+  /** The `no vlan` that deleted VLAN `id`, when it is still gone. */
+  const deletedBy = (id: unknown): IosNode | undefined => (typeof id === 'number' ? deletions.get(id) : undefined)
+  for (const [name, iface] of interfaces) {
     const s = iface.switching
     const owner = (leaf: string) => owners.get(fieldPath('interfaces', name, 'switching', leaf))
-    use(iface.subinterfaces?.['0']?.routedVlan, svis.get(name))
+    const trunk = trunks.get(name)
+    const lastTrunk = trunk?.nodes[trunk.nodes.length - 1]
+    const singles = (s?.allowedVlans ?? []).filter((entry) => INTEGER.test(entry)).map(Number)
+    const routed = iface.subinterfaces?.['0']?.routedVlan
+    const svi = svis.get(name) ?? []
+    const routedGone = deletedBy(routed)
+    if (routedGone) {
+      // The VLAN interface of a deleted VLAN: left out whole, with its addresses.
+      model.remove(['interfaces', name])
+      const why = unsupported(`left out whole: it routes for a VLAN line ${line(routedGone)} deletes`)
+      const all = (n: IosNode): IosNode[] => [n, ...n.children.flatMap(all)]
+      for (const n of svi.flatMap(all)) if (n.kind !== 'comment') set(n, why)
+      continue
+    }
+    const switchGone = deletedBy(s?.accessVlan) ?? deletedBy(s?.nativeVlan) ?? singles.map(deletedBy).find((d) => d !== undefined)
+    if (switchGone) {
+      // A switch port in a deleted VLAN: left out whole, as an access VLAN or allowed list without it would carry other
+      // VLANs than the device does.
+      model.remove(['interfaces', name, 'switching'])
+      for (const n of switchports.get(name) ?? []) if (dispositions[n.id]?.kind === 'mapped') set(n, unsupported(`left out whole: the switch port uses a VLAN line ${line(switchGone)} deletes`))
+      continue
+    }
+    use(routed, svi[0])
     use(s?.accessVlan, owner('accessVlan'))
     use(s?.nativeVlan, owner('nativeVlan'))
-    const trunk = trunks.get(name)
-    for (const entry of s?.allowedVlans ?? []) if (INTEGER.test(entry)) use(Number(entry), trunk?.nodes[trunk.nodes.length - 1])
+    for (const id of singles) use(id, lastTrunk)
   }
   for (const [id, node] of uses) {
     if (model.get(['vlans', String(id)]) !== undefined) continue
