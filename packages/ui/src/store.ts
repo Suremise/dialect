@@ -120,18 +120,26 @@ export interface State {
   setExiting: (exiting: boolean) => void
   /**
    * The active conversion tab's source, as typed (no name given), or as opened, dropped or pasted (a name, or null for
-   * pasted text). Opened and pasted text loses a leading byte order mark; typed text is kept as it is, so the editor's
-   * cursor doesn't move. With no conversion tab active, opened text goes into a new display set tab.
+   * pasted text): `typeSource` or `loadSource` into the tab shown.
    */
   setSource: (source: string, sourceName?: string | null, sourcePath?: string | null) => void
+  /** A tab's source as typed in its editor, kept as it is so the editor's cursor doesn't move. */
+  typeSource: (id: string, source: string) => void
+  /**
+   * Text opened, dropped or pasted (a name, or null for pasted text) into the tab the action started in, which may no
+   * longer be the one shown: the clipboard and files answer later. It loses a leading byte order mark, and the tab's
+   * interface names (another config's ports are other ports). `null` puts it in a new display set tab (an action
+   * started with no conversion tab shown). False, and nothing changes, when that tab has been closed meanwhile.
+   */
+  loadSource: (id: string | null, text: string, sourceName: string | null, sourcePath?: string | null) => boolean
   setJob: (job: Job) => void
   setTarget: (targetId: string) => void
   /** Names an interface on the target; an empty name clears it. */
   setInterfaceName: (source: string, target: string) => void
   /** Takes every suggestion for an interface that has no name yet. */
   takeSuggestions: () => void
-  /** Adds a loaded map's names to the current ones. */
-  mergeInterfaceMap: (map: InterfaceMap) => void
+  /** Adds a loaded map's names to a tab's (the one shown unless said); false if that tab has been closed. */
+  mergeInterfaceMap: (map: InterfaceMap, id?: string) => boolean
   /** The tab's output was saved, to `path` where the shell can write there again. */
   markSaved: (id: string, output: string, path: string | null) => void
   setTheme: (theme: ThemeChoice) => void
@@ -386,15 +394,17 @@ export const useStore = create<State>()((set, get) => {
     cancelClose: () => set({ closing: null }),
     setExiting: (exiting) => set({ exiting }),
     setSource: (source, sourceName, sourcePath = null) => {
-      let tab = active()
-      if (!tab) {
-        if (sourceName === undefined) return
-        get().newTab(DISPLAY_SET)
-        tab = active()!
-      }
-      if (sourceName === undefined) return update(tab.id, { source, reopen: null })
+      const tab = active()
+      if (sourceName !== undefined) get().loadSource(tab?.id ?? null, source, sourceName, sourcePath)
+      else if (tab) get().typeSource(tab.id, source)
+    },
+    typeSource: (id, source) => update(id, { source, reopen: null }),
+    loadSource: (id, text, sourceName, sourcePath = null) => {
+      const target = id ?? get().newTab(DISPLAY_SET)
+      if (!get().tabs.some((t) => t.id === target && t.kind === 'conversion')) return false
       // Another config: its interfaces may be other ports, so no name carries over unasked.
-      update(tab.id, { source: withoutBom(source), sourceName, sourcePath, interfaceMap: mapOf([]), reopen: null })
+      update(target, { source: withoutBom(text), sourceName, sourcePath, interfaceMap: mapOf([]), reopen: null })
+      return true
     },
     setJob: (job) => {
       const tab = active()
@@ -413,9 +423,11 @@ export const useStore = create<State>()((set, get) => {
       const taken = tab.interfaces.flatMap((i) => (i.target === undefined && i.suggestion ? [[i.source, i.suggestion] as const] : []))
       update(tab.id, { interfaceMap: mapOf([...Object.entries(tab.interfaceMap), ...taken]) })
     },
-    mergeInterfaceMap: (map) => {
-      const tab = active()
-      if (tab) update(tab.id, { interfaceMap: mapOf([...Object.entries(tab.interfaceMap), ...Object.entries(map)]) })
+    mergeInterfaceMap: (map, id = get().activeId ?? '') => {
+      const tab = get().tabs.find((t): t is ConversionTab => t.id === id && t.kind === 'conversion')
+      if (!tab) return false
+      update(tab.id, { interfaceMap: mapOf([...Object.entries(tab.interfaceMap), ...Object.entries(map)]) })
+      return true
     },
     markSaved: (id, output, path) => set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === 'conversion' ? { ...t, savedOutput: output, savedPath: path ?? t.savedPath } : t)) })),
     setTheme: (theme) => {

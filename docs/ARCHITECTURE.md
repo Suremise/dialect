@@ -507,10 +507,12 @@ The window is a menu bar, a tab strip and the current tab's page (juniper-decisi
   handler (after the editors, so CodeMirror keeps Undo, Redo and its search keys), and `keysOf()`, which puts a
   command's browser-safe keys (`webKeys`: Alt+T, Alt+W, Alt+1…9, Alt+PgDn) first in the web build, since a browser
   keeps Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+1…9 for its own tabs.
-- `src/actions.ts`: what the commands and buttons do with the shell: open into the tab shown (a new display set tab
-  when a Docs tab shows), paste, copy and save its output (Save output writes to the earlier save's path where the
-  shell can, Save output as always asks), Exit, and Edit's Undo and Redo on the tab's editor last focused
-  (`editor/views.ts` keeps each tab's editors).
+- `src/actions.ts`: what the commands and buttons do with the shell: open, drop and paste into a tab (a new display set
+  tab when a Docs tab shows), load an interface map, copy and save a tab's output (Save output writes to the earlier
+  save's path where the shell can, Save output as always asks), Exit, and Edit's Undo and Redo on the tab's editor
+  last focused (`editor/views.ts` keeps each tab's editors). The shell answers later, so each action takes the tab it
+  started in and the store's `loadSource` and `mergeInterfaceMap` put the answer there, even if another tab is shown by
+  then; if that tab has been closed, the answer goes nowhere and a notice says so (`tests/actions.test.ts`).
 - `src/App.tsx`: the menu bar, the tab strip, every tab's page (a conversion's or a Docs page's, all mounted, the others
   hidden, so each tab's editors keep their text and undo history), the status bar for the tab shown and the dialogs. A
   file dropped anywhere opens, even on an editor: the drop is handled in the capture phase, so CodeMirror doesn't
@@ -518,7 +520,9 @@ The window is a menu bar, a tab strip and the current tab's page (juniper-decisi
 - `src/components/MenuBar.tsx`: File, Edit, View, Window (each open tab, the current one ticked) and Help, every item a
   command from the registry with its shortcut. WAI-ARIA's menubar pattern: `menubar`, `menu`, `menuitem` and
   `menuitemradio` (the theme, the tabs) with `aria-checked`; Alt or F10 moves to the bar and back, the arrow keys,
-  Home and End move, Enter or Space runs, Esc closes a menu and then leaves the bar, handing the focus back.
+  Home and End move, Enter or Space runs, Esc closes a menu and then leaves the bar, handing the focus back to where it
+  was: inside an editor's shadow root, the editor itself (the focus event's composed path, not its host). A menu stays
+  inside the window and scrolls (the Window menu with many tabs).
 - `src/components/TabStrip.tsx`: a `tablist` of the tabs (title, an unsaved dot, ×, the path on hover), "+" for a new
   tab, middle-click and Delete to close, the arrow keys, Home and End to move; it scrolls sideways in a narrow window
   and keeps the current tab in view. `Dialogs.tsx`: the new tab picker (from `jobs()`) and the questions before closing

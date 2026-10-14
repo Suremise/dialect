@@ -3,6 +3,7 @@
 // access. Every menu item and shortcut is a command from one registry (commands.ts).
 import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import iconUrl from '../../../branding/icon-small.svg'
+import { dropFile } from './actions'
 import { createCommands, matchKey, runCommand } from './commands'
 import { ConversionView, jobTitle, outputSummary } from './components/ConversionView'
 import { CloseDialog, ExitDialog, NewTabDialog } from './components/Dialogs'
@@ -53,7 +54,7 @@ export function App({ platform }: { platform: Platform }) {
   const activeId = useStore((s) => s.activeId)
   const theme = useStore((s) => s.theme)
   const notice = useStore((s) => s.notice)
-  const { setSource, notify, dismissNotice } = useStore.getState()
+  const { dismissNotice } = useStore.getState()
   const commands = useMemo(() => createCommands(platform), [platform])
   const systemDark = useSystemDark()
   const dark = theme === 'system' ? systemDark : theme === 'dark'
@@ -103,11 +104,8 @@ export function App({ platform }: { platform: Platform }) {
     if (!e.dataTransfer.types.includes('Files')) return
     e.preventDefault()
     e.stopPropagation()
-    // The shell reads it (as it opens and saves files), here from the event's data.
-    platform.openDropped(e.dataTransfer).then(
-      (file) => file && setSource(file.text, file.name, file.path ?? null),
-      (err: Error) => notify('error', `Couldn't open the dropped file: ${err.message}`)
-    )
+    // The shell reads it (as it opens and saves files), here from the event's data, into the tab shown now.
+    void dropFile(platform, e.dataTransfer)
   }
 
   const conversion = active?.kind === 'conversion' ? active : null

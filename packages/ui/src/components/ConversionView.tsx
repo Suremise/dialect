@@ -32,7 +32,7 @@ export function jobTitle(tab: ConversionTab): { output: string; status: string; 
 
 export function ConversionView({ tab, active, platform, dark }: { tab: ConversionTab; active: boolean; platform: Platform; dark: boolean }) {
   const reveal = useStore((s) => (s.reveal?.tab === tab.id ? s.reveal : null))
-  const { setSource, setTarget, revealAt } = useStore.getState()
+  const { typeSource, setTarget, revealAt } = useStore.getState()
   const { id, job, source, sourceName, output, links, problems } = tab
   const converting = job.kind === 'convert'
   const target = converting ? targetPlugin(job.target) : null
@@ -94,10 +94,10 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
           </select>
         )}
         <div className="toolbar" role="toolbar" aria-label="Actions">
-          <button className="btn" onClick={() => void openFile(platform)} title="Open a config file in this tab">
+          <button className="btn" onClick={() => void openFile(platform, id)} title="Open a config file in this tab">
             <OpenIcon /> Open…
           </button>
-          <button className="btn" onClick={() => void paste(platform)} title="Replace the source with the clipboard's text">
+          <button className="btn" onClick={() => void paste(platform, id)} title="Replace the source with the clipboard's text">
             <PasteIcon /> Paste
           </button>
           <button className="btn" onClick={() => void copyOutput(platform)} disabled={!output} title={`Copy the ${titles.output} output`}>
@@ -131,7 +131,7 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
             pane="source"
             label="Source config"
             value={source}
-            onChange={(text) => setSource(text)}
+            onChange={(text) => typeSource(id, text)}
             placeholder="Paste a hierarchical Junos config here, open a file, or drop one anywhere in this window."
             marks={sourceMarks}
             reveal={reveal}

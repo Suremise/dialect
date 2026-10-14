@@ -752,6 +752,94 @@ describe('tabs and the menu bar in the web build', () => {
     expect(await menuOf('File').locator('.menu-label').allInnerTexts()).toEqual(['New Tab…', 'Open…', 'Save Output', 'Save Output As…', 'Close Tab'])
   })
 
+  it('puts what the clipboard and the file picker give in the tab that asked, though another is shown by then', async () => {
+    await openPage()
+    await typeSource('system { host-name r1; }')
+    await newTab(DISPLAY_SET_JOB)
+    await typeSource('system { host-name r2; }')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('set system host-name r2')
+    // A clipboard that answers only when the test says.
+    await page.evaluate(() => {
+      const probe = window as unknown as { __answer?: (text: string) => void }
+      navigator.clipboard.readText = () => new Promise<string>((resolve) => (probe.__answer = resolve))
+    })
+    await page.keyboard.press('Control+1')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('set system host-name r1')
+    await tab().getByRole('button', { name: 'Paste' }).click()
+    await page.keyboard.press('Control+2')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('set system host-name r2')
+    await page.evaluate(() => (window as unknown as { __answer: (text: string) => void }).__answer('system { host-name pasted; }'))
+    // The second tab, shown, keeps its config; the first got the paste.
+    await expect.poll(() => page.locator('[role=tabpanel] [data-pane=output]').count(), UI_WAIT).toBe(2)
+    expect(await firstOutputLine()).toBe('set system host-name r2')
+    await page.keyboard.press('Control+1')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('set system host-name pasted')
+    // A file picked after moving to another tab opens in the tab it was asked for from.
+    const chooser = page.waitForEvent('filechooser', UI_WAIT)
+    await tab().getByRole('button', { name: /^Open/ }).click()
+    const picker = await chooser
+    await page.keyboard.press('Control+2')
+    await picker.setFiles(fixture('config_1.conf'))
+    await page.keyboard.press('Control+1')
+    await expect.poll(() => text('source-name'), UI_WAIT).toBe('config_1.conf')
+    await page.keyboard.press('Control+2')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('set system host-name r2')
+    expect(await text('source-name')).toBe('Pasted text')
+  })
+
+  it('keeps the Window menu inside the smallest window with 20 tabs, scrolling, every entry reachable', async () => {
+    await openPage()
+    await page.setViewportSize({ width: 720, height: 480 })
+    for (let i = 1; i < 20; i++) {
+      await page.keyboard.press('Alt+T')
+      await page.getByRole('dialog', { name: 'New tab' }).waitFor(UI_WAIT)
+      await page.keyboard.press('Enter')
+      await expect.poll(() => tabs().then((t) => t.titles.length), UI_WAIT).toBe(i + 1)
+    }
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).focus()
+    // Up opens it at its last item, Previous Tab: scrolled into view, inside the window.
+    await page.keyboard.press('ArrowUp')
+    await expect.poll(focused, UI_WAIT).toBe('Previous Tab')
+    const menuBox = (await menuOf('Window').boundingBox())!
+    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(480)
+    expect(await menuOf('Window').evaluate((m) => m.scrollHeight > m.clientHeight)).toBe(true)
+    const last = (await itemOf('Window', 'Previous Tab').boundingBox())!
+    expect(last.y).toBeGreaterThanOrEqual(menuBox.y)
+    expect(last.y + last.height).toBeLessThanOrEqual(Math.min(480, menuBox.y + menuBox.height))
+    // And by the pointer: the last entry, after scrolling.
+    await itemOf('Window', 'Previous Tab').click()
+    await expect.poll(() => page.getByRole('tab', { selected: true }).evaluate((t) => [...t.parentElement!.children].indexOf(t)), UI_WAIT).toBe(18)
+  })
+
+  it('gives the focus back to the editor it came from: Esc from the bar, F10 again, or after running an item', async () => {
+    await openPage()
+    const sourceText = (): Promise<string> => tab().locator('[data-pane=source] .cm-content').innerText()
+    await typeSource('system {')
+    await page.keyboard.press('Alt')
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(focused, UI_WAIT).toBe('New Tab…')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await page.keyboard.insertText(' host-name r1;')
+    await expect.poll(sourceText, UI_WAIT).toBe('system { host-name r1;')
+    await page.keyboard.press('F10')
+    await expect.poll(focused, UI_WAIT).toBe('File')
+    await page.keyboard.press('F10')
+    await page.keyboard.insertText(' }')
+    await expect.poll(sourceText, UI_WAIT).toBe('system { host-name r1; }')
+    // View → Light Theme by the keyboard, then on typing.
+    await page.keyboard.press('Alt')
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(focused, UI_WAIT).toBe('Light Theme')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme), UI_WAIT).toBe('light')
+    await page.keyboard.insertText('#')
+    await expect.poll(sourceText, UI_WAIT).toBe('system { host-name r1; }#')
+  })
+
   it('keeps the menu bar and the tab strip usable in a narrow window, the strip scrolling', async () => {
     await openPage()
     await page.setViewportSize({ width: 720, height: 480 })

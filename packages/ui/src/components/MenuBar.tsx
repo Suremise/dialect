@@ -2,7 +2,7 @@
 // the current one ticked) and Help. Every item is a command from the registry (commands.ts), shown with its shortcut.
 // The keyboard works as in a desktop app's menu bar (WAI-ARIA's menubar pattern): Alt or F10 moves to the bar, the
 // arrow keys move along it and down a menu, Enter or Space runs an item, Home and End go to the ends, Esc goes back.
-import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { formatKey, keysOf, runCommand, type Command } from '../commands'
 import { DOCS } from '../help/docs'
 import type { Platform } from '../platform'
@@ -30,6 +30,11 @@ export function MenuBar({ commands, platform }: { commands: readonly Command[]; 
   const menuRef = useRef<HTMLDivElement>(null)
   /** Where the focus was before it came to the bar, to give it back. */
   const returnFocus = useRef<HTMLElement | null>(null)
+  /**
+   * The element focused last outside the bar and its menus: inside an editor's shadow root, the editor's own content
+   * (the event's composed path), not its host, which can't take the focus back.
+   */
+  const lastOutside = useRef<HTMLElement | null>(null)
   const byId = new Map(commands.map((c) => [c.id, c]))
 
   const menus: Menu[] = [
@@ -53,19 +58,31 @@ export function MenuBar({ commands, platform }: { commands: readonly Command[]; 
     if (barRef.current?.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
   }
 
-  /** Opens menu `i`, its first item focused when asked (the keyboard), else its button. */
-  const openMenu = (i: number, focusItem: 'first' | 'last' | null): void => {
-    setOpen(i)
+  /** The item to focus once the menu opening now is drawn (opened by the keyboard). */
+  const focusItem = useRef<'first' | 'last' | null>(null)
+
+  /** Opens menu `i`, its first or last item focused when asked (the keyboard), else its button. */
+  const openMenu = (i: number, item: 'first' | 'last' | null): void => {
     barButtons()[i]?.focus()
-    if (focusItem) requestAnimationFrame(() => (focusItem === 'first' ? menuItems()[0] : menuItems().at(-1))?.focus())
+    // Open already (by a click): its items are there to focus now.
+    if (open === i) return void (item && (item === 'first' ? menuItems()[0] : menuItems().at(-1))?.focus())
+    focusItem.current = item
+    setOpen(i)
   }
+
+  // Before the next key arrives: the menu is drawn by the end of the key event that opened it.
+  useLayoutEffect(() => {
+    const item = focusItem.current
+    focusItem.current = null
+    if (open !== null && item) (item === 'first' ? menuItems()[0] : menuItems().at(-1))?.focus()
+  }, [open])
 
   // Alt alone (pressed and let go with no other key between) or F10 moves to the bar, and back again.
   useEffect(() => {
     let altAlone = false
     const toggle = (): void => {
       if (barRef.current?.contains(document.activeElement) || menuRef.current?.contains(document.activeElement)) return leave()
-      returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      returnFocus.current = lastOutside.current
       barButtons()[0]?.focus()
     }
     const onDown = (e: KeyboardEvent): void => {
@@ -86,6 +103,11 @@ export function MenuBar({ commands, platform }: { commands: readonly Command[]; 
       if (open !== null && !barRef.current?.contains(e.target as Node) && !menuRef.current?.contains(e.target as Node)) setOpen(null)
     }
     const onBlur = (): void => setOpen(null)
+    const onFocusIn = (e: Event): void => {
+      const target = e.composedPath()[0]
+      if (target instanceof HTMLElement && !barRef.current?.contains(target) && !menuRef.current?.contains(target)) lastOutside.current = target
+    }
+    window.addEventListener('focusin', onFocusIn, true)
     window.addEventListener('keydown', onDown, true)
     window.addEventListener('keyup', onUp, true)
     window.addEventListener('mousedown', onMouse, true)
@@ -95,12 +117,13 @@ export function MenuBar({ commands, platform }: { commands: readonly Command[]; 
       window.removeEventListener('keyup', onUp, true)
       window.removeEventListener('mousedown', onMouse, true)
       window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focusin', onFocusIn, true)
     }
   }, [open])
 
   const onBarFocus = (e: FocusEvent): void => {
-    const from = e.relatedTarget as HTMLElement | null
-    if (from && !barRef.current?.contains(from) && !menuRef.current?.contains(from)) returnFocus.current = from
+    const from = e.relatedTarget as Node | null
+    if (from && !barRef.current?.contains(from) && !menuRef.current?.contains(from)) returnFocus.current = lastOutside.current
   }
 
   const onBarKey = (i: number) => (e: ReactKeyboardEvent): void => {
