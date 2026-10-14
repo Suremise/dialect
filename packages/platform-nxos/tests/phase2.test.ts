@@ -339,6 +339,21 @@ describe('BGP', () => {
     for (const model of [differs, vrfsDiffer, unused]) expect(accounted(model)).toEqual([])
   })
 
+  it('a global template with a password, used in two VRFs, is one question deferring each copy\'s flag, answered once', () => {
+    const text = lines('vrf context A', 'vrf context B', 'router bgp 65000', '  template peer G', '    remote-as 65000', '    password 3 PLACEHOLDER-BGP-PASSWORD', '  vrf A', '    neighbor 192.0.2.2', '      inherit peer G', '  vrf B', '    neighbor 192.0.2.3', '      inherit peer G')
+    expect(roundTrips(text)).toEqual([])
+    const model = parse(text).model
+    const fields = ['default', 'A', 'B'].map((i) => fieldPath('networkInstances', i, 'bgp', 'groups', 'G', 'authentication'))
+    const asked = render(model).needsInput ?? []
+    expect(asked.map((item) => [item.kind, item.field])).toEqual(fields.map((f) => ['secret', f]))
+    expect(new Set(asked.map((item) => item.id)).size).toBe(1)
+    const inputs = { [asked[0].id]: 'answer1' }
+    const answered = render(model, inputs)
+    expect(answered.text.match(/password/g)).toHaveLength(1)
+    expect(fields.map((f) => answered.dispositions[f]?.kind)).toEqual(['rendered', 'rendered', 'rendered'])
+    expect([accounted(model), accounted(model, inputs)]).toEqual([[], []])
+  })
+
   it('a password is never carried: flagged on parse, asked for on render, written when answered', () => {
     const text = lines('router bgp 65000', '  neighbor 192.0.2.2', '    remote-as 65001', '    password 3 CANARY_PASSWORD', '    address-family ipv4 unicast', '      route-map M in')
     const result = parse(text)

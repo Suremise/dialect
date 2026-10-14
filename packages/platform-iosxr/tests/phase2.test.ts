@@ -179,6 +179,21 @@ describe('BGP', () => {
     for (const model of [differs, vrfsDiffer, unused]) expect(accounted(model)).toEqual([])
   })
 
+  it('a global neighbor group with a password, used in two VRFs, is one question deferring each copy\'s flag, answered once', () => {
+    const text = lines('vrf A', '!', 'vrf B', '!', 'router bgp 65000', ' neighbor-group G', '  remote-as 65000', '  password encrypted 0822455D0A16', ' !', ' vrf A', '  neighbor 192.0.2.2', '   use neighbor-group G', '  !', ' !', ' vrf B', '  neighbor 192.0.2.3', '   use neighbor-group G', '  !', ' !', '!')
+    expect(roundTrips(text)).toEqual([])
+    const model = parse(text).model
+    const fields = ['default', 'A', 'B'].map((i) => fieldPath('networkInstances', i, 'bgp', 'groups', 'G', 'authentication'))
+    const asked = render(model).needsInput ?? []
+    expect(asked.map((item) => [item.kind, item.field])).toEqual(fields.map((f) => ['secret', f]))
+    expect(new Set(asked.map((item) => item.id)).size).toBe(1)
+    const inputs = { [asked[0].id]: 'answer1' }
+    const answered = render(model, inputs)
+    expect(answered.text.match(/password/g)).toHaveLength(1)
+    expect(fields.map((f) => answered.dispositions[f]?.kind)).toEqual(['rendered', 'rendered', 'rendered'])
+    expect([accounted(model), accounted(model, inputs)]).toEqual([[], []])
+  })
+
   it('a password is never carried: flagged on parse, asked for on render, and the round trip leaves it to the answer', () => {
     const text = lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65000', '  password encrypted CANARY_PASSWORD', '!')
     const result = parse(text)

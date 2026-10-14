@@ -735,8 +735,13 @@ export function render(model: Device, context: Context): RenderResult {
   /** Each template of the plan, written once; its VRFs' copies are what it is (rendered on its lines, or not). */
   function renderGroups(groups: ReturnType<typeof planGroups>, indent: string, local: number) {
     for (const [name, { group, at, copies }] of groups.shared) {
+      const asked = needsInput.length
       renderPeer(`template peer ${name}`, group, at, indent, local)
       const prefix = fieldPath(...at)
+      // A question about the template (its password) is one question, answered once, whose answer is every copy's: an
+      // item for each copy, with the same id and the copy's field.
+      const questions = needsInput.slice(asked).filter((item) => item.field !== undefined && (item.field === prefix || item.field.startsWith(`${prefix}.`)))
+      for (const copy of copies) for (const item of questions) needsInput.push({ ...item, field: fieldPath(...copy) + item.field!.slice(prefix.length) })
       const under = Object.entries(dispositions).filter(([p]) => p === prefix || p.startsWith(`${prefix}.`) || p.startsWith(`${prefix}[`))
       for (const copy of copies) for (const [p, d] of under) dispositions[fieldPath(...copy) + p.slice(prefix.length)] = d
     }

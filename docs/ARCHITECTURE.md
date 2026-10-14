@@ -906,7 +906,9 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's
     VRF's group (#71)** is written with the global template of its name when it is the same (`planGroups()`, compared
     as canonical JSON), or, with no global one, as one template for every VRF whose group of that name is the same,
     written in the global table; either way only when a neighbor of the VRF inherits it, and its fields take the
-    template's dispositions (`renderGroups()`). Any other VRF group (one that differs, or that nothing inherits) is
+    template's dispositions (`renderGroups()`). A question about the template (its password) stays one question: an
+    item for each copy, with the same id and the copy's field, so one answer writes the one line and the round trip
+    defers each copy's flag. Any other VRF group (one that differs, or that nothing inherits) is
     `unsupported`, and so is a neighbor's `group` naming it. A Junos `internal` group writes
     `remote-as` with the local AS; `localAddress` and multihop with no TTL are `unsupported`. Route maps go per family,
     one each way: a policy for the whole peer goes into each family it carries (its template's too) unless the family
