@@ -362,9 +362,11 @@ export function parse(text: string, _context: Context): ParseResult {
 
 /**
  * Every syntax node's disposition: what reading the text settled (inactive, deleted), then what expansion did (groups
- * and ranges defined and applied), then what the node's statements mapped to, all together: mapped when any of them
- * was (a group statement maps wherever it applies), else unsupported if any was. A container with no statement of its
- * own takes its contents': it groups mapped statements, or holds only unsupported or ignored ones.
+ * and ranges defined and applied), then what the node's statements mapped to, all together. A node stands for several
+ * statements when it has a `[ … ]` list or is a group or range statement applied in several places: one of them
+ * unsupported makes the node unsupported, so it can't hide behind the others; else mapped when any is. A container
+ * with no statement of its own takes its contents': it groups mapped statements, or holds only unsupported or ignored
+ * ones.
  */
 function settle(tree: readonly SyntaxNode[], read: Readonly<Record<string, StatementDisposition>>, expansion: ReturnType<typeof expand>, statements: readonly Expanded[], results: readonly Mutable[]): Record<string, StatementDisposition> {
   const byNode = new Map<string, StatementDisposition[]>()
@@ -376,8 +378,14 @@ function settle(tree: readonly SyntaxNode[], read: Readonly<Record<string, State
   const out: Record<string, StatementDisposition> = {}
   const combine = (list: readonly StatementDisposition[], container: boolean): StatementDisposition => {
     const maps = list.filter((d) => d.kind === 'mapped')
-    if (maps.length) return mapped(container ? [] : [...new Set(maps.flatMap((d) => d.fields))])
-    return list.find((d) => d.kind === 'unsupported') ?? (container ? ignored('holds only statements ignored by design') : list[0])
+    const unconverted = list.find((d) => d.kind === 'unsupported')
+    if (container) return maps.length ? mapped([]) : (unconverted ?? ignored('holds only statements ignored by design'))
+    if (unconverted) {
+      if (!maps.length) return unconverted
+      const why = unconverted.reason ? `: ${unconverted.reason}` : ''
+      return unsupported(`only partly converted: some of its values or the places it applies aren't${why}`)
+    }
+    return maps.length ? mapped([...new Set(maps.flatMap((d) => d.fields))]) : list[0]
   }
   const visit = (node: SyntaxNode): StatementDisposition => {
     const kids = (node.children ?? []).map(visit)

@@ -322,14 +322,20 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `unprotect` change nothing. A set-form line that isn't a command (a stray `{`) is an error on that line only.
 - **Groups and ranges (`expand.ts`), before mapping:** `apply-groups G` at a level inherits group G's statements under
   that level, and `apply-groups-except G` stops it below one. A wildcard word in a group (`<*>`, `<ge-*>`,
-  `<[xe][et]-*>`: `*`, `?` and `[…]` classes) matches the names the configuration has at that place, so it adds to
-  what exists and never creates it. The configuration wins over what it inherits, a deeper `apply-groups` over a
+  `<[xe][et]-*>`: `*`, `?` and `[…]` classes) matches the names the configuration has at that place, the members of
+  its interface ranges included, so it adds to what exists and never creates it. An object two of a group's wildcards
+  match at the same place takes the first one's statements only, and a group's literal names win over its wildcards
+  (Juniper's "first matching item"). The configuration wins over what it inherits, a deeper `apply-groups` over a
   shallower one, the first group listed over later ones: inherited statements come first, in that order, and the
   mapper's "later supersedes earlier" does the rest. `interfaces interface-range R` gives each member (`member X`,
-  `member-range A to B` differing in the last number) the range's settings; explicit interface settings win. Member
-  patterns (`"xe-0/0/[0,1]"`) aren't expanded yet (`unsupported`). A group or range statement is mapped wherever it
-  applies; one that applies nowhere is `ignored-by-design` with why; the `apply-groups` and `member` statements
-  themselves are `ignored-by-design`.
+  `member-range A to B` differing in the last number) the range's settings; explicit interface settings win, and an
+  interface in two ranges takes the first range's where they differ (Juniper's inheritance priority). Ranges and
+  members a group defines count too. Member patterns (`"xe-0/0/[0,1]"`) aren't expanded yet (`unsupported`). A group
+  or range statement is mapped wherever it applies; one that applies nowhere is `ignored-by-design` with why; the
+  `apply-groups` and `member` statements themselves are `ignored-by-design`, or `unsupported` (an unknown group, a
+  member pattern). **A node that stands for several statements** (a `[ … ]` list, a group or range statement applied
+  in several places) is `unsupported` when any of them is, "only partly converted", so a value that isn't converted
+  can't hide behind the ones that are.
 - **Mapping (`parse.ts`):** each statement on its own: `system host-name`, `domain-name`, `domain-search`,
   `name-server A [routing-instance R]`, `ntp server A [version N] [prefer] [routing-instance R]`, `syslog host H` with
   `any <severity>` (`info` is informational, `any` debug), `port`, `routing-instance` and `facility-override`;

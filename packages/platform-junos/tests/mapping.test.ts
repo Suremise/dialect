@@ -66,7 +66,8 @@ describe('groups', () => {
     const interfaces = model(text).interfaces!
     expect(Object.keys(interfaces)).toEqual(['xe-0/0/0', 'et-0/0/1', 'ge-0/0/2'])
     expect([interfaces['xe-0/0/0'].mtu, interfaces['et-0/0/1'].mtu, interfaces['ge-0/0/2'].mtu]).toEqual([9192, 9192, undefined])
-    expect(interfaces['et-0/0/1'].subinterfaces!['5'].ipv4!.mtu).toBe(9000)
+    // An interface takes the first wildcard that matches it: xe- and et- the first's statements only, ge- the second's.
+    expect(interfaces['et-0/0/1'].subinterfaces!['5'].ipv4!.mtu).toBeUndefined()
     expect(interfaces['ge-0/0/2'].subinterfaces!['0'].ipv4!.mtu).toBe(9000)
   })
 
@@ -91,6 +92,78 @@ describe('groups', () => {
     expect(p.model.interfaces!['ge-0/0/0'].mtu).toBe(9192)
     expect(p.model.interfaces!['ge-0/0/1'].mtu).toBeUndefined()
     expect(p.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'no group of that name is defined' })
+  })
+})
+
+/** A set-form text as hierarchical, through display set's inverse being out of scope: by hand for these small cases. */
+const both = (set: string, hierarchical: string) => [set, hierarchical] as const
+
+describe('precedence, as Juniper documents it', () => {
+  it('gives an object the first wildcard of a group that matches it, in either form', () => {
+    for (const text of both(
+      'set groups G interfaces <ge-*> mtu 1500\nset groups G interfaces <*> mtu 9000\nset apply-groups G\nset interfaces ge-0/0/0 unit 0\nset interfaces xe-0/0/0 unit 0\n',
+      'groups {\n    G {\n        interfaces {\n            <ge-*> {\n                mtu 1500;\n            }\n            <*> {\n                mtu 9000;\n            }\n        }\n    }\n}\napply-groups G;\ninterfaces {\n    ge-0/0/0 {\n        unit 0;\n    }\n    xe-0/0/0 {\n        unit 0;\n    }\n}\n'
+    )) {
+      const interfaces = parse(text, context).model.interfaces!
+      expect([interfaces['ge-0/0/0'].mtu, interfaces['xe-0/0/0'].mtu]).toEqual([1500, 9000])
+    }
+  })
+
+  it("gives an interface in two ranges the first range's settings, in either form", () => {
+    for (const text of both(
+      'set interfaces interface-range A member ge-0/0/0\nset interfaces interface-range A mtu 1500\nset interfaces interface-range B member ge-0/0/0\nset interfaces interface-range B mtu 9000\nset interfaces interface-range B description from-B\n',
+      'interfaces {\n    interface-range A {\n        member ge-0/0/0;\n        mtu 1500;\n    }\n    interface-range B {\n        member ge-0/0/0;\n        mtu 9000;\n        description from-B;\n    }\n}\n'
+    )) {
+      expect(parse(text, context).model.interfaces!['ge-0/0/0']).toMatchObject({ mtu: 1500, description: 'from-B' })
+    }
+  })
+})
+
+describe('a node that stands for several statements', () => {
+  const kinds = (p: ParseResult, id: string) => p.dispositions[id].kind
+
+  it("is unsupported when one of its values is, whatever the order, and the rest still convert", () => {
+    for (const list of ['[ "ge-0/0/[0,1]" ge-0/0/2 ]', '[ ge-0/0/2 "ge-0/0/[0,1]" ]']) {
+      const p = parse(`set interfaces interface-range R member ${list}\nset interfaces interface-range R mtu 1500\n`, context)
+      expect(kinds(p, 'L1')).toBe('unsupported')
+      expect(p.model.interfaces).toEqual({ 'ge-0/0/2': { type: 'ethernet', mtu: 1500 } })
+    }
+    for (const list of ['[ NOPE G ]', '[ G NOPE ]']) {
+      const p = parse(`set apply-groups ${list}\nset groups G system host-name r1\n`, context)
+      expect(kinds(p, 'L1')).toBe('unsupported')
+      expect(p.model.system!.hostname).toBe('r1')
+    }
+    for (const list of ['[ 192.0.2.1 not-an-address ]', '[ not-an-address 192.0.2.1 ]']) {
+      const set = parse(`set system name-server ${list}\n`, context)
+      const hierarchical = parse(`system {\n    name-server ${list};\n}\n`, context)
+      expect(kinds(set, 'L1')).toBe('unsupported')
+      expect(kinds(hierarchical, 'L2:5')).toBe('unsupported')
+      expect(set.model).toEqual({ system: { dns: { servers: { '192.0.2.1': {} } } } })
+      expect(hierarchical.model).toEqual(set.model)
+    }
+  })
+
+  it('is mapped when its values are mapped or superseded, and ignored when all are', () => {
+    const p = parse('set system domain-search [ a.example b.example a.example ]\n', context)
+    expect(p.dispositions.L1).toEqual({ kind: 'mapped', fields: ['system.dns.search'] })
+  })
+})
+
+describe('range members and wildcards', () => {
+  it('lets a wildcard group match the members of a range with no settings of its own', () => {
+    const p = parse('set interfaces interface-range R member ge-0/0/0\nset interfaces interface-range R member-range ge-0/0/1 to ge-0/0/2\nset groups G interfaces <*> mtu 9000\nset apply-groups G\n', context)
+    expect(p.model.interfaces).toEqual({ 'ge-0/0/0': { type: 'ethernet', mtu: 9000 }, 'ge-0/0/1': { type: 'ethernet', mtu: 9000 }, 'ge-0/0/2': { type: 'ethernet', mtu: 9000 } })
+  })
+
+  it('lets it match the members a group names, and stops below apply-groups-except', () => {
+    const text = [
+      'set groups RANGES interfaces interface-range R member ge-0/0/0',
+      'set groups RANGES interfaces interface-range R member ge-0/0/1',
+      'set groups G interfaces <*> mtu 9000',
+      'set apply-groups [ RANGES G ]',
+      'set interfaces ge-0/0/1 apply-groups-except G'
+    ].join('\n')
+    expect(parse(text, context).model.interfaces).toEqual({ 'ge-0/0/0': { type: 'ethernet', mtu: 9000 } })
   })
 })
 
