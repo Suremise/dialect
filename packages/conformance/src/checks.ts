@@ -91,13 +91,21 @@ export function deferredSecrets(model: Device, rendered: RenderResult): string[]
   return [...new Set(fields)].filter((path) => leaves.has(path) && !written(path))
 }
 
-/** `model` without the leaves at `paths` (field paths), as a copy: null-prototype objects, own keys only. */
+/**
+ * `model` without the leaves at `paths` (field paths), as a copy: null-prototype objects, own keys only. An object left
+ * empty only by taking them out goes too (a group whose one leaf was its key), but one the model has empty stays: it
+ * is configured with nothing in it, a leaf of its own.
+ */
 function without(model: unknown, paths: ReadonlySet<string>, at: readonly string[] = []): unknown {
   if (!isObject(model) || !paths.size) return model
   const out: Record<string, unknown> = Object.create(null)
   for (const key of Object.keys(model)) {
     const segments = [...at, key]
-    if (!paths.has(fieldPath(...segments))) out[key] = without(own(model, key), paths, segments)
+    if (paths.has(fieldPath(...segments))) continue
+    const value = own(model, key)
+    const kept = without(value, paths, segments)
+    if (isObject(value) && Object.keys(value).length && isObject(kept) && !Object.keys(kept).length) continue
+    out[key] = kept
   }
   return out
 }

@@ -9,6 +9,8 @@ import { checkFixture, deferredSecrets } from '../src'
 const group = ['networkInstances', 'default', 'bgp', 'groups', 'G'] as const
 const key = fieldPath(...group, 'authentication')
 const description = fieldPath(...group, 'description')
+/** Group E, configured with nothing in it: a leaf of its own. */
+const empty = fieldPath('networkInstances', 'default', 'bgp', 'groups', 'E')
 
 /**
  * A line language: `description D` and `key K` on BGP group G. The render writes the description, and the key the
@@ -23,16 +25,19 @@ function stub(defer: 'secret' | 'drop' | 'description-as-other'): PlatformPlugin
     parse(text) {
       const lines = text.split('\n').filter((l) => l !== '')
       const g: { description?: string; authentication?: true } = {}
+      let other = false
       const dispositions: Record<string, StatementDisposition> = {}
       lines.forEach((line, i) => {
         const [word, value] = line.split(' ')
         if (word === 'description') g.description = value
         if (word === 'key') g.authentication = true
-        dispositions[`L${i + 1}`] = { kind: 'mapped', fields: [word === 'key' ? key : description] }
+        if (word === 'empty') other = true
+        dispositions[`L${i + 1}`] = { kind: 'mapped', fields: [word === 'key' ? key : word === 'empty' ? empty : description] }
       })
+      const groups = { ...(Object.keys(g).length ? { G: g } : {}), ...(other ? { E: {} } : {}) }
       return {
         tree: lines.map((label, i) => ({ id: `L${i + 1}`, label })),
-        model: Object.keys(g).length ? { networkInstances: { default: { bgp: { groups: { G: g } } } } } : {},
+        model: Object.keys(groups).length ? { networkInstances: { default: { bgp: { groups } } } } : {},
         dispositions,
         diagnostics: []
       }
@@ -40,7 +45,9 @@ function stub(defer: 'secret' | 'drop' | 'description-as-other'): PlatformPlugin
     render(model) {
       const g = model.networkInstances?.default?.bgp?.groups?.G ?? {}
       const lines: string[] = []
+      if (model.networkInstances?.default?.bgp?.groups?.E) lines.push('empty')
       const dispositions: Record<string, FieldDisposition> = {}
+      if (lines.length) dispositions[empty] = { kind: 'rendered', span: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 2 } }
       const needsInput: NeedsInput[] = []
       const rendered = () => ({ kind: 'rendered' as const, span: { startLine: lines.length, startColumn: 1, endLine: lines.length, endColumn: 2 } })
       if (g.description !== undefined) {
@@ -72,6 +79,28 @@ describe('the round trip and keys the model flags but never carries', () => {
     const r = roundTrip(stub('secret'), 'description peers\nkey PLACEHOLDER\n')
     expect(r.status).toBe('passed')
     expect(r.deferred).toEqual([key])
+  })
+
+  it('passes a key that is the only leaf of its group, so the reparse has nothing there', () => {
+    const r = roundTrip(stub('secret'), 'key PLACEHOLDER\n')
+    expect(r.problems).toEqual([])
+    expect(r.status).toBe('passed')
+    expect(r.deferred).toEqual([key])
+  })
+
+  it('keeps what the model has empty beside a key-only group: only what taking the key out emptied goes', () => {
+    const r = roundTrip(stub('secret'), 'key PLACEHOLDER\nempty\n')
+    expect(r.problems).toEqual([])
+    expect(r.deferred).toEqual([key])
+    // A render that loses the empty group fails, key deferred or not.
+    const lost: PlatformPlugin = { ...stub('secret'), render: (model, context) => stub('secret').render!({ networkInstances: { default: { bgp: { groups: { G: model.networkInstances!.default.bgp!.groups!.G } } } } }, context) }
+    expect(roundTrip(lost, 'key PLACEHOLDER\nempty\n').status).toBe('failed')
+  })
+
+  it('fails a key-only group dropped without asking for it', () => {
+    const r = roundTrip(stub('drop'), 'key PLACEHOLDER\n')
+    expect(r.status).toBe('failed')
+    expect(r.deferred).toBeUndefined()
   })
 
   it('fails a render that drops the key without asking for it', () => {

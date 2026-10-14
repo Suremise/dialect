@@ -262,7 +262,8 @@ Each fixture goes through five checks (`checkFixture()`):
 2. render → no error, and the expected text (skipped when there is none and the render reported no error);
 3. render → reparse → no error, a model with no `modelProblems()`, and the same model, except a leaf the render left
    to the user: a populated leaf it didn't write that a `secret` needs-input item (with an id) names as its `field`
-   (`deferredSecrets()`), a key the model flags but never carries (#68). The result lists them (`deferred`), and the
+   (`deferredSecrets()`), a key the model flags but never carries (#68), and an object only taking it out left empty
+   (a group whose one leaf was its key; one the model has empty still counts). The result lists them (`deferred`), and the
    suite puts them in the test's name, so none is left out unseen. A leaf dropped without such an item, or left to an
    item of another kind, still fails;
 4. the coverage ledger is complete for the parse and the render;
