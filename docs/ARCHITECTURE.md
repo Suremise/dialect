@@ -44,7 +44,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.5.3)
+## Core contracts (`@dialect/core`, model 0.5.4)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -69,6 +69,14 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
   - since 0.5.1, the `filters` a subinterface applies, per family (`ipv4`, `ipv6`) and direction (`input`, `output`),
     by name: Junos `family inet filter input F`, Cisco `ip access-group F in` (on subinterface `0` for a main
     interface);
+  - since 0.5.4, LAGs (after OpenConfig `aggregation` and `lacp`): a member link names the `aggregate` it belongs to,
+    by the aggregate's interface name (Junos `ether-options 802.3ad ae0`, Cisco `channel-group 1` for `Port-channel1`,
+    IOS-XR `bundle id 1` for `Bundle-Ether1`), an interface of type `aggregate`; the aggregate's own `aggregation`
+    holds its `lacp` mode (`active`, `passive`, or `static`: Cisco `mode on`) and `minLinks`. With no `lacp` the
+    aggregate runs without LACP, every platform's default; `static` is the source saying so. Cisco gives the mode on
+    each member, so its parser puts it on the aggregate when the members agree and leaves their modes `unsupported`
+    with a reason when they don't. Names between platforms follow convert's aggregate suggestions (`aeN` ↔
+    `Port-channel(N+1)`);
 - `vlans`, keyed by VLAN ID (`"10"`), with a `name` (Junos's key for it) and `description`;
 - `networkInstances`: `default` for the global table, each with a `type` (`default`, `vrf`, `virtual-router`),
   `staticRoutes` and their next hops, and for a VRF its `routeDistinguisher` and `routeTargets` (`import` and `export`
@@ -129,6 +137,10 @@ null-prototype objects (`Object.create(null)`) or a `Map`, never `map[key] ??= {
 `MODEL_VERSION` is the model's own semver, separate from the package's. Minor versions only add; major versions
 break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0.1.0 <1.0.0'`, not `^0.1.0`.
 
+While the model is 0.x, its numbers say this: the **middle number marks a phase** (0.4.0 phase 2, 0.5.0 phase 3), and
+the **last number goes up for every additive change** within it (0.5.1 filters, 0.5.2 VRF policies, 0.5.4 LAGs). Both
+only add, so either kind of bump keeps every 0.x plugin loading; a breaking change waits for 1.0.
+
 | Model | What it added |
 |---|---|
 | 0.1.0 | The phase 1 areas (B2) |
@@ -140,11 +152,13 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 | 0.5.1 | `Device.filters` (`Filters`): firewall filters and ACLs and their terms, `Subinterface.filters` (`FilterAttachments`), and the `filters` feature area (#73) |
 | 0.5.2 | `NetworkInstance.importPolicies`, `exportPolicies` and `vrfPolicyMode` (`VrfPolicyMode`): a VRF's own policies and how they stand with its route targets (#83) |
 | 0.5.3 | `FilterTerm.description`: what an ACL entry is for, one line of text (a Cisco `remark`) (#101) |
+| 0.5.4 | `Interface.aggregate` (a member link's LAG) and `Interface.aggregation` (`Aggregation`: the `lacp` mode, `LacpMode`, and `minLinks`) (#81) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
 renderer, a subinterface's `networkInstance` for a 0.2 one or any of 0.4's VLAN, switch port, routed VLAN, OSPF and BGP
 fields for a 0.3 one, any routing policy field for a 0.4 one, any filter field for a 0.5.0 one, a VRF's policies
-for a 0.5.1 one or a filter term's description for a 0.5.2 one, shows in the ledger as unrendered rather than being dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
+for a 0.5.1 one, a filter term's description for a 0.5.2 one or a member's aggregate and an aggregate's LACP mode and
+minimum links for a 0.5.3 one, shows in the ledger as unrendered rather than being dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
 
 ### Routing policy (model 0.5.0)
 
@@ -249,6 +263,11 @@ From 0.4.0, references resolve and values are in range:
   name an interface, and with a `.N` that isn't part of a key, one of its subinterfaces (`model.unknown-interface`); a
   neighbor's group is one of its instance's (`model.unknown-bgp-group`).
 
+From 0.5.4, LAGs: a member link's `aggregate` names an interface of the model (`model.unknown-aggregate`) of type
+`aggregate` (`model.aggregate-type`), and an aggregate is no member itself (`model.aggregate-member`); only an
+aggregate has `aggregation` settings (`model.aggregation-interface`), its `lacp` is `active`, `passive` or `static`
+(`model.lacp-mode`) and its `minLinks` a whole number from 1 (`model.min-links`).
+
 From 0.5.0, routing policy (`routingPolicyProblems()`, which modelProblems() runs):
 - keys of terms, entries and route filters are positions (`isPositionKey()`, `model.position`); a prefix is in CIDR
   form with no host bits set, of its list's family (`parsePrefix()`, `model.prefix`), and its lengths run from its own
@@ -333,7 +352,8 @@ Spans are for display only: the ledger never uses them, because one line can hol
 interfaces renamed by the user's answers, the target's render, and the ledger over both (no render after a parse
 error). Interface names are the core's job, not a plugin's, so they never map silently:
 - every interface the model names, as a key or by reference (`ntp`/`logging` `sourceInterface`, a next hop's
-  `interface`, an OSPF interface's key, a BGP `updateSource`, written `name` or `name.<subinterface>`), is a needs-input
+  `interface`, an OSPF interface's key, a BGP `updateSource`, since 0.5.4 a member link's `aggregate`, written `name` or
+  `name.<subinterface>`), is a needs-input
   item (`kind: 'interface-name'`, id
   `interface:<name>`, `interfaceInputId()`), first in the ledger's `needsInput`, with its field and the source statement
   that configures it (the outermost whose mapped fields are all that interface's), or the one that references it;
@@ -349,7 +369,7 @@ error). Interface names are the core's job, not a plugin's, so they never map si
   its source name and stays in `unanswered`;
 - `renameInterfaces(model, map)` places each row, renaming keys and references (`ge-0/0/0.0` →
   `GigabitEthernet0/0/0.0`; the IOS-XE renderer writes a `.0` reference as the main interface), OSPF interface keys
-  included, with null-prototype maps. A whole interface's answer renames it with its units. A unit's answer makes the
+  included, and a member link's `aggregate` with its aggregate (`ae0` → `Port-channel1`), with null-prototype maps. A whole interface's answer renames it with its units. A unit's answer makes the
   unit its own interface: `irb.100` → `Vlan100` is `Vlan100`'s unit `0`, carrying a copy of the `irb`'s own leaves
   (its type, MTU…); an answer with an index places it at that unit (`irb.100` → `irb.100`). A Cisco SVI answered with
   an index (`Vlan100` → `irb.100`) becomes that unit of the target, its description and `enabled` moving to the unit
@@ -377,13 +397,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.5.3.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.5.4.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.5.3", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.5.4", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
@@ -532,7 +552,9 @@ checks catch careless plugins:
   doesn't have, fails it too; a 0.5.1 renderer leaves a VRF's policies and their mode unrendered;
 - a 0.5.0 renderer leaves every filter and attachment field unrendered; the per-term rule holds for filters as for
   policies: a counting term left out whole passes, a discarding one left out while the rest of its filter is converted
-  fails, and a filter term partly unsupported on the parse fails.
+  fails, and a filter term partly unsupported on the parse fails;
+- a 0.5.3 renderer leaves each member's `aggregate` and the aggregate's `lacp` and `minLinks` unrendered, and a parse
+  whose member names an aggregate the model doesn't have fails the parse check.
 
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
@@ -797,6 +819,11 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   non-contiguous wildcard as malformed values, an interface applying an access list the text doesn't define, and the
   implicit deny; `tests/fixtures/filters` has every access list form it converts and the non-contiguous wildcard
   negative fixture, and the corpus cases include Aerleon's IOS outputs.
+- **Detect (`detect.ts`):** counts IOS's own signs (a dotted mask on `ip address`, `ip route`, `service timestamps`, a
+  `^C` banner, `ip access-list standard|extended NAME`, numbered `access-list N`, an entry's address and wildcard) and
+  discounts NX-OS's (`feature`, `vrf context`), IOS-XR's (`ipv4 address`, `ipv4 access-list`, four-part interface
+  names) and Junos's. The corpus's misses with every plugin registered are listed in `packages/cli/tests/detect.test.ts`
+  with why (#58).
 - **Convert suggestions (`names.ts`):** `nameInterface()` names an Ethernet port by its speed, `Port-channel`,
   `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. A Junos `irb.100`
   gets `Vlan100` only once the core's convert names an IRB unit on its own (#41): today it names the `irb` interface
@@ -1018,9 +1045,12 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
   an optional second argument, which the core's convert doesn't pass yet (#64's comment proposes it): without it,
   nothing is suggested, rather than guess the numbering.
 - **Detect (`detect.ts`):** counts NX-OS's own signs (`feature`, `vrf context`, `vrf member`, `use-vrf`, prefix-length
-  addresses, `switchname`, `version 9.3(3)`, `!Command: show running-config`, RANCID's `cisco-nx`) and discounts IOS's
-  (dotted masks, `end`, `service timestamps`, `vrf definition`), IOS-XR's and Junos's. Over the corpus, wherever either
-  plugin is sure (0.4 or more), the right one of NX-OS and IOS-XE scores higher.
+  addresses, `switchname`, `version 9.3(3)`, `!Command: show running-config`, RANCID's `cisco-nx`, `configure session`,
+  an `ip access-list NAME` with no kind) and discounts IOS's (dotted masks, `end`, `service timestamps`, `vrf
+  definition`), IOS-XR's and Junos's. Over the corpus, wherever either plugin is sure (0.4 or more), the right one of
+  NX-OS and IOS-XE scores higher. With every plugin registered, each corpus file detects as its own platform but for
+  the misses `packages/cli/tests/detect.test.ts` lists with why (#58): Batfish's unit tests that mix platforms'
+  syntax, fragments no platform's signs settle, and none a whole configuration.
 - **Tests:** the same layout as the IOS plugin's: hand-written fixtures per area through the kit
   (`tests/fixtures/<area>`, with expected models and renders), chosen corpus files against expected models in
   `tests/corpus/`, and every file of `fixtures/public/nxos` through the kit's checks. `plugin.test.ts` also checks

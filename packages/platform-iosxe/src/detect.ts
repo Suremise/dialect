@@ -8,6 +8,10 @@ const SIGNS: readonly (readonly [RegExp, number])[] = [
   [/^ip route (?:vrf \S+ )?\d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+/m, 0.3],
   [/^service timestamps /m, 0.3],
   [/^banner \w+ \^C/m, 0.3],
+  // Access lists: IOS names a list's kind (NX-OS and IOS-XR don't), and its entries' addresses take wildcards.
+  [/^ip access-list (?:standard|extended) \S+\s*$/m, 0.3],
+  [/^access-list \d+ (?:permit|deny|remark) /m, 0.3],
+  [/^\s+(?:\d+ )?(?:permit|deny) (?!ipv4 )\S+ (?:any|host \S+|\d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+) .*\d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+/m, 0.2],
   [/^version 1\d\.\d+\s*$/m, 0.2],
   [/^interface [A-Za-z-]+\d/m, 0.2],
   [/^hostname \S+\s*$/m, 0.1],
@@ -25,6 +29,7 @@ const OTHERS: readonly (readonly [RegExp, number])[] = [
   // IOS-XR.
   [/^\s+ipv4 address /m, 0.3],
   [/^interface \S+\d+\/\d+\/\d+\/\d+/m, 0.3],
+  [/^ipv4 access-list /m, 0.3],
   [/^!!/m, 0.5]
 ]
 

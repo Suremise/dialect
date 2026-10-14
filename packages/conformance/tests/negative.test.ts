@@ -461,6 +461,28 @@ describe('a renderer built for model 0.5.2 meeting 0.5.3\'s filter term descript
   })
 })
 
+describe('a renderer built for model 0.5.3 meeting 0.5.4\'s LAG membership', () => {
+  const old = stubPlugin({ modelApi: '>=0.5.3 <1.0.0' })
+  const model: Device = { interfaces: { ae0: { type: 'aggregate', aggregation: { lacp: 'active', minLinks: 2 } }, 'ge-0/0/0': { aggregate: 'ae0' }, 'ge-0/0/1': { aggregate: 'ae0' } } }
+
+  it('loads, and the ledger reports each member\'s aggregate and the LACP mode and minimum links as unrendered, not dropped', () => {
+    expect(() => createRegistry([old], { modelVersion: '0.5.4' })).not.toThrow()
+    expect(modelProblems(model)).toEqual([])
+    const rendered = old.render!(model, { modelVersion: '0.5.4' })
+    const unrendered = buildLedger(old.parse!('', { modelVersion: '0.5.4' }), rendered, model).target?.unrendered.map((f) => f.path) ?? []
+    for (const member of ['ge-0/0/0', 'ge-0/0/1']) expect(unrendered).toContain(fieldPath('interfaces', member, 'aggregate'))
+    for (const leaf of ['lacp', 'minLinks']) expect(unrendered).toContain(fieldPath('interfaces', 'ae0', 'aggregation', leaf))
+  })
+
+  it('fails the parse check for a member naming an aggregate the model doesn\'t have', () => {
+    const orphan: Device = { interfaces: { 'ge-0/0/0': { aggregate: 'ae0' } } }
+    const giving: PlatformPlugin = { ...stubPlugin(), parse: () => ({ tree: [], model: orphan, dispositions: {}, diagnostics: [] }) }
+    expect(byCheck(checkFixture(giving, { name: 'lag/orphan', source: '', expectedModel: orphan })).parse.problems).toEqual([
+      `parse made an invalid model: A member link names an aggregate interface the model doesn't have. (${fieldPath('interfaces', 'ge-0/0/0', 'aggregate')})`
+    ])
+  })
+})
+
 describe('a BGP policy name that resolves to nothing: checked for a plugin that parses routing policy', () => {
   const model: Device = { networkInstances: { default: { bgp: { neighbors: { '10.0.0.2': { peerAs: 65001, importPolicies: ['IN'] } } } } } }
   const giving = (capabilities: PlatformPlugin['capabilities']): PlatformPlugin => ({ ...stubPlugin(), capabilities, parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }) })
