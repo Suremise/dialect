@@ -1,7 +1,8 @@
 // The desktop app's smoke test: the built app (src-tauri/target/release/dialect.exe, run from the build output, not
 // installed) driven through tauri-driver and Microsoft Edge WebDriver (e2e/webdriver.ts). It drops a fixture on the window,
-// which the desktop Platform reads, and checks the display set output; then that the CSP blocks inline scripts and the
-// network, and that the fs plugin reads no file the user hasn't picked. The logic itself is the web build's, tested there.
+// which the desktop Platform reads, and checks the display set output; then About and the Docs pages, that the CSP blocks
+// inline scripts and the network, and that the fs plugin reads no file the user hasn't picked and the opener no link but
+// an https one. The logic itself is the web build's, tested there.
 //
 // Needs Rust (the build), tauri-driver (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver that
 // matches the installed WebView2, found through MSEDGEDRIVER (its path) or on PATH. `npm run test:smoke -w
@@ -134,6 +135,52 @@ describe('the desktop app', () => {
     const violations = (): Promise<string[]> => page().execute(() => [...(window as unknown as { __violations: string[] }).__violations].sort())
     await expect.poll(violations, UI_WAIT).toEqual(['connect-src http://tauri.localhost/', 'img-src https://example.com/probe.png', 'script-src-elem inline'])
     expect(await page().execute(() => (window as unknown as { __inlineRan?: boolean }).__inlineRan ?? false)).toBe(false)
+  })
+
+  it('shows About with the version and WebView2, and renders each Docs page', async () => {
+    const version = JSON.parse(readFileSync(join(desktop, '..', '..', 'package.json'), 'utf8')).version as string
+    const click = (selector: string, label: string): Promise<boolean> =>
+      page().execute(
+        (sel: string, text: string) => {
+          const target = [...document.querySelectorAll<HTMLElement>(sel)].find((el) => el.textContent?.trim() === text)
+          target?.click()
+          return !!target
+        },
+        selector,
+        label
+      )
+    expect(await click('button', 'Help')).toBe(true)
+    expect(await click('[role=menuitem]', 'About Dialect')).toBe(true)
+    await expect.poll(() => testIdText('about-info'), UI_WAIT).toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Desktop app\\s+WebView\\s+WebView2 \\d+\\.\\d+\\.\\d+\\.\\d+$`))
+    expect(await page().execute(() => document.querySelector<HTMLElement>('[role=dialog]')?.innerText ?? '')).toContain('Dialect is not affiliated with or endorsed by Juniper Networks or Cisco Systems.')
+    const heading = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('.docs-page h1')?.innerText ?? null)
+    // From About's links, then the Docs list.
+    expect(await click('[role=dialog] button', 'User Guide')).toBe(true)
+    await expect.poll(heading, UI_WAIT).toBe('Dialect user guide')
+    for (const [label, title] of [['Release Notes', 'Release Notes'], ['License', 'License'], ['Third-Party Notices', 'Third-party notices']]) {
+      expect(await click('.docs-nav-item', label)).toBe(true)
+      await expect.poll(heading, UI_WAIT).toBe(title)
+    }
+    // The notices list the app's Rust crates too.
+    expect(await page().execute(() => [...document.querySelectorAll('.docs-page h2')].some((h) => /^tauri [\d.]+ \(crate\)$/.test(h.textContent ?? '')))).toBe(true)
+    expect(await click('.docs-back', '← Display set')).toBe(true)
+    await expect.poll(() => paneText('source'), UI_WAIT).not.toBeNull()
+  })
+
+  it('opens no link but an https one in the browser', async () => {
+    // Only refusals are probed: an allowed https link would start the browser on this machine.
+    const results = await page().execute(() => {
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string, args: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__
+      return Promise.all(
+        ['http://example.com/', 'file:///C:/Windows/win.ini', 'C:\\dialect-probe\\missing.exe'].map((url) =>
+          internals.invoke('plugin:opener|open_url', { url }).then(
+            () => 'opened',
+            (error: unknown) => `refused: ${String(error)}`
+          )
+        )
+      )
+    })
+    for (const result of results) expect(result).toMatch(/^refused: .*(not allowed|scope|forbidden)/i)
   })
 
   it('reads no file the user has not picked', async () => {

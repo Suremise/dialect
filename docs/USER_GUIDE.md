@@ -1,6 +1,7 @@
 # Dialect user guide
 
-A first outline: each section is filled in by the card that builds what it describes. Dialect isn't released yet.
+Dialect isn't released yet. Sections about what isn't built yet (Convert) say what is coming. This guide is also in
+the app: **Help → User Guide** (F1).
 
 Dialect translates network device configs between vendor "dialects", offline. It isn't affiliated with or endorsed by
 Juniper Networks or Cisco Systems.
@@ -27,19 +28,21 @@ Dialect works offline: it sends nothing anywhere and keeps no logs of your confi
 ## Display set (Junos)
 
 Turning a hierarchical Junos config into `set` commands: opening or pasting a config, reading the output, inactive
-statements and annotations, saving and copying.
+statements and annotations, saving and copying. The desktop app and the web build work the same way; the command line
+is [below](#display-set).
 
 In the app:
 
-- **Open…** (Ctrl+O) picks a file, or drop a file anywhere in the window. **Paste** replaces the source with the
-  clipboard's text (if the browser doesn't allow that, click in the source pane and press Ctrl+V). You can also type
-  or edit the source directly.
+- **Open…** (Ctrl+O) picks a file (the desktop app shows the Windows Open dialog, the web build the browser's file
+  picker), or drop a file anywhere in the window. **Paste** replaces the source with the clipboard's text (if the
+  browser doesn't allow that, click in the source pane and press Ctrl+V). You can also type or edit the source
+  directly.
 - The display set appears on the right as you go. Click a set line and its statement is marked in the source; click a
   statement and its set lines are marked in the output.
 - **Problems** lists the warnings, or the syntax error, with their line and column. Click one to go to it. While there's
   a syntax error there's no output.
-- **Copy output** copies the set commands; **Save output** (Ctrl+S) saves them as `<name>.set` (the web build
-  downloads the file).
+- **Copy output** copies the set commands; **Save output** (Ctrl+S) saves them as `<name>.set`: the desktop app
+  asks where, in the Windows Save dialog, and the web build downloads the file.
 - The theme follows your system's light or dark setting. The button at the top right switches between light, dark
   and the system's.
 
@@ -113,4 +116,18 @@ A syntax error prints no set commands at all. `convert` comes later.
 
 ## About and Docs
 
-Help → About Dialect, and the Docs view: this guide, the release notes, the license and the third-party notices.
+**Help**, at the top right, opens the Docs view at one of its pages, or About:
+
+- **User Guide** (also F1): this guide.
+- **Release Notes**: what changed in each version.
+- **License**: Dialect's MIT License.
+- **Third-Party Notices**: the open-source software Dialect includes, each package and Rust crate with its version,
+  license and full license text, and the installer's components.
+
+The Docs view takes the place of the source and output panes; **← Display set** or Esc goes back, and opening a file
+does too. A link to another of these documents opens it there. A web link opens in your browser (the desktop app's
+default browser, or a new tab in the web build): the only time Dialect leads online, and only when you click one.
+
+**About Dialect** shows the version, which build it is (desktop app or web build) and the WebView2 or browser version,
+with links to the Docs pages. **Copy** copies the version information, for a bug report. Dialect is not affiliated with
+or endorsed by Juniper Networks or Cisco Systems.
