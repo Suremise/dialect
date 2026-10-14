@@ -1,0 +1,106 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "interfaces": {
+      "ge-0/0/10": {
+        "switching": {
+          "mode": "access",
+          "accessVlan": 10
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/11": {
+        "switching": {
+          "mode": "access",
+          "accessVlan": 10
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/0": {
+        "description": "access port, Junos's default mode",
+        "type": "ethernet",
+        "switching": {
+          "accessVlan": 20
+        }
+      },
+      "ge-0/0/1": {
+        "switching": {
+          "mode": "access",
+          "accessVlan": 20
+        },
+        "type": "ethernet"
+      },
+      "xe-0/0/0": {
+        "description": "trunk with a native VLAN",
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "10",
+            "20",
+            "30-40",
+            "99"
+          ],
+          "nativeVlan": 99
+        }
+      },
+      "xe-0/0/1": {
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "1-4094"
+          ]
+        },
+        "type": "ethernet"
+      },
+      "ae0": {
+        "type": "aggregate",
+        "switching": {}
+      },
+      "irb": {
+        "subinterfaces": {
+          "10": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "routedVlan": 10
+          },
+          "20": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8:20::1": {
+                  "prefixLength": 64
+                }
+              }
+            },
+            "routedVlan": 20
+          }
+        },
+        "type": "irb-or-svi"
+      }
+    },
+    "vlans": {
+      "10": {
+        "name": "users",
+        "description": "user ports"
+      },
+      "20": {
+        "name": "voice"
+      },
+      "99": {
+        "name": "native"
+      }
+    }
+  }
+}

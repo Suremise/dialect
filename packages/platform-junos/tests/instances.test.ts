@@ -103,9 +103,9 @@ describe('a unit in a routing instance', () => {
   })
 
   it("is a unit: irb and lo0 units are, an interface without its unit isn't", () => {
-    const p = parse(set('set routing-instances A interface irb.100', 'set routing-instances A interface lo0.1', 'set routing-instances A interface ge-0/0/0'), context)
-    expect(p.model.interfaces).toEqual({ irb: { type: 'vlan', subinterfaces: { '100': { networkInstance: 'A' } } }, lo0: { type: 'loopback', subinterfaces: { '1': { networkInstance: 'A' } } } })
-    expect(kinds(p)).toEqual(['mapped', 'mapped', 'unsupported'])
+    const p = parse(set('set routing-instances A interface irb.100', 'set routing-instances A interface lo0.1', 'set routing-instances A interface ge-0/0/0', 'set vlans V vlan-id 100', 'set vlans V l3-interface irb.100'), context)
+    expect(p.model.interfaces).toEqual({ irb: { type: 'irb-or-svi', subinterfaces: { '100': { networkInstance: 'A', routedVlan: 100 } } }, lo0: { type: 'loopback', subinterfaces: { '1': { networkInstance: 'A' } } } })
+    expect(kinds(p)).toEqual(['mapped', 'mapped', 'unsupported', 'mapped', 'mapped'])
   })
 })
 
@@ -172,8 +172,8 @@ describe('an instance type from a group', () => {
 
 describe('an instance of a type this plugin does not convert', () => {
   it('is converted not at all: its route distinguisher, targets and units neither', () => {
-    const p = parse(set('set routing-instances L2 instance-type mac-vrf', 'set routing-instances L2 route-distinguisher 65000:1', 'set routing-instances L2 vrf-target target:65000:1', 'set routing-instances L2 interface irb.200', 'set interfaces irb unit 200 family inet address 192.0.2.1/24'), context)
-    expect(p.model).toEqual({ interfaces: { irb: { type: 'vlan', subinterfaces: { '200': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } } } })
+    const p = parse(set('set routing-instances L2 instance-type mac-vrf', 'set routing-instances L2 route-distinguisher 65000:1', 'set routing-instances L2 vrf-target target:65000:1', 'set routing-instances L2 interface ge-0/0/0.200', 'set interfaces ge-0/0/0 unit 200 family inet address 192.0.2.1/24'), context)
+    expect(p.model).toEqual({ interfaces: { 'ge-0/0/0': { type: 'ethernet', subinterfaces: { '200': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } } } })
     expect(kinds(p)).toEqual(['unsupported', 'unsupported', 'unsupported', 'unsupported', 'mapped'])
   })
 })

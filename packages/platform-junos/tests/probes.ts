@@ -41,9 +41,11 @@ export const probes: ProbeAdapter = {
         `set snmp community ${key} authorization read-only`,
         `set snmp community ${key} clients 192.0.2.0/24`,
         `set system domain-search ${key}`,
-        `set system name-server 192.0.2.53 routing-instance ${key}`
+        `set system name-server 192.0.2.53 routing-instance ${key}`,
+        `set vlans ${key} vlan-id 10`,
+        `set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members ${key}`
       ),
-    uses: { interface: true, vrf: true, community: true, dns: true }
+    uses: { interface: true, vrf: true, community: true, dns: true, vlan: true }
   },
   snmpAccess: {
     'read-only': lines('set snmp community PLACEHOLDER authorization read-only', 'set snmp community PLACEHOLDER clients 192.0.2.0/24'),
@@ -81,7 +83,8 @@ export const probes: ProbeAdapter = {
     'ipv6-address': { source: lines('set interfaces ge-0/0/0 unit 0 family inet6 address 2001:db8:::1/64'), value: '2001:db8:::1/64' },
     // Junos gives a prefix length, not a mask: one too long for the family is the malformed one.
     mask: { source: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/33'), value: '192.0.2.1/33' },
-    'next-hop': { source: lines('set routing-options static route 10.0.0.0/8 next-hop 192.0.2.300'), value: '192.0.2.300' }
+    'next-hop': { source: lines('set routing-options static route 10.0.0.0/8 next-hop 192.0.2.300'), value: '192.0.2.300' },
+    'vlan-id': { source: lines('set vlans V vlan-id 4095'), value: '4095' }
   },
   vrfScoping: {
     delete: { base: routes, changed: routes + lines('delete routing-instances A'), vrf: 'A' },
@@ -119,12 +122,13 @@ export const hierarchicalProbes: ProbeAdapter = {
   prototypeKeys: {
     source: (key) =>
       tree(
-        ['interfaces', [[key, [unit0('address 192.0.2.1/24')]]]],
+        ['interfaces', [[key, [unit0('address 192.0.2.1/24')]], ['ge-0/0/1', [['unit 0', [['family ethernet-switching', [['vlan', [`members ${key}`]]]]]]]]]],
         ['routing-instances', [vrf(key, 1, `interface ${key}.0`)]],
         ['snmp', [[`community ${key}`, ['authorization read-only', ['clients', ['192.0.2.0/24']]]]]],
-        ['system', [`domain-search ${key}`, ['name-server', [`192.0.2.53 routing-instance ${key}`]]]]
+        ['system', [`domain-search ${key}`, ['name-server', [`192.0.2.53 routing-instance ${key}`]]]],
+        ['vlans', [[key, ['vlan-id 10']]]]
       ),
-    uses: { interface: true, vrf: true, community: true, dns: true }
+    uses: { interface: true, vrf: true, community: true, dns: true, vlan: true }
   },
   snmpAccess: { 'read-only': tree(community('read-only')), 'read-write': tree(community('read-write')) },
   negation: {
@@ -158,7 +162,8 @@ export const hierarchicalProbes: ProbeAdapter = {
     'ipv4-address': { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.256/24')]]]]), value: '192.0.2.256/24' },
     'ipv6-address': { source: tree(['interfaces', [['ge-0/0/0', [['unit 0', [['family inet6', ['address 2001:db8:::1/64']]]]]]]]), value: '2001:db8:::1/64' },
     mask: { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/33')]]]]), value: '192.0.2.1/33' },
-    'next-hop': { source: tree(['routing-options', [['static', ['route 10.0.0.0/8 next-hop 192.0.2.300']]]]), value: '192.0.2.300' }
+    'next-hop': { source: tree(['routing-options', [['static', ['route 10.0.0.0/8 next-hop 192.0.2.300']]]]), value: '192.0.2.300' },
+    'vlan-id': { source: tree(['vlans', [['V', ['vlan-id 4095']]]]), value: '4095' }
   },
   vrfScoping: {
     delete: {

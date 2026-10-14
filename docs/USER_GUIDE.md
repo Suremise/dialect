@@ -181,7 +181,9 @@ Which platforms and which parts of a config each one reads and writes.
 
 Convert goes from any of them to any other, in the app and on the command line. Each converts system settings (host
 name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP, syslog and SNMP; what one can't read
-or write is listed as not converted, with why.
+or write is listed as not converted, with why. Junos also converts VLANs, switch ports (access and trunk, with a
+native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches; the older non-ELS syntax is listed
+as not converted.
 
 ## The command line
 

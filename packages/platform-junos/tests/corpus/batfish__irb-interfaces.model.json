@@ -1,0 +1,30 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "irb-interfaces"
+    },
+    "interfaces": {
+      "irb": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.0.0.0": {
+                  "prefixLength": 31
+                }
+              }
+            },
+            "routedVlan": 5
+          }
+        },
+        "type": "irb-or-svi"
+      }
+    },
+    "vlans": {
+      "5": {
+        "name": "V"
+      }
+    }
+  }
+}

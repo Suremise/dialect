@@ -1,0 +1,44 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "juniper-vlan-access"
+    },
+    "interfaces": {
+      "et-0/0/2": {
+        "switching": {
+          "mode": "access",
+          "accessVlan": 2
+        },
+        "type": "ethernet"
+      },
+      "et-0/0/3": {
+        "switching": {
+          "mode": "access",
+          "accessVlan": 2
+        },
+        "type": "ethernet"
+      },
+      "et-0/0/4": {
+        "switching": {
+          "mode": "access"
+        },
+        "type": "ethernet"
+      },
+      "et-0/0/5": {
+        "switching": {
+          "mode": "access"
+        },
+        "type": "ethernet"
+      }
+    },
+    "vlans": {
+      "1": {
+        "name": "default"
+      },
+      "2": {
+        "name": "TWO"
+      }
+    }
+  }
+}
