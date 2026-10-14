@@ -1,0 +1,107 @@
+set version 25.2R1.9
+set system host-name DC-2_POD-1_Leaf_01
+set system root-authentication encrypted-password "$6$ce7n1M/Y$ayNcYz8GiI7uI3MMvlgjbQ8ttN8z69gQf.nR1BXnbTak8DsQMt.XofaNJkdE5mUicJzhrli173nmXa5wRS/eM1"
+set system services netconf ssh
+set system services ssh root-login allow
+set system services ssh sftp-server
+set system arp aging-timer 5
+set system management-instance
+set system syslog file interactive-commands interactive-commands any
+set system syslog file messages any notice
+set system syslog file messages authorization info
+set system processes dhcp-service traceoptions file dhcp_logfile
+set system processes dhcp-service traceoptions file size 10m
+set system processes dhcp-service traceoptions level all
+set system processes dhcp-service traceoptions flag packet
+set interfaces ge-0/0/0 description "To DC-2_POD-1_Spine_01"
+set interfaces ge-0/0/0 mtu 9192
+set interfaces ge-0/0/0 unit 0 family inet
+set interfaces ge-0/0/0 unit 0 family inet6
+set interfaces ge-0/0/1 description "To DC-2_POD-1_Spine_02"
+set interfaces ge-0/0/1 mtu 9192
+set interfaces ge-0/0/1 unit 0 family inet
+set interfaces ge-0/0/1 unit 0 family inet6
+set interfaces ge-0/0/2 flexible-vlan-tagging
+set interfaces ge-0/0/2 mtu 9192
+set interfaces ge-0/0/2 encapsulation extended-vlan-bridge
+set interfaces ge-0/0/2 unit 10 vlan-id 10
+set interfaces ge-0/0/2 unit 20 vlan-id 20
+set interfaces fxp0 unit 0 family inet dhcp vendor-id Juniper-ex9214-VM697C7A69DA
+set interfaces irb mtu 9192
+set interfaces irb unit 10 family inet address 192.168.10.254/24
+set interfaces irb unit 10 mac 00:00:00:00:00:11
+set interfaces irb unit 20 family inet address 192.168.10.254/24
+set interfaces irb unit 20 mac 00:00:00:00:00:11
+set interfaces lo0 unit 0 family inet address 10.201.1.1/32
+set multi-chassis mc-lag consistency-check
+set policy-options policy-statement BGP_allow-loopback term 1 from interface lo0.0
+set policy-options policy-statement BGP_allow-loopback term 1 then accept
+set policy-options policy-statement BGP_allow-loopback term 2 then reject
+set policy-options policy-statement PFE-ECMP then load-balance per-flow
+set routing-instances Tenant-1_ipvrf instance-type vrf
+set routing-instances Tenant-1_ipvrf protocols evpn irb-symmetric-routing vni 50000
+set routing-instances Tenant-1_ipvrf protocols evpn ip-prefix-routes advertise direct-nexthop
+set routing-instances Tenant-1_ipvrf protocols evpn ip-prefix-routes encapsulation vxlan
+set routing-instances Tenant-1_ipvrf protocols evpn ip-prefix-routes vni 50000
+set routing-instances Tenant-1_ipvrf interface irb.10
+set routing-instances Tenant-1_ipvrf route-distinguisher 10.201.1.1:50000
+set routing-instances Tenant-1_ipvrf vrf-target target:50000:50000
+set routing-instances Tenant-1_macvrf instance-type mac-vrf
+set routing-instances Tenant-1_macvrf protocols evpn encapsulation vxlan
+set routing-instances Tenant-1_macvrf protocols evpn default-gateway do-not-advertise
+set routing-instances Tenant-1_macvrf protocols evpn extended-vni-list 10100
+set routing-instances Tenant-1_macvrf vtep-source-interface lo0.0
+set routing-instances Tenant-1_macvrf service-type vlan-aware
+set routing-instances Tenant-1_macvrf route-distinguisher 10.201.1.1:1
+set routing-instances Tenant-1_macvrf vrf-target target:1:1
+set routing-instances Tenant-1_macvrf vlans Tenant-1_network-1 vlan-id none
+set routing-instances Tenant-1_macvrf vlans Tenant-1_network-1 interface ge-0/0/2.10
+set routing-instances Tenant-1_macvrf vlans Tenant-1_network-1 l3-interface irb.10
+set routing-instances Tenant-1_macvrf vlans Tenant-1_network-1 vxlan vni 10100
+set routing-instances Tenant-2_ipvrf instance-type vrf
+set routing-instances Tenant-2_ipvrf protocols evpn irb-symmetric-routing vni 50001
+set routing-instances Tenant-2_ipvrf protocols evpn ip-prefix-routes advertise direct-nexthop
+set routing-instances Tenant-2_ipvrf protocols evpn ip-prefix-routes encapsulation vxlan
+set routing-instances Tenant-2_ipvrf protocols evpn ip-prefix-routes vni 50001
+set routing-instances Tenant-2_ipvrf interface irb.20
+set routing-instances Tenant-2_ipvrf route-distinguisher 10.201.1.1:50001
+set routing-instances Tenant-2_ipvrf vrf-target target:50001:50001
+set routing-instances Tenant-2_macvrf instance-type mac-vrf
+set routing-instances Tenant-2_macvrf protocols evpn encapsulation vxlan
+set routing-instances Tenant-2_macvrf protocols evpn default-gateway do-not-advertise
+set routing-instances Tenant-2_macvrf protocols evpn extended-vni-list 20100
+set routing-instances Tenant-2_macvrf vtep-source-interface lo0.0
+set routing-instances Tenant-2_macvrf service-type vlan-aware
+set routing-instances Tenant-2_macvrf route-distinguisher 10.201.1.1:2
+set routing-instances Tenant-2_macvrf vrf-target target:1:2
+set routing-instances Tenant-2_macvrf vlans Tenant-2_network-1 vlan-id none
+set routing-instances Tenant-2_macvrf vlans Tenant-2_network-1 interface ge-0/0/2.20
+set routing-instances Tenant-2_macvrf vlans Tenant-2_network-1 l3-interface irb.20
+set routing-instances Tenant-2_macvrf vlans Tenant-2_network-1 vxlan vni 20100
+set routing-options router-id 10.201.1.1
+set routing-options autonomous-system 4202011001
+set routing-options forwarding-table export PFE-ECMP
+set protocols router-advertisement interface ge-0/0/0.0
+set protocols router-advertisement interface ge-0/0/1.0
+set protocols bgp group auto-underlay_spines type external
+set protocols bgp group auto-underlay_spines family inet unicast extended-nexthop
+set protocols bgp group auto-underlay_spines family inet6 unicast
+set protocols bgp group auto-underlay_spines export BGP_allow-loopback
+set protocols bgp group auto-underlay_spines peer-as 4202012000
+set protocols bgp group auto-underlay_spines multipath
+set protocols bgp group auto-underlay_spines bfd-liveness-detection minimum-interval 333
+set protocols bgp group auto-underlay_spines bfd-liveness-detection multiplier 3
+set protocols bgp group auto-underlay_spines dynamic-neighbor spines peer-auto-discovery family inet6 ipv6-nd
+set protocols bgp group auto-underlay_spines dynamic-neighbor spines peer-auto-discovery interface ge-0/0/0.0
+set protocols bgp group auto-underlay_spines dynamic-neighbor spines peer-auto-discovery interface ge-0/0/1.0
+set protocols bgp group overlay_spines type external
+set protocols bgp group overlay_spines multihop
+set protocols bgp group overlay_spines local-address 10.201.1.1
+set protocols bgp group overlay_spines family evpn signaling
+set protocols bgp group overlay_spines authentication-key "$9$33P2ntOhclMLNre24JZjitu0OhS"
+set protocols bgp group overlay_spines peer-as 4202012000
+set protocols bgp group overlay_spines multipath
+set protocols bgp group overlay_spines bfd-liveness-detection minimum-interval 333
+set protocols bgp group overlay_spines bfd-liveness-detection multiplier 3
+set protocols bgp group overlay_spines neighbor 10.201.2.1 description DC-2_POD-1_Spine_01
+set protocols bgp group overlay_spines neighbor 10.201.2.2 description DC-2_POD-1_Spine_02

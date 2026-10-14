@@ -1,0 +1,19 @@
+# -------------------------------------------------------
+# 02 - Security Zones | MNHA-VSRX-A
+# -------------------------------------------------------
+
+# Shared (apply on both nodes)
+set security zones functional-zone management
+set security zones security-zone INT interfaces ge-0/0/0.0
+set security zones security-zone RA-VPN interfaces st0.100
+set security zones security-zone DMZ interfaces ge-0/0/3.0
+set security zones security-zone HA-ICL interfaces ge-0/0/5.0
+set security zones security-zone HA-ICD interfaces ge-0/0/6.0
+set security zones security-zone EXT interfaces ge-0/0/4.0
+set security zones security-zone EXT interfaces lo0.10
+set security zones security-zone VPN-1 interfaces st0.200
+
+# VSRX-A specific
+set security zones security-zone EXT interfaces ge-0/0/1.0
+set security zones security-zone EXT-2 interfaces ge-0/0/2.0
+set security zones security-zone EXT-2 interfaces lo0.2

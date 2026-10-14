@@ -1,0 +1,30 @@
+# -------------------------------------------------------
+# 01 - Interfaces | MNHA-VSRX-A
+# -------------------------------------------------------
+
+set interfaces ge-0/0/0 unit 0 description INT
+set interfaces ge-0/0/0 unit 0 family inet address 192.168.252.9/24
+set interfaces ge-0/0/1 unit 0 description ISP-1_UPLINK
+set interfaces ge-0/0/1 unit 0 family inet address 192.168.99.9/24
+set interfaces ge-0/0/2 unit 0 description ISP-2_UPLINK
+set interfaces ge-0/0/2 unit 0 family inet address 192.168.98.9/24
+set interfaces ge-0/0/3 unit 0 description DMZ
+set interfaces ge-0/0/3 unit 0 family inet address 192.168.97.9/24
+set interfaces ge-0/0/4 unit 0 description EXTRANET_RTR-A
+set interfaces ge-0/0/4 unit 0 family inet address 192.168.251.1/25
+set interfaces ge-0/0/5 description MNHA-ICL
+set interfaces ge-0/0/5 unit 0 family inet address 100.64.0.9/27
+set interfaces ge-0/0/6 description MNHA-ICD
+set interfaces ge-0/0/6 unit 0 family inet address 100.64.10.9/27
+set interfaces lo0 unit 0 description SRX-SERVICES_SELF-TRAFFIC
+set interfaces lo0 unit 0 family inet address 10.0.0.33/32
+set interfaces lo0 unit 2 description EBGP-MH-ISP-2
+set interfaces lo0 unit 2 family inet address 10.12.12.12/32
+set interfaces lo0 unit 10 description PROD_LOOPBACKS
+set interfaces lo0 unit 10 family inet address 10.165.251.200/32
+set interfaces lo0 unit 10 family inet address 203.0.113.100/32
+set interfaces lo0 unit 10 family inet address 10.165.251.222/32
+set interfaces st0 unit 100 description REMOTE_ACCESS_VPN
+set interfaces st0 unit 100 family inet mtu 1420
+set interfaces st0 unit 200 description SITE-TO-SITE-VPN_PROD
+set interfaces st0 unit 200 family inet mtu 1420
