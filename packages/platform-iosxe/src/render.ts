@@ -1,5 +1,5 @@
-// The shared model → IOS / IOS-XE text, for the phase 1 areas and model 0.4's VLANs, switch ports, VLAN interfaces,
-// OSPF and BGP. Every populated leaf of those areas gets a disposition: `rendered` with the line it went to,
+// The shared model → IOS / IOS-XE text, for the phase 1 areas, model 0.4's VLANs, switch ports, VLAN interfaces, OSPF
+// and BGP, and model 0.5's routing policy (renderPolicy.ts). Every populated leaf of those areas gets a disposition: `rendered` with the line it went to,
 // `unsupported` with why (IOS can't say it, or this renderer can't yet), or `not-applicable` (IOS implies it). Fields of
 // a later model version are left without one, so the ledger reports them as unrendered rather than this renderer
 // claiming them. VLANs come first, then VRFs; VRFs are defined (`vrf definition`) before the interfaces in them, and an
@@ -9,6 +9,7 @@
 import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type RenderResult, type BgpPeer, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
 import { isIpv4, lengthMask } from './addresses'
 import { SEVERITIES } from './parse'
+import { planRoutingPolicy } from './renderPolicy'
 
 type Segments = readonly (string | number)[]
 
@@ -310,7 +311,17 @@ export function render(model: Device, context: Context): RenderResult {
     // router-id, then the areas, the network statements and the passive interfaces (a stable sort keeps each in order).
     for (const l of [...block.lines].sort((a, b) => (a.group ?? 0) - (b.group ?? 0))) emit(l.text, ...l.fields)
   }
+  // Routing policy is planned first, as BGP writes a route map only when its policy is written (renderPolicy.ts).
+  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
   renderBgp()
+  if (policyPlan.lines.length) separator()
+  for (const l of policyPlan.lines) {
+    // Each route map sequence is a block of its own, as IOS shows them.
+    if (l.text.startsWith('route-map ')) separator()
+    emit(l.text, ...l.fields)
+    const n = lines.length
+    if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
+  }
 
   function renderInterface(name: string, iface: Interface) {
     const at = ['interfaces', name]
@@ -686,9 +697,16 @@ export function render(model: Device, context: Context): RenderResult {
           skip(field, 'unsupported', 'IOS applies one route map a direction')
           continue
         }
+        // A policy of the model is named only when it is written; one the model doesn't have (from a source that keeps
+        // policy names alone, before model 0.5.0) is named alone, with a warning.
+        const known = model.routingPolicy?.policies !== undefined && Object.hasOwn(model.routingPolicy.policies, policies[0])
+        if (known && !policyPlan.policies.has(policies[0])) {
+          skip(field, 'unsupported', 'names a policy IOS can\'t write as a route map')
+          continue
+        }
         // The peer's own policies go in each family it carries: rendered on the first.
         emit(`${indent}neighbor ${key} route-map ${policies[0]} ${direction}`, ...(own !== undefined || dispositions[fieldPath(...field)] === undefined ? [field] : []))
-        if (own !== undefined || !policyWarned.has(fieldPath(...field))) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A policy is written by name only, as a route map: its body isn\'t converted, so a route map of that name is needed.', field: fieldPath(...field) })
+        if (!known && (own !== undefined || !policyWarned.has(fieldPath(...field)))) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A policy is written by name only, as a route map: the model has no body for it, so a route map of that name is needed.', field: fieldPath(...field) })
         policyWarned.add(fieldPath(...field))
       }
     }

@@ -203,6 +203,15 @@ converting to NX-OS asks for it. Cisco IOS-XR also converts OSPF and BGP; conver
 a BGP password the same way, and for a route policy for each eBGP neighbor that has none, since IOS-XR exchanges no
 routes with it without one.
 
+Cisco IOS / IOS-XE also converts routing policy: prefix lists, community lists (standard, expanded and numbered),
+AS-path access lists and route maps (matching prefix lists, communities, AS paths and tags; setting the local
+preference, metric, communities, AS-path prepends, next hop and tag), which its BGP neighbors' route maps name. A regex
+is kept as written and never translated into another platform's. A list is converted whole or not at all, and a route
+map sequence by sequence: one Dialect can't convert is listed, and the whole route map with it when leaving it out would
+change what the sequences after it do. A route map named by a neighbor but not defined isn't converted, as IOS then
+denies every route. Converting a Junos policy that passes undecided routes on to the next policy adds a final permit
+sequence to the route map, with a warning, since an IOS route map denies a route no sequence decides.
+
 ## The command line
 
 `dialect display-set` and `dialect convert`: files, stdin and stdout, and exit codes.

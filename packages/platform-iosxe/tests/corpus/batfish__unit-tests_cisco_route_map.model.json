@@ -1,0 +1,22 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "cisco_route_map"
+    },
+    "routingPolicy": {
+      "policies": {
+        "ijfw$%^&****(((([]grr": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}

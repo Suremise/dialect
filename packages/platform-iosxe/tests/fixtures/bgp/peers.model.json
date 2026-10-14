@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.1",
+  "modelVersion": "0.5.1",
   "device": {
     "system": {
       "hostname": "edge-r1"
@@ -14,10 +14,10 @@
           "neighbors": {
             "10.10.0.2": {
               "peerAs": 65100,
+              "description": "Customer",
               "addressFamilies": {
                 "ipv4-unicast": {}
-              },
-              "description": "Customer"
+              }
             }
           },
           "ebgpDefaultPolicy": {
@@ -149,7 +149,42 @@
           }
         }
       }
+    },
+    "routingPolicy": {
+      "policies": {
+        "TRANSIT-IN": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "localPreference": 200
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "TRANSIT-OUT": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "med": 50
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "V6-IN": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
     }
   }
 }
-
