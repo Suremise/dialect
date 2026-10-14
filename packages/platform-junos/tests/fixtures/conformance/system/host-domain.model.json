@@ -1,0 +1,9 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "edge-1",
+      "domainName": "example.net"
+    }
+  }
+}

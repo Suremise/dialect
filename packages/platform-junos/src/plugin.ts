@@ -1,7 +1,10 @@
-// The Junos plugin for the core's registry (B2's PlatformPlugin). For now it has one tool, display set; parsing into
-// the shared model and rendering from it come in B4.
+// The Junos plugin for the core's registry (B2's PlatformPlugin): parse into the shared model and render from it for the
+// phase 1 areas (B4), detect(), and one tool, display set.
 import type { Diagnostic, PlatformPlugin, Tool, ToolResult } from '@dialect/core'
+import { detect } from './detect'
 import { displaySet } from './displaySet'
+import { parse } from './parse'
+import { render } from './render'
 
 /**
  * Display set as a core Tool. The core's Tool has no field for what it reads and writes, so this one says it twice: in
@@ -47,9 +50,19 @@ export const displaySetTool: JunosTool = {
 export const junos: PlatformPlugin = {
   id: 'junos',
   name: 'Junos',
-  // Minor model versions only add, also in 0.x, so every 0.x model from 0.1 on (docs/ARCHITECTURE.md, the shared model).
-  modelApi: '>=0.1.0 <1.0.0',
-  // No model mapping yet (B4), so no area is parsed or rendered.
-  capabilities: {},
+  // 0.2.0: its parse fills system.dns, which a 0.1 core doesn't know. Minor versions only add, so every 0.x from there.
+  modelApi: '>=0.2.0 <1.0.0',
+  capabilities: {
+    system: { parse: 'full', render: 'full' },
+    dns: { parse: 'partial', render: 'full' },
+    interfaces: { parse: 'partial', render: 'partial' },
+    'static-routes': { parse: 'partial', render: 'partial' },
+    ntp: { parse: 'partial', render: 'partial' },
+    syslog: { parse: 'partial', render: 'partial' },
+    snmp: { parse: 'partial', render: 'partial' }
+  },
+  detect,
+  parse,
+  render,
   tools: () => [displaySetTool]
 }

@@ -108,6 +108,10 @@ product decisions.
   registry refuses one outside it. Minor versions only add.
 - **Built in at first**, through a static registry each shell imports. Loading plugins at runtime comes later;
   third-party drop-in plugins stay out of v1.
+- **Junos scope:** MX, EX and QFX, routing and switching. Switching is ELS only (`vlans` and `family
+  ethernet-switching`, with VLANs in a later model version), not the older non-ELS syntax. Both the hierarchical and
+  the set form are read, and `apply-groups` and `interface-range` are expanded before mapping. SRX security zones,
+  policies and NAT come later: until then they show as `unsupported` in the ledger, never dropped.
 
 ## 5. Configs and test data
 
@@ -147,7 +151,7 @@ From the spike report, still for the user to decide:
 1. Direction and first platform for Convert: Junos → Cisco or Cisco → Junos first, and which Cisco platform (IOS-XE
    suggested)?
 2. Sample configs: cleaned-up real configs (Junos and the chosen Cisco platform) for fixtures?
-3. Junos families in scope: MX/EX/QFX? SRX security zones, policies and NAT in or out?
+3. ~~Junos families in scope~~: decided, MX/EX/QFX with SRX security as `unsupported` for now (§4).
 4. Reverse display set (set → hierarchical): needed?
 5. Annotations: should display set output include `/* comments */`, or drop them with a warning?
 6. Who gets the app (decides code signing, installer or web build first, and whether the CLI is published)?

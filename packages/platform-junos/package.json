@@ -13,5 +13,8 @@
   },
   "dependencies": {
     "@dialect/core": "0.0.0"
+  },
+  "devDependencies": {
+    "@dialect/conformance": "0.0.0"
   }
 }

@@ -1,0 +1,31 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "juniper-syslog",
+      "logging": {
+        "remoteServers": {
+          "1.2.3.4": {
+            "severity": "notice",
+            "facility": "local7",
+            "networkInstance": "RI"
+          },
+          "2.3.4.5": {
+            "severity": "notice",
+            "port": 6514,
+            "networkInstance": "mgmt"
+          },
+          "4.5.6.7": {
+            "severity": "debug"
+          },
+          "5.6.7.8": {
+            "severity": "informational"
+          },
+          "6.7.8.9": {
+            "severity": "informational"
+          }
+        }
+      }
+    }
+  }
+}
