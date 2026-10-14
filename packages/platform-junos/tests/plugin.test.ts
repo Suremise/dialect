@@ -1,7 +1,7 @@
 // The Junos plugin in the core's registry: it registers against the core's model version, and its display set tool,
 // found through registry.tools(), gives the same output and source lines as the flattener on jcc's pairs, with
 // positioned diagnostics.
-import { createRegistry, MODEL_VERSION, PluginRejectedError, pluginProblem } from '@dialect/core'
+import { createRegistry, guardPlugin, MODEL_VERSION, PluginRejectedError, pluginProblem } from '@dialect/core'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
@@ -23,7 +23,7 @@ describe('the Junos plugin', () => {
     expect(pluginProblem(junos)).toBeNull()
     const registry = createRegistry([junos])
     expect(registry.modelVersion).toBe(MODEL_VERSION)
-    expect(registry.get('junos')).toBe(junos)
+    expect(registry.get('junos')).toBe(guardPlugin(junos))
     expect(junos).toMatchObject({ id: 'junos', name: 'Junos', modelApi: '>=0.5.4 <1.0.0' })
   })
 

@@ -24,7 +24,9 @@ product decisions.
     line too, after its message). Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
     unreadable input, 3 a conversion with interfaces left unnamed or other needs-input items unanswered (unless
     `--allow-incomplete`).
-- **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
+- **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. No
+  message or reason quotes a secret: besides each plugin's own care, the core withholds any that would ("…is withheld,
+  as it would repeat a value of this configuration"), keeping its code and line. A strict
   content security policy blocks remote content in both shells. The web build's allows only its own inlined script
   and styles, by hash, and no network at all.
 

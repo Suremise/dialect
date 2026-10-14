@@ -8,6 +8,7 @@ import type { Bgp, BgpPeer, Device, Interface, InterfaceType, NetworkInstance, O
 import { fieldPath, pathSegments } from './paths'
 import type { PlatformPlugin } from './plugin'
 import type { Context, Diagnostic, NeedsInput, ParseResult, RenderResult, Span, SyntaxNode } from './results'
+import { guardDiagnostics, guardNeedsInput, guardParse, guardRender, guardThrown, secretCandidates } from './secrets'
 
 /** The user's names for interfaces on the target: source name → target name (`ge-0/0/0` → `GigabitEthernet0/0/0`). */
 export type InterfaceMap = Readonly<Record<string, string>>
@@ -474,7 +475,11 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   if (!target.render) throw new Error(`Plugin "${target.id}" can't render.`)
   const inputs = options.inputs ?? {}
   const context: Context = { modelVersion: options.modelVersion, inputs }
-  const parse = source.parse(text, context)
+  // The safety net (secrets.ts): no reason or message of the conversion holds a secret of the source, whatever plugins
+  // are given (the registry's are guarded already), nor does an error they throw: a render is of the renamed model,
+  // which a guarded target can't trace to the source, so its errors are guarded here by the source's secrets.
+  const secrets = secretCandidates(text)
+  const parse = guardParse(guardThrown(() => source.parse!(text, context), () => secrets), secrets)
   const fields = statementFields(parse)
   const answer = (id: string) => (Object.hasOwn(inputs, id) && inputs[id].trim() !== '' ? inputs[id].trim() : undefined)
 
@@ -560,7 +565,7 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
     const to = answers.get(r.name)
     return { source: r.name, inputId: interfaceInputId(r.name), ...(to !== undefined ? { target: to } : {}), ...(suggestion ? { suggestion } : {}), ...(statement ? { statement } : {}) }
   })
-  const needsInput = all.map((r, index): NeedsInput => {
+  const asked = all.map((r, index): NeedsInput => {
     const i = interfaces[index]
     return {
       id: i.inputId,
@@ -572,6 +577,7 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
       ...(i.suggestion ? { suggestions: [i.suggestion] } : {})
     }
   })
+  const needsInput = guardNeedsInput(asked, secrets)
 
   const map: Record<string, string> = Object.create(null) as Record<string, string>
   for (const i of interfaces) if (i.target !== undefined) map[i.source] = i.target
@@ -589,10 +595,11 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   // A render's span is a line of the output, where shells read a diagnostic's span as the source's: it becomes its
   // `outputSpan`, and the diagnostic gets the statement of its field, as a placeless one does (#112).
   const toOutput = ({ span, ...d }: Diagnostic): Diagnostic => (span ? { ...d, outputSpan: span } : d)
-  const rendered = failed ? undefined : target.render(model, context)
+  const raw = failed ? undefined : guardThrown(() => target.render!(model, context), () => secrets)
+  const rendered = raw && guardRender(raw, [...new Set([...secrets, ...secretCandidates(raw.text)])])
   const render = rendered && { ...rendered, diagnostics: rendered.diagnostics.map((d) => locate(toOutput(d))), ...(rendered.needsInput ? { needsInput: rendered.needsInput.map(locate) } : {}) }
   const built = buildLedger(parse, render, model)
-  const ledger: CoverageLedger = { ...built, diagnostics: [...built.diagnostics, ...diagnostics], needsInput: [...needsInput, ...built.needsInput] }
+  const ledger: CoverageLedger = { ...built, diagnostics: [...built.diagnostics, ...guardDiagnostics(diagnostics, secrets)], needsInput: [...needsInput, ...built.needsInput] }
   const named = new Set(interfaces.filter((i) => i.target !== undefined).map((i) => i.inputId))
   // A plugin raises an item only while it has no answer it can use: one given in a form it doesn't take is still asked.
   const unanswered = [...needsInput.filter((item) => !named.has(item.id)), ...built.needsInput]

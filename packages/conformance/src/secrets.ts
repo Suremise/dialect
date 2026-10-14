@@ -4,10 +4,14 @@
 // paths name the config's own structure and aren't either.
 //
 // A fixture's secrets are listed in `<case>.secrets.json` (fixtures.ts), or else found in its source by pattern
-// (findSecrets). Leaks are looked for in the fixture as it is and in broken copies of it (cut just after a secret, an
-// unterminated quote after one), since a syntax error is where a message most often quotes the line it's on.
-import { MODEL_VERSION, type Context, type Diagnostic, type NeedsInput, type PlatformPlugin } from '@dialect/core'
+// (findSecrets, core's shared finder, which core's safety net uses too). Leaks are looked for in the fixture as it is
+// and in broken copies of it (cut just after a secret, an unterminated quote after one), since a syntax error is where
+// a message most often quotes the line it's on. The kit checks a plugin as it is, not guarded (guardPlugin()): plugins
+// keep their own care, and core's net is only under it.
+import { findSecrets, MODEL_VERSION, type Context, type Diagnostic, type NeedsInput, type PlatformPlugin } from '@dialect/core'
 import { SECRET_ALLOWANCES, type SecretAllowance } from './allowances'
+
+export { findSecrets }
 
 /** Which output a leak is in. */
 export type LeakSite = 'parse diagnostic' | 'parse needs-input' | 'statement reason' | 'render diagnostic' | 'render needs-input' | 'field reason' | 'tool diagnostic' | 'tool text' | 'thrown error'
@@ -43,51 +47,6 @@ export interface SecretsOptions {
    * values. Every other tool's text is a report, checked like a diagnostic. None when left out.
    */
   readonly configTools?: readonly string[]
-}
-
-/** Shorter values than this aren't taken as secrets by pattern: `RO`, a key number. */
-const MIN_LENGTH = 4
-
-// Secret values in Junos (hierarchical or set) and IOS-style configs, each pattern's last group the value. Best
-// effort: a fixture whose secrets these miss, or that they over-match, lists its own in `<case>.secrets.json`.
-const PATTERNS: readonly RegExp[] = [
-  // crypt(3)-style hashes and Junos `$9$`: `$1$…`, `$5$…`, `$6$…`, Cisco type 8/9 `$8$…`, `$9$…`.
-  /(\$(?:\d+|sha1|y|2[aby]?)\$[^\s"';]+)/g,
-  // IOS `password|secret|key|key-string <type> <value>` at the end of its line, type 0, 5, 7, 8 or 9 (not
-  // `authentication-key 1 …`, nor Junos's `key 0 secret …`).
-  /(?<![\w-])(?:password|secret|key|key-string)[ \t]+\d[ \t]+(\S+)[ \t]*$/gim,
-  // IOS without a type: `enable secret|password X`, `username U [privilege N] secret|password X`, a line's
-  // `password [encrypted] X`.
-  /\benable[ \t]+(?:secret|password)[ \t]+(?!\d\s)(?:level[ \t]+\d+[ \t]+)?(\S+)/gi,
-  /\busername[ \t]+\S+(?:[ \t]+privilege[ \t]+\d+)?[ \t]+(?:secret|password)[ \t]+(?!\d\s)(\S+)/gi,
-  /^[ \t]*password[ \t]+(?!\d\s)(?:encrypted[ \t]+)?(\S+)/gim,
-  // SNMP communities: IOS, Junos set form, Junos hierarchical `community X {` (not a policy's `community X { members
-  // … }`, nor `community X;` in a policy term).
-  /\bsnmp-server[ \t]+community[ \t]+(\S+)/gi,
-  /\bsnmp[ \t]+community[ \t]+("?)([^\s"]+)\1/gi,
-  /(?<![\w-])community[ \t]+("?)([^\s";{]+)\1[ \t]*\{(?!\s*members\b)/gi,
-  // TACACS+/RADIUS keys on IOS's one-line forms, and NTP authentication keys.
-  /\b(?:tacacs-server|radius-server)\b[^\n]*?\bkey[ \t]+(?:\d[ \t]+)?(\S+)/gi,
-  /\bntp[ \t]+authentication-key[ \t]+\d+[ \t]+(?!type\b)\S+[ \t]+(\S+)/gi,
-  /(?<![\w-])authentication-key[ \t]+\d+[ \t]+type[ \t]+\S+[ \t]+value[ \t]+("?)([^\s";]+)\1/gi,
-  // Junos secrets, quoted or not: `secret …`, `authentication-key …`, `encrypted-password …`, a pre-shared key's
-  // `ascii-text …` or `hexadecimal …`, `simple-password …`; and a quoted `key "…"`.
-  /(?<![\w-])(?:secret|authentication-key|encrypted-password|simple-password|ascii-text|hexadecimal)[ \t]+("?)([^\s";]+)\1/gi,
-  /(?<![\w-])(?:secret|authentication-key|encrypted-password|simple-password|ascii-text|hexadecimal|key)[ \t]+"([^"]+)"/gi
-]
-
-/**
- * The secret values in `source`, by pattern, each once, in the order found. A secret stays one wherever else the source
- * has its value (a description, a comment, a VRF of the same name): a message quoting it there discloses it all the same.
- */
-export function findSecrets(source: string): string[] {
-  const found = new Set<string>()
-  for (const pattern of PATTERNS)
-    for (const m of source.matchAll(pattern)) {
-      const value = m[m.length - 1].replace(/^"|"$/g, '')
-      if (value.length >= MIN_LENGTH) found.add(value)
-    }
-  return [...found]
 }
 
 /** The broken copies of `source` a leak is also looked for in: for each secret, cut just after it, and a quote opened after it. */

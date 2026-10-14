@@ -8,6 +8,7 @@ import {
   createRegistry,
   deserializeModel,
   fieldPath,
+  guardPlugin,
   ledgerProblems,
   MODEL_VERSION,
   modelVersionProblem,
@@ -168,7 +169,7 @@ describe('the registry', () => {
     const b = plugin({ id: 'b', render: () => ({ text: '', dispositions: {}, diagnostics: [] }), detect: () => 2 })
     const registry = createRegistry([a, b])
     expect(registry.modelVersion).toBe(MODEL_VERSION)
-    expect(registry.get('a')).toBe(a)
+    expect(registry.get('a')).toBe(guardPlugin(a))
     expect(registry.sources().map((p) => p.id)).toEqual(['a'])
     expect(registry.targets().map((p) => p.id)).toEqual(['b'])
     expect(registry.tools().map((t) => `${t.plugin.id}/${t.tool.id}`)).toEqual(['a/display-set'])

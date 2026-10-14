@@ -122,6 +122,9 @@ The output is what `show configuration | display set` prints on the device:
   only the error, with its line and column.
 - Errors and warnings never quote the config's names, values or annotations (a value can be a secret): they say what
   is wrong, and the line and column say where.
+- A message that would repeat a secret of the config by chance (an SNMP community named like a word of the message)
+  reads "This message is withheld, as it would repeat a value of this configuration." instead, with its line. A
+  reason for a statement left out reads "a statement whose reason is withheld, …" the same way, in Convert too.
 
 ## Convert
 
