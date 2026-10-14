@@ -140,8 +140,8 @@ const SECRETS: readonly RegExp[] = [
 export function secretValues(text: string): string[] {
   const out = new Set<string>()
   for (const pattern of SECRETS) for (const m of text.matchAll(pattern)) {
-      // A quoted value is the text between the quotes.
-      const value = m[m.length - 1].replace(/^"(.*)"$/, '$1')
+      // A quote at either end isn't the secret's, as the kit takes it: `"multicast"`, or `"multicast` cut short.
+      const value = m[m.length - 1].replace(/^"+/, '').replace(/"+$/, '')
       if (value.length >= 4) out.add(value)
     }
   return [...out]

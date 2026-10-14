@@ -24,8 +24,9 @@ describe('reasons for what isn\'t converted', () => {
       // In the table's reason only.
       ['come', 'vpc domain 1', 'a statement this converter doesn\'t read']
     ]
-    for (const [secret, statement, reason] of cases) {
-      const text = lines(`snmp-server community ${secret} group network-operator`, statement)
+    // Each community bare and quoted; checkSecrets also tries the text cut after it and with an unterminated quote.
+    for (const [secret, statement, reason, spelled] of cases.flatMap(([s, st, r]) => [[s, st, r, s], [s, st, r, `"${s}"`]] as const)) {
+      const text = lines(`snmp-server community ${spelled} group network-operator`, statement)
       const result = parse(text)
       const last = `L${text.split('\n').length}`
       expect(result.dispositions[last], secret).toEqual({ kind: 'unsupported', reason })
