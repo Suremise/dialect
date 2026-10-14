@@ -24,8 +24,7 @@
 ### Convert
 - **More routing policy converts to and from Junos:** AS-path groups (`as-path-group`), and a Cisco AS-path list of
   several lines is written as one. A route map's `set community 65000:1` now converts to Junos, as a community of the
-  term's own (Junos acts on named communities only). Two `community set` actions in one Junos term are read as Junos
-  applies them: the later replaces the earlier.
+  term's own (Junos acts on named communities only).
 - **Junos VRF policies convert:** a routing instance's `vrf-import` and `vrf-export` policies, in order, are converted
   and written back, and a VRF with a policy for a side needs no route target there. Converting a Cisco VRF's import
   or export map to Junos leaves it out with a warning: a Cisco map filters routes after the route targets, while

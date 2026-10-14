@@ -8,10 +8,9 @@
 // - **literal communities in an action** (Cisco's `set community 65000:1`) get a community of the term's own, as Junos
 //   acts on named communities only;
 // - a **term** is written whole or not at all (the per-term rule): one that can't be (it names something not written,
-//   or Junos would read it another way: route filters and prefix lists together, nested route filters by longest match,
-//   a community set of more than one community) is `unsupported`, and when leaving it out isn't safe (core's
-//   termSkipSafe()), the whole policy is. A policy's fall-through is `not-applicable`, with a semantic warning when the
-//   source's isn't Junos's.
+//   or Junos would read it another way: route filters and prefix lists together, nested route filters by longest match)
+//   is `unsupported`, and when leaving it out isn't safe (core's termSkipSafe()), the whole policy is. A policy's
+//   fall-through is `not-applicable`, with a semantic warning when the source's isn't Junos's.
 //
 // Diagnostics never quote the model's names or values.
 import { fieldPath, isAsNumber, populatedLeaves, termSkipSafe, type CommunitySet, type Diagnostic, type FieldDisposition, type Policy, type PolicyTerm, type PrefixMatch, type RoutingPolicy } from '@dialect/core'
@@ -367,8 +366,10 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
       }
       const at = [...aAt, kind]
       const word = kind === 'communityAdd' ? 'add' : kind === 'communitySet' ? 'set' : 'delete'
-      // Junos applies a term's actions in order, so a second community set replaces the first: it sets one community.
-      if (kind === 'communitySet' && sets.length + (v.values?.length ? 1 : 0) > 1) return 'a community set of more than one community: on Junos a second community set replaces the first'
+      // One action with every community in it (`community set [ A B ]`): Junos's set replaces the route's communities
+      // with all of them, as the model's list does.
+      const named: string[] = []
+      const actionFields: Segments[] = []
       // Literal values (Cisco's set community 65000:1): Junos acts on a named community, so the term gets one of its
       // own, named for the policy, the term and the action, and no other community has the name.
       if (v.values?.length) {
@@ -378,14 +379,15 @@ export function policyOptions(rp: RoutingPolicy, ctx: PolicyRenderContext): { re
         for (let k = 2; communityNames.has(ownName); k++) ownName = `${prefix}-${word}-${k}`
         communityNames.add(ownName)
         ownCommunities.push(list(`community ${quote(ownName)} members`, members.map((c) => quote(c!))))
-        then.push(leaf(`community ${word} ${quote(ownName)}`, [...at, 'values']))
+        named.push(ownName)
+        actionFields.push([...at, 'values'])
       } else if (v.values !== undefined) skip([...at, 'values'], 'not-applicable', 'none: nothing to write')
-      if (!sets.length) {
-        if (v.sets !== undefined) skip([...at, 'sets'], 'not-applicable', 'none: nothing to write')
-        if (isEmpty(v)) skip(at, 'not-applicable', 'none: nothing to write')
-        continue
-      }
-      sets.forEach((n, k) => then.push(leaf(`community ${word} ${quote(n)}`, ...(k === 0 ? [[...at, 'sets']] : []))))
+      if (sets.length) {
+        named.push(...sets)
+        actionFields.push([...at, 'sets'])
+      } else if (v.sets !== undefined) skip([...at, 'sets'], 'not-applicable', 'none: nothing to write')
+      if (named.length) then.push(list(`community ${word}`, named.map(quote), ...actionFields))
+      else if (isEmpty(v)) skip(at, 'not-applicable', 'none: nothing to write')
     }
     if (a.localPreference !== undefined) {
       if (!isUint32(a.localPreference)) return 'a local preference out of range'

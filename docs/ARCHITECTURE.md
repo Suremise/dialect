@@ -1383,8 +1383,9 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   exact|orlonger|longer|upto /N|prefix-length-range /A-/B` (`routeFilters` by position, with their `form`),
   `community`, `as-path`, `as-path-group`, `protocol` (`direct` is `connected`), `neighbor`, `tag`, `family
   inet|inet6`. `then`: `accept`, `reject`, `next term`, `next policy` (the `flow`), `local-preference`, `metric` (the
-  `med`), `community add|set|delete C` (by `sets`; a `community set` replaces the route's communities, so a later one
-  replaces an earlier, one setting), `as-path-prepend "A B"`, `next-hop A|self` and `tag`; each single setting settles by
+  `med`), `community add|set|delete C` (by `sets`, in order: `community set [ A B ]` is one action with a list, which
+  set form writes as a line each, and sets the route's communities to all of them), `as-path-prepend "A B"`,
+  `next-hop A|self` and `tag`; each single setting settles by
   rank, then order, as everywhere, and a value a list already has is `ignored-by-design`. **The per-term rule:** a term
   with a statement that isn't converted (a `to` condition, `color`, `preference`, `through`, an `upto` filter of a
   list…) or that names a list, community or AS path that isn't is `unsupported` whole; so is a term Junos reads another
@@ -1479,8 +1480,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   Junos takes them together isn't certain. A deny, or no entry, leaves the set out. **Literal communities in an
   action** (`values`, Cisco's `set community 65000:1`) get a community of the term's own, `<policy>-<term>-<add|set|
   delete>` (a number added while another community has the name), written only with the term; back from Junos they're a
-  named set. A community set of more than one community (sets and values together) is `unsupported`: on Junos a second
-  `community set` replaces the first. A policy's
+  named set. Each community action is one line with every community it names (`community set [ RM-10-set A ]`), the
+  made-up one first. A policy's
   terms are written in order, by name, an unnamed one (a route map's sequence) under its key (`term 10`) unless it's
   the last, which is the policy's own `from` and `then`; a route filter in its source's form where that is one of
   Junos's, else from its lengths (Cisco's `ge`/`le` as `upto` or `prefix-length-range`, the `form` then

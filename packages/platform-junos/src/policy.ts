@@ -247,12 +247,8 @@ export function policyMapper(ctx: PolicyContext) {
     if (what === 'tag' && rest.length === 1) return uint32(rest[0]) !== null ? single('actions', 'tag', Number(rest[0])) : bad('not a tag from 0 to 4294967295')
     if (what === 'community' && rest.length === 2 && (rest[0] === 'add' || rest[0] === 'set' || rest[0] === 'delete')) {
       const field = rest[0] === 'add' ? 'communityAdd' : rest[0] === 'set' ? 'communitySet' : 'communityDelete'
-      // A community set replaces the route's communities, so a later one replaces an earlier: one setting, the
-      // higher-ranked, else the later, holding it.
-      if (field === 'communitySet') {
-        if (!claim(`policy\u0000${name}\u0000${key}\u0000actions.communitySet`, i)) return mapped([])
-        term.parts.splice(0, term.parts.length, ...term.parts.filter((p) => !(p.kind === 'community' && p.field === 'communitySet')))
-      }
+      // `community set [ A B ]` is one action with a list (each value a statement here, as two set-form lines are): the
+      // route's communities become all of them, so every name is kept, in order.
       return part({ index: i, kind: 'community', field, name: rest[1] })
     }
     if (what === 'as-path-prepend' && rest.length === 1) {

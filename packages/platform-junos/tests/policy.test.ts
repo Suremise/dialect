@@ -265,12 +265,32 @@ describe('AS-path groups and literal communities in actions (#94)', () => {
     expect(back?.communitySets?.['RM-10-add-2'].entries?.['1'].members).toEqual(['65000:1', 'target:4200000000:7'])
   })
 
-  it('reads a later community set as replacing an earlier one, as Junos applies them, and writes no set of two', () => {
-    const p = parse(set('set policy-options community A members 65000:1', 'set policy-options community B members 65000:2', 'set policy-options policy-statement P term T then community set A', 'set policy-options policy-statement P term T then community set B'), context)
-    expect(p.model.routingPolicy?.policies?.P.terms?.['1'].actions).toEqual({ communitySet: { sets: ['B'] } })
-    expect(p.dispositions.L3).toMatchObject({ kind: 'ignored-by-design', reason: 'superseded by line 4' })
-    const two: Device = { routingPolicy: { communitySets: { A: { entries: { '1': { action: 'permit', members: ['65000:1'] } } } }, policies: { P: { fallThrough: 'reject', terms: { '10': { actions: { communitySet: { values: ['65000:9'], sets: ['A'] }, flow: 'accept' } } } } } } }
-    expect(render(two, context).dispositions['routingPolicy.policies.P.terms["10"].actions.communitySet.values']).toMatchObject({ kind: 'unsupported', reason: expect.stringContaining('replaces the first') })
+  it('keeps every community of a community set [ A B ], one action with a list, in both forms (two set-form lines are the list)', () => {
+    const hierarchical = parse(readFileSync(new URL('./fixtures/conformance/policy/community-set-list.conf', import.meta.url), 'utf8'), context)
+    const setForm = parse(readFileSync(new URL('./fixtures/conformance/policy/community-set-list-set-form.set', import.meta.url), 'utf8'), context)
+    for (const p of [hierarchical, setForm]) {
+      expect(p.model.routingPolicy?.policies?.P.terms?.['1'].actions).toEqual({ communitySet: { sets: ['A', 'B'] }, flow: 'accept' })
+      expect(Object.values(p.dispositions).filter((d) => d.kind !== 'mapped')).toEqual([])
+      expect(render(p.model, context).text).toContain('                community set [ A B ];\n')
+    }
+  })
+
+  it('writes a community set of values and sets as one action with all of them, which reparses with every community', () => {
+    const model: Device = {
+      routingPolicy: {
+        communitySets: { A: { entries: { '1': { action: 'permit', members: ['65000:1'] } } } },
+        policies: { P: { fallThrough: 'reject', terms: { '10': { actions: { communitySet: { values: ['65000:9', 'no-export'], sets: ['A'] }, flow: 'accept' } } } } }
+      }
+    }
+    const r = render(model, context)
+    expect(r.text).toContain('            community set [ P-10-set A ];\n')
+    expect(r.dispositions['routingPolicy.policies.P.terms["10"].actions.communitySet.values']).toMatchObject({ kind: 'rendered' })
+    expect(r.dispositions['routingPolicy.policies.P.terms["10"].actions.communitySet.sets']).toMatchObject({ kind: 'rendered' })
+    expect(ledgerProblems(buildLedger(parse('', context), r, model))).toEqual([])
+    const back = parse(r.text, context).model.routingPolicy
+    expect(back?.policies?.P.terms?.['1'].actions?.communitySet).toEqual({ sets: ['P-10-set', 'A'] })
+    expect(back?.communitySets?.['P-10-set'].entries?.['1'].members).toEqual(['65000:9', 'no-export'])
+    expect(back?.communitySets?.A.entries?.['1'].members).toEqual(['65000:1'])
   })
 
   it('writes no community for a term left out, and leaves a literal Junos can’t write unsupported', () => {
