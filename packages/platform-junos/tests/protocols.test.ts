@@ -259,6 +259,14 @@ describe('aggregate names for convert', () => {
     expect(plugin.nameInterface!({ type: 'aggregate', numbers: [1, 2] })).toBeUndefined()
     expect(plugin.nameInterface!({ type: 'ethernet', speed: 1000, numbers: [0, 0, 1] })).toBeUndefined()
   })
+
+  it('suggests irb.N for a routed VLAN interface of VLAN N (Cisco VlanN, #80), and nothing out of range', () => {
+    expect(plugin.nameInterface!({ type: 'irb-or-svi', numbers: [100] })).toBe('irb.100')
+    expect(plugin.nameInterface!({ type: 'vlan', numbers: [1] })).toBe('irb.1')
+    expect(plugin.nameInterface!({ type: 'irb-or-svi', numbers: [4094] })).toBe('irb.4094')
+    expect(plugin.nameInterface!({ type: 'irb-or-svi', numbers: [0] })).toBeUndefined()
+    expect(plugin.nameInterface!({ type: 'irb-or-svi', numbers: [4095] })).toBeUndefined()
+  })
 })
 
 describe('group and peer names', () => {

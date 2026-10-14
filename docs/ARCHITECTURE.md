@@ -323,13 +323,29 @@ error). Interface names are the core's job, not a plugin's, so they never map si
   item (`kind: 'interface-name'`, id
   `interface:<name>`, `interfaceInputId()`), first in the ledger's `needsInput`, with its field and the source statement
   that configures it (the outermost whose mapped fields are all that interface's), or the one that references it;
-- a suggestion comes from the source's `describeInterface` and the target's `nameInterface`, and is only offered
-  (`suggestions`): an unanswered interface keeps its source name and stays in `unanswered`;
-- `renameInterfaces(model, map)` renames keys and references (`ge-0/0/0.0` → `GigabitEthernet0/0/0.0`; the IOS-XE
-  renderer writes a `.0` reference as the main interface), OSPF interface keys included, with null-prototype maps;
+- **a routed VLAN interface is named unit by unit** (#80): an `irb-or-svi` or `vlan` interface with units other than a
+  lone `0` (Junos `irb` with units 100 and 200) is one row per unit, `irb.100` and `irb.200` (`modelInterfaces()`),
+  each its own needs-input item whose `field` is the unit's and whose statement is the unit's block, since a target
+  may give each its own interface. Any other interface is one row, as are a Cisco SVI (`Vlan100`, unit 0 only) and a
+  reference to a unit of another interface;
+- a suggestion comes from the target's `nameInterface`, given the source's `describeInterface`, or for a routed VLAN
+  row (a unit, or an SVI) the core's own `PortName`: type `irb-or-svi` and the VLAN it routes for as its number. So
+  Junos `irb.100` is suggested as IOS-XE's and NX-OS's `Vlan100`, Cisco `Vlan100` as Junos's `irb.100`, and IOS-XR,
+  which doesn't write BVIs yet, suggests none. A suggestion is only offered (`suggestions`): an unanswered row keeps
+  its source name and stays in `unanswered`;
+- `renameInterfaces(model, map)` places each row, renaming keys and references (`ge-0/0/0.0` →
+  `GigabitEthernet0/0/0.0`; the IOS-XE renderer writes a `.0` reference as the main interface), OSPF interface keys
+  included, with null-prototype maps. A whole interface's answer renames it with its units. A unit's answer makes the
+  unit its own interface: `irb.100` → `Vlan100` is `Vlan100`'s unit `0`, carrying a copy of the `irb`'s own leaves
+  (its type, MTU…); an answer with an index places it at that unit (`irb.100` → `irb.100`). A Cisco SVI answered with
+  an index (`Vlan100` → `irb.100`) becomes that unit of the target, its description and `enabled` moving to the unit
+  (unless the unit says its own), and SVIs placed as units of one target merge there when their interfaces' own leaves
+  agree. References follow their unit (`irb.100` → `Vlan100.0`, `Vlan100` → `irb.100`); a unit left unanswered stays
+  in its source interface. `issues` and `links` map the render's paths back through the same placement;
 - two interfaces that would have one name are refused, counting the source names unanswered interfaces keep: the
   answers in a clash are dropped (an error diagnostic, `convert.interface-name-taken`, with the interfaces' lines), so
-  each keeps its distinct source name and none replaces another. So are answers that would give two OSPF interfaces of
+  each keeps its distinct source name and none replaces another. A clash is two rows at one name that can't share it
+  (a whole interface, or SVIs whose own leaves differ) or at one unit (`irb.100` and `irb.200` both `Vlan100`). So are answers that would give two OSPF interfaces of
   an area one reference (`eth0` → `Gig0.0` beside `eth1.0` with `eth1` → `Gig0`), with the OSPF statements' lines.
   `renameInterfaces()` throws rather than merge two;
 - no message names an interface (needs-input items say which by `statement` and `field`): a name can be a secret's

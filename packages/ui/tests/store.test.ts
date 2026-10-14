@@ -156,6 +156,37 @@ describe('the store in convert mode', () => {
   })
 })
 
+describe('the store converting IRB units (#80)', () => {
+  const IRB = ['interfaces {', '    irb {', ...[100, 200, 300].flatMap((n) => [`        unit ${n} {`, `            family inet address 10.${n / 100}.0.1/24;`, '        }']), '    }', '}', 'vlans {', ...[100, 200, 300].flatMap((n) => [`    v${n} {`, `        vlan-id ${n};`, `        l3-interface irb.${n};`, '    }']), '}'].join('\n')
+
+  beforeEach(() => {
+    useStore.getState().setJob({ kind: 'convert', target: 'nxos' })
+    useStore.getState().setSource(IRB, 'irb.conf')
+  })
+  afterEach(() => {
+    useStore.getState().setJob(DISPLAY_SET)
+  })
+
+  it('lists each unit as its own row with its Vlan suggested, and converts each to its SVI once the suggestions are taken', () => {
+    expect(doc().interfaces).toEqual([
+      { source: 'irb.100', suggestion: 'Vlan100', line: 3 },
+      { source: 'irb.200', suggestion: 'Vlan200', line: 6 },
+      { source: 'irb.300', suggestion: 'Vlan300', line: 9 }
+    ])
+    useStore.getState().takeSuggestions()
+    expect(doc().interfaceMap).toEqual({ 'irb.100': 'Vlan100', 'irb.200': 'Vlan200', 'irb.300': 'Vlan300' })
+    for (const n of [100, 200, 300]) expect(doc().output).toContain(`interface Vlan${n}\n`)
+    expect(doc().interfaces.every((i) => i.target === i.suggestion)).toBe(true)
+  })
+
+  it('keeps a unit with no name a row to name, while the named units convert', () => {
+    useStore.getState().mergeInterfaceMap({ 'irb.100': 'Vlan100', 'irb.300': 'Vlan300' })
+    expect(doc().interfaces.filter((i) => i.target === undefined).map((i) => i.source)).toEqual(['irb.200'])
+    expect(doc().output).toContain('interface Vlan100\n')
+    expect(doc().output).toContain('interface Vlan300\n')
+  })
+})
+
 describe('outputName', () => {
   it("is the source's name with .set, or display-set.set", () => {
     expect(outputName('edge-1.conf')).toBe('edge-1.set')

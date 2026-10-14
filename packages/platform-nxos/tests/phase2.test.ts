@@ -433,4 +433,11 @@ describe('aggregate names suggested for convert', () => {
     expect(plugin.describeInterface?.('port-channel10')).toEqual(aggregate(10))
     expect(plugin.describeInterface?.('Ethernet1/1')).toBeUndefined()
   })
+
+  it('a routed VLAN interface of VLAN N (Junos irb.N, #80) is VlanN; none out of range', () => {
+    expect(plugin.nameInterface?.({ type: 'irb-or-svi', numbers: [100] })).toBe('Vlan100')
+    expect(plugin.nameInterface?.({ type: 'vlan', numbers: [4094] })).toBe('Vlan4094')
+    expect(plugin.nameInterface?.({ type: 'irb-or-svi', numbers: [0] })).toBeUndefined()
+    expect(plugin.nameInterface?.({ type: 'irb-or-svi', numbers: [4095] })).toBeUndefined()
+  })
 })

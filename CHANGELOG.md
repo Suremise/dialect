@@ -18,6 +18,10 @@
   keyboard focus shows.
 
 ### Convert
+- **Every IRB unit converts:** a Junos `irb` with several units is named unit by unit (`irb.100`, `irb.200`), in the
+  Interfaces table and in map files (`irb.100,Vlan100`), and each becomes its own VLAN interface on IOS-XE and NX-OS,
+  suggested as `Vlan100`, `Vlan200`. Before, only one unit could be converted. The other way, Cisco's `Vlan100` is
+  suggested as Junos's `irb.100`, and VLAN interfaces become units of one `irb`.
 - **Junos routing policy converts:** prefix lists, communities (literal, extended and large members, and regular
   expressions, marked as Junos's), AS paths and policy-statements, with their terms' conditions (prefix lists and
   `prefix-list-filter`, route filters, communities, AS paths, protocol, neighbor, tag, family) and actions (accept,

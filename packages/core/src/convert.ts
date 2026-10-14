@@ -42,6 +42,19 @@ function splitReference(ref: string): { base: string; index: string } | null {
   return m ? { base: m[1], index: m[2] } : null
 }
 
+/** A routed VLAN interface (Junos `irb` and EX `vlan`, Cisco `VlanN`), whose subinterfaces each route for a VLAN. */
+const routesVlans = (i: Interface | undefined) => i?.type === 'irb-or-svi' || i?.type === 'vlan'
+
+/**
+ * Whether an interface is named unit by unit (#80): a routed VLAN interface with units other than a lone `0` (Junos
+ * `irb` with units 100 and 200), whose units become separate interfaces on a target that has one per VLAN (Cisco
+ * `Vlan100`, `Vlan200`). Its rows are `irb.100` and `irb.200`, never `irb`.
+ */
+function byUnit(i: Interface | undefined): boolean {
+  const units = Object.keys(i?.subinterfaces ?? {})
+  return routesVlans(i) && units.length > 0 && !(units.length === 1 && units[0] === '0')
+}
+
 /**
  * Where the model names an interface by reference, not as a top-level key: the value is `name` or
  * `name.<subinterface>`, at a leaf (a next hop's interface) or as the key of an entry (an OSPF interface), whose path
@@ -66,35 +79,220 @@ function references(model: Device): { path: string; value: string }[] {
   return out
 }
 
-/** The interface a reference names: itself when the model has it, else its base when the model has that. */
-function referencedInterface(ref: string, keys: ReadonlySet<string>): string {
-  if (keys.has(ref)) return ref
-  const split = splitReference(ref)
-  return split && keys.has(split.base) ? split.base : (split?.base ?? ref)
+/** One row of the interface map: a whole interface, or one unit of an interface named unit by unit (`irb.100`). */
+interface Row {
+  /** The row's name, the interface map's key: `ge-0/0/0`, `irb.100`. */
+  readonly name: string
+  /** The model's interface (or, for one only referenced, the name its references give). */
+  readonly ifc: string
+  /** The unit, for a row of one. */
+  readonly unit?: string
 }
 
-/** Every interface the model names, in order: its keys, then interfaces only referenced (`st0.0` → `st0`). */
-export function modelInterfaces(model: Device): string[] {
-  const keys = new Set(Object.keys(model.interfaces ?? {}))
-  const names = [...keys]
-  for (const r of references(model)) {
-    const name = referencedInterface(r.value, keys)
-    if (!names.includes(name)) names.push(name)
+/** The model's rows, in order: its interfaces (unit by unit for those named so), then interfaces only referenced. */
+function rows(model: Device): Row[] {
+  const out: Row[] = []
+  const seen = new Set<string>()
+  const add = (row: Row) => {
+    if (!seen.has(row.name)) out.push(row)
+    seen.add(row.name)
   }
-  return names
+  for (const [name, i] of Object.entries(model.interfaces ?? {})) {
+    if (byUnit(i)) for (const unit of Object.keys(i.subinterfaces ?? {})) add({ name: `${name}.${unit}`, ifc: name, unit })
+    else add({ name, ifc: name })
+  }
+  const keys = new Set(Object.keys(model.interfaces ?? {}))
+  for (const r of references(model)) add(rowOf(model, r.value, keys))
+  return out
+}
+
+/** The row a reference (`name` or `name.<subinterface>`) belongs to. */
+function rowOf(model: Device, ref: string, keys: ReadonlySet<string>): Row {
+  const split = splitReference(ref)
+  if (keys.has(ref)) return { name: ref, ifc: ref }
+  if (split && keys.has(split.base)) {
+    const i = model.interfaces![split.base]
+    return byUnit(i) && Object.hasOwn(i.subinterfaces ?? {}, split.index) ? { name: ref, ifc: split.base, unit: split.index } : { name: split.base, ifc: split.base }
+  }
+  const name = split?.base ?? ref
+  return { name, ifc: name }
 }
 
 /**
- * How `names` renames a reference (`name` or `name.<subinterface>`): the interface itself when it is one of the
- * model's `keys` or a renamed name, else its base, keeping the subinterface index (`ge-0/0/0.10` → `Gig0.10`).
+ * Every row of the interface map the model needs, in order: its interfaces, then interfaces only referenced (`st0.0` →
+ * `st0`). A routed VLAN interface with units other than a lone `0` is named unit by unit (`irb.100`, `irb.200`), since a
+ * target may give each its own interface (`Vlan100`, `Vlan200`).
  */
-function referenceRenamer(keys: ReadonlySet<string>, names: InterfaceMap): (value: string) => string {
+export function modelInterfaces(model: Device): string[] {
+  return rows(model).map((r) => r.name)
+}
+
+/** Where a source interface's parts go on the target: its own leaves, and each subinterface as a target's unit. */
+interface Placement {
+  /** The target interface that takes the source's own leaves, for each target it goes to. */
+  readonly targets: readonly string[]
+  /** By source unit: the target interface and unit. */
+  readonly units: ReadonlyMap<string, readonly [string, string]>
+  /** For a source with no units of its own (a reference only): its target. */
+  readonly whole?: string
+  /**
+   * A Cisco SVI named as a unit (`Vlan100` → `irb.100`): its description and whether it is enabled move to the unit,
+   * where the target says them for each VLAN.
+   */
+  readonly toUnit: boolean
+}
+
+/** The model with interfaces placed by `names`, and how to trace its paths and references back. */
+interface Placed {
+  readonly model: Device
+  /** The source path of a renamed model's path (`interfaces.Vlan100.subinterfaces["0"]…` → `interfaces.irb.subinterfaces["100"]…`). */
+  readonly sourcePath: (path: string) => string
+  /** A reference renamed: `irb.100` → `Vlan100.0`. */
+  readonly ref: (value: string) => string
+  /** The rows whose names would put two things in one place (one interface name, one unit), each group a clash. */
+  readonly clashes: readonly (readonly string[])[]
+}
+
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * Places the model's interfaces by `names` (row → target name). A whole interface's answer renames it, as before. A
+ * unit's answer (`irb.100` → `Vlan100`) makes that unit the target interface's unit `0`, or with an index
+ * (`Vlan100` → `irb.100`, `irb.100` → `irb.100`) that unit of it; units of one target from several sources merge when
+ * their interfaces' own leaves agree. Every other overlap is a clash: two rows at one interface name, or one unit.
+ */
+function place(model: Device, names: InterfaceMap): Placed {
   const has = (name: string) => Object.hasOwn(names, name)
-  return (value) => {
-    if (has(value)) return names[value]
-    const split = splitReference(value)
-    return split && !keys.has(value) && has(split.base) ? `${names[split.base]}.${split.index}` : value
+  const interfaces = model.interfaces ?? {}
+  const keys = new Set(Object.keys(interfaces))
+  const placements = new Map<string, Placement>()
+  /** Which rows put something at each target interface, and whether each can share it with another source. */
+  const users = new Map<string, { row: string; source: string; shares: boolean }[]>()
+  const use = (target: string, row: string, source: string, shares: boolean) => users.set(target, [...(users.get(target) ?? []), { row, source, shares }])
+  /** Which rows put a unit at each target interface and unit. */
+  const unitUsers = new Map<string, string[]>()
+  for (const [name, i] of Object.entries(interfaces)) {
+    const units = Object.keys(i.subinterfaces ?? {})
+    if (byUnit(i)) {
+      const placed = new Map<string, readonly [string, string]>()
+      for (const unit of units) {
+        const row = `${name}.${unit}`
+        const to = has(row) ? names[row] : undefined
+        const split = to !== undefined ? splitReference(to) : null
+        placed.set(unit, to === undefined ? [name, unit] : split ? [split.base, split.index] : [to, '0'])
+      }
+      const targets = [...new Set([...placed.values()].map(([t]) => t))]
+      placements.set(name, { targets, units: placed, toUnit: false })
+      for (const [unit, [t]] of placed) use(t, `${name}.${unit}`, name, true)
+      continue
+    }
+    const to = has(name) ? names[name] : undefined
+    const split = to !== undefined && routesVlans(i) && units.every((u) => u === '0') ? splitReference(to) : null
+    if (split) {
+      placements.set(name, { targets: [split.base], units: new Map(units.map((u) => [u, [split.base, split.index] as const])), toUnit: true })
+      use(split.base, name, name, true)
+    } else {
+      const t = to ?? name
+      placements.set(name, { targets: [t], units: new Map(units.map((u) => [u, [t, u] as const])), toUnit: false })
+      use(t, name, name, false)
+    }
   }
+  for (const r of rows(model))
+    if (!keys.has(r.ifc) && !placements.has(r.ifc)) {
+      const t = has(r.name) ? names[r.name] : r.name
+      placements.set(r.ifc, { targets: [], units: new Map(), whole: t, toUnit: false })
+      use(t, r.name, r.ifc, false)
+    }
+  for (const [source, p] of placements) for (const [unit, [t, u]] of p.units) unitUsers.set(JSON.stringify([t, u]), [...(unitUsers.get(JSON.stringify([t, u])) ?? []), byUnit(interfaces[source]) ? `${source}.${unit}` : source])
+
+  /** The leaves a source interface keeps at a target: its own, less its units, and less what moves to a unit. */
+  const own = (source: string, p: Placement): Record<string, unknown> => {
+    const { subinterfaces: _s, ...rest } = interfaces[source] ?? {}
+    if (!p.toUnit) return rest
+    const { description: _d, enabled: _e, ...kept } = rest
+    return kept
+  }
+  // Clashes: a target interface used by rows of two sources that can't share it (a whole interface, or own leaves
+  // that differ), or one unit used twice.
+  const clashes: string[][] = []
+  for (const list of users.values()) {
+    const sources = [...new Set(list.map((u) => u.source))]
+    if (sources.length < 2) continue
+    const ownLeaves = sources.map((s) => (placements.get(s)!.whole !== undefined ? null : own(s, placements.get(s)!)))
+    if (list.some((u) => !u.shares) || ownLeaves.some((l) => l === null || !same(l, ownLeaves[0]))) clashes.push([...new Set(list.map((u) => u.row))])
+  }
+  for (const group of unitUsers.values()) if (group.length > 1) clashes.push([...new Set(group)])
+
+  // The placed interfaces, and each placed path's source.
+  const back = new Map<string, readonly string[]>()
+  const placed = Object.create(null) as Record<string, Interface>
+  const build = (target: string): Record<string, unknown> => {
+    if (!Object.hasOwn(placed, target)) placed[target] = Object.create(null) as Interface
+    return placed[target] as unknown as Record<string, unknown>
+  }
+  for (const [source, p] of placements) {
+    if (p.whole !== undefined || !Object.hasOwn(interfaces, source)) continue
+    const i = interfaces[source]
+    for (const target of p.targets) {
+      const out = build(target)
+      if (!back.has(JSON.stringify([target]))) back.set(JSON.stringify([target]), ['interfaces', source])
+      for (const [leaf, value] of Object.entries(own(source, p))) {
+        if (!Object.hasOwn(out, leaf)) out[leaf] = value
+        if (!back.has(JSON.stringify([target, leaf]))) back.set(JSON.stringify([target, leaf]), ['interfaces', source, leaf])
+      }
+      // A collection configured with no units (`subinterfaces: {}`) is a leaf of its own: it goes with the interface.
+      if (i.subinterfaces !== undefined && !Object.keys(i.subinterfaces).length && !Object.hasOwn(out, 'subinterfaces')) {
+        out.subinterfaces = Object.create(null)
+        back.set(JSON.stringify([target, 'subinterfaces']), ['interfaces', source, 'subinterfaces'])
+      }
+    }
+    for (const [unit, [target, to]] of p.units) {
+      const out = build(target)
+      const subs = (Object.hasOwn(out, 'subinterfaces') ? out.subinterfaces : (out.subinterfaces = Object.create(null))) as Record<string, unknown>
+      const sub = i.subinterfaces![unit]
+      // A Cisco SVI's description and state go to its unit, unless the unit says its own.
+      const moved: Record<string, unknown> = {}
+      if (p.toUnit)
+        for (const leaf of ['description', 'enabled'] as const)
+          if (i[leaf] !== undefined && sub[leaf] === undefined) {
+            moved[leaf] = i[leaf]
+            back.set(JSON.stringify([target, 'subinterfaces', to, leaf]), ['interfaces', source, leaf])
+          }
+      subs[to] = { ...sub, ...moved }
+      back.set(JSON.stringify([target, 'subinterfaces', to]), ['interfaces', source, 'subinterfaces', unit])
+    }
+  }
+
+  const ref = (value: string): string => {
+    const split = splitReference(value)
+    if (keys.has(value)) {
+      const p = placements.get(value)!
+      if (p.toUnit) {
+        const [t, u] = p.units.get('0') ?? [p.targets[0], '0']
+        return `${t}.${u}`
+      }
+      return p.targets[0] ?? value
+    }
+    if (split && keys.has(split.base)) {
+      const at = placements.get(split.base)!.units.get(split.index)
+      return at ? `${at[0]}.${at[1]}` : `${placements.get(split.base)!.targets[0]}.${split.index}`
+    }
+    const whole = placements.get(split?.base ?? value)?.whole
+    if (whole === undefined) return value
+    return split ? `${whole}.${split.index}` : whole
+  }
+  const sourcePath = (path: string): string => {
+    const s = pathSegments(path)
+    if (s[0] !== 'interfaces' || typeof s[1] !== 'string') return path
+    // The longest placed prefix: a unit's leaf moved from its SVI, the unit, the interface's own leaf.
+    for (const n of [4, 3, 2, 1]) {
+      const key = JSON.stringify(s.slice(1, n + 1))
+      const was = back.get(key)
+      if (was) return fieldPath(...was, ...s.slice(n + 1))
+    }
+    return path
+  }
+  return { model: { ...model, ...(model.interfaces ? { interfaces: placed } : {}) }, sourcePath, ref, clashes }
 }
 
 /**
@@ -119,19 +317,8 @@ function keyed<T>(entries: Iterable<readonly [string, T]>): Record<string, T> {
   return out
 }
 
-/**
- * The model with interfaces renamed by `names` (source → target), as keys and in references. Others are kept. Throws
- * when two interfaces would end up with one name, or two OSPF interfaces of an area with one reference (`eth0` →
- * `Gig0.0` beside `eth1.0` with `eth1` → `Gig0`): one would replace the other. convert() refuses such answers first.
- */
-export function renameInterfaces(model: Device, names: InterfaceMap): Device {
-  const has = (name: string) => Object.hasOwn(names, name)
-  const keys = new Set(Object.keys(model.interfaces ?? {}))
-  const after = modelInterfaces(model).map((n) => (has(n) ? names[n] : n))
-  // No name in the message: an interface's name can be a secret's value reused (AGENTS.md).
-  if (new Set(after).size !== after.length) throw new Error('Two interfaces would have one name: refused, so neither is lost.')
-  const ref = referenceRenamer(keys, names)
-  if (ospfClashes(model, ref).length) throw new Error('Two OSPF interfaces of an area would have one name: refused, so neither is lost.')
+/** The model with references renamed by `ref`, and `interfaces` as placed. */
+function withReferences(model: Device, interfaces: Device['interfaces'], ref: (value: string) => string): Device {
   const system = model.system && {
     ...model.system,
     ...(model.system.ntp?.sourceInterface !== undefined ? { ntp: { ...model.system.ntp, sourceInterface: ref(model.system.ntp.sourceInterface) } } : {}),
@@ -152,13 +339,32 @@ export function renameInterfaces(model: Device, names: InterfaceMap): Device {
   return {
     ...model,
     ...(system ? { system: system as System } : {}),
-    ...(model.interfaces ? { interfaces: keyed<Interface>(Object.entries(model.interfaces).map(([name, i]) => [has(name) ? names[name] : name, i] as const)) } : {}),
+    ...(interfaces ? { interfaces } : {}),
     ...(model.networkInstances ? { networkInstances: keyed(Object.entries(model.networkInstances).map(([n, ni]) => [n, instance(ni)] as const)) } : {})
   }
 }
 
-/** One interface of a conversion: its name on the source, the user's name for it on the target, and a suggestion. */
+/**
+ * The model with interfaces renamed by `names` (a row of the interface map → its target name), as keys and in
+ * references. A unit's row (`irb.100` → `Vlan100`) makes it its own interface's unit `0`, or with an index the target's
+ * unit of that number (`Vlan100` → `irb.100`). Others are kept. Throws when two interfaces would end up with one name
+ * (or one unit), or two OSPF interfaces of an area with one reference (`eth0` → `Gig0.0` beside `eth1.0` with `eth1` →
+ * `Gig0`): one would replace the other. convert() refuses such answers first.
+ */
+export function renameInterfaces(model: Device, names: InterfaceMap): Device {
+  const placed = place(model, names)
+  // No name in the message: an interface's name can be a secret's value reused (AGENTS.md).
+  if (placed.clashes.length) throw new Error('Two interfaces would have one name: refused, so neither is lost.')
+  if (ospfClashes(model, placed.ref).length) throw new Error('Two OSPF interfaces of an area would have one name: refused, so neither is lost.')
+  return withReferences(model, placed.model.interfaces, placed.ref)
+}
+
+/**
+ * One row of a conversion's interface map: an interface (or a unit of one named unit by unit, `irb.100`) by its name on
+ * the source, the user's name for it on the target, and a suggestion.
+ */
 export interface InterfaceName {
+  /** `ge-0/0/0`, or a unit's `irb.100`. */
   readonly source: string
   /** The needs-input id that answers it. */
   readonly inputId: string
@@ -226,18 +432,21 @@ function statementFields(parse: ParseResult): Map<string, readonly string[]> {
 }
 
 /**
- * The statement to show for an interface: the outermost statement whose mapped fields all belong to it (the Junos
- * `ge-0/0/0 { … }` block, not the `interfaces` block around it), or the first that names it by reference.
+ * The statement to show for an interface (or a unit) whose fields are under `prefix`: the outermost statement whose
+ * mapped fields all belong to it (the Junos `ge-0/0/0 { … }` block, not the `interfaces` block around it), or the
+ * first that names it by reference. For a unit, its interface's own leaves (`interfaces.irb.type`, which Junos maps
+ * with each unit) belong to it too, but not its other units: the Junos `unit 100 { … }` block.
  */
-function interfaceStatement(tree: readonly SyntaxNode[], fields: Map<string, readonly string[]>, name: string, referencedAt: ReadonlySet<string>): string | undefined {
-  const prefix = fieldPath('interfaces', name)
-  const own = (f: string) => f === prefix || f.startsWith(`${prefix}.`) || f.startsWith(`${prefix}[`)
+function interfaceStatement(tree: readonly SyntaxNode[], fields: Map<string, readonly string[]>, prefix: string, referencedAt: ReadonlySet<string>, ofInterface?: string): string | undefined {
+  const under = (f: string, p: string) => f === p || f.startsWith(`${p}.`) || f.startsWith(`${p}[`)
+  const unit = (f: string) => under(f, prefix)
+  const own = (f: string) => unit(f) || (ofInterface !== undefined && under(f, ofInterface) && !under(f, `${ofInterface}.subinterfaces`))
   const subtree = (n: SyntaxNode): string[] => [...(fields.get(n.id) ?? []), ...(n.children ?? []).flatMap(subtree)]
   const find = (nodes: readonly SyntaxNode[]): string | undefined => {
     for (const n of nodes) {
       const all = subtree(n)
-      if (all.length && all.every(own)) return n.id
-      if (all.some(own)) return find(n.children ?? [])
+      if (all.length && all.every(own) && all.some(unit)) return n.id
+      if (all.some(unit)) return find(n.children ?? [])
     }
     return undefined
   }
@@ -259,14 +468,17 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   const fields = statementFields(parse)
   const answer = (id: string) => (Object.hasOwn(inputs, id) && inputs[id].trim() !== '' ? inputs[id].trim() : undefined)
 
-  // The interfaces, where each is configured or named, and the user's answers.
-  const names = modelInterfaces(parse.model)
+  // The interface map's rows (an interface, or a unit of one named unit by unit), where each is configured or named,
+  // and the user's answers.
+  const all = rows(parse.model)
+  const names = all.map((r) => r.name)
   const keys = new Set(Object.keys(parse.model.interfaces ?? {}))
   const refs = references(parse.model)
+  const rowPath = (r: Row) => (r.unit !== undefined ? fieldPath('interfaces', r.ifc, 'subinterfaces', r.unit) : fieldPath('interfaces', r.name))
   const statements = new Map(
-    names.map((n) => {
-      const referencedAt = new Set(refs.filter((r) => referencedInterface(r.value, keys) === n).map((r) => r.path))
-      return [n, interfaceStatement(parse.tree, fields, n, referencedAt)] as const
+    all.map((r) => {
+      const referencedAt = new Set(refs.filter((ref) => rowOf(parse.model, ref.value, keys).name === r.name).map((ref) => ref.path))
+      return [r.name, interfaceStatement(parse.tree, fields, rowPath(r), referencedAt, r.unit !== undefined ? fieldPath('interfaces', r.ifc) : undefined)] as const
     })
   )
   const spans = new Map(statementsOf(parse.tree).map((node) => [node.id, node.span]))
@@ -302,42 +514,54 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
     })
     for (const n of group) answers.set(n, undefined)
   }
-  for (;;) {
-    const byName = new Map<string, string[]>()
-    for (const n of names) {
-      const name = answers.get(n) ?? n
-      byName.set(name, [...(byName.get(name) ?? []), n])
-    }
-    const clashes = [...byName.values()].filter((group) => group.length > 1)
-    for (const group of clashes) refuse('interfaces', group, group.map((n) => statements.get(n)))
-    if (clashes.length) continue
+  const answeredMap = () => {
     const answered: Record<string, string> = Object.create(null) as Record<string, string>
     for (const [n, to] of answers) if (to !== undefined) answered[n] = to
-    // Unanswered references keep their (distinct) keys, so a clash always has an answered interface to refuse.
-    const ospf = ospfClashes(parse.model, referenceRenamer(keys, answered))
-      .map((c) => ({ ...c, interfaces: [...new Set(c.keys.map((k) => referencedInterface(k, keys)))].filter((n) => answers.get(n) !== undefined) }))
+    return answered
+  }
+  for (;;) {
+    // Rows left unanswered keep their own (distinct) places, so a clash always has an answered row to refuse.
+    const placed = place(parse.model, answeredMap())
+    const clashes = placed.clashes.filter((group) => group.some((n) => answers.get(n) !== undefined))
+    for (const group of clashes) refuse('interfaces', group, group.map((n) => statements.get(n)))
+    if (clashes.length) continue
+    const ospf = ospfClashes(parse.model, placed.ref)
+      .map((c) => ({ ...c, interfaces: [...new Set(c.keys.map((k) => rowOf(parse.model, k, keys).name))].filter((n) => answers.get(n) !== undefined) }))
       .filter((c) => c.interfaces.length)
     for (const c of ospf) refuse('OSPF interfaces', c.interfaces, c.keys.map((k) => ospfStatement(c.instance, c.area, k)))
     if (!ospf.length) break
   }
-  const interfaces = names.map((n): InterfaceName => {
-    const port = source.describeInterface?.(n)
+  /**
+   * What a row's name says, for the target's suggestion: a routed VLAN interface or unit by the VLAN it routes for
+   * (`irb.100` and Cisco's `Vlan100` are VLAN 100's), any other interface as the source plugin describes it.
+   */
+  const portOf = (r: Row): PortName | undefined => {
+    const i = keys.has(r.ifc) ? parse.model.interfaces![r.ifc] : undefined
+    const subs = i?.subinterfaces ?? {}
+    const unit = r.unit ?? (Object.keys(subs).length === 1 && Object.hasOwn(subs, '0') ? '0' : undefined)
+    const vlan = routesVlans(i) && unit !== undefined ? subs[unit]?.routedVlan : undefined
+    if (vlan !== undefined) return { type: 'irb-or-svi', numbers: [vlan] }
+    return r.unit === undefined ? source.describeInterface?.(r.name) : undefined
+  }
+  const interfaces = all.map((r): InterfaceName => {
+    const port = portOf(r)
     const suggestion = port ? target.nameInterface?.(port) : undefined
-    const statement = statements.get(n)
-    const to = answers.get(n)
-    return { source: n, inputId: interfaceInputId(n), ...(to !== undefined ? { target: to } : {}), ...(suggestion ? { suggestion } : {}), ...(statement ? { statement } : {}) }
+    const statement = statements.get(r.name)
+    const to = answers.get(r.name)
+    return { source: r.name, inputId: interfaceInputId(r.name), ...(to !== undefined ? { target: to } : {}), ...(suggestion ? { suggestion } : {}), ...(statement ? { statement } : {}) }
   })
-  const needsInput = interfaces.map(
-    (i): NeedsInput => ({
+  const needsInput = all.map((r, index): NeedsInput => {
+    const i = interfaces[index]
+    return {
       id: i.inputId,
       kind: 'interface-name',
       // Which interface is said by `statement` and `field`, not in words (a name can be a reused secret).
       message: `Name this interface on ${target.name}.`,
-      ...(keys.has(i.source) ? { field: fieldPath('interfaces', i.source) } : {}),
+      ...(keys.has(r.ifc) ? { field: rowPath(r) } : {}),
       ...(i.statement ? { statement: i.statement } : {}),
       ...(i.suggestion ? { suggestions: [i.suggestion] } : {})
-    })
-  )
+    }
+  })
 
   const map: Record<string, string> = Object.create(null) as Record<string, string>
   for (const i of interfaces) if (i.target !== undefined) map[i.source] = i.target
@@ -348,7 +572,8 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   const ledger: CoverageLedger = { ...built, diagnostics: [...built.diagnostics, ...diagnostics], needsInput: [...needsInput, ...built.needsInput] }
   const named = new Set(interfaces.filter((i) => i.target !== undefined).map((i) => i.inputId))
   const unanswered = [...needsInput.filter((item) => !named.has(item.id)), ...built.needsInput.filter((item) => answer(item.id) === undefined)]
-  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, map, ospfKeys(parse.model, referenceRenamer(keys, map))) }
+  const placed = place(parse.model, map)
+  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, placed.sourcePath, ospfKeys(parse.model, placed.ref)) }
 }
 
 /**
@@ -363,12 +588,11 @@ function ospfKeys(model: Device, ref: (value: string) => string): Map<string, Ma
 }
 
 /** By source statement: what didn't fully carry over (one issue per statement and reason), and where its fields went. */
-function sourceSide(ledger: CoverageLedger, map: InterfaceMap, ospf: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map()): Pick<Conversion, 'issues' | 'links'> {
-  // The render's fields are the renamed model's: back to the parse's names, to find the statement that filled each.
-  const back = new Map(Object.entries(map).map(([from, to]) => [to, from]))
+function sourceSide(ledger: CoverageLedger, placedPath: (path: string) => string, ospf: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map()): Pick<Conversion, 'issues' | 'links'> {
+  // The render's fields are the renamed model's: back to the parse's names (and units), to find the statement that
+  // filled each.
   const sourcePath = (path: string) => {
-    const s = pathSegments(path)
-    if (s[0] === 'interfaces' && typeof s[1] === 'string' && back.has(s[1])) s[1] = back.get(s[1])!
+    const s = pathSegments(placedPath(path))
     // networkInstances.<instance>.ospf.areas.<area>.interfaces.<reference>…
     if (s[0] === 'networkInstances' && s[2] === 'ospf' && s[3] === 'areas' && s[5] === 'interfaces' && typeof s[6] === 'string') {
       const was = ospf.get(JSON.stringify([s[1], s[4]]))?.get(s[6])
