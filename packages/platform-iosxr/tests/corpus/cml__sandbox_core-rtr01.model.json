@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.4.0",
   "device": {
     "system": {
       "hostname": "core-rtr01",
@@ -24,6 +24,27 @@
             "nextHops": {
               "0": {
                 "address": "172.16.253.4"
+              }
+            }
+          }
+        },
+        "ospf": {
+          "processId": "1",
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "GigabitEthernet0/0/0/0": {
+                  "enabledBy": "interface"
+                },
+                "GigabitEthernet0/0/0/1": {
+                  "enabledBy": "interface"
+                },
+                "GigabitEthernet0/0/0/2": {
+                  "enabledBy": "interface"
+                },
+                "GigabitEthernet0/0/0/3": {
+                  "enabledBy": "interface"
+                }
               }
             }
           }

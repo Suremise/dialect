@@ -1,10 +1,11 @@
-// The shared model → IOS-XR text, for the phase 1 areas, in the shape `show running-config` gives: one-space indents,
-// each block closed by `!`. Every populated leaf of model 0.3 gets a disposition: `rendered` with the line it went to,
-// `unsupported` with why (IOS-XR can't say it, or this renderer can't yet), or `not-applicable` (IOS-XR implies it).
-// Fields of a later model version are left without one, so the ledger reports them as unrendered rather than this
-// renderer claiming them.
-import { fieldPath, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface, type SyslogSeverity } from '@dialect/core'
-import { lengthMask } from './addresses'
+// The shared model → IOS-XR text, in the shape `show running-config` gives: one-space indents, each block closed by
+// `!`. Every populated leaf of model 0.4 gets a disposition: `rendered` with the line it went to, `unsupported` with why
+// (IOS-XR can't say it, or this renderer can't yet), or `not-applicable` (IOS-XR implies it). Fields of a later model
+// version are left without one, so the ledger reports them as unrendered rather than this renderer claiming them.
+// Secrets the model only flags (an OSPF key, a BGP password) and an eBGP neighbor's missing route policy (RFC 8212) are
+// needs-input items, written when answered (Context.inputs) and never made up.
+import { fieldPath, isAsNumber, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface, type SyslogSeverity } from '@dialect/core'
+import { isIpv4, isIpv6, lengthMask } from './addresses'
 import { inRange, MTU, PORT, ROUTE_TAG, VLAN_ID } from './parse'
 
 type Segments = readonly (string | number)[]
@@ -23,11 +24,16 @@ export const SEVERITY_OUT: Readonly<Record<SyslogSeverity, string>> = {
 
 /** A word IOS-XR reads back as one: quoted when it has a space in it. */
 const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
+/** An OSPF process name IOS-XR takes: up to 32 letters, digits and `_.-`. */
+const OSPF_TAG = /^[\w.-]{1,32}$/
+/** The BGP address families phase 2 writes, in order. */
+const FAMILIES = ['ipv4-unicast', 'ipv6-unicast'] as const satisfies readonly BgpAddressFamilyName[]
 
-export function render(model: Device, _context: Context): RenderResult {
+export function render(model: Device, context: Context): RenderResult {
   const lines: string[] = []
   const dispositions: Record<string, FieldDisposition> = {}
   const diagnostics: Diagnostic[] = []
+  const needsInput: NeedsInput[] = []
 
   /** Writes a line, marking the fields it says as rendered there. */
   const emit = (line: string, ...fields: Segments[]) => {
@@ -100,10 +106,8 @@ export function render(model: Device, _context: Context): RenderResult {
     const fields: Segments[] = isEmpty(instance) ? [at] : []
     if (instance.type === 'vrf') fields.push([...at, 'type'])
     else if (instance.type !== undefined) skip([...at, 'type'], 'unsupported', 'IOS-XR\'s global table is "default": another instance is a VRF')
+    // Its route distinguisher is BGP's on IOS-XR: written under router bgp.
     emit(`vrf ${name}`, ...fields)
-    if (instance.routeDistinguisher !== undefined) {
-      skip([...at, 'routeDistinguisher'], 'unsupported', 'IOS-XR sets a VRF\'s route distinguisher under router bgp, whose AS the model doesn\'t hold')
-    }
     if (instance.routeTargets !== undefined) renderRouteTargets(instance.routeTargets, [...at, 'routeTargets'])
     close()
   }
@@ -325,6 +329,356 @@ export function render(model: Device, _context: Context): RenderResult {
     if (route.description !== undefined && !described) skip([...at, 'description'], 'unsupported', 'a route description needs a next hop to go on')
   }
 
+  // ---- Layer 2: not this phase on IOS-XR (l2vpn and bridge domains), apart from tagged subinterfaces
+
+  emptyContainer(model.vlans, ['vlans'])
+  for (const [id, vlan] of Object.entries(model.vlans ?? {})) skipAll(vlan, ['vlans', id], 'IOS-XR\'s Layer 2 (bridge domains) isn\'t written yet')
+  for (const [name, iface] of Object.entries(model.interfaces ?? {})) {
+    if (iface.switching) skipAll(iface.switching, ['interfaces', name, 'switching'], 'IOS-XR\'s Layer 2 (l2transport, bridge domains) isn\'t written yet')
+    for (const [index, sub] of Object.entries(iface.subinterfaces ?? {})) {
+      if (sub.routedVlan !== undefined) skip(['interfaces', name, 'subinterfaces', index, 'routedVlan'], 'unsupported', 'a routed VLAN interface is a BVI on IOS-XR, with Layer 2, which isn\'t written yet')
+    }
+  }
+
+  // ---- OSPF
+
+  /** The network instances whose OSPF the source enabled with `network` statements, for the warning. */
+  const networkEnabled = new Set<string>()
+
+  /** Each network instance's OSPF, under `router ospf P`: the global table's, then each VRF's under `vrf V`. */
+  function renderOspf() {
+    const byTag = new Map<string, [instance: string, o: Ospf][]>()
+    for (const [instance, ni] of Object.entries(model.networkInstances ?? {}).sort(([a], [b]) => (a === 'default' ? -1 : b === 'default' ? 1 : 0))) {
+      if (!ni.ospf) continue
+      const tag = ni.ospf.processId ?? '1'
+      const at = ['networkInstances', instance, 'ospf']
+      if (!OSPF_TAG.test(tag)) {
+        skipAll(ni.ospf, at, 'not a process name IOS-XR takes')
+        continue
+      }
+      if (instance !== 'default' && model.networkInstances?.[instance]?.type !== 'vrf') {
+        skipAll(ni.ospf, at, 'OSPF in an instance IOS-XR doesn\'t write as a VRF')
+        continue
+      }
+      if (ni.ospf.processId === undefined) diagnostics.push({ severity: 'info', category: 'other', code: 'iosxr.ospf-process-name', message: 'The source gives OSPF no process name: IOS-XR needs one, and it is written as 1.', field: fieldPath(...at) })
+      byTag.set(tag, [...(byTag.get(tag) ?? []), [instance, ni.ospf]])
+    }
+    for (const [tag, list] of byTag) {
+      const global = list.find(([i]) => i === 'default')
+      emit(`router ospf ${tag}`, ...(global ? ospfFields('default', global[1]) : []))
+      if (global) renderOspfInstance('default', global[1], ' ')
+      for (const [instance, o] of list) {
+        if (instance === 'default') continue
+        emit(` vrf ${instance}`, ...ospfFields(instance, o))
+        renderOspfInstance(instance, o, '  ')
+        close(' ')
+      }
+      close()
+    }
+    for (const instance of networkEnabled) {
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.ospf-enabled-per-interface', message: 'The source enabled OSPF with network statements: IOS-XR lists each interface under its area, so an interface added later in the same range doesn\'t join OSPF by itself.', field: fieldPath('networkInstances', instance, 'ospf') })
+    }
+  }
+
+  /** The fields a `router ospf` or `vrf` line says: the process name, or OSPF configured with nothing in it. */
+  function ospfFields(instance: string, o: Ospf): Segments[] {
+    const at = ['networkInstances', instance, 'ospf']
+    return [...(o.processId !== undefined ? [[...at, 'processId']] : []), ...(isEmpty(o) ? [at] : [])]
+  }
+
+  function renderOspfInstance(instance: string, o: Ospf, indent: string) {
+    const at = ['networkInstances', instance, 'ospf']
+    if (o.routerId !== undefined) {
+      if (isIpv4(o.routerId)) emit(`${indent}router-id ${o.routerId}`, [...at, 'routerId'])
+      else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
+    }
+    emptyContainer(o.areas, [...at, 'areas'])
+    /** Interfaces already in an area: IOS-XR puts one in one area of a process. */
+    const seen = new Set<string>()
+    for (const [area, a] of Object.entries(o.areas ?? {})) {
+      const aAt = [...at, 'areas', area]
+      if (!isIpv4(area)) {
+        skipAll(a, aAt, 'not an area in dotted form')
+        continue
+      }
+      emit(`${indent}area ${area}`, ...(isEmpty(a) ? [aAt] : []))
+      const inner = `${indent} `
+      if (a.authentication === 'key-chain') {
+        // The key chain's name isn't in the model: asked for, as on an interface.
+        const id = `iosxr.ospf-key:${fieldPath(...aAt)}`
+        const chain = answer(id, /^\S{1,32}$/)
+        if (chain !== undefined) emit(`${inner}authentication keychain ${chain}`, [...aAt, 'authentication'])
+        else {
+          skip([...aAt, 'authentication'], 'unsupported', 'needs the name of its key chain, which the model doesn\'t carry')
+          needsInput.push({ id, kind: 'other', message: 'OSPF authentication with a key chain for an area needs the key chain\'s name.', field: fieldPath(...aAt, 'authentication') })
+        }
+      } else if (a.authentication !== undefined) emit(`${inner}authentication${a.authentication === 'md5' ? ' message-digest' : ''}`, [...aAt, 'authentication'])
+      if (a.type === 'normal') skip([...aAt, 'type'], 'not-applicable', 'an area is normal unless it is a stub or an NSSA')
+      else if (a.type !== undefined && area === '0.0.0.0') skip([...aAt, 'type'], 'unsupported', 'the backbone area is never a stub or NSSA')
+      else if (a.type !== undefined) emit(`${inner}${a.type}`, [...aAt, 'type'])
+      emptyContainer(a.interfaces, [...aAt, 'interfaces'])
+      for (const [ref, value] of Object.entries(a.interfaces ?? {})) {
+        const iAt = [...aAt, 'interfaces', ref]
+        const why = !interfaceExists(ref) ? 'names an interface the model doesn\'t have' : interfaceInstance(ref) !== instance ? 'OSPF in another network instance than its interface\'s' : seen.has(ref) ? 'a second OSPF area for the interface: IOS-XR puts one in one area' : undefined
+        if (why) {
+          skipAll(value, iAt, why)
+          continue
+        }
+        seen.add(ref)
+        if (value.enabledBy === 'network') networkEnabled.add(instance)
+        emit(`${inner}interface ${ref}`, ...(isEmpty(value) ? [iAt] : []), ...(value.enabledBy !== undefined ? [[...iAt, 'enabledBy']] : []))
+        const leaf = `${inner} `
+        if (value.cost !== undefined) number(value.cost, `${leaf}cost`, [...iAt, 'cost'])
+        if (value.networkType !== undefined) emit(`${leaf}network ${value.networkType}`, [...iAt, 'networkType'])
+        if (value.passive === true) emit(`${leaf}passive enable`, [...iAt, 'passive'])
+        else if (value.passive === false) skip([...iAt, 'passive'], 'not-applicable', 'not passive, as an interface is unless set')
+        if (value.helloInterval !== undefined) number(value.helloInterval, `${leaf}hello-interval`, [...iAt, 'helloInterval'])
+        if (value.deadInterval !== undefined) number(value.deadInterval, `${leaf}dead-interval`, [...iAt, 'deadInterval'])
+        renderOspfAuthentication(value.authentication, a.authentication, iAt, leaf)
+        close(inner)
+      }
+      close(indent)
+    }
+  }
+
+  /** `<line> N` for an OSPF number IOS-XR takes from 1 to 65535. */
+  function number(value: number, line: string, field: Segments) {
+    if (inRange(value, { min: 1, max: 65535 })) emit(`${line} ${value}`, field)
+    else skip(field, 'unsupported', 'not a number from 1 to 65535')
+  }
+
+  /**
+   * An interface's OSPF authentication: its own type (the area's applies when it has none), and the key, which is never
+   * carried: a needs-input item asks for it, and the answer is written. A key chain is named by the answer.
+   */
+  function renderOspfAuthentication(own: OspfAuthentication | undefined, area: OspfAuthentication | undefined, at: Segments, indent: string) {
+    const kind = own ?? (area === 'key-chain' ? undefined : area)
+    const field = [...at, 'authentication']
+    if (kind === undefined) return
+    const id = `iosxr.ospf-key:${fieldPath(...at)}`
+    if (kind === 'key-chain') {
+      const chain = answer(id, /^\S{1,32}$/)
+      if (chain !== undefined) emit(`${indent}authentication keychain ${chain}`, field)
+      else {
+        skip(field, 'unsupported', 'needs the name of its key chain, which the model doesn\'t carry')
+        needsInput.push({ id, kind: 'other', message: 'OSPF authentication with a key chain on an interface needs the key chain\'s name.', field: fieldPath(...field) })
+      }
+      return
+    }
+    if (own !== undefined) emit(`${indent}authentication${own === 'md5' ? ' message-digest' : ''}`, field)
+    const key = answer(id, kind === 'md5' ? /^(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-5])\s+\S{1,16}$/ : /^\S{1,8}$/)
+    if (key === undefined) {
+      needsInput.push({ id, kind: 'secret', message: kind === 'md5' ? 'OSPF MD5 authentication on an interface needs its key ID (1 to 255) and key, as "ID KEY": the key isn\'t carried.' : 'OSPF authentication on an interface needs its key (up to 8 characters): the key isn\'t carried.', field: fieldPath(...at) })
+      return
+    }
+    if (kind === 'md5') {
+      const [keyId, secret] = key.split(/\s+/)
+      emit(`${indent}message-digest-key ${keyId} md5 clear ${secret}`)
+    } else emit(`${indent}authentication-key clear ${key}`)
+  }
+
+  /** The user's answer to a needs-input item when IOS-XR takes it, else undefined (with a warning when it doesn't). */
+  function answer(id: string, valid: RegExp): string | undefined {
+    const given = context.inputs && Object.hasOwn(context.inputs, id) ? context.inputs[id].trim() : undefined
+    if (given === undefined || valid.test(given)) return given
+    // The answer may be a secret: not repeated.
+    diagnostics.push({ severity: 'warning', category: 'other', code: 'iosxr.answer-not-taken', message: 'An answer to a needs-input item isn\'t one IOS-XR takes, so it isn\'t used.' })
+    return undefined
+  }
+
+  /** Whether an interface reference names an interface of the model, or one of its subinterfaces. */
+  function interfaceExists(ref: string): boolean {
+    const interfaces = model.interfaces ?? {}
+    if (Object.hasOwn(interfaces, ref)) return true
+    const m = /^(.+)\.(\d+)$/.exec(ref)
+    return !!m && Object.hasOwn(interfaces, m[1]) && Object.hasOwn(interfaces[m[1]].subinterfaces ?? {}, m[2])
+  }
+
+  /** The network instance an interface reference routes in. */
+  function interfaceInstance(ref: string): string {
+    const interfaces = model.interfaces ?? {}
+    const m = /^(.+)\.(\d+)$/.exec(ref)
+    const sub = Object.hasOwn(interfaces, ref) ? interfaces[ref].subinterfaces?.['0'] : m ? interfaces[m[1]]?.subinterfaces?.[m[2]] : undefined
+    return sub?.networkInstance ?? 'default'
+  }
+
+  // ---- BGP
+
+  /**
+   * `router bgp ASN`: the global table's BGP, then each VRF's under `vrf V`, with the VRF's route distinguisher, which
+   * IOS-XR sets there.
+   */
+  function renderBgp() {
+    const instances = Object.entries(model.networkInstances ?? {}).sort(([a], [b]) => (a === 'default' ? -1 : b === 'default' ? 1 : 0))
+    const list = instances.flatMap(([name, ni]): [string, Bgp][] => (ni.bgp ? [[name, ni.bgp]] : []))
+    const local = list.find(([, b]) => b.localAs !== undefined)?.[1].localAs
+    const distinguished = instances.filter(([name, ni]) => name !== 'default' && ni.routeDistinguisher !== undefined)
+    if (local === undefined || !isAsNumber(local)) {
+      for (const [instance, b] of list) skipAll(b, ['networkInstances', instance, 'bgp'], 'BGP needs a local AS, which the model doesn\'t give')
+      for (const [name] of distinguished) skip(['networkInstances', name, 'routeDistinguisher'], 'unsupported', 'IOS-XR sets a VRF\'s route distinguisher under router bgp, whose AS the model doesn\'t hold')
+      return
+    }
+    if (!list.length && !distinguished.length) return
+    const global = list.find(([i]) => i === 'default')?.[1]
+    emit(`router bgp ${local}`, ...(global ? bgpFields('default', global, local) : []))
+    const vrfs = new Set([...list.map(([i]) => i), ...distinguished.map(([i]) => i)].filter((i) => i !== 'default'))
+    if (global) renderBgpInstance('default', global, ' ', local)
+    for (const instance of vrfs) {
+      const ni = model.networkInstances![instance]
+      const at = ['networkInstances', instance]
+      if (ni.type !== 'vrf') {
+        if (ni.bgp) skipAll(ni.bgp, [...at, 'bgp'], 'BGP in an instance IOS-XR doesn\'t write as a VRF')
+        if (ni.routeDistinguisher !== undefined) skip([...at, 'routeDistinguisher'], 'unsupported', 'a route distinguisher for an instance IOS-XR doesn\'t write as a VRF')
+        continue
+      }
+      emit(` vrf ${instance}`, ...(ni.bgp ? bgpFields(instance, ni.bgp, local) : []))
+      if (ni.routeDistinguisher !== undefined) {
+        if (isRouteDistinguisher(ni.routeDistinguisher)) emit(`  rd ${ni.routeDistinguisher}`, [...at, 'routeDistinguisher'])
+        else skip([...at, 'routeDistinguisher'], 'unsupported', 'not a route distinguisher in the form ASN:nn, IP:nn or ASN4:nn')
+      }
+      if (ni.bgp) renderBgpInstance(instance, ni.bgp, '  ', local)
+      close(' ')
+    }
+    close()
+  }
+
+  /** The fields a `router bgp` or `vrf` line says: the local AS (the model's one AS), or BGP with nothing in it. */
+  function bgpFields(instance: string, b: Bgp, local: number): Segments[] {
+    const at = ['networkInstances', instance, 'bgp']
+    if (b.localAs !== undefined && b.localAs !== local) skip([...at, 'localAs'], 'unsupported', 'a VRF\'s own local AS: IOS-XR\'s VRFs run under the one router bgp')
+    return [...(b.localAs === local ? [[...at, 'localAs']] : []), ...(isEmpty(b) ? [at] : [])]
+  }
+
+  function renderBgpInstance(instance: string, b: Bgp, indent: string, local: number) {
+    const at = ['networkInstances', instance, 'bgp']
+    if (b.routerId !== undefined) {
+      if (isIpv4(b.routerId)) emit(`${indent}bgp router-id ${b.routerId}`, [...at, 'routerId'])
+      else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
+    }
+    // IOS-XR carries a family to a neighbor only when BGP has it too: each family a peer carries.
+    const families = new Set(Object.values({ ...b.groups, ...b.neighbors }).flatMap((p) => Object.keys(p.addressFamilies ?? {})))
+    for (const family of FAMILIES) {
+      if (!families.has(family)) continue
+      emit(`${indent}address-family ${family.replace('-', ' ')}`)
+      close(indent)
+    }
+    emptyContainer(b.groups, [...at, 'groups'])
+    emptyContainer(b.neighbors, [...at, 'neighbors'])
+    for (const [name, group] of Object.entries(b.groups ?? {})) {
+      if (instance !== 'default') skipAll(group, [...at, 'groups', name], 'a group in a VRF: IOS-XR\'s neighbor groups belong to the whole router bgp')
+      else if (!/^\S+$/.test(name)) skipAll(group, [...at, 'groups', name], 'not a neighbor group name IOS-XR takes')
+      else renderPeer(`neighbor-group ${name}`, group, [...at, 'groups', name], indent, local)
+    }
+    for (const [address, neighbor] of Object.entries(b.neighbors ?? {})) {
+      const nAt = [...at, 'neighbors', address]
+      if (!isIpv4(address) && !isIpv6(address)) {
+        skipAll(neighbor, nAt, 'not a neighbor address')
+        continue
+      }
+      const group = neighbor.group !== undefined && instance === 'default' && b.groups && Object.hasOwn(b.groups, neighbor.group) && /^\S+$/.test(neighbor.group) ? b.groups[neighbor.group] : undefined
+      renderPeer(`neighbor ${address}`, neighbor, nAt, indent, local, group)
+    }
+  }
+
+  /** A neighbor or a neighbor group, with its families and their route policies. `group` is a neighbor's, when written. */
+  function renderPeer(header: string, peer: BgpGroup & BgpNeighbor, at: Segments, indent: string, local: number, group?: BgpGroup) {
+    const inner = `${indent} `
+    const neighbor = header.startsWith('neighbor ')
+    emit(`${indent}${header}`, ...(isEmpty(peer) ? [at] : []))
+    if (peer.peerAs !== undefined) {
+      if (isAsNumber(peer.peerAs)) emit(`${inner}remote-as ${peer.peerAs}`, [...at, 'peerAs'])
+      else skip([...at, 'peerAs'], 'unsupported', 'not an AS number from 1 to 4294967295')
+    }
+    if (peer.type !== undefined) {
+      // An internal group's peers are in the local AS: said with remote-as when nothing else says it.
+      if (peer.type === 'internal' && peer.peerAs === undefined) emit(`${inner}remote-as ${local}`, [...at, 'type'])
+      else skip([...at, 'type'], 'not-applicable', 'IOS-XR tells iBGP from eBGP by the remote AS')
+    }
+    if (peer.group !== undefined) {
+      if (group) emit(`${inner}use neighbor-group ${peer.group}`, [...at, 'group'])
+      else skip([...at, 'group'], 'unsupported', 'a group IOS-XR can\'t write as a neighbor group of the global table')
+    }
+    if (peer.description !== undefined) emit(`${inner}description ${peer.description}`, [...at, 'description'])
+    if (peer.localAddress !== undefined) skip([...at, 'localAddress'], 'unsupported', 'IOS-XR sources a session from an interface (update-source), not an address')
+    if (peer.updateSource !== undefined) emit(`${inner}update-source ${peer.updateSource}`, [...at, 'updateSource'])
+    if (peer.multihop !== undefined) {
+      const ttl = peer.multihop.ttl
+      if (ttl === undefined) emit(`${inner}ebgp-multihop`, [...at, 'multihop'])
+      else if (inRange(ttl, { min: 1, max: 255 })) emit(`${inner}ebgp-multihop ${ttl}`, [...at, 'multihop', 'ttl'])
+      else skip([...at, 'multihop', 'ttl'], 'unsupported', 'not a TTL from 1 to 255')
+    }
+    if (peer.authentication === false) skip([...at, 'authentication'], 'not-applicable', 'no password: nothing to write')
+    else if (peer.authentication) {
+      // The password is never carried: a needs-input item asks for it, and the answer is written.
+      const id = `iosxr.bgp-password:${fieldPath(...at)}`
+      const password = answer(id, /^\S{1,80}$/)
+      if (password !== undefined) emit(`${inner}password clear ${password}`, [...at, 'authentication'])
+      else {
+        skip([...at, 'authentication'], 'unsupported', 'needs the password, which isn\'t carried')
+        needsInput.push({ id, kind: 'secret', message: 'A BGP session with a password needs the password, which isn\'t carried.', field: fieldPath(...at, 'authentication') })
+      }
+    }
+    renderPeerFamilies(peer, at, inner, neighbor ? local : undefined, group)
+    close(indent)
+  }
+
+  /**
+   * A peer's address families, each with its route policies: IOS-XR applies them per family, one each way. A policy
+   * given for the whole peer goes into each family it carries (its group's too), unless the family has its own. For an
+   * eBGP neighbor (`local` given), IOS-XR exchanges no routes in a direction with no policy (RFC 8212): a needs-input
+   * item asks for a policy's name, which is written where one is missing. None is made up.
+   */
+  function renderPeerFamilies(peer: BgpGroup & BgpNeighbor, at: Segments, indent: string, local?: number, group?: BgpGroup) {
+    const own = peer.addressFamilies ?? {}
+    emptyContainer(own, [...at, 'addressFamilies'])
+    for (const family of Object.keys(own)) if (!(FAMILIES as readonly string[]).includes(family)) skipAll(own[family as BgpAddressFamilyName], [...at, 'addressFamilies', family], 'an address family this phase doesn\'t write')
+    const inherited = (f: BgpAddressFamilyName) => group?.addressFamilies?.[f]
+    const peerAs = peer.peerAs ?? group?.peerAs ?? (group?.type === 'internal' ? local : undefined)
+    const ebgp = local !== undefined && peerAs !== undefined && peerAs !== local
+    // A direction is missing when no family the neighbor carries has a policy that way, its own or its group's.
+    const carried = FAMILIES.filter((f) => own[f] !== undefined || inherited(f) !== undefined)
+    const policy = (f: BgpAddressFamilyName, field: 'importPolicies' | 'exportPolicies') => own[f]?.[field] ?? peer[field] ?? inherited(f)?.[field] ?? group?.[field]
+    const missing = ebgp ? (['importPolicies', 'exportPolicies'] as const).filter((field) => !carried.length || carried.some((f) => !policy(f, field)?.length)) : []
+    const id = `iosxr.ebgp-policy:${fieldPath(...at)}`
+    const given = missing.length ? answer(id, /^[\w.-]{1,64}$/) : undefined
+    if (missing.length && given === undefined) needsInput.push({ id, kind: 'other', message: 'An eBGP neighbor has no route policy one way or both: IOS-XR, following RFC 8212, exchanges no routes that way without one. Name an existing route policy to attach.', field: fieldPath(...at) })
+    const families = FAMILIES.filter((f) => own[f] !== undefined || ((peer.importPolicies || peer.exportPolicies || (given !== undefined && carried.includes(f))) && inherited(f) !== undefined))
+    const peerLevel: Record<'importPolicies' | 'exportPolicies', boolean> = { importPolicies: false, exportPolicies: false }
+    let named = 0
+    for (const family of families) {
+      const af = own[family]
+      const afAt = [...at, 'addressFamilies', family]
+      emit(`${indent}address-family ${family.replace('-', ' ')}`, ...(af !== undefined && isEmpty(af) ? [afAt] : []))
+      for (const [field, direction] of [['importPolicies', 'in'], ['exportPolicies', 'out']] as const) {
+        const list = af?.[field] ?? peer[field]
+        const where = af?.[field] !== undefined ? [...afAt, field] : [...at, field]
+        if (list === undefined || !list.length) {
+          if (list !== undefined) skip(where, 'not-applicable', 'no policy: nothing to write')
+          // The answer for RFC 8212, where the family has no policy that way of its own or its group's.
+          if (given !== undefined && missing.includes(field) && !inherited(family)?.[field]?.length && !group?.[field]?.length) emit(`${indent} route-policy ${given} ${direction}`)
+          continue
+        }
+        if (list.length > 1) skip(where, 'unsupported', 'IOS-XR applies one route policy each way here: a chain of policies isn\'t written')
+        else if (!/^[\w.-]{1,64}$/.test(list[0])) skip(where, 'unsupported', 'not a route policy name IOS-XR takes')
+        else {
+          emit(`${indent} route-policy ${list[0]} ${direction}`, ...(af?.[field] !== undefined || !peerLevel[field] ? [where] : []))
+          if (af?.[field] === undefined) peerLevel[field] = true
+          named++
+        }
+      }
+      close(indent)
+    }
+    for (const field of ['importPolicies', 'exportPolicies'] as const) {
+      if (peer[field] === undefined || peerLevel[field] || Object.hasOwn(dispositions, fieldPath(...at, field))) continue
+      skip([...at, field], 'unsupported', families.length ? 'every family the peer carries has its own policy' : 'IOS-XR applies a route policy per address family, and the peer carries none')
+    }
+    if (named) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.route-policy-name-only', message: 'A policy is written as a route policy by its name only: its body isn\'t converted yet, so IOS-XR needs a route policy of that name.', field: fieldPath(...at) })
+    if (local !== undefined && !carried.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.bgp-no-address-family', message: 'A BGP neighbor has no address family: on IOS-XR it carries no routes until one is configured.', field: fieldPath(...at) })
+  }
+
+  renderOspf()
+  renderBgp()
+
   // ---- NTP, logging, SNMP
 
   if (system) {
@@ -409,5 +763,5 @@ export function render(model: Device, _context: Context): RenderResult {
     }
   }
 
-  return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics }
+  return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }
 }

@@ -1,7 +1,7 @@
 // Interface names as IOS-XR writes them: `GigabitEthernet0/0/0/0`, `TenGigE0/1/0/3`, `Bundle-Ether1`, `Loopback0`,
 // `MgmtEth0/RP0/CPU0/0`, `tunnel-te1`, and subinterfaces `GigabitEthernet0/0/0/0.100`. The model keys interfaces by name
 // as the source writes it; mapping names between platforms is the user's (B9's interface map).
-import type { InterfaceType } from '@dialect/core'
+import type { InterfaceType, PortName } from '@dialect/core'
 
 /** One interface, as `interface` takes it: a type, then numbers separated by `/` (a slot may be `RP0` or `CPU0`). */
 export const isInterfaceName = (name: string): boolean => /^[A-Za-z][A-Za-z-]*\d+(?:\/(?:[A-Za-z]+)?\d+)*(?:\.\d+)?$/.test(name)
@@ -23,4 +23,22 @@ export function interfaceType(name: string): InterfaceType | undefined {
   if (kind === 'mgmteth') return 'management'
   if (/^tunnel-(?:ip|te)$/.test(kind)) return 'tunnel'
   return undefined
+}
+
+/** What an IOS-XR interface name says, for another platform's suggested name (the core's PortName): `Bundle-Ether10` is aggregate 10. */
+export function describeInterface(name: string): PortName | undefined {
+  const m = /^bundle-ether(\d+)$/i.exec(name)
+  return m ? { type: 'aggregate', numbers: [Number(m[1])] } : undefined
+}
+
+/**
+ * IOS-XR's name for a port another platform described, as a suggestion the user confirms: an aggregate is
+ * `Bundle-Ether` and its number, counted from 1 as Cisco does. Junos counts its `ae` interfaces from 0, so `ae0` is
+ * `Bundle-Ether1`; IOS-XE's and NX-OS's port-channels keep their number. `source` is the id of the plugin that described
+ * the port: without it the numbering isn't known, and nothing is suggested.
+ */
+export function nameInterface(port: PortName, source?: string): string | undefined {
+  if (port.type !== 'aggregate' || port.numbers.length !== 1) return undefined
+  const n = source === 'junos' ? port.numbers[0] + 1 : source === 'iosxe' || source === 'nxos' || source === 'iosxr' ? port.numbers[0] : undefined
+  return n !== undefined && n >= 1 && n <= 65535 ? `Bundle-Ether${n}` : undefined
 }
