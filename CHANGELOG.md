@@ -33,6 +33,8 @@
   (a term written as `deny` where the source rejected, a final permit added to a route map) was shown at that line
   number in the source. It is now at the source statement it came from, and gives its line of the output too: after
   the message on the command line, and in the app beside the problem, marked in the output's gutter.
+- **IOS-XR access list remarks convert:** the remarks before an entry are kept as its description, and converting to
+  IOS-XR writes one back as a remark just before its entry, instead of listing it as not written.
 - **An access list remark converting to Junos says why it isn't written:** Junos filters keep no description per term,
   so the remark is listed as not written, and the entry it describes still converts.
 - **A filter whose last entry can't be converted is no longer turned into one that drops everything:** an entry left

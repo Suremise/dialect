@@ -298,8 +298,9 @@ export policy, which on Junos replaces the VRF's route targets and on IOS-XR fil
 Cisco IOS-XR also converts access lists: `ipv4 access-list` and `ipv6 access-list`, numbered as IOS-XR numbers them (an
 entry with no number gets 10 more than the highest, a remark's included), with `any`, `host`, prefixes and contiguous
 wildcards, protocols, ports (`eq`, `gt`, `lt`, `range`, by number or name), ICMP types, `established`, `fragments`,
-`dscp`, `log` and `counter`, and the interfaces' `ipv4|ipv6 access-group … ingress|egress`. Remarks are comments and
-aren't carried. An entry Dialect can't convert (a non-contiguous wildcard, which is never approximated, an object
+`dscp`, `log` and `counter`, and the interfaces' `ipv4|ipv6 access-group … ingress|egress`. The remarks before an
+entry are kept as its description, and converting to IOS-XR writes a description as a remark just before its entry
+(listed as not written when that number is taken). An entry Dialect can't convert (a non-contiguous wildcard, which is never approximated, an object
 group, `neq`, ABF and other options) is listed, alone when it is the last entry and denies, as the list's end does,
 and otherwise with its whole access list, as the list would decide other packets without it; an interface applying a
 list that isn't converted is listed too. An IOS-XR access list denies what no entry decides: converting to IOS-XR warns when the source discards instead

@@ -1276,8 +1276,10 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     what the device keeps of them isn't certain.
   - **Access lists (#88, model 0.5.1, `filters.ts`):** `ipv4|ipv6 access-list NAME` is `filters.ipv4|ipv6.NAME`,
     `implicitAction: 'deny'` (IOS-XR denies what no entry decides), each entry a term keyed by its sequence number:
-    given, or (as IOS-XR does) 10 more than the highest so far, a remark's included; a remark is `ignored-by-design`
-    (a comment the model doesn't keep). The one-line form (`ipv4 access-list NAME [N] permit …`) and later blocks add to
+    given, or (as IOS-XR does) 10 more than the highest so far, a remark's included. **Remarks** before an entry, by
+    number, joined by a space, are its `description` (model 0.5.3, #113): the entry maps it, and the remarks are
+    `ignored-by-design` as carried by it; a remark is `unsupported` with an entry that isn't converted, and one after
+    the last entry describes nothing. The one-line form (`ipv4 access-list NAME [N] permit …`) and later blocks add to
     the list; an entry with a number used before replaces it, `no N` in the list removes one, and `no ipv4|ipv6
     access-list NAME` removes the list. An entry: `permit` (`accept`) or `deny` (`discard`: the ICMP unreachable is the
     interface's), a protocol (`ipv4`/`ipv6` any, else by name or number), source and destination (`any`, `host A`,
@@ -1369,7 +1371,10 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     per-term rule:** a term IOS-XR can't write (a `reject`, which IOS-XR leaves to the interface, a `next-term`, a
     match on either direction, a prefix list or TCP flags, more than one of anything, a first fragment, a key that
     isn't a sequence number) is `unsupported` whole, and the whole filter when leaving it out isn't safe
-    (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. `implicitAction`
+    (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. A term's
+    `description` is a ` SEQ remark TEXT` at the number before the entry's (#113); where that number isn't free (the
+    term before is at it), or the text isn't one line of 1 to 255 characters with no space at either end, it alone is
+    `unsupported`, as a remark decides nothing (#102). `implicitAction`
     is `not-applicable` (IOS-XR denies), with the warning `iosxr.filter-implicit-action` on the field when the
     source's differs (Junos `discard`) or the entries written rely on it (`filterReliesOnImplicitAction()`). An interface's
     `access-group` is written for a list that is written, else `unsupported`.
