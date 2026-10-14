@@ -186,6 +186,215 @@
       "convertedTo": "public/nxos/whole/racc__n9k1_20230811_show_running-config.cfg"
     },
     {
+      "path": "originals/topologies/cml__basic-forwarding.yaml",
+      "platform": null,
+      "areas": [],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/basic-forwarding-behavior.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 29751,
+      "sha256": "d6fe8c6bdde2df1beac53f6d47a2bfa7a0137855c7967034c618bb36027b61f9",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [
+          "1.1.1.1",
+          "2.2.2.2",
+          "3.3.3.3",
+          "4.4.4.4",
+          "5.5.5.5"
+        ],
+        "publicIPv6": []
+      },
+      "notes": "Untouched CML topology file that the config in convertedTo was extracted from (one node's `configuration` each). Kept as the source of truth, not for tests.",
+      "convertedTo": [
+        "public/iosxe/ospf/cml__basic-forwarding_R1.cfg"
+      ]
+    },
+    {
+      "path": "originals/topologies/cml__ccna-1.6.yaml",
+      "platform": null,
+      "areas": [],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna/Domain_1/1.6-configure_ipv4_addressing/1.6_IPv4_Router_Config_Solution.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 28122,
+      "sha256": "49aaedc35535a3bf3341dc7f4b5607c888ae3cbc1c81dc5ccfc249caaaa08d0e",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "Untouched CML topology file that the config in convertedTo was extracted from (one node's `configuration` each). Kept as the source of truth, not for tests.",
+      "convertedTo": [
+        "public/iosxe/static-routes/cml__ccna-1.6_Atlanta.cfg"
+      ]
+    },
+    {
+      "path": "originals/topologies/cml__ccna-contest.yaml",
+      "platform": null,
+      "areas": [],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna/Domain_2/2.1-configure_vlans_1/CML_Contest_Topo_Solution_fetch.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 62717,
+      "sha256": "8b955da6e146d2e0e4abd06ef96a82d08d6267b0ec18e64ee7ab01c20ceabae8",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [
+          "8.8.8.8",
+          "24.76.0.0",
+          "24.76.0.1",
+          "24.76.1.0",
+          "24.76.1.254",
+          "208.67.222.222",
+          "216.81.0.0",
+          "216.81.0.1"
+        ],
+        "publicIPv6": []
+      },
+      "notes": "Untouched CML topology file that the 2 configs in convertedTo were extracted from (one node's `configuration` each). Kept as the source of truth, not for tests.",
+      "convertedTo": [
+        "public/iosxe/vlans/cml__ccna-contest_DSW2.cfg",
+        "public/iosxe/whole/cml__ccna-contest_R1.cfg"
+      ]
+    },
+    {
+      "path": "originals/topologies/cml__ccnaprep-s1e4.yaml",
+      "platform": null,
+      "areas": [],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna-prep/s1e4/CCNA_Prep_2024_S1E4_Static_Routing.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 79786,
+      "sha256": "ecbc89d25c0272c8083f922f4b4f87f6e9e866aa15b84a043ead12bba9db2c33",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [
+          "1.1.1.1",
+          "2.2.2.2",
+          "8.8.8.8",
+          "200.200.200.0",
+          "200.200.200.200"
+        ],
+        "publicIPv6": []
+      },
+      "notes": "Untouched CML topology file that the config in convertedTo was extracted from (one node's `configuration` each). Kept as the source of truth, not for tests.",
+      "convertedTo": [
+        "public/iosxe/eigrp/cml__ccnaprep-s1e4_Router1.cfg"
+      ]
+    },
+    {
+      "path": "originals/topologies/cml__ccnaprep-s1e7.yaml",
+      "platform": null,
+      "areas": [],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna-prep/s1e7/CCNA_Prep_2024_S1E7_REST_APIs.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 42435,
+      "sha256": "e5f8f3f5f2f9737810874d8edcfecfd5aec109f84aefeaa786ea70c97cb97b46",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "Untouched CML topology file that the config in convertedTo was extracted from (one node's `configuration` each). Kept as the source of truth, not for tests.",
+      "convertedTo": [
+        "public/iosxe/system/cml__ccnaprep-s1e7_cat8000v.cfg"
+      ]
+    },
+    {
+      "path": "originals/topologies/cml__ccnaprep-s2e7.yaml",
+      "platform": null,
+      "areas": [],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna-prep/s2e7/CCNA_Prep_2025_S2E7_SNMP.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 35852,
+      "sha256": "7b4d35ca0bb31473cd71dd7c0f41da71c50624741aba0b0ecf33d008c3c217e5",
+      "flags": {
+        "secretLike": [
+          "snmp-community"
+        ],
+        "publicIPv4": [
+          "1.1.1.1"
+        ],
+        "publicIPv6": []
+      },
+      "notes": "Untouched CML topology file that the config in convertedTo was extracted from (one node's `configuration` each). Kept as the source of truth, not for tests.",
+      "convertedTo": [
+        "public/iosxe/mgmt/cml__ccnaprep-s2e7_rtr01.cfg"
+      ]
+    },
+    {
+      "path": "originals/topologies/cml__ccnaprep-s3e3.yaml",
+      "platform": null,
+      "areas": [],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna-prep/s3e3/CCNA_Prep_2025_S3E3_Advanced_ACL_Exploration.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 160177,
+      "sha256": "7f782712678329a076d88bc1e6c1335ddb539ac5137722dbe709e5000045bbef",
+      "flags": {
+        "secretLike": [
+          "snmp-community"
+        ],
+        "publicIPv4": [
+          "3.148.4.34",
+          "192.234.15.194",
+          "194.60.34.34"
+        ],
+        "publicIPv6": []
+      },
+      "notes": "Untouched CML topology file that the config in convertedTo was extracted from (one node's `configuration` each). Kept as the source of truth, not for tests.",
+      "convertedTo": [
+        "public/iosxe/nat/cml__ccnaprep-s3e3_router.cfg"
+      ]
+    },
+    {
+      "path": "originals/topologies/cml__sandbox.yaml",
+      "platform": null,
+      "areas": [],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/sandbox-multiplatform-network/multi-platform-network.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 61806,
+      "sha256": "dd4fc7fc27ee81f9484302e690fe80ddc85029b1cdd7e019138bcd14f1b29855",
+      "flags": {
+        "secretLike": [
+          "certificate",
+          "cisco-secret",
+          "crypt-hash",
+          "junos-$9$"
+        ],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "Untouched CML topology file that the 5 configs in convertedTo were extracted from (one node's `configuration` each). Kept as the source of truth, not for tests.",
+      "convertedTo": [
+        "public/iosxe/static-routes/cml__sandbox_internet-rtr01.cfg",
+        "public/iosxe/vlans/cml__sandbox_edge-sw01.cfg",
+        "public/iosxe/whole/cml__sandbox_dist-rtr01.cfg",
+        "public/iosxr/whole/cml__sandbox_core-rtr01.cfg",
+        "public/nxos/whole/cml__sandbox_dist-sw01.cfg"
+      ]
+    },
+    {
       "path": "public/iosxe/bgp/batfish__ios-aggregate-address.cfg",
       "platform": "iosxe",
       "areas": [
@@ -444,6 +653,33 @@
         "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
+    },
+    {
+      "path": "public/iosxe/eigrp/cml__ccnaprep-s1e4_Router1.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "eigrp",
+        "ospf",
+        "static-routes",
+        "interfaces"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna-prep/s1e4/CCNA_Prep_2024_S1E4_Static_Routing.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 677,
+      "sha256": "2aaae66d0bddabb3e34a4bed9093ba3bc4fc847a5285e916382ba1992e931bd7",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [
+          "200.200.200.0",
+          "200.200.200.200"
+        ],
+        "publicIPv6": []
+      },
+      "notes": "CCNA Prep S1E4, IOL-XE router running EIGRP, OSPF and RIP beside a static route (administrative distance demo). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__ccnaprep-s1e4.yaml: node `Router1` (node definition `iol-xe`), field `configuration[0].content (file ios_config.txt)`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__ccnaprep-s1e4.yaml"
     },
     {
       "path": "public/iosxe/filters/aerleon__CiscoTest.testIcmpTypes.cfg",
@@ -1259,6 +1495,30 @@
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
     {
+      "path": "public/iosxe/mgmt/cml__ccnaprep-s2e7_rtr01.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "mgmt",
+        "nat",
+        "interfaces",
+        "system"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna-prep/s2e7/CCNA_Prep_2025_S2E7_SNMP.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 1394,
+      "sha256": "196d21337f65e89135d7c6e36df966d0dd5fb921e68a92531939a9cea8712ffb",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "CCNA Prep S2E7, IOL-XE router day-0 config (DNS server, NTP, DHCP, NAT). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__ccnaprep-s2e7.yaml: node `rtr01` (node definition `iol-xe`), field `configuration[0].content (file ios_config.txt)`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__ccnaprep-s2e7.yaml"
+    },
+    {
       "path": "public/iosxe/mpls/batfish__unit-tests_cisco_mpls.cfg",
       "platform": "iosxe",
       "areas": [
@@ -1349,6 +1609,32 @@
         "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
+    },
+    {
+      "path": "public/iosxe/nat/cml__ccnaprep-s3e3_router.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "nat",
+        "filters",
+        "mgmt",
+        "system"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna-prep/s3e3/CCNA_Prep_2025_S3E3_Advanced_ACL_Exploration.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 1751,
+      "sha256": "453ef6cdda08761b030be570a91a78cf9f169836acd4cebfd9f383568e479348",
+      "flags": {
+        "secretLike": [
+          "snmp-community"
+        ],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "CCNA Prep S3E3, IOL-XE router day-0 config (EEM applet, NAT, SNMP, NTP). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__ccnaprep-s3e3.yaml: node `router` (node definition `iol-xe`), field `configuration[0].content (file ios_config.txt)`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__ccnaprep-s3e3.yaml"
     },
     {
       "path": "public/iosxe/ospf/batfish__ios-interface-ospf-network.cfg",
@@ -1524,6 +1810,30 @@
         "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
+    },
+    {
+      "path": "public/iosxe/ospf/cml__basic-forwarding_R1.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "ospf",
+        "interfaces"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/basic-forwarding-behavior.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 2865,
+      "sha256": "e0b7157ef92fb4186dd33ed387598dfb748ba887f0b3c88161fe4903f12f0282",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [
+          "1.1.1.1"
+        ],
+        "publicIPv6": []
+      },
+      "notes": "Basic forwarding behaviour lab, IOSv router (OSPF costs, dot1Q subinterfaces). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__basic-forwarding.yaml: node `R1` (node definition `iosv`), field `configuration`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__basic-forwarding.yaml"
     },
     {
       "path": "public/iosxe/policy/batfish__ios-ip-community-list-expanded.cfg",
@@ -1864,6 +2174,56 @@
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
     {
+      "path": "public/iosxe/static-routes/cml__ccna-1.6_Atlanta.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "static-routes",
+        "interfaces"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna/Domain_1/1.6-configure_ipv4_addressing/1.6_IPv4_Router_Config_Solution.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 3216,
+      "sha256": "2b735ec2fa7a64a462b600746971786adde362b8830b4af19cb58506ec2a0bb3",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "CCNA 1.6 solution, IOSv router with floating static routes. Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__ccna-1.6.yaml: node `Atlanta` (node definition `iosv`), field `configuration[0].content (file ios_config.txt)`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__ccna-1.6.yaml"
+    },
+    {
+      "path": "public/iosxe/static-routes/cml__sandbox_internet-rtr01.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "static-routes",
+        "interfaces",
+        "vrfs"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/sandbox-multiplatform-network/multi-platform-network.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 4353,
+      "sha256": "c45e6c6eca04c5e06f78faee271b294d2dc35fa1971904597d69d550c384501c",
+      "flags": {
+        "secretLike": [
+          "certificate",
+          "cisco-secret",
+          "crypt-hash",
+          "junos-$9$"
+        ],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "DevNet multi-platform sandbox, CSR1000v internet edge router. Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__sandbox.yaml: node `internet-rtr01` (node definition `csr1000v`), field `configuration`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__sandbox.yaml"
+    },
+    {
       "path": "public/iosxe/system/batfish__aaaAuthenticationIos.cfg",
       "platform": "iosxe",
       "areas": [
@@ -2141,6 +2501,28 @@
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
     {
+      "path": "public/iosxe/system/cml__ccnaprep-s1e7_cat8000v.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "system",
+        "interfaces"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna-prep/s1e7/CCNA_Prep_2024_S1E7_REST_APIs.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 542,
+      "sha256": "ac68e73b87be32280fe04613bc3cddb978730d080764271b59e1901fe4395998",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "CCNA Prep S1E7, Catalyst 8000v day-0 config (AAA, NETCONF/RESTCONF). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__ccnaprep-s1e7.yaml: node `cat8000v` (node definition `cat8000v`), field `configuration[0].content (file iosxe_config.txt)`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__ccnaprep-s1e7.yaml"
+    },
+    {
       "path": "public/iosxe/vlans/batfish__ios-access-vlan.cfg",
       "platform": "iosxe",
       "areas": [
@@ -2267,6 +2649,52 @@
         "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
+    },
+    {
+      "path": "public/iosxe/vlans/cml__ccna-contest_DSW2.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "vlans",
+        "interfaces",
+        "ospf"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna/Domain_2/2.1-configure_vlans_1/CML_Contest_Topo_Solution_fetch.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 5368,
+      "sha256": "bc53a6a59c5e27beddc0b2e3cae9b35a6ed8bd3af88a5d1c576c81bca36af6fc",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "CCNA VLAN contest solution, IOSvL2 distribution switch (VLANs, SVIs, port channels). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__ccna-contest.yaml: node `DSW2` (node definition `iosvl2`), field `configuration[0].content (file ios_config.txt)`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__ccna-contest.yaml"
+    },
+    {
+      "path": "public/iosxe/vlans/cml__sandbox_edge-sw01.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "vlans",
+        "interfaces",
+        "vrfs"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/sandbox-multiplatform-network/multi-platform-network.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 3703,
+      "sha256": "3b640ed30c9ef23448349f570d73f92deae5683b0992cf2013d2fe35f363b8ac",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "DevNet multi-platform sandbox, IOSvL2 edge switch. Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__sandbox.yaml: node `edge-sw01` (node definition `iosvl2`), field `configuration`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__sandbox.yaml"
     },
     {
       "path": "public/iosxe/vpn/batfish__ios-crypto-ipsec-profile.cfg",
@@ -2587,6 +3015,65 @@
         "publicIPv6": []
       },
       "notes": "Batfish example network (networks/example/candidate); lab-made."
+    },
+    {
+      "path": "public/iosxe/whole/cml__ccna-contest_R1.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "whole",
+        "interfaces",
+        "ospf",
+        "nat",
+        "filters",
+        "ha",
+        "mgmt",
+        "system"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/ccna/Domain_2/2.1-configure_vlans_1/CML_Contest_Topo_Solution_fetch.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 4578,
+      "sha256": "bd7ea78a161d51c51e5c3848cf3c5444f9f679bf11cf64d5989ea610f5691d82",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "CCNA VLAN contest solution, IOSv router (OSPF, NAT, HSRP). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__ccna-contest.yaml: node `R1` (node definition `iosv`), field `configuration[0].content (file ios_config.txt)`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__ccna-contest.yaml"
+    },
+    {
+      "path": "public/iosxe/whole/cml__sandbox_dist-rtr01.cfg",
+      "platform": "iosxe",
+      "areas": [
+        "whole",
+        "interfaces",
+        "ospf",
+        "static-routes",
+        "vrfs",
+        "system"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/sandbox-multiplatform-network/multi-platform-network.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 4748,
+      "sha256": "7cca8fa63f4a95c0aad1daf706796cd2a8a4f8ff58c8677b34a3ef514d853a56",
+      "flags": {
+        "secretLike": [
+          "certificate",
+          "cisco-secret",
+          "crypt-hash",
+          "junos-$9$"
+        ],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "DevNet multi-platform sandbox, CSR1000v distribution router (show running-config form). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__sandbox.yaml: node `dist-rtr01` (node definition `csr1000v`), field `configuration`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__sandbox.yaml"
     },
     {
       "path": "public/iosxe/whole/netcanon__kitchen_sink.cfg",
@@ -4023,6 +4510,31 @@
         "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
+    },
+    {
+      "path": "public/iosxr/whole/cml__sandbox_core-rtr01.cfg",
+      "platform": "iosxr",
+      "areas": [
+        "whole",
+        "interfaces",
+        "ospf",
+        "static-routes",
+        "vrfs"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/sandbox-multiplatform-network/multi-platform-network.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 1683,
+      "sha256": "704c36695a655d8199776285892e6818a23330a73e0552765d9f68cb5e08cf2e",
+      "flags": {
+        "secretLike": [],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "DevNet multi-platform sandbox, IOS XRv core router. Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__sandbox.yaml: node `core-rtr01` (node definition `iosxrv`), field `configuration`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__sandbox.yaml"
     },
     {
       "path": "public/iosxr/whole/netcanon__kitchen_sink.cfg",
@@ -11949,6 +12461,35 @@
         "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device. Long multi-feature Nexus config."
+    },
+    {
+      "path": "public/nxos/whole/cml__sandbox_dist-sw01.cfg",
+      "platform": "nxos",
+      "areas": [
+        "whole",
+        "vlans",
+        "interfaces",
+        "ospf",
+        "ha",
+        "vrfs",
+        "system"
+      ],
+      "source": "https://github.com/CiscoDevNet/cml-community",
+      "sourcePath": "lab-topologies/sandbox-multiplatform-network/multi-platform-network.yaml",
+      "commit": "0f3c9b3c26a6c14054711d38c313f7005df073ed",
+      "license": "BSD-3-Clause",
+      "junosForm": null,
+      "bytes": 4597,
+      "sha256": "f9edb308c7d094965209e6da968f6f34c9a62e14f9fdde0a8f079deb4d908228",
+      "flags": {
+        "secretLike": [
+          "crypt-hash"
+        ],
+        "publicIPv4": [],
+        "publicIPv6": []
+      },
+      "notes": "DevNet multi-platform sandbox, Nexus 9000v distribution switch (vPC, HSRP, SVIs). Lab-made, not a real network. Extracted from the CML topology originals/topologies/cml__sandbox.yaml: node `dist-sw01` (node definition `nxosv9000`), field `configuration`, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns it, with nothing added or removed.",
+      "original": "originals/topologies/cml__sandbox.yaml"
     },
     {
       "path": "public/nxos/whole/netcanon__kitchen_sink.cfg",
