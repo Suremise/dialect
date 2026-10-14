@@ -14,6 +14,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { tempDir } from '../../../tests/tempDir'
 import { version } from '../../../package.json'
 
+/** About's notice, word for word (card #42). */
+const NOTICE =
+  "© 2026 Darren Marshall. Dialect is independently developed and isn't affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc."
+
 const webRoot = join(__dirname, '..')
 const FIXTURES = join(__dirname, '../../../packages/platform-junos/tests/fixtures/display-set')
 /** How long the page may take to show what an action leads to: a bound for a hung page, not a wait. */
@@ -262,20 +266,35 @@ describe('the web build', () => {
     await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('    inactive: services {')
   })
 
-  it('shows About with the version, the build, the browser and the disclaimer, and copies the version information', async () => {
+  it('shows About with the version, the build, the browser, the OS and the notice, and copies the version information', async () => {
     await openPage()
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await page.getByRole('button', { name: 'Help' }).click()
     await page.getByRole('menuitem', { name: 'About Dialect' }).click()
     const dialog = page.getByRole('dialog', { name: 'Dialect' })
-    await expect.poll(() => dialog.getByTestId('about-info').innerText(), UI_WAIT).toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Web build\\s+Browser\\s+Microsoft Edge \\d+\\.\\d+\\.\\d+\\.\\d+$`))
-    expect(await dialog.innerText()).toContain('Dialect is not affiliated with or endorsed by Juniper Networks or Cisco Systems.')
+    await expect
+      .poll(() => dialog.getByTestId('about-info').innerText(), UI_WAIT)
+      .toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Web build\\s+Browser\\s+Microsoft Edge \\d+\\.\\d+\\.\\d+\\.\\d+\\s+OS\\s+Windows 1[01]$`))
+    expect(await dialog.getByTestId('about-notice').innerText()).toBe(NOTICE)
+    expect(await dialog.innerText()).toContain('Open source under the MIT License. Includes third-party software.')
     await dialog.getByRole('button', { name: 'Copy' }).click()
     await expect
       .poll(async () => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n'), UI_WAIT)
-      .toMatch(new RegExp(`^Dialect ${version.replaceAll('.', '\\.')}\nBuild: Web build\nBrowser: Microsoft Edge [\\d.]+\n$`))
+      .toMatch(new RegExp(`^Dialect ${version.replaceAll('.', '\\.')}\nBuild: Web build\nBrowser: Microsoft Edge [\\d.]+\nOS: Windows 1[01]\n$`))
     await dialog.getByRole('button', { name: 'OK' }).click()
     await expect.poll(() => dialog.count(), UI_WAIT).toBe(0)
+  })
+
+  it("opens the Docs pages from About's links and Release Notes", async () => {
+    await openPage()
+    const page1 = (): Promise<string> => page.locator('.docs-page h1').first().innerText()
+    for (const [label, heading] of [['MIT License', 'License'], ['third-party software', 'Third-party notices'], ['Release Notes', 'Release Notes']]) {
+      await page.getByRole('button', { name: 'Help' }).click()
+      await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+      await page.getByRole('dialog').getByRole('button', { name: label, exact: true }).click()
+      await expect.poll(page1, UI_WAIT).toBe(heading)
+      await expect.poll(() => page.getByRole('dialog').count(), UI_WAIT).toBe(0)
+    }
   })
 
   it('renders each Docs page, from Help and from About, and goes back to the display set', async () => {
@@ -292,7 +311,7 @@ describe('the web build', () => {
     }
     // From About's links too.
     await page.getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: 'About Dialect' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'License' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'MIT License' }).click()
     await expect.poll(page1, UI_WAIT).toBe('License')
     expect(await page.locator('.docs-page pre').first().innerText()).toContain('MIT License')
     // A link to another document opens it here.
@@ -524,6 +543,10 @@ describe.runIf(Boolean(shots))('screenshots', () => {
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert.png`) })
     await page.setViewportSize({ width: 720, height: 480 })
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert-narrow.png`) })
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+    await expect.poll(() => page.getByTestId('about-info').innerText(), UI_WAIT).toContain('OS')
+    await page.screenshot({ path: join(shots!, `dialect-${scheme}-about.png`) })
     writeFileSync(join(shots!, 'size.txt'), `${readFileSync(join(dir, 'dist', 'dialect.html')).length}\n`)
   })
 })

@@ -204,10 +204,17 @@
   color: var(--fg-strong);
 }
 .about-tagline,
-.about-disclaimer {
+.about-license {
   margin: 6px auto;
-  max-width: 340px;
+  max-width: 360px;
   color: var(--fg-muted);
+}
+.about-notice {
+  margin: 10px auto 4px;
+  max-width: 380px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 .about-table {
   margin: 14px auto;
@@ -225,13 +232,6 @@
 .about-table td {
   color: var(--fg-strong);
   user-select: text;
-}
-.about-docs {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px 14px;
-  margin: 12px 0 4px;
 }
 .link {
   padding: 0;

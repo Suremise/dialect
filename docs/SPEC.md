@@ -148,9 +148,13 @@ product decisions.
 - The documents are the committed files, bundled at build time and rendered with marked and DOMPurify; a test fails
   when what the UI bundles differs from the committed file, and the license check keeps the committed notices current.
   The notices make the web build's single file about 1.1 MB (0.59 MB without the Docs).
-- About shows the version, the build (desktop or web), the WebView2 or browser version and the line "Dialect is not
-  affiliated with or endorsed by Juniper Networks or Cisco Systems", with links into the Docs pages and Copy for the
-  version information.
+- About (modelled on Hive's) shows the icon, the name, a one-line description, then the version, the build (desktop or
+  web), the WebView2 or browser version and the OS where the browser tells it, with Copy for those rows. "Open source
+  under the MIT License. Includes third-party software." links to the License and Third-Party Notices pages, and a
+  Release Notes button opens the release notes. In small print, word for word (README.md's Trademarks section is the
+  same text, and a test keeps them so): "© 2026 Darren Marshall. Dialect is independently developed and isn't
+  affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of
+  Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc."
 - Links in the Docs never navigate the app's own page: a link to another bundled document opens it, and an `https://`
   link opens outside the app (the default browser through Tauri's opener plugin, which the desktop app may use for
   `https://` URLs only; a new tab in the web build).
