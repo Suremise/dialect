@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.1",
+  "modelVersion": "0.5.4",
   "device": {
     "system": {
       "hostname": "xr-kitchensink",
@@ -146,11 +146,13 @@
       },
       "GigabitEthernet0/0/0/3": {
         "type": "ethernet",
-        "description": "bundle member one"
+        "description": "bundle member one",
+        "aggregate": "Bundle-Ether1"
       },
       "GigabitEthernet0/0/0/4": {
         "type": "ethernet",
-        "description": "bundle member two"
+        "description": "bundle member two",
+        "aggregate": "Bundle-Ether1"
       },
       "TenGigE0/0/0/2": {
         "type": "ethernet",
@@ -169,6 +171,9 @@
               }
             }
           }
+        },
+        "aggregation": {
+          "lacp": "active"
         }
       },
       "MgmtEth0/RP0/CPU0/0": {

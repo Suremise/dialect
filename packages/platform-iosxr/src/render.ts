@@ -6,7 +6,7 @@
 // needs-input items, written when answered (Context.inputs) and never made up.
 import { fieldPath, isAsNumber, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type RenderResult, type StaticRoute, type Subinterface, type SyslogSeverity } from '@dialect/core'
 import { isIpv4, isIpv6, lengthMask } from './addresses'
-import { inRange, MTU, PORT, ROUTE_TAG, VLAN_ID } from './parse'
+import { BUNDLE_ID, inRange, MTU, PORT, ROUTE_TAG, VLAN_ID } from './parse'
 import { RPL_NAME } from './policy'
 import { planFilters } from './renderFilters'
 import { planRoutingPolicy } from './renderPolicy'
@@ -33,6 +33,11 @@ const OSPF_TAG = /^[\w.-]{1,32}$/
 const FAMILIES = ['ipv4-unicast', 'ipv6-unicast'] as const satisfies readonly BgpAddressFamilyName[]
 /** A neighbor group name IOS-XR takes. */
 const GROUP_NAME = /^\S+$/
+/** A bundle's number from its name (`Bundle-Ether1` is 1, from 1 to 65535), or null when it isn't one. */
+const bundleId = (name: string): number | null => {
+  const m = /^Bundle-Ether(\d{1,5})$/.exec(name)
+  return m && inRange(m[1], BUNDLE_ID) ? Number(m[1]) : null
+}
 /** A value as JSON with its objects' keys in order: two values that say the same are the same string. */
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v))
 
@@ -203,6 +208,12 @@ export function render(model: Device, context: Context): RenderResult {
 
   // ---- interfaces
 
+  /** Each bundle's first member link written (`bundle id N`), whose line carries the bundle's LACP mode. */
+  const firstMembers = new Map<string, string>()
+  for (const [name, iface] of Object.entries(model.interfaces ?? {})) {
+    const aggregate = iface.aggregate
+    if (aggregate !== undefined && bundleId(aggregate) !== null && bundleId(name) === null && iface.type !== 'aggregate' && !firstMembers.has(aggregate)) firstMembers.set(aggregate, name)
+  }
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
   emptyContainer(model.interfaces, ['interfaces'])
 
@@ -220,6 +231,7 @@ export function render(model: Device, context: Context): RenderResult {
       if (inRange(iface.mtu, MTU)) emit(` mtu ${iface.mtu}`, [...at, 'mtu'])
       else skip([...at, 'mtu'], 'unsupported', `IOS-XR takes an MTU from ${MTU.min} to ${MTU.max}`)
     }
+    renderLag(name, iface, at)
     if (main) {
       const sub = [...at, 'subinterfaces', '0']
       if (isEmpty(main)) skip(sub, 'not-applicable', 'IOS-XR has no subinterface 0 of its own: the main interface is it')
@@ -245,6 +257,38 @@ export function render(model: Device, context: Context): RenderResult {
       }
       if (sub.enabled !== undefined) emit(sub.enabled ? ' no shutdown' : ' shutdown', [...subAt, 'enabled'])
       close()
+    }
+  }
+
+  /**
+   * A member link's `bundle id N [mode active|passive|on]`, with its bundle's LACP mode (IOS-XR gives it on each member;
+   * `static` is `mode on`, and no mode says nothing), and a bundle's `bundle minimum-active links N`.
+   */
+  function renderLag(name: string, iface: Interface, at: Segments) {
+    if (iface.aggregate !== undefined) {
+      const field = [...at, 'aggregate']
+      const id = bundleId(iface.aggregate)
+      if (id === null) skip(field, 'unsupported', 'IOS-XR names a bundle Bundle-EtherN, N from 1 to 65535: name it in the interface map')
+      else if (bundleId(name) !== null || iface.type === 'aggregate') skip(field, 'unsupported', 'a bundle as a member link of another, which IOS-XR refuses')
+      else {
+        const lacp = model.interfaces?.[iface.aggregate]?.aggregation?.lacp
+        const mode = lacp === 'static' ? 'on' : lacp === 'active' || lacp === 'passive' ? lacp : undefined
+        const fields = [field, ...(mode !== undefined && firstMembers.get(iface.aggregate) === name ? [['interfaces', iface.aggregate, 'aggregation', 'lacp']] : [])]
+        emit(` bundle id ${id}${mode !== undefined ? ` mode ${mode}` : ''}`, ...fields)
+      }
+    }
+    const lag = iface.aggregation
+    if (lag === undefined) return
+    const a = [...at, 'aggregation']
+    emptyContainer(lag, a)
+    if (bundleId(name) === null) return skipAll(lag, a, 'IOS-XR names a bundle Bundle-EtherN, N from 1 to 65535: name it in the interface map')
+    if (lag.lacp !== undefined) {
+      if (lag.lacp !== 'active' && lag.lacp !== 'passive' && lag.lacp !== 'static') skip([...a, 'lacp'], 'unsupported', 'not an LACP mode')
+      else if (!firstMembers.has(name)) skip([...a, 'lacp'], 'unsupported', 'IOS-XR gives the LACP mode on each member link (bundle id N mode …), and the bundle has none written')
+    }
+    if (lag.minLinks !== undefined) {
+      if (Number.isInteger(lag.minLinks) && lag.minLinks >= 1 && lag.minLinks <= 64) emit(` bundle minimum-active links ${lag.minLinks}`, [...a, 'minLinks'])
+      else skip([...a, 'minLinks'], 'unsupported', 'IOS-XR takes minimum active links from 1 to 64')
     }
   }
 

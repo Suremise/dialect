@@ -24,6 +24,8 @@ const JUNOS_SEVERITY: Readonly<Record<string, string>> = Object.fromEntries(Obje
 /** The facilities `facility-override` takes. */
 const FACILITIES = new Set(['authorization', 'daemon', 'ftp', 'kernel', 'user', 'local0', 'local1', 'local2', 'local3', 'local4', 'local5', 'local6', 'local7'])
 const INTEGER = /^\d+$/
+/** A Junos aggregate's name: `ae0`. */
+const AGGREGATE = /^ae\d+$/
 const ROUTE_SETTINGS = ['preference', 'metric', 'tag'] as const
 /** A VLAN key as the model writes one: a VLAN ID from 1 to 4094 (`"10"`). */
 const isVlanKey = (key: string): boolean => /^[1-9]\d*$/.test(key) && isVlanId(Number(key))
@@ -195,6 +197,11 @@ export function render(model: Device, context: Context): RenderResult {
 
   // ---- interfaces
 
+  // Junos makes room for aggregates (`aeN` up to the count less one) only with `chassis aggregated-devices`: written from
+  // the model's aggregates, as no field holds it.
+  const aggregates = Object.keys(model.interfaces ?? {}).filter((name) => AGGREGATE.test(name)).map((name) => Number(name.slice(2)))
+  if (aggregates.length) top.push(box('chassis', [box('aggregated-devices', [box('ethernet', [leaf(`device-count ${Math.max(...aggregates) + 1}`)])])]))
+
   const interfaces: Out[] = []
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) interfaces.push(interfaceOf(name, iface))
   emptyContainer(model.interfaces, ['interfaces'])
@@ -210,6 +217,7 @@ export function render(model: Device, context: Context): RenderResult {
     if (iface.vlanTagging) out.push(leaf('vlan-tagging', [...at, 'vlanTagging']))
     else if (iface.vlanTagging === false) skip([...at, 'vlanTagging'], 'not-applicable', 'a Junos interface is untagged unless vlan-tagging is set')
     if (iface.mtu !== undefined) out.push(leaf(`mtu ${iface.mtu}`, [...at, 'mtu']))
+    out.push(...lagOf(name, iface, at))
     const switching = iface.switching ? switchingOf(iface.switching, [...at, 'switching']) : null
     if (switching?.native) out.push(switching.native)
     emptyContainer(iface.subinterfaces, [...at, 'subinterfaces'])
@@ -229,6 +237,39 @@ export function render(model: Device, context: Context): RenderResult {
     if (switching && !unit0) out.splice(units, 0, box('unit 0', [switching.family]))
     // An interface with nothing to write but its type is still configured: `ge-0/0/0;`.
     return out.length ? box(quote(name), out) : leaf(quote(name), ...self(iface, at))
+  }
+
+  /**
+   * A member link's `ether-options 802.3ad aeN` (EX and QFX take `ether-options`, MX `gigether-options` as well), and
+   * an aggregate's `aggregated-ether-options`: `lacp active|passive` and `minimum-links`. With no `lacp`, a Junos
+   * aggregate runs without LACP, which is what `static` says.
+   */
+  function lagOf(name: string, iface: Interface, at: Segments): Out[] {
+    const out: Out[] = []
+    if (iface.aggregate !== undefined) {
+      const field = [...at, 'aggregate']
+      if (!AGGREGATE.test(iface.aggregate)) skip(field, 'unsupported', 'a Junos aggregate is named aeN: name it in the interface map')
+      else if (AGGREGATE.test(name)) skip(field, 'unsupported', 'an aggregate as a member link of another, which Junos refuses')
+      else out.push(box('ether-options', [leaf(`802.3ad ${iface.aggregate}`, field)]))
+    }
+    const lag = iface.aggregation
+    if (lag === undefined) return out
+    const a = [...at, 'aggregation']
+    emptyContainer(lag, a)
+    if (!AGGREGATE.test(name)) {
+      skipAll(lag, a, 'a Junos aggregate is named aeN: name it in the interface map')
+      return out
+    }
+    const options: Out[] = []
+    if (lag.lacp === 'active' || lag.lacp === 'passive') options.push(box('lacp', [leaf(lag.lacp, [...a, 'lacp'])]))
+    else if (lag.lacp === 'static') skip([...a, 'lacp'], 'not-applicable', 'a Junos aggregate runs without LACP unless lacp is set')
+    else if (lag.lacp !== undefined) skip([...a, 'lacp'], 'unsupported', 'not an LACP mode')
+    if (lag.minLinks !== undefined) {
+      if (Number.isInteger(lag.minLinks) && lag.minLinks >= 1 && lag.minLinks <= 64) options.push(leaf(`minimum-links ${lag.minLinks}`, [...a, 'minLinks']))
+      else skip([...a, 'minLinks'], 'unsupported', 'Junos takes minimum links from 1 to 64')
+    }
+    if (options.length) out.push(box('aggregated-ether-options', options))
+    return out
   }
 
   /**

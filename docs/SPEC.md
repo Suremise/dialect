@@ -190,6 +190,13 @@ product decisions.
   on to later statements is left out with its policy, as the model's terms accept or reject. A VRF's own import and
   export route policies (model 0.5.2) convert too, and IOS-XR warns when the source's (Junos) replaces the VRF's route
   targets, where IOS-XR's filters after them.
+- **LAGs convert** (#109, model 0.5.4): a member link's aggregate and the aggregate's LACP mode (`active`, `passive`
+  or `static`) and minimum links. Cisco gives the mode on each member: the aggregate takes it when the members agree,
+  and their statements aren't converted when they don't. Junos writes `chassis aggregated-devices ethernet
+  device-count` from the model's aggregates, as it makes no `ae` interface without it.
+- **Every statement left out says why** (#109): a plugin gives every `unsupported` or `ignored-by-design` statement
+  and field a reason, from the statement's keywords when it has nothing more particular to say, never a word of the
+  configuration. Each plugin's corpus test checks it over the whole corpus (Junos and IOS-XR so far).
 - **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
   left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
   contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos

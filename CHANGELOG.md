@@ -29,6 +29,13 @@
   keyboard focus shows.
 
 ### Convert
+- **Link aggregation converts for Junos and IOS-XR:** which aggregate each member link is in, the LACP mode (active,
+  passive or none) and minimum links, from Junos `802.3ad` and `aggregated-ether-options` and IOS-XR `bundle id` and
+  `bundle minimum-active links`, both ways. Converting to Junos also writes the `chassis aggregated-devices` line Junos
+  needs for its `ae` interfaces.
+- **Every line not converted says why**, from Junos and IOS-XR: a line Dialect doesn't read at all is no longer shown as
+  a bare "not converted", but with what it is and that it comes later ("logical systems come later", "IS-IS comes
+  later", "SNMP traps come later").
 - **Cisco IOS / IOS-XE VLANs, switch ports, VLAN interfaces, OSPF and BGP convert:** VLANs and their names, access and
   trunk ports (allowed VLANs with add, remove and except, a native VLAN), VLAN interfaces, OSPF enabled by `ip ospf …
   area` or `network` statements (areas, stub and NSSA, authentication, cost, network type, passive, timers) and BGP
