@@ -1,7 +1,7 @@
 // Why a statement isn't converted, when the mapper found nothing more particular to say: every `unsupported` statement
 // has a reason (#109), so the ledger never shows a bare "not converted". The reason comes from the statement's keywords
 // alone, read at the places Junos puts a keyword, and is one of the fixed texts below: never a word of the statement,
-// as a value can be a secret.
+// as a value can be a secret. Nor one a secret of the configuration is (#114): see unconvertedReason().
 
 /** What the areas this mapper doesn't convert are, by their top-level keyword. */
 const AREAS: Readonly<Record<string, string>> = {
@@ -71,8 +71,28 @@ const PROTOCOLS: Readonly<Record<string, string>> = {
 /** Layer 2 inside a routing instance (a mac-vrf or virtual switch). */
 const INSTANCE_LAYER2 = new Set(['vlans', 'bridge-domains', 'switch-options', 'protocols-l2', 'vtep-source-interface', 'service-type'])
 
-/** Why `words` (a statement's full path, as `set` says it) isn't converted, in words of this file's alone. */
-export function unconvertedReason(words: readonly string[]): string {
+const GENERIC = "a statement this converter doesn't read"
+/** The reason when a secret of the configuration is in the table's and the generic one: it says nothing of the statement. */
+const WITHHELD = 'a statement whose reason is withheld, as it would repeat a value of this configuration'
+/**
+ * The reason of last resort, when a secret is in every other (an SNMP community named `this`, say): a value one
+ * character long, which no secret of the conformance kit's (four characters or more) is.
+ */
+const LAST_RESORT = '—'
+
+/**
+ * Why `words` (a statement's full path, as `set` says it) isn't converted, in words of this file's alone, and never
+ * containing one of `secrets` (secretValues()), in any case: a fixed text is a value of the config too when a secret is
+ * one of its words. The table's reason, else the generic one, else WITHHELD, else LAST_RESORT, whichever holds none.
+ */
+export function unconvertedReason(words: readonly string[], secrets: readonly string[] = []): string {
+  const lower = secrets.map((s) => s.toLowerCase())
+  const safe = (reason: string) => !lower.some((s) => reason.toLowerCase().includes(s))
+  return [tableReason(words), GENERIC, WITHHELD].find(safe) ?? LAST_RESORT
+}
+
+/** The keyword tables' reason for `words`. */
+function tableReason(words: readonly string[]): string {
   const [top, next] = words
   if (top === 'system') return (next !== undefined && Object.hasOwn(SYSTEM, next) ? SYSTEM[next] : undefined) ?? 'a system setting the model has no place for'
   if (top === 'snmp') return (next !== undefined && Object.hasOwn(SNMP, next) ? SNMP[next] : undefined) ?? 'an SNMP setting the model has no place for'
@@ -87,7 +107,7 @@ export function unconvertedReason(words: readonly string[]): string {
     if (own[0] !== undefined && INSTANCE_LAYER2.has(own[0])) return 'Layer 2 in a routing instance (mac-vrf, virtual switch) comes later'
   }
   if (top !== undefined && Object.hasOwn(AREAS, top)) return AREAS[top]
-  return "a statement this converter doesn't read"
+  return GENERIC
 }
 
 const routingOptions = (r: readonly string[]): string => (r[0] !== undefined && Object.hasOwn(ROUTING_OPTIONS, r[0]) ? ROUTING_OPTIONS[r[0]] : 'a routing option the model has no place for')
@@ -106,4 +126,37 @@ function interfaces(r: readonly string[]): string {
   if (r[0] === 'gigether-options' || r[0] === 'ether-options') return 'Ethernet settings (speed, autonegotiation, flow control) come later'
   if (r[0] === 'apply-macro') return "apply-macro: data for commit scripts, which the model doesn't keep"
   return 'an interface setting the model has no place for'
+}
+
+// The secret values of a Junos configuration, hierarchical or set, as the conformance kit's patterns find them: hashes
+// (`$1$…`, `$9$…`), SNMP communities, and `secret`, `authentication-key` (an NTP key's `… type md5 value X` too),
+// `encrypted-password`, `simple-password`, a pre-shared key's `ascii-text` and `hexadecimal`, and a quoted `key`. Looser
+// than the kit's where that costs nothing: a closing quote or a community's `{` isn't needed, as the kit also parses the
+// configuration cut just after a secret, or with a quote opened after it. A word taken for a secret that isn't one only
+// takes a reason's next choice.
+const SECRETS: readonly RegExp[] = [
+  /(\$(?:\d+|sha1|y|2[aby]?)\$[^\s"';]+)/g,
+  /(?<![\w-])community[ \t]+("?[^\s";{]+)/gi,
+  /(?<![\w-])authentication-key[ \t]+\d+[ \t]+type[ \t]+\S+[ \t]+value[ \t]+("?[^\s";]+)/gi,
+  /(?<![\w-])(?:secret|authentication-key|encrypted-password|simple-password|ascii-text|hexadecimal)[ \t]+("?[^\s";]+)/gi,
+  /(?<![\w-])(?:secret|authentication-key|encrypted-password|simple-password|ascii-text|hexadecimal|key)[ \t]+"([^"\n]+)/gi
+]
+
+/**
+ * The secret values in `text`, for unconvertedReason() to keep out of a reason: four characters or more, as the kit
+ * takes them (a shorter one is a word of many reasons and no secret).
+ */
+export function secretValues(text: string): string[] {
+  const out = new Set<string>()
+  for (const pattern of SECRETS)
+    for (const m of text.matchAll(pattern)) {
+      // The value as written; without a quote at either end, as the kit takes it (`"comes"`, or `"comes` cut short),
+      // with its spaces (`key " the "`); less the space a quote opened after a secret adds (`key "later"` becomes
+      // `key "later ""`, whose quoted value is `later `, which a reason ending in `later` doesn't hold; `key " the "`
+      // becomes `key " the  ""`); and trimmed. Each when four characters or more.
+      const raw = m[m.length - 1]
+      const value = raw.replace(/^"+/, '').replace(/"+$/, '')
+      for (const candidate of [raw, value, value.replace(/ $/, ''), value.trim()]) if (candidate.length >= 4) out.add(candidate)
+    }
+  return [...out]
 }

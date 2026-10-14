@@ -1199,7 +1199,10 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
   l2transport` is Layer 2, unsupported whole, and so is a later `interface X.N` for it. **Every statement left out says
   why (#109):** one the mapper has nothing more particular to say about gets a reason from the keywords of the
   top-level statement it is in (`unconverted.ts`: IS-IS, SNMP traps, task groups, l2vpn, logging to the console…, else
-  "a statement this converter doesn't read"), each a fixed text, never a word of the configuration; show running-config's
+  "a statement this converter doesn't read"), each a fixed text, never a word of the configuration, nor one a secret of
+  it is (#114, as IOS's: `secretValues()` finds communities, typed and untyped passwords and secrets, TACACS+/RADIUS,
+  NTP and key-chain keys, each as written, unquoted and trimmed; the first reason that holds none, in any case, is
+  taken: the table's, the generic one, "a statement whose reason is withheld…", else `—`); show running-config's
   timestamp line is `ignored-by-design`.
   - **Bundles (#109, model 0.5.4):** `bundle id N [mode active|passive|on]` on a main interface is its `aggregate`
     (`Bundle-EtherN`, N from 1 to 65535), and makes sure the bundle exists; `bundle minimum-active links N` (1 to 64) on
@@ -1585,7 +1588,11 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `fxp`/`em`/`me` management, `gr-`/`st` tunnels). Reasons never quote the configuration. **Every statement left out
   says why (#109):** one the mapper has nothing more particular to say about gets a reason from its keywords alone
   (`unconverted.ts`: logical systems, `system login`, IS-IS, SNMPv3, chassis settings…, else "a statement this
-  converter doesn't read"), each a fixed text, never a word of the statement; the kit's ledger check (#111) fails any
+  converter doesn't read"), each a fixed text, never a word of the statement, nor one a secret of the configuration
+  is (#114, as IOS's: `secretValues()` finds hashes, communities, `secret`, `authentication-key`,
+  `encrypted-password`, pre-shared keys and quoted keys, set or hierarchical, each as written, unquoted, less the
+  space a broken quote adds, and trimmed; the first reason that holds none, in any case, is taken: the table's, the
+  generic one, "a statement whose reason is withheld…", else `—`); the kit's ledger check (#111) fails any
   statement or field `unsupported` or `ignored-by-design` without one, over every fixture and the whole corpus.
 - **LAGs (#109, model 0.5.4):** `gigether-options 802.3ad aeN` (MX) or `ether-options 802.3ad aeN` (EX, QFX) is the
   interface's `aggregate` (one setting, so the later or higher-ranked wins, groups and ranges by R1–R12), and makes
