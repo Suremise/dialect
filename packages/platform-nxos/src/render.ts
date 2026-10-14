@@ -337,8 +337,8 @@ export function render(model: Device, context: Context): RenderResult {
     if (iface.vlanTagging !== undefined) skip([...at, 'vlanTagging'], 'not-applicable', 'NX-OS tags each subinterface (encapsulation dot1q)')
     emptyContainer(iface.subinterfaces, [...at, 'subinterfaces'])
 
-    // A routed port: an address or a VRF on it, or subinterfaces (which need a routed parent).
-    const routed = subs.some(([index, s]) => index !== '0' || s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined)
+    // A routed port: an address, a VRF or OSPF on it, or subinterfaces (which need a routed parent).
+    const routed = subs.some(([index, s]) => index !== '0' || s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined) || ospf.has(`${name}|0`)
     separator()
     emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []), ...(svi !== undefined && own !== undefined ? [[...at, 'subinterfaces', own, 'routedVlan']] : []))
     if (iface.description !== undefined) emit(`  description ${iface.description}`, [...at, 'description'])

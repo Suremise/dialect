@@ -511,7 +511,8 @@ VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and 
     them, as the device does. A VLAN they name must be defined: one that isn't is `unsupported` with its statement (a
     range carries whichever of its VLANs exist). Another mode, and a setting on a loopback, a subinterface or a port
     with IP configuration, are `unsupported`. `switchport` alone is `ignored-by-design` on a port with no IP
-    configuration and `no switchport` on one with some (the render writes both back), each `unsupported` otherwise.
+    configuration and `no switchport` on one with some (an address, a VRF, subinterfaces or OSPF; the render writes
+    both back), each `unsupported` otherwise.
   - **SVIs:** `interface Vlan10` is an `irb-or-svi` interface routing for VLAN 10 on subinterface `0` when VLAN 10 is
     defined; without it, it stays an interface of type `vlan` with no routed VLAN, as before model 0.4.
   - **OSPF:** per interface, as NX-OS enables it: `ip router ospf TAG area A` (any area form, dotted in the model) puts
@@ -607,7 +608,10 @@ VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and 
   in either order beside an open statement and a letter-led malformed next hop among them, and model 0.4's (a VLAN name
   and a peer template named by a prototype key, `no neighbor`, `no ip router ospf`, an AS number and a VLAN ID out of
   range, OSPF and BGP changes in one VRF), but a prototype key as an interface name, which NX-OS can't say.
-  `phase2.test.ts` covers the phase 2 areas beyond their fixtures.
+  `phase2.test.ts` covers the phase 2 areas beyond their fixtures, and checks that each phase 2 warning comes from a
+  saved source fixture or a saved model from another platform (`tests/models`: `<case>.model.json`, its expected
+  `.rendered.cfg` and `.warnings.json`), for what an NX-OS parse can't produce (an IRB not named `Vlan<ID>`, OSPF
+  enabled by `network` statements).
 
 ## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
 

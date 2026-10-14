@@ -2,10 +2,10 @@
 // acting on earlier ones (`no …` forms, `vrf member`, `no feature`, a VRF's deletion), what is left out and why, the
 // secrets the model only flags (asked for on render, written when answered), the semantic warnings, rendering models
 // from other platforms, and the aggregate names suggested for convert.
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { checkFixture, checkSecrets } from '@dialect/conformance'
-import { buildLedger, fieldPath, ledgerProblems, MODEL_VERSION, statementsOf, type Context, type Device, type ParseResult } from '@dialect/core'
+import { buildLedger, deserializeModel, fieldPath, ledgerProblems, MODEL_VERSION, statementsOf, type Context, type Device, type ParseResult } from '@dialect/core'
 import plugin from '../src'
 import type { NxNode } from '../src/tree'
 
@@ -353,6 +353,56 @@ describe('BGP', () => {
       'networkInstances.default.bgp.neighbors["198.51.100.1"].exportPolicies'
     ])
     expect(accounted(model)).toEqual([])
+  })
+})
+
+describe('routed ports', () => {
+  it('OSPF on a port makes it routed, as an address does: no switchport maps and is written back', () => {
+    for (const port of ['Ethernet1/1', 'port-channel1']) {
+      const text = lines('feature ospf', `interface ${port}`, '  no switchport', '  ip router ospf 1 area 0', 'router ospf 1')
+      const result = parse(text)
+      expect(at(result, 3), port).toEqual({ kind: 'ignored-by-design', reason: 'a routed port, as its IP configuration says: written back with it' })
+      expect(render(result.model).text).toContain(`interface ${port}\n  no switchport\n  ip router ospf 1 area 0.0.0.0\n`)
+      expect(roundTrips(text), port).toEqual([])
+    }
+  })
+
+  it('a switch port with OSPF on it is reported, on parse and render', () => {
+    const result = parse(lines('vlan 10', 'interface Ethernet1/1', '  switchport', '  switchport access vlan 10', '  ip router ospf 1 area 0'))
+    expect(at(result, 3)).toEqual({ kind: 'unsupported', reason: 'a switch port with IP configuration, which NX-OS refuses' })
+    expect(at(result, 4)).toEqual({ kind: 'unsupported', reason: 'a switch port setting on a routed port, which NX-OS refuses' })
+    const model: Device = { vlans: { '10': {} }, interfaces: { 'Ethernet1/1': { switching: { accessVlan: 10 } } }, networkInstances: { default: { ospf: { processId: '1', areas: { '0.0.0.0': { interfaces: { 'Ethernet1/1': {} } } } } } } }
+    const rendered = render(model)
+    expect(rendered.text).toContain('interface Ethernet1/1\n  no switchport\n  ip router ospf 1 area 0.0.0.0\n')
+    expect(rendered.dispositions['interfaces["Ethernet1/1"].switching.accessVlan']).toEqual({ kind: 'unsupported', reason: 'a routed port (it has IP configuration) isn\'t a switch port on NX-OS' })
+  })
+})
+
+describe('the semantic warnings, each raised by a saved fixture', () => {
+  const models = new URL('./models/', import.meta.url)
+  const cases = readdirSync(models).filter((f) => f.endsWith('.model.json')).map((f) => f.replace(/\.model\.json$/, ''))
+
+  for (const name of cases) {
+    it(`models/${name}: another platform's model renders as expected, every field accounted for`, () => {
+      const model = deserializeModel(readFileSync(new URL(`${name}.model.json`, models), 'utf8')).device
+      const result = render(model)
+      expect(result.text).toBe(readFileSync(new URL(`${name}.rendered.cfg`, models), 'utf8'))
+      expect(codes(result)).toEqual(JSON.parse(readFileSync(new URL(`${name}.warnings.json`, models), 'utf8')))
+      expect(accounted(model)).toEqual([])
+    })
+  }
+
+  it('every phase 2 warning comes from a saved source fixture or model', () => {
+    const fixtures = new URL('./fixtures/', import.meta.url)
+    const sources = ['vlans', 'ospf', 'bgp'].flatMap((area) => readdirSync(new URL(`${area}/`, fixtures)).filter((f) => f.endsWith('.cfg') && !f.endsWith('.rendered.cfg')).map((f) => new URL(`${area}/${f}`, fixtures)))
+    const raised = new Set([
+      ...sources.flatMap((file) => {
+        const parsed = parse(readFileSync(file, 'utf8'))
+        return [...codes(parsed), ...codes(render(parsed.model))]
+      }),
+      ...cases.flatMap((name) => codes(render(deserializeModel(readFileSync(new URL(`${name}.model.json`, models), 'utf8')).device)))
+    ])
+    for (const code of ['nxos.route-map-name-only', 'nxos.ebgp-no-policy', 'nxos.bgp-no-address-family', 'nxos.ospf-enabled-per-interface', 'nxos.svi-name']) expect(raised, code).toContain(code)
   })
 })
 

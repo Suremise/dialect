@@ -1778,12 +1778,22 @@ export function parse(text: string, _context: Context): ParseResult {
     if (!subs.some((sub) => isObject(sub) && sub.vlanId !== undefined)) model.remove(['interfaces', name, 'vlanTagging'])
   }
 
+  buildOspf()
+  checkBgp()
+
   // `no switchport` makes a routed port: the render writes it back for an interface with IP configuration. Without
   // any, the model can't say the port is routed rather than switched.
-  /** Whether a port has IP configuration (an address, a VRF, subinterfaces), which makes it routed. */
+  /** The interfaces OSPF runs on, by reference: OSPF on a port makes it routed, as an address does. */
+  const ospfOn = new Set(
+    Object.values((model.get(['networkInstances']) as Obj | undefined) ?? {}).flatMap((i) => {
+      const areas = isObject(i) && isObject(i.ospf) && isObject(i.ospf.areas) ? Object.values(i.ospf.areas) : []
+      return areas.flatMap((a) => (isObject(a) && isObject(a.interfaces) ? Object.keys(a.interfaces) : []))
+    })
+  )
+  /** Whether a port has IP configuration (an address, a VRF, subinterfaces, OSPF), which makes it routed. */
   const isRouted = (name: string) => {
     const subs = (model.get(['interfaces', name, 'subinterfaces']) as Obj | undefined) ?? {}
-    return Object.values(subs).some((s) => isObject(s) && (s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined)) || Object.keys(subs).some((k) => k !== '0')
+    return Object.values(subs).some((s) => isObject(s) && (s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined)) || Object.keys(subs).some((k) => k !== '0') || ospfOn.has(name)
   }
   for (const { node, ctx } of routedPorts) {
     if (owners.get(`switchport ${ctx.name}`) !== node) continue
@@ -1852,9 +1862,6 @@ export function parse(text: string, _context: Context): ParseResult {
     const d = dispositions[node.id]
     if (d?.kind === 'mapped') set(node, mapped([type, ...d.fields.filter((f) => f !== type && f !== routed)]))
   }
-
-  buildOspf()
-  checkBgp()
 
   // `feature ospf` and `feature bgp` are needed by what they turn on: written back with it. With nothing converted that
   // needs one, it turns on a service the model doesn't hold, and stays unsupported.
