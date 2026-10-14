@@ -240,7 +240,9 @@ sequence to the route map, with a warning, since an IOS route map denies a route
 
 Cisco NX-OS converts routing policy the same way: prefix lists (with `eq`), standard and expanded community lists and
 AS-path access lists (each entry by its `seq`), and route maps, which its BGP neighbors' route maps name. A route map a
-neighbor names but the config doesn't define isn't converted.
+neighbor names but the config doesn't define isn't converted. On both, a VRF's `import map` and `export map` convert
+too, with its route targets: a Cisco map filters what the route targets bring in or send out, where a Junos
+`vrf-import` or `vrf-export` replaces them, so converting one from Junos warns.
 
 Cisco IOS / IOS-XE and NX-OS also convert access lists (IPv4 and IPv6, named, and on IOS numbered and standard) and the
 interfaces that apply them, each entry with its remarks kept as its description. An address with a wildcard is

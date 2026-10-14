@@ -22,6 +22,9 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS / IOS-XE and NX-OS VRF import and export maps convert** with the VRF's route targets, as the policies
+  they name. A Cisco map filters what the route targets import or export, where Junos `vrf-import` and `vrf-export`
+  replace them: converting a Junos VRF policy to IOS-XE or NX-OS warns.
 - **More routing policy converts to and from Junos:** AS-path groups (`as-path-group`), and a Cisco AS-path list of
   several lines is written as one. A route map's `set community 65000:1` now converts to Junos, as a community of the
   term's own (Junos acts on named communities only).

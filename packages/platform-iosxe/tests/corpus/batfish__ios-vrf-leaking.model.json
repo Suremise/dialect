@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.5.1",
+  "modelVersion": "0.5.3",
   "device": {
     "system": {
       "hostname": "ios-vrf-leaking"
@@ -64,6 +64,18 @@
         "bgp": {
           "localAs": 65003,
           "routerId": "192.168.123.32"
+        },
+        "vrfPolicyMode": "after-route-targets",
+        "importPolicies": [
+          "IMPORT_MAP"
+        ],
+        "routeTargets": {
+          "import": [
+            "65003:11"
+          ],
+          "export": [
+            "65003:22"
+          ]
         }
       },
       "DST_VRF_NO_IMPORT_MAP": {

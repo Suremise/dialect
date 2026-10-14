@@ -1,0 +1,88 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "pe-1"
+    },
+    "networkInstances": {
+      "CUST": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:10",
+        "vrfPolicyMode": "after-route-targets",
+        "importPolicies": [
+          "CUST-IN"
+        ],
+        "exportPolicies": [
+          "CUST-OUT"
+        ],
+        "routeTargets": {
+          "import": [
+            "65000:10"
+          ],
+          "export": [
+            "65000:10"
+          ]
+        }
+      },
+      "LEGACY": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:20",
+        "routeTargets": {
+          "import": [
+            "65000:20"
+          ],
+          "export": [
+            "65000:20"
+          ]
+        }
+      }
+    },
+    "routingPolicy": {
+      "communitySets": {
+        "HUB": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65000:1"
+              ]
+            }
+          }
+        }
+      },
+      "policies": {
+        "CUST-IN": {
+          "terms": {
+            "10": {
+              "matches": {
+                "communitySets": [
+                  "HUB"
+                ]
+              },
+              "actions": {
+                "flow": "accept",
+                "localPreference": 200
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "CUST-OUT": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "communityAdd": {
+                  "values": [
+                    "65000:99"
+                  ]
+                }
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}
