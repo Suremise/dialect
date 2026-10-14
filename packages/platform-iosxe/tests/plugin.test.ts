@@ -82,6 +82,25 @@ describe('reasons say where, never a word of the config (AGENTS.md, No secrets i
     expect(result.dispositions.L8).toEqual({ kind: 'unsupported', reason: 'a certificate chain, 4 lines, kept verbatim' })
     expect(checkSecrets(plugin, text, [secret], { allowances: [] }).leaks).toEqual([])
   })
+
+  it('a numeric community reused as a route map sequence or a term\'s key never reaches a message either', () => {
+    const secret = '48213'
+    const next = String(Number(secret) + 1)
+    for (const text of [
+      [`snmp-server community ${secret} RO`, `route-map M permit ${secret}`, `no route-map M permit ${secret}`],
+      [`snmp-server community ${secret} RO`, `route-map M permit ${secret}`, ' continue', `route-map M permit ${next}`],
+      [`snmp-server community ${secret} RO`, `route-map M deny 10`, ' match tag 1', `route-map M permit ${secret}`, ' continue'],
+      [`snmp-server community ${secret} RO`, 'ip access-list extended F', ` ${secret} permit ip 10.0.0.0 0.255.0.255 any`, ` ${next} deny ip any any`]
+    ].map((l) => l.join('\n'))) expect(checkSecrets(plugin, text, [secret], { allowances: [] }).leaks, text).toEqual([])
+    // A render from another platform, with the number as a term's key.
+    const filter = { matches: { routeFilters: { '1': { prefix: '10.0.0.0/8', minLength: 8, maxLength: 32 } } } }
+    const rendered = render({
+      routingPolicy: { policies: { P: { fallThrough: 'reject', terms: { [secret]: { ...filter, actions: { flow: 'reject' } }, [next]: { actions: { flow: 'accept' } } } } } },
+      filters: { ipv4: { F: { implicitAction: 'deny', terms: { [secret]: { matches: { prefixes: ['10.0.0.0/8'] }, actions: { action: 'discard' } }, [next]: { actions: { action: 'accept' } } } } } }
+    })
+    for (const d of Object.values(rendered.dispositions)) if ('reason' in d) expect(d.reason).not.toContain(secret)
+    expect(rendered.diagnostics.map((d) => d.message).join(' ')).not.toContain(secret)
+  })
 })
 
 describe('DNS', () => {
@@ -1116,8 +1135,8 @@ describe('routing policy (model 0.5.0)', () => {
     expect(at(result, 'match community C')).toEqual({ kind: 'unsupported', reason: 'names a community list that isn\'t converted' })
     // Sequence 10 decides (it permits), so leaving it out would let sequence 20 see its routes: the whole route map goes.
     expect(result.model.routingPolicy?.policies).toBeUndefined()
-    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'left out whole: sequence 10 (line 3) isn\'t converted, and the sequences after it would see the routes it decides' })
-    expect(at(result, 'set tag 1')).toEqual({ kind: 'unsupported', reason: 'part of route map sequence 10, converted whole or not at all: line 4 isn\'t converted' })
+    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'left out whole: the sequence of line 3 isn\'t converted, and the sequences after it would see the routes it decides' })
+    expect(at(result, 'set tag 1')).toEqual({ kind: 'unsupported', reason: 'part of the route map sequence of line 3, converted whole or not at all: line 4 isn\'t converted' })
     expect(buildLedger(result).complete).toBe(true)
   })
 
@@ -1125,7 +1144,7 @@ describe('routing policy (model 0.5.0)', () => {
     const text = lines('route-map M deny 10', ' match tag 7', 'route-map M permit 20', ' match ip address 10')
     const result = parse(text)
     expect(result.model.routingPolicy?.policies).toEqual({ M: { terms: { '10': { matches: { tags: [7] }, actions: { flow: 'reject' } } }, fallThrough: 'reject' } })
-    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'part of route map sequence 20, converted whole or not at all: line 4 isn\'t converted' })
+    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'part of the route map sequence of line 3, converted whole or not at all: line 4 isn\'t converted' })
     expect(roundTrips(text)).toEqual([])
   })
 

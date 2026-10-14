@@ -186,7 +186,8 @@ export function planRoutingPolicy(rp: RoutingPolicy | undefined, skip: (field: S
     const unsafe = planned.find((t) => typeof t.plan === 'string' && !termSkipSafe(judged, t.key))
     const kept = planned.filter((t) => typeof t.plan !== 'string')
     if (unsafe || !kept.length) {
-      skipAll(policy, at, unsafe ? `left out whole: term ${unsafe.key} can't be written (${unsafe.plan as string}), and leaving it out would change what the terms after it see` : 'no term IOS can write: a route map needs a sequence')
+      // No term key in a reason: a key of the config can be a secret's value reused (AGENTS.md).
+      skipAll(policy, at, unsafe ? `left out whole: one of its terms can't be written (${unsafe.plan as string}), and leaving it out would change what the terms after it see` : 'no term IOS can write: a route map needs a sequence')
       continue
     }
     const out: PolicyLine[] = []
