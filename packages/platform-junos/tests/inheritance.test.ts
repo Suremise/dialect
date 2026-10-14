@@ -104,6 +104,60 @@ describe('configuration groups (GROUPS)', () => {
       }
     })
 
+    it("is decided where two entries part, whatever the group says above that level, in either form (round 4's repro)", () => {
+      const set = (description: boolean) =>
+        lines(
+          ...(description ? ['set groups G interfaces <*> description harmless'] : []),
+          'set groups G interfaces <*> unit <*> family inet mtu 1500',
+          'set groups G interfaces <*> unit 0 family inet mtu 9000',
+          'set apply-groups G',
+          'set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24'
+        )
+      const hierarchical = (description: boolean) =>
+        [
+          'groups {',
+          '    G {',
+          '        interfaces {',
+          '            <*> {',
+          ...(description ? ['                description harmless;'] : []),
+          '                unit <*> {',
+          '                    family inet {',
+          '                        mtu 1500;',
+          '                    }',
+          '                }',
+          '                unit 0 {',
+          '                    family inet {',
+          '                        mtu 9000;',
+          '                    }',
+          '                }',
+          '            }',
+          '        }',
+          '    }',
+          '}',
+          'apply-groups G;',
+          'interfaces {',
+          '    ge-0/0/0 {',
+          '        unit 0 {',
+          '            family inet {',
+          '                address 192.0.2.1/24;',
+          '            }',
+          '        }',
+          '    }',
+          '}',
+          ''
+        ].join('\n')
+      for (const description of [true, false]) {
+        for (const text of [set(description), hierarchical(description)]) {
+          const iface = model(text).interfaces!['ge-0/0/0']
+          expect(iface.subinterfaces!['0'].ipv4!.mtu).toBe(1500)
+          expect(iface.description).toBe(description ? 'harmless' : undefined)
+        }
+      }
+      // And the other way round: the name first, then the wildcard.
+      const nameFirst = lines('set groups G interfaces <*> description harmless', 'set groups G interfaces <*> unit 0 family inet mtu 9000', 'set groups G interfaces <*> unit <*> family inet mtu 1500', 'set apply-groups G', 'set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24')
+      expect(model(nameFirst).interfaces!['ge-0/0/0'].subinterfaces!['0'].ipv4!.mtu).toBe(9000)
+    })
+
     it('the superseded entry says which line won', () => {
       const p = parse(lines('set groups G interfaces <ge-*> mtu 1500', 'set groups G interfaces <*> mtu 9000', 'set apply-groups G', 'set interfaces ge-0/0/0 unit 0'), context)
       expect(p.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 1' })
@@ -115,6 +169,8 @@ describe('configuration groups (GROUPS)', () => {
   // different entries; two commands on the same entry are its history, and the later one is its value.
   it('R11: within one entry of a group, a later command updates the value, ordinary or wildcard', () => {
     expect(model(lines('set groups G system host-name first', 'set groups G system host-name second', 'set apply-groups G')).system!.hostname).toBe('second')
+    // A value that isn't the last word: the second command still updates it.
+    expect(model(lines('set groups G system ntp server 192.0.2.1 version 3 prefer', 'set groups G system ntp server 192.0.2.1 version 4 prefer', 'set apply-groups G')).system!.ntp!.servers!['192.0.2.1'].version).toBe(4)
     const wildcard = lines('set groups G interfaces <*> mtu 1500', 'set groups G interfaces <*> mtu 9000', 'set apply-groups G', 'set interfaces ge-0/0/0 unit 0')
     const p = parse(wildcard, context)
     expect(p.model.interfaces!['ge-0/0/0'].mtu).toBe(9000)

@@ -77,8 +77,9 @@ export function parse(text: string, _context: Context): ParseResult {
    */
   const incidental = new Set<string>()
   /**
-   * Which statement owns each single-valued setting: the one of highest rank (expand.ts), the later of equal ones, as
-   * loading the commands in order would. A statement it supersedes keeps only its other fields.
+   * Which statement owns each single-valued setting: the one that outranks the others (expand.ts's `outranks`: the
+   * configuration over groups, a group's earlier sibling over a later one), the later of equal ones, as loading the
+   * commands in order would. A statement it supersedes keeps only its other fields.
    */
   const owners = new Map<string, number>()
   /** Statements that lost a setting to a higher-ranked one before they were mapped: the winner's line. */
@@ -86,7 +87,7 @@ export function parse(text: string, _context: Context): ParseResult {
   /** Takes `key` for statement `index`; false when a statement of higher rank already has it. */
   const claim = (key: string, index: number): boolean => {
     const previous = owners.get(key)
-    if (previous !== undefined && previous !== index && statements[previous].rank > statements[index].rank) {
+    if (previous !== undefined && previous !== index && expansion.outranks(statements[previous], statements[index])) {
       lost.set(index, statements[previous].line)
       return false
     }

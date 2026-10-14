@@ -18,10 +18,12 @@ export interface Expanded extends Statement {
   /** How it got here, for reasons: `group` (inherited) or `range` (from an interface range). */
   readonly from?: 'group' | 'range'
   /**
-   * Its priority where two statements set the same value: the higher wins, whatever their order. Statements come in
-   * priority order, except inside a group, where the first entry wins (the mapper compares ranks, not positions).
+   * Its priority where two statements set the same value: the higher wins, whatever their order. Every statement one
+   * application of a group gives has the same rank; `outranks()` orders them by the group's tree.
    */
   readonly rank: number
+  /** For an inherited statement: its group and its words as the group writes them, wildcards included. */
+  readonly entry?: { readonly group: string; readonly body: readonly string[] }
 }
 
 export interface Expansion {
@@ -32,6 +34,11 @@ export interface Expansion {
   readonly unused: Record<string, StatementDisposition>
   /** Warnings about groups whose settings depend on the device (conditional groups). */
   readonly diagnostics: Diagnostic[]
+  /**
+   * Whether `a`'s value wins over `b`'s where both set the same one, whatever their order: false when they are equal,
+   * and the later of the two wins.
+   */
+  readonly outranks: (a: Expanded, b: Expanded) => boolean
 }
 
 /**
@@ -228,33 +235,49 @@ export function expand(statements: readonly Statement[]): Expansion {
   // Every matching entry of a group applies, wildcard or not, and gives the values the others don't; where two set the
   // same value, the first entry in the group wins (Juniper: "the first item encountered in the configuration that
   // matches is used"). Between applications, lowest priority first: shallower levels, then later groups at a level.
-  // Ranks carry the order the mapper needs: each site's entries ranked first-highest, each site above the ones before.
-  // An entry is what a group's wildcards and names pick (`interfaces <ge-*>`, `interfaces <*> unit <*>`), its words up
-  // to its last wildcard; commands within one entry rank the same, so a later one updates it, as `set` does.
+  // Each application of a group ranks above the ones before it: shallower levels first, then later-listed groups.
   const sites = [...applies].filter((a) => groups.has(a.group) && !deviceChosen(a.group)).sort((a, b) => a.path.length - b.path.length || b.order - a.order)
-  const entryOf = (body: readonly string[]) => {
-    let last = -1
-    body.forEach((w, j) => {
-      if (isWildcard(w)) last = j
-    })
-    return key(body.slice(0, last + 1))
-  }
   const inheritAll = (): Expanded[] => {
     const out: Expanded[] = []
-    let base = 0
-    for (const site of sites) {
-      const list = groups.get(site.group) ?? []
-      const entries = [...new Set(list.map(({ body }) => entryOf(body)))]
-      for (const { statement, body } of list) {
-        const rank = base + entries.length - entries.indexOf(entryOf(body))
+    sites.forEach((site, rank) => {
+      for (const { statement, body } of groups.get(site.group) ?? []) {
         for (const words of resolve(body, site.path)) {
           if (excepts.some((e) => e.path.length && e.group === site.group && startsWith(words, e.path) && startsWith(e.path, site.path))) continue
-          out.push({ node: statement.node, line: statement.line, words, from: 'group', rank })
+          out.push({ node: statement.node, line: statement.line, words, from: 'group', rank, entry: { group: site.group, body } })
         }
       }
-      base += entries.length + 1
-    }
+    })
     return out
+  }
+
+  // Each group as a tree: at every level, its children (wildcards and names alike) in the order the group first gives
+  // them. Two of a group's statements that set the same value are compared where their paths part: the child that
+  // comes first among its siblings wins ("the first item encountered … that matches is used"), whatever else the
+  // group says above that level. Two statements that set the same value and part at two names (no wildcard) can't be
+  // two entries, which would name different objects: they are one statement and its new value (`version 3` and
+  // `version 4`), and the later command wins, as `set` does.
+  const trees = new Map<string, Map<string, string[]>>()
+  for (const [name, list] of groups) {
+    const tree = new Map<string, string[]>()
+    for (const { body } of list) {
+      body.forEach((word, j) => {
+        const at = key(body.slice(0, j))
+        const children = tree.get(at) ?? []
+        if (!children.includes(word)) children.push(word)
+        tree.set(at, children)
+      })
+    }
+    trees.set(name, tree)
+  }
+  const outranks = (a: Expanded, b: Expanded): boolean => {
+    if (a.rank !== b.rank) return a.rank > b.rank
+    if (!a.entry || !b.entry || a.entry.group !== b.entry.group) return false
+    const x = a.entry.body
+    const y = b.entry.body
+    const j = x.findIndex((w, i) => w !== y[i])
+    if (j < 0 || (!isWildcard(x[j]) && !isWildcard(y[j]))) return false
+    const children = trees.get(a.entry.group)?.get(key(x.slice(0, j))) ?? []
+    return children.indexOf(x[j]) < children.indexOf(y[j])
   }
   // Groups can name range members too, which wildcards then match: resolve once for those, then again with them.
   classify(inheritAll())
@@ -274,7 +297,8 @@ export function expand(statements: readonly Statement[]): Expansion {
     statements: [...expandRanges(inheritedRanges.config), ...inheritedRanges.rest, ...own],
     dispositions,
     unused,
-    diagnostics
+    diagnostics,
+    outranks
   }
 }
 

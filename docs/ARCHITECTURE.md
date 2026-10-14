@@ -326,14 +326,17 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   the names the configuration has at that place, the members of its interface ranges included, so it adds to what
   exists and never creates it. Every matching entry of a group applies, wildcard or literal, and gives the values the
   others don't; where two set the same value, the first entry in the group wins ("the first item encountered … that
-  matches is used"). An entry is what the group's wildcards pick (its words up to the last wildcard; the literal
-  statements are one entry): commands within one entry rank the same, so a later one updates its value, as `set` does.
+  matches is used"). Each group is kept as a tree, every level's children (wildcards and names alike) in the order the
+  group first gives them; two of its statements setting the same value are compared where their paths part, and the
+  earlier sibling wins, whatever the group says above that level. Paths that part at two names (no wildcard) are one
+  statement and its new value, so the later command wins, as `set` does.
   Groups that apply only on some devices (`re0`/`re1` by Routing Engine slot, `node0`/`node1` through `apply-groups
   "${node}"`, and any group with a `when` condition) aren't converted: their statements and applications are
   `unsupported`, with a `junos.device-group` warning, rather than guessing the device. Then the configuration wins over what it inherits, a deeper `apply-groups` over a shallower one,
-  and the first group listed over later ones; sets add up. Each expanded statement carries a **rank** saying this, and
-  the mapper gives a single value to the highest-ranked statement that sets it (the later of equal ones), so
-  precedence doesn't depend on order. `interfaces interface-range R` gives each member (`member X`, `member-range A to
+  and the first group listed over later ones; sets add up. Each expanded statement carries a **rank** saying this (one per
+  application of a group) and, when inherited, its group and words; the mapper gives a single value to the statement
+  that outranks the others (`outranks()`: rank, then the group's tree), the later of equal ones, so precedence doesn't
+  depend on order. `interfaces interface-range R` gives each member (`member X`, `member-range A to
   B` differing in the last number) the settings of every range it is in, the first range's where they differ;
   explicit interface settings win over the range's, and a range's over a group's. Ranges and members a group defines
   count too. Member patterns (`"xe-0/0/[0,1]"`) aren't expanded yet (`unsupported`), nor is `apply-groups` inside a
