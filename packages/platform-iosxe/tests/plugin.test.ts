@@ -1195,6 +1195,81 @@ describe('routing policy (model 0.5.0)', () => {
   })
 })
 
+describe('access lists (model 0.5.1)', () => {
+  const at = (result: ReturnType<typeof parse>, text: string) => result.dispositions[statementsOf(result.tree).find((n) => (n as IosNode).text === text)!.id]
+  const lines = (...l: string[]) => l.join('\n')
+  const gi1 = (...children: string[]) => lines('interface GigabitEthernet1', ' ip address 192.0.2.1 255.255.255.0', ...children)
+
+  it('leaves out an interface\'s access list the text doesn\'t define, or that has no entries: IOS lets every packet through then', () => {
+    const result = parse(lines(gi1(' ip access-group NOPE in', ' ip access-group EMPTY out'), 'ip access-list extended EMPTY', ' remark nothing yet'))
+    expect(result.model.filters).toBeUndefined()
+    expect(result.model.interfaces?.GigabitEthernet1?.subinterfaces?.['0']?.filters).toBeUndefined()
+    expect(at(result, 'ip access-group NOPE in')).toEqual({ kind: 'unsupported', reason: 'names an access list the configuration doesn\'t define: IOS lets every packet through then, which the model can\'t say' })
+    expect(at(result, 'ip access-group EMPTY out')).toEqual({ kind: 'unsupported', reason: 'names an access list that isn\'t converted' })
+    expect(buildLedger(result).complete).toBe(true)
+  })
+
+  it('leaves an entry out whole, and the access list with its attachments unless the entry is the last', () => {
+    const odd = parse(lines(gi1(' ip access-group F in'), 'ip access-list extended F', ' 10 permit ip 10.0.0.0 0.255.0.255 any', ' 20 deny ip any any'))
+    expect(odd.model.filters).toBeUndefined()
+    expect(at(odd, '10 permit ip 10.0.0.0 0.255.0.255 any')).toEqual({ kind: 'unsupported', reason: 'a non-contiguous wildcard: the model holds prefixes, and approximating it would match other packets' })
+    expect(at(odd, '20 deny ip any any')).toEqual({ kind: 'unsupported', reason: 'left out whole: the entry on line 5 isn\'t converted, and the entries after it would see the packets it decides' })
+    expect(at(odd, 'ip access-group F in')).toEqual({ kind: 'unsupported', reason: 'names an access list that isn\'t converted' })
+    const last = lines('ip access-list extended F', ' remark the last', ' 10 permit tcp any any eq 22', ' remark not converted', ' 20 permit ip any any time-range WORK')
+    expect(parse(last).model.filters?.ipv4?.F?.terms).toEqual({ '10': { description: 'the last', matches: { protocols: [6], destinationPorts: ['22'] }, actions: { action: 'accept' } } })
+    expect(at(parse(last), 'remark not converted')).toEqual({ kind: 'unsupported', reason: 'describes the entry on line 5, which isn\'t converted' })
+    expect(roundTrips(last)).toEqual([])
+  })
+
+  it('reads ports, wildcards and options as IOS does, and writes them back the same', () => {
+    const text = lines('ip access-list extended F', ' permit tcp any range 1024 65535 192.0.2.128 0.0.0.127 gt 1023', ' permit udp host 192.0.2.1 eq ntp any neq 123', ' permit tcp 10.1.2.3 0.0.0.255 any rst', ' deny icmp any any ttl-exceeded log', ' remark one', ' remark and two')
+    const result = parse(text)
+    expect(result.model.filters?.ipv4?.F?.terms?.['10']?.matches).toEqual({ protocols: [6], sourcePorts: ['1024-65535'], destinationPrefixes: ['192.0.2.128/25'], destinationPorts: ['1024-65535'] })
+    expect(result.model.filters?.ipv4?.F?.terms?.['20']?.matches?.destinationPorts).toEqual(['0-122', '124-65535'])
+    // The wildcard's host bits are cleared, as IOS does.
+    expect(result.model.filters?.ipv4?.F?.terms?.['30']?.matches).toEqual({ protocols: [6], sourcePrefixes: ['10.1.2.0/24'], tcpFlags: { set: ['rst'] } })
+    expect(result.model.filters?.ipv4?.F?.terms?.['40']).toEqual({ matches: { protocols: [1], icmpTypes: [11], icmpCodes: [0] }, actions: { action: 'discard', log: true } })
+    expect(at(result, 'remark and two')).toEqual({ kind: 'ignored-by-design', reason: 'a remark after the last entry: there is no entry for it to describe' })
+    expect(render(result.model).text).toContain(' 20 permit udp host 192.0.2.1 eq 123 any neq 123\n')
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('writes the full port range as a range, and takes a /0 as any, both ways, in both families', () => {
+    const text = lines('ip access-list extended F', ' 10 permit tcp any range 0 65535 any range 0 65535', ' 20 permit udp 0.0.0.0 255.255.255.255 0.0.0.0 255.255.255.255 range 0 65535', 'ip access-list standard 10', ' 10 permit 0.0.0.0 255.255.255.255', 'ipv6 access-list F6', ' sequence 10 permit tcp ::/0 range 0 65535 ::/0 range 0 65535', ' sequence 20 deny ipv6 any any')
+    const result = parse(text)
+    expect(result.model.filters?.ipv4?.F?.terms?.['20']?.matches).toEqual({ protocols: [17], destinationPorts: ['0-65535'] })
+    expect(result.model.filters?.ipv4?.['10']?.terms?.['10']).toEqual({ actions: { action: 'accept' } })
+    expect(result.model.filters?.ipv6?.F6?.terms?.['10']?.matches).toEqual({ protocols: [6], sourcePorts: ['0-65535'], destinationPorts: ['0-65535'] })
+    expect(render(result.model).text).toContain(' 10 permit tcp any range 0 65535 any range 0 65535\n')
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('warns where an IPv6 access list relies on its end, which some platforms open to neighbor discovery, and not with a final catch-all', () => {
+    const relies = parse(lines('ipv6 access-list F', ' sequence 10 permit tcp any any eq 22'))
+    expect(relies.diagnostics.map((d) => [d.code, d.field])).toEqual([['iosxe.ipv6-acl-neighbor-discovery', 'filters.ipv6.F']])
+    expect(render(relies.model).diagnostics.map((d) => d.code)).toEqual(['iosxe.filter-implicit-deny', 'iosxe.ipv6-acl-neighbor-discovery'])
+    const explicit = parse(lines('ipv6 access-list F', ' sequence 10 permit tcp any any eq 22', ' sequence 20 deny ipv6 any any'))
+    expect(explicit.diagnostics).toEqual([])
+    expect(render(explicit.model).diagnostics).toEqual([])
+  })
+
+  it('keeps any name as an own key, and leaves Object.prototype alone', () => {
+    const before = Object.getOwnPropertyNames(Object.prototype).sort()
+    const text = lines(gi1(' ip access-group __proto__ in', ' ipv6 traffic-filter constructor out'), 'ip access-list extended __proto__', ' permit ip any any', 'ipv6 access-list constructor', ' permit ipv6 any any')
+    const filters = parse(text).model.filters!
+    expect(Object.hasOwn(filters.ipv4!, '__proto__')).toBe(true)
+    expect(Object.hasOwn(filters.ipv6!, 'constructor')).toBe(true)
+    expect(roundTrips(text)).toEqual([])
+    expect(Object.getOwnPropertyNames(Object.prototype).sort()).toEqual(before)
+  })
+
+  it('writes a numbered standard list only when its terms match a source alone, and nothing it can\'t say whole', () => {
+    const result = render({ filters: { ipv4: { '10': { implicitAction: 'deny', terms: { '10': { matches: { destinationPrefixes: ['192.0.2.0/24'] }, actions: { action: 'accept' } } } }, E: { implicitAction: 'deny', terms: { '10': { matches: { prefixes: ['192.0.2.0/24'] }, actions: { action: 'accept' } }, '20': { actions: { action: 'discard' } } } } } } })
+    expect(result.text).toBe('end\n')
+    for (const [path, d] of Object.entries(result.dispositions)) if (!path.endsWith('implicitAction')) expect(d, path).toMatchObject({ kind: 'unsupported' })
+  })
+})
+
 describe('the semantic warnings a render from another platform raises, each from a saved model (tests/models)', () => {
   const models = new URL('./models/', import.meta.url)
   const cases = readdirSync(models).filter((f) => f.endsWith('.model.json')).map((f) => f.replace(/\.model\.json$/, ''))

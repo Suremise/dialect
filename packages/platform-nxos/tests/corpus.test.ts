@@ -43,14 +43,19 @@ export const CASES: readonly (readonly [area: string, path: string])[] = [
   ['routing-policy', 'policy/batfish__nxos_ip_community_list_standard.cfg'],
   ['routing-policy', 'policy/batfish__nxos_ip_prefix_list.cfg'],
   ['routing-policy', 'policy/batfish__nxos_ipv6_prefix_list.cfg'],
-  ['routing-policy', 'policy/batfish__nxos_route_map.cfg']
+  ['routing-policy', 'policy/batfish__nxos_route_map.cfg'],
+  ['filters', 'filters/aerleon__CiscoNXTest.testExtendedNXosSyntax.cfg'],
+  ['filters', 'filters/aerleon__CiscoNXTest.testIcmpTypes.cfg'],
+  ['filters', 'filters/aerleon__CiscoNXTest.testStandardTermHostV6.cfg'],
+  ['filters', 'filters/aerleon__sample_multitarget.nxacl.cfg'],
+  ['filters', 'filters/batfish__nxos_ipv6_access_list.cfg']
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
 
 describe('corpus files with an expected model', () => {
   it('cover every phase 1, 2 and 3 area', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'vlans', 'ospf', 'bgp', 'routing-policy']))
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'vlans', 'ospf', 'bgp', 'routing-policy', 'filters']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {

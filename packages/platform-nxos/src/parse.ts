@@ -9,6 +9,7 @@
 import { fieldPath, isRouteDistinguisher, type Context, type Device, type Bgp, type BgpAddressFamilyName, type Diagnostic, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { asNumber, inRange, ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { OSPF_FEATURE, REQUIRED_FEATURES, VPN_FEATURE } from './features'
+import { createAclReader } from './acl'
 import { createPolicyReader } from './policy'
 import { interfaceName, interfaceType, isInterfaceName, isSwitchable, splitSubinterface } from './names'
 import { BANNER_TYPES, parseTree, unquote, type NxNode } from './tree'
@@ -126,6 +127,8 @@ export function parse(text: string, _context: Context): ParseResult {
   }
   /** Prefix lists, community and AS-path lists and route maps (policy.ts). */
   const policy = createPolicyReader(dispositions)
+  /** Access lists and their attachment to interfaces (acl.ts). */
+  const acl = createAclReader(dispositions)
   const line = (node: NxNode) => node.span.startLine
 
   /** The statement that last set a single-valued setting, by key: a later one supersedes it, as on the device. */
@@ -413,6 +416,8 @@ export function parse(text: string, _context: Context): ParseResult {
     const sub = subPath(ctx)
     const own = ctx.isSub ? sub : iface
     const key = (field: string) => fieldPath(...own, field)
+    const attached = acl.attach(node, sub)
+    if (attached) return attached
 
     if (lw[0] === 'description' && w.length > 1) {
       claim(key('description'), node)
@@ -1668,7 +1673,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const lines = node.span.endLine - node.span.startLine + 1
     if (node.kind === 'banner') return set(node, unsupported(`a ${BANNER_TYPES.has(node.words[1]?.toLowerCase()) ? node.words[1].toLowerCase() : 'motd'} banner, ${lines} line${lines === 1 ? '' : 's'}, kept verbatim`))
 
-    if (policy.top(node)) return
+    if (policy.top(node) || acl.top(node)) return
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
     if (lw[0] === 'interface') return mapInterface(node)
@@ -1715,6 +1720,7 @@ export function parse(text: string, _context: Context): ParseResult {
     else if (lw[0] === 'no' && lw[1] === 'feature') d = mapFeature(node, true)
     else if (lw[0] === 'version' && w.length >= 2) d = ignored('the software version the configuration was written by')
     else if (lw[0] === 'end' && w.length === 1) d = ignored('the end of the configuration')
+    else if (lw[0] === 'exit' && w.length === 1) d = ignored('leaves a configuration mode: nothing to convert')
     set(node, d)
   }
 
@@ -1908,6 +1914,17 @@ export function parse(text: string, _context: Context): ParseResult {
   const bgpFeature = features.get(VPN_FEATURE)
   if (bgpFeature && instances.some((i) => i.bgp !== undefined)) set(bgpFeature, ignored('needed by BGP: written whenever BGP is'))
   else if (bgpFeature && instances.some((i) => i.routeDistinguisher !== undefined || i.routeTargets !== undefined)) set(bgpFeature, ignored('needed by VRF route distinguishers and targets: written whenever one is'))
+
+  // Access lists (model 0.5.1), and each interface's, once every interface is final: one applied to an interface the
+  // model doesn't have, or naming an ACL that isn't converted, is left out.
+  const acls = acl.finish()
+  if (acls.filters) model.set(['filters'], acls.filters)
+  diagnostics.push(...acls.diagnostics)
+  for (const a of acls.attachments) {
+    if (a.why) set(a.node, unsupported(a.why))
+    else if (model.get(['interfaces', a.path[1]]) === undefined) set(a.node, unsupported('on an interface the model doesn\'t have'))
+    else set(a.node, mapped([model.set(a.path, a.name)]))
+  }
 
   return { tree: nodes, model: model.root as Device, dispositions, diagnostics }
 }

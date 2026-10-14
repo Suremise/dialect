@@ -1,0 +1,29 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "interfaces": {
+      "Ethernet1/1": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": { "addresses": { "198.51.100.1": { "prefixLength": 30 } } },
+            "filters": { "ipv4": { "input": "PROTECT" } }
+          }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "PROTECT": {
+          "description": "Protect the router",
+          "terms": {
+            "1": { "name": "ssh", "matches": { "sourcePrefixes": ["192.0.2.0/24"], "protocols": [6], "destinationPorts": ["22"] }, "actions": { "action": "accept", "count": "ssh" } },
+            "2": { "name": "count-snmp", "matches": { "protocols": [17], "destinationPorts": ["161"] }, "actions": { "action": "next-term", "count": "snmp" } },
+            "3": { "name": "no-udp", "matches": { "protocols": [17] }, "actions": { "action": "reject" } },
+            "4": { "name": "icmp", "matches": { "protocols": [1] }, "actions": { "action": "accept" } }
+          },
+          "implicitAction": "discard"
+        }
+      }
+    }
+  }
+}

@@ -242,6 +242,13 @@ Cisco NX-OS converts routing policy the same way: prefix lists (with `eq`), stan
 AS-path access lists (each entry by its `seq`), and route maps, which its BGP neighbors' route maps name. A route map a
 neighbor names but the config doesn't define isn't converted.
 
+Cisco IOS / IOS-XE and NX-OS also convert access lists (IPv4 and IPv6, named, and on IOS numbered and standard) and the
+interfaces that apply them, each entry with its remarks kept as its description. An address with a wildcard is
+converted only when the wildcard is a plain prefix: an entry with any other wildcard is listed as not converted, never
+approximated, and so is the whole list unless that entry is the last. Every Cisco access list denies what no entry
+decides: converting a Junos filter, which drops such packets silently, says so with a warning. An IPv6 access list with no final entry deciding every packet warns too: some Cisco
+platforms let neighbor discovery through before the implicit deny, and others don't.
+
 ## The command line
 
 `dialect display-set` and `dialect convert`: files, stdin and stdout, and exit codes.
