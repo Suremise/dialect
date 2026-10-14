@@ -3,5 +3,6 @@
 export * from './allowances'
 export * from './checks'
 export * from './fixtures'
+export * from './probes'
 export * from './secrets'
 export * from './suite'

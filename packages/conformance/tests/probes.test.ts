@@ -1,0 +1,224 @@
+// The probes' own tests (src/probes.ts): the careful probe stub passes every probe, a stub with each bug class fails
+// the probe for it, a probe or case a plugin can't run is reported not applicable with why, and describeConformance()
+// runs the probes from an adapter (or shows them skipped without one).
+import { describe, expect, it } from 'vitest'
+import { fieldPath, type PlatformPlugin } from '@dialect/core'
+import { describeConformance, PROBE_COMMUNITY, runProbes, type ProbeAdapter, type ProbeName, type ProbeResult } from '../src'
+import { PROBE_STUB_ADAPTER, probeStub, type ProbeBug } from './probeStub'
+
+const failed = (results: readonly ProbeResult[]) => results.filter((r) => r.status === 'failed')
+const failedProbes = (results: readonly ProbeResult[]) => [...new Set(failed(results).map((r) => r.probe))]
+
+describe('runProbes', () => {
+  it('passes the careful stub on every probe and case, with nothing declared not applicable', () => {
+    const results = runProbes(probeStub(), PROBE_STUB_ADAPTER)
+    expect(failed(results).map((r) => `${r.probe}: ${r.case}: ${r.problems.join('; ')}`)).toEqual([])
+    expect(results.filter((r) => r.status === 'not-applicable')).toEqual([])
+    expect(results.map((r) => `${r.probe}: ${r.case}`)).toEqual([
+      'prototype-keys: __proto__',
+      'prototype-keys: constructor',
+      'prototype-keys: toString',
+      'snmp-access: read-only',
+      'snmp-access: read-write',
+      'negation: address',
+      'negation: description',
+      'negation: name-server',
+      'negation: static-route',
+      'negation: community',
+      'malformed: ipv4-address',
+      'malformed: ipv6-address',
+      'malformed: mask',
+      'malformed: next-hop',
+      'vrf-scoping: delete',
+      'vrf-scoping: dns',
+      'vrf-scoping: static-route'
+    ])
+  })
+
+  const cases: readonly (readonly [ProbeBug, ProbeName, string])[] = [
+    ['prototype', 'prototype-keys', '__proto__ as interface: not an own key at interfaces'],
+    ['snmp-parse', 'snmp-access', 'parse: a community limited to some clients came out open to every client'],
+    ['snmp-render', 'snmp-access', 'render of a limited community → reparse: a community limited to some clients came out open to every client'],
+    ['negation', 'negation', 'parse: interfaces.e1.description is still in the model after it was cleared'],
+    ['malformed', 'malformed', 'parse: the malformed value is in the model'],
+    ['vrf-scope', 'vrf-scoping', 'a change in VRF A changed networkInstances.default.staticRoutes.10.0.0.0/8.nextHops.0.address, outside it']
+  ]
+  for (const [bug, probe, problem] of cases) {
+    it(`fails a stub with the ${bug} bug on the ${probe} probe`, () => {
+      const results = runProbes(probeStub([bug]), PROBE_STUB_ADAPTER)
+      expect(failedProbes(results)).toContain(probe)
+      expect(failed(results).filter((r) => r.probe === probe).flatMap((r) => r.problems)).toContain(problem)
+    })
+  }
+
+  it('fails each case of a probe on its own: the mask, a dot past the end', () => {
+    const results = runProbes(probeStub(['malformed']), PROBE_STUB_ADAPTER)
+    expect(failed(results).filter((r) => r.probe === 'malformed').map((r) => r.case)).toEqual(['ipv4-address', 'ipv6-address', 'mask', 'next-hop'])
+    // The mask's address is in the model, so the statement mapping it is what gives it away.
+    expect(results.find((r) => r.case === 'mask')?.problems).toEqual(['parse: L2 on the malformed value\'s line is mapped', 'parse: the malformed value is flagged nowhere: no error, and no unsupported statement on its line'])
+  })
+
+  it('passes a render that leaves a limited community out, saying so on its fields, and fails one that doesn\'t say', () => {
+    const leavingOut = (kind: 'unsupported' | 'rendered'): PlatformPlugin => ({
+      ...probeStub(),
+      render: (model, context) => {
+        const communities = Object.entries(model.system?.snmp?.communities ?? {})
+        const kept = Object.fromEntries(communities.filter(([, c]) => !c.clients?.length))
+        const r = probeStub().render!({ ...model, system: { ...model.system, snmp: { ...model.system?.snmp, communities: kept } } }, context)
+        const dispositions = { ...r.dispositions }
+        for (const [name, c] of communities) if (c.clients?.length) for (const field of ['access', 'clients']) dispositions[fieldPath('system', 'snmp', 'communities', name, field)] = kind === 'unsupported' ? { kind, reason: 'needs an access list' } : { kind, span: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 } }
+        return { ...r, dispositions }
+      }
+    })
+    // The render of the kit's own model, from another platform (the stub's parse keeps the community, so its own
+    // round trip fails, as it should).
+    const snmp = (plugin: PlatformPlugin) => runProbes(plugin, PROBE_STUB_ADAPTER).filter((r) => r.probe === 'snmp-access').map((r) => ({ ...r, problems: r.problems.filter((p) => p.startsWith('render')) }))
+    expect(snmp(leavingOut('unsupported')).flatMap((r) => r.problems)).toEqual([])
+    expect(snmp(leavingOut('rendered')).flatMap((r) => r.problems)).toContain('render: system.snmp.communities["PROBE-COMMUNITY"].clients is rendered, but the community isn\'t in the text')
+  })
+
+  /** The probe stub with its parse wrapped: `after` changes what it returns. */
+  const wrapped = (after: (r: ReturnType<NonNullable<PlatformPlugin['parse']>>, text: string) => ReturnType<NonNullable<PlatformPlugin['parse']>>): PlatformPlugin => ({
+    ...probeStub(),
+    parse: (text, context) => after(probeStub().parse!(text, context), text)
+  })
+  const probe = (plugin: PlatformPlugin, name: ProbeName) => runProbes(plugin, PROBE_STUB_ADAPTER).filter((r) => r.probe === name)
+
+  it('fails a parse that changes Object.prototype in any way, and puts it back', () => {
+    const original = Object.getOwnPropertyDescriptor(Object.prototype, 'toString')!
+    // The test changes Object.prototype on purpose, to show the probe catches it; each change is put back and checked.
+    /* oxlint-disable no-extend-native */
+    const mutations: [string, () => void, string][] = [
+      // Same type, another function: a typeof comparison would miss it.
+      ['replaces a method', () => Object.defineProperty(Object.prototype, 'toString', { ...original, value: function toString() { return 'x' } }), 'Object.prototype.toString was changed'],
+      ['flips a flag', () => Object.defineProperty(Object.prototype, 'toString', { ...original, enumerable: true }), 'Object.prototype.toString was changed'],
+      ['adds a hidden property', () => Object.defineProperty(Object.prototype, 'probeAdded', { value: 1, enumerable: false, configurable: true }), 'Object.prototype has a new property probeAdded'],
+      ['adds an accessor', () => Object.defineProperty(Object.prototype, 'probeAccessor', { get: () => 1, configurable: true }), 'Object.prototype has a new property probeAccessor']
+    ]
+    /* oxlint-enable no-extend-native */
+    for (const [what, mutate, problem] of mutations) {
+      const before = Reflect.ownKeys(Object.prototype).map((k) => [k, Object.getOwnPropertyDescriptor(Object.prototype, k)])
+      // Only on the prototype probe's sources: nothing would put it back after the other probes.
+      const mutating = wrapped((r, text) => {
+        if (/__proto__|constructor|toString/.test(text)) mutate()
+        return r
+      })
+      const results = probe(mutating, 'prototype-keys')
+      expect(results.every((r) => r.status === 'failed'), what).toBe(true)
+      expect(results[0].problems, what).toContain(problem)
+      // Put back after each case, so the rest of the run (and of the test file) sees it as it was.
+      expect(Reflect.ownKeys(Object.prototype).map((k) => [k, Object.getOwnPropertyDescriptor(Object.prototype, k)]), what).toEqual(before)
+      expect(Object.prototype.toString).toBe(original.value)
+    }
+  })
+
+  it('fails a render that brings the kit\'s limited community back with other clients or access; passes it exact or left out saying so', () => {
+    /** The stub, rendering the kit's own community changed by `edit` (the parse is the stub's). */
+    const rendering = (edit: (c: { access?: string; clients?: readonly string[] }) => object): PlatformPlugin => ({
+      ...probeStub(),
+      render: (model, context) => {
+        const communities = Object.fromEntries(Object.entries(model.system?.snmp?.communities ?? {}).map(([name, c]) => [name, name === PROBE_COMMUNITY ? edit(c) : c]))
+        return probeStub().render!({ ...model, system: { ...model.system, snmp: { ...model.system?.snmp, communities } } }, context)
+      }
+    })
+    const kitProblems = (plugin: PlatformPlugin) => probe(plugin, 'snmp-access').flatMap((r) => r.problems)
+    expect(kitProblems(rendering((c) => ({ ...c, clients: ['0.0.0.0/0'] })))).toContain('render of a limited community → reparse: its clients are ["0.0.0.0/0"], not ["192.0.2.0/24"]')
+    expect(kitProblems(rendering((c) => ({ ...c, clients: ['192.0.0.0/16'] })))).toContain('render of a limited community → reparse: its clients are ["192.0.0.0/16"], not ["192.0.2.0/24"]')
+    expect(kitProblems(rendering((c) => ({ ...c, access: 'read-write' })))).toContain('render of a limited community → reparse: its access is read-write, not read-only')
+    // The careful stub writes it exactly.
+    expect(kitProblems(probeStub())).toEqual([])
+  })
+
+  it('fails a malformed statement dropped without a word, or ignored by design; passes it unsupported', () => {
+    const malformed = (plugin: PlatformPlugin) => probe(plugin, 'malformed').find((r) => r.case === 'ipv4-address')!.problems
+    // Gone from the tree, the model and the ledger: nothing says it was there.
+    const dropped = wrapped((r, text) => {
+      const line = text.split('\n').findIndex((l) => l.includes('999.1.1.1')) + 1
+      const tree = r.tree.filter((n) => n.span?.startLine !== line)
+      return { ...r, tree, dispositions: Object.fromEntries(Object.entries(r.dispositions).filter(([id]) => tree.some((n) => n.id === id))) }
+    })
+    expect(malformed(dropped)).toContain('parse: the malformed value is flagged nowhere: no error, and no unsupported statement on its line')
+    const asComment = wrapped((r) => ({ ...r, dispositions: Object.fromEntries(Object.entries(r.dispositions).map(([id, d]) => [id, d.kind === 'unsupported' ? { kind: 'ignored-by-design' as const, reason: 'a comment' } : d])) }))
+    expect(malformed(asComment)).toContain('parse: L2 on the malformed value\'s line is ignored by design, not flagged')
+    expect(malformed(probeStub())).toEqual([])
+  })
+
+  it('fails a change in one VRF that moves another VRF\'s or the global table\'s entry into it; passes the VRF\'s own entries', () => {
+    const base = 'vrf A\nvrf B\nvrf A route 10.0.0.0/8 192.0.2.1\nname-server 192.0.2.53 vrf B\nname-server 192.0.2.54\ninterface e1\ninterface e1 address 192.0.2.9/24'
+    const adapter = (changed: string, from = base): ProbeAdapter => ({ ...PROBE_STUB_ADAPTER, vrfScoping: { ...PROBE_STUB_ADAPTER.vrfScoping, 'static-route': { base: from, changed, vrf: 'A' } } })
+    const scoping = (plugin: PlatformPlugin, changed: string, from = base) => runProbes(plugin, adapter(changed, from)).find((r) => r.probe === 'vrf-scoping' && r.case === 'static-route')!.problems
+    const changed = base.replace('vrf A route 10.0.0.0/8 192.0.2.1', 'vrf A route 10.0.0.0/8 192.0.2.2')
+    /** A parse that, when A's route changes, also moves every name server and interface into A. */
+    const migrating = wrapped((r, text) => {
+      if (!text.includes('192.0.2.2')) return r
+      const m = JSON.parse(JSON.stringify(r.model)) as { system?: { dns?: { servers?: Record<string, { networkInstance?: string }> } }; interfaces?: Record<string, { subinterfaces?: Record<string, { networkInstance?: string }> }> }
+      for (const s of Object.values(m.system?.dns?.servers ?? {})) s.networkInstance = 'A'
+      for (const i of Object.values(m.interfaces ?? {})) for (const sub of Object.values(i.subinterfaces ?? {})) sub.networkInstance = 'A'
+      return { ...r, model: m as typeof r.model }
+    })
+    const problems = scoping(migrating, changed)
+    expect(problems).toContain('a change in VRF A changed system.dns.servers.192.0.2.53.networkInstance, outside it')
+    expect(problems).toContain('a change in VRF A changed system.dns.servers.192.0.2.54.networkInstance, outside it')
+    expect(problems).toContain('a change in VRF A changed interfaces.e1.subinterfaces.0.networkInstance, outside it')
+    // The careful stub: A's route edited, an entry of A's removed, a new one of A's added, all in scope.
+    expect(scoping(probeStub(), changed)).toEqual([])
+    expect(scoping(probeStub(), `${base}\nname-server 192.0.2.55 vrf A`)).toEqual([])
+    const withServer = `${base}\nname-server 192.0.2.56 vrf A`
+    expect(scoping(probeStub(), `${withServer}\nno name-server 192.0.2.56 vrf A`, withServer)).toEqual([])
+  })
+
+  it('leaves Object.prototype as it was, also for a careless stub', () => {
+    const names = Object.getOwnPropertyNames(Object.prototype).sort()
+    runProbes(probeStub(['prototype']), PROBE_STUB_ADAPTER)
+    expect(Object.getOwnPropertyNames(Object.prototype).sort()).toEqual(names)
+    expect(({} as Record<string, unknown>).description).toBeUndefined()
+  })
+
+  it('runs the secrets check on probe sources: communities, and the prototype keys used as one', () => {
+    // A stub that quotes each statement in its reasons leaks the community.
+    const leaky: PlatformPlugin = {
+      ...probeStub(),
+      parse: (text, context) => {
+        const r = probeStub().parse!(text, context)
+        return { ...r, diagnostics: text.split('\n').filter(Boolean).map((line) => ({ severity: 'info' as const, message: `read: ${line}` })) }
+      }
+    }
+    const results = runProbes(leaky, PROBE_STUB_ADAPTER)
+    expect(results.find((r) => r.probe === 'snmp-access' && r.case === 'read-only')?.problems.some((p) => p.startsWith('secrets:') && p.includes('PLACEHOLDER-RO'))).toBe(true)
+    expect(results.find((r) => r.probe === 'prototype-keys' && r.case === 'constructor')?.problems.some((p) => p.startsWith('secrets:'))).toBe(true)
+    // The community the negation case cleared is a secret in the negated source too.
+    expect(results.find((r) => r.probe === 'negation' && r.case === 'community')?.problems.some((p) => p.startsWith('secrets:') && p.includes('PLACEHOLDER'))).toBe(true)
+  })
+
+  it('reports a probe or case a plugin can\'t run as not applicable, with why', () => {
+    const adapter: ProbeAdapter = {
+      ...PROBE_STUB_ADAPTER,
+      prototypeKeys: { source: (PROBE_STUB_ADAPTER.prototypeKeys as { source: (key: string) => string }).source, uses: { interface: true, vrf: true, community: true, dns: { notApplicable: 'no DNS yet' } } },
+      snmpAccess: { notApplicable: 'no SNMP yet' },
+      negation: { ...PROBE_STUB_ADAPTER.negation, 'name-server': { notApplicable: 'no DNS yet' } }
+    }
+    const results = runProbes(probeStub(), adapter)
+    const na = results.filter((r) => r.status === 'not-applicable').map((r) => `${r.probe}: ${r.case}: ${r.problems.join('')}`)
+    expect(na).toEqual(['prototype-keys: as a DNS name: no DNS yet', 'snmp-access: all: no SNMP yet', 'negation: name-server: no DNS yet'])
+    expect(failed(results)).toEqual([])
+  })
+
+  it('fails a case that tests nothing: a negation with nothing to clear, a VRF change that changes nothing', () => {
+    const results = runProbes(probeStub(), {
+      ...PROBE_STUB_ADAPTER,
+      negation: { ...PROBE_STUB_ADAPTER.negation, description: { set: 'interface e1', negated: 'interface e1', path: ['interfaces', 'e1', 'description'] } },
+      vrfScoping: { ...PROBE_STUB_ADAPTER.vrfScoping, dns: { base: 'vrf A', changed: 'vrf A', vrf: 'A' } }
+    })
+    expect(results.find((r) => r.case === 'description')?.problems).toContain('the case\'s set source has nothing at interfaces.e1.description')
+    expect(results.find((r) => r.probe === 'vrf-scoping' && r.case === 'dns')?.problems).toContain('the case changes nothing in the model')
+  })
+
+  it('fails every probe for a plugin with no parse or render', () => {
+    const { parse: _parse, ...noParse } = probeStub()
+    expect(runProbes(noParse, PROBE_STUB_ADAPTER).map((r) => [r.probe, r.status])).toEqual(['prototype-keys', 'snmp-access', 'negation', 'malformed', 'vrf-scoping'].map((p) => [p, 'failed']))
+  })
+})
+
+// The suite: the careful probe stub with its adapter, every probe a test. (conformance.test.ts runs the brace stub,
+// which has no adapter: its probes show as one skipped test.)
+describeConformance(probeStub(), new URL('./probe-fixtures', import.meta.url), { probes: PROBE_STUB_ADAPTER })
