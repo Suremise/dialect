@@ -49,8 +49,8 @@ describe('routing policy (model 0.5.0)', () => {
   it('leaves a sequence out whole, and the route map with it unless it is the last', () => {
     const unsafe = parse(lines('route-map M permit 10', '  match ip address ACL', '  set tag 1', 'route-map M permit 20'))
     expect(unsafe.model.routingPolicy).toBeUndefined()
-    expect(at(unsafe, 3)).toEqual({ kind: 'unsupported', reason: 'part of route map sequence 10, converted whole or not at all: line 2 isn\'t converted' })
-    expect(at(unsafe, 4)).toEqual({ kind: 'unsupported', reason: 'left out whole: sequence 10 (line 1) isn\'t converted, and the sequences after it would see the routes it decides' })
+    expect(at(unsafe, 3)).toEqual({ kind: 'unsupported', reason: 'part of the route map sequence of line 1, converted whole or not at all: line 2 isn\'t converted' })
+    expect(at(unsafe, 4)).toEqual({ kind: 'unsupported', reason: 'left out whole: the sequence of line 1 isn\'t converted, and the sequences after it would see the routes it decides' })
     expect(buildLedger(unsafe).complete).toBe(true)
     const text = lines('route-map M deny 10', '  match tag 7', 'route-map M permit 20', '  continue 30')
     expect(parse(text).model.routingPolicy?.policies).toEqual({ M: { terms: { '10': { matches: { tags: [7] }, actions: { flow: 'reject' } } }, fallThrough: 'reject' } })
