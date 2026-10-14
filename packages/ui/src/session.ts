@@ -1,6 +1,7 @@
 // The tabs kept for the next start, in localStorage: each tab's job and file name, or its Docs page, and which one was
-// shown. Never a config's contents, the interface names or the output: configs can hold secrets, and browser storage
-// keeps them in plain text in the user's profile (docs/SPEC.md §7). A reopened tab offers to load its file again.
+// shown. Never a config's contents, the interface names, the answers (keys, passwords) or the output: configs and
+// answers hold secrets, and browser storage keeps them in plain text in the user's profile (docs/SPEC.md §7). A
+// reopened tab offers to load its file again.
 import type { DocId } from './help/docs'
 import type { Job, Tab } from './store'
 

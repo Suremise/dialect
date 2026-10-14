@@ -68,10 +68,31 @@ describe('filterReliesOnImplicitAction', () => {
 describe('filterTermSkipSafe', () => {
   const filter = (...actions: FilterAction[]): Filter => ({ implicitAction: 'discard', terms: Object.fromEntries(actions.map((action, i) => [String(i + 1), { matches: { protocols: [6] }, actions: { action, count: `c${i}` } }])) })
 
-  it('is safe for the last term, and for a key the filter doesn\'t have', () => {
-    expect(filterTermSkipSafe(filter('accept', 'discard'), '2')).toBe(true)
+  /** The same filter, ending in a Cisco implicit deny. */
+  const acl = (...actions: FilterAction[]): Filter => ({ ...filter(...actions), implicitAction: 'deny' })
+
+  it('is safe for a key the filter doesn\'t have', () => {
     expect(filterTermSkipSafe(filter('accept'), 'toString')).toBe(true)
     expect(filterTermSkipSafe({ implicitAction: 'deny' }, '1')).toBe(true)
+  })
+
+  // #103: leaving the last term out sends what it decided to the filter's end, so only a term that ends packets the
+  // same way can go: a discard, under either implicit action (both drop), or a next-term that decides nothing.
+  it('is safe for the last term only when it does what the implicit action does: a discard, under discard or deny', () => {
+    for (const [end, make] of [['discard', filter], ['deny', acl]] as const) {
+      expect(filterTermSkipSafe(make('accept', 'discard'), '2'), end).toBe(true)
+      expect(filterTermSkipSafe(make('accept', 'next-term'), '2'), end).toBe(true)
+      expect(filterTermSkipSafe(make('accept', 'accept'), '2'), end).toBe(false)
+      expect(filterTermSkipSafe(make('accept', 'reject'), '2'), end).toBe(false)
+    }
+  })
+
+  it("is unsafe for an only term that accepts or rejects (the filter would decide everything by its end), and for an action or implicit action it doesn't know", () => {
+    expect(filterTermSkipSafe(filter('accept'), '1')).toBe(false)
+    expect(filterTermSkipSafe(acl('reject'), '1')).toBe(false)
+    expect(filterTermSkipSafe(filter('discard'), '1')).toBe(true)
+    expect(filterTermSkipSafe(filter('later-action' as FilterAction), '1')).toBe(false)
+    expect(filterTermSkipSafe({ ...filter('discard'), implicitAction: 'later-end' as Filter['implicitAction'] }, '1')).toBe(false)
   })
 
   it('is safe only for a term that decides nothing (next-term: it counts or logs) before later terms', () => {

@@ -41,15 +41,18 @@ describe('access lists (model 0.5.1)', () => {
     expect(out.dispositions['interfaces["Ethernet1/4"].subinterfaces["0"].filters.ipv4.output']).toEqual({ kind: 'unsupported', reason: 'a switch port\'s access list filters what comes in only on NX-OS' })
   })
 
-  it('leaves an entry out whole, and the access list with its attachments unless the entry is the last', () => {
+  it('leaves an entry out whole, and the access list with its attachments (#103: only a last deny could go alone, and the parser takes an entry it leaves out to permit)', () => {
     const odd = parse(lines('ip access-list F', '  10 permit ip any any packet-length gt 100', '  20 deny ip any any', 'interface Ethernet1/1', '  no switchport', '  ip address 192.0.2.1/24', '  ip access-group F in'))
     expect(odd.model.filters).toBeUndefined()
     expect(at(odd, 3)).toEqual({ kind: 'unsupported', reason: 'left out whole: the entry on line 2 isn\'t converted, and the entries after it would see the packets it decides' })
     expect(at(odd, 7)).toEqual({ kind: 'unsupported', reason: 'names an access list that isn\'t converted' })
     expect(buildLedger(odd).complete).toBe(true)
-    const last = lines('ip access-list F', '  10 permit tcp any any eq 22', '  20 permit ip any any packet-length gt 100')
-    expect(parse(last).model.filters?.ipv4?.F?.terms).toEqual({ '10': { matches: { protocols: [6], destinationPorts: ['22'] }, actions: { action: 'accept' } } })
-    expect(roundTrips(last)).toEqual([])
+    // The last entry too: a permit left out would have the list's end deny what it let through.
+    for (const action of ['permit', 'deny']) {
+      const last = lines('ip access-list F', '  10 permit tcp any any eq 22', `  20 ${action} ip any any packet-length gt 100`)
+      expect(parse(last).model.filters, action).toBeUndefined()
+      expect(roundTrips(last), action).toEqual([])
+    }
   })
 
   it('writes the full port range as a range, and takes a /0 as any, both ways, in both families', () => {

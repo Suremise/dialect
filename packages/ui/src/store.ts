@@ -38,6 +38,26 @@ export interface InterfaceRow {
   line?: number
 }
 
+/**
+ * One row of convert's needs-input panel: something the target asks for besides an interface's name (a key, a
+ * password, a route policy, a route distinguisher), by its needs-input id.
+ */
+export interface InputRow {
+  id: string
+  kind: 'secret' | 'other'
+  /** What the plugin asks, in its words (never a value from the config). */
+  message: string
+  /**
+   * The source lines it is about: a plugin asks once per place an answer goes (a BGP group shared by VRFs is asked for
+   * in each), and one answer, by id, serves them all.
+   */
+  lines: number[]
+  /** The answer is used. */
+  answered: boolean
+  /** An answer was given, but not in a form the target takes: it is asked again. */
+  rejected: boolean
+}
+
 /** A request to show a place in one tab's editor; `seq` makes the same place requested twice count twice. */
 export interface Reveal {
   tab: string
@@ -65,6 +85,8 @@ interface Derived {
   problems: Problem[]
   /** Convert: the interfaces and their names. Empty for a tool. */
   interfaces: InterfaceRow[]
+  /** Convert: everything else the target asks for, answered or not. Empty for a tool. */
+  inputs: InputRow[]
 }
 
 export interface ConversionTab extends Derived {
@@ -78,6 +100,11 @@ export interface ConversionTab extends Derived {
   sourcePath: string | null
   /** The user's interface names, by source name. Kept while the source is edited; a new file starts without. */
   interfaceMap: InterfaceMap
+  /**
+   * The user's other answers (keys, passwords…), by needs-input id. In memory only, like the source: never in the
+   * session or any storage, and dropped with the interface names when another file opens or the job changes.
+   */
+  answers: Readonly<Record<string, string>>
   /** The output as last saved: the tab has unsaved output while its output is something else. */
   savedOutput: string
   /** Where Save output writes again without asking (the desktop app, after a save this session). */
@@ -140,6 +167,8 @@ export interface State {
   setConvertSource: (sourceId: string) => void
   /** Names an interface on the target; an empty name clears it. */
   setInterfaceName: (source: string, target: string) => void
+  /** Answers a needs-input item of the tab shown; an empty answer clears it. */
+  setAnswer: (id: string, answer: string) => void
   /** Takes every suggestion for an interface that has no name yet. */
   takeSuggestions: () => void
   /** Adds a loaded map's names to a tab's (the one shown unless said); false if that tab has been closed. */
@@ -276,7 +305,8 @@ function deriveTool(source: string, key: string): Derived {
       line: d.span?.startLine ?? 1,
       column: d.span?.startColumn ?? 1
     })),
-    interfaces: []
+    interfaces: [],
+    inputs: []
   }
 }
 
@@ -287,22 +317,32 @@ function issueMessage(issue: ConversionIssue, from: PlatformPlugin, target: Plat
 }
 
 /** The conversion behind a convert tab's state: exported for tests. */
-export function conversionOf(source: string, targetId: string, map: InterfaceMap, sourceId?: string): Conversion {
+export function conversionOf(source: string, targetId: string, map: InterfaceMap, sourceId?: string, answers: Readonly<Record<string, string>> = {}): Conversion {
   const { source: from, target } = convertPlugins({ kind: 'convert', target: targetId, ...(sourceId ? { source: sourceId } : {}) })
-  return convert(from, target, source, { modelVersion: registry.modelVersion, inputs: interfaceInputs(map) })
+  return convert(from, target, source, { modelVersion: registry.modelVersion, inputs: { ...answers, ...interfaceInputs(map) } })
 }
 
-function deriveConvert(source: string, job: Job & { kind: 'convert' }, map: InterfaceMap): Derived {
+function deriveConvert(source: string, job: Job & { kind: 'convert' }, map: InterfaceMap, answers: Readonly<Record<string, string>>): Derived {
   const { source: from, target } = convertPlugins(job)
-  const c = conversionOf(source, target.id, map, from.id)
+  // What the target asks for besides names: an answered item isn't asked again, so it's what a conversion without the
+  // answers asks. Converted again with the answers only when one applies.
+  const asking = conversionOf(source, target.id, map, from.id)
+  const asked = asking.ledger.needsInput.filter((n): n is typeof n & { kind: InputRow['kind'] } => n.kind !== 'interface-name')
+  const c = asked.some((n) => Object.hasOwn(answers, n.id)) ? conversionOf(source, target.id, map, from.id, answers) : asking
   const lineOf = new Map(c.ledger.source.statements.map((s) => [s.id, s.span?.startLine]))
+  const spanOf = new Map(c.ledger.source.statements.map((s) => [s.id, s.span]))
+  const unanswered = new Set(c.unanswered.map((n) => n.id))
   const links: [number, number][] = []
   for (const l of c.links) {
     const line = lineOf.get(l.statement)
     if (line !== undefined) for (let out = l.output.startLine; out <= l.output.endLine; out++) links.push([line, out])
   }
   const problems: Problem[] = [
-    ...c.ledger.diagnostics.map((d): Problem => ({ severity: d.severity === 'error' ? 'error' : 'warning', message: d.message, ...(d.span ? { line: d.span.startLine, column: d.span.startColumn } : {}) })),
+    ...c.ledger.diagnostics.map((d): Problem => {
+      // A render's diagnostic about a field has its source statement (convert), and no span.
+      const span = d.span ?? (d.statement !== undefined ? spanOf.get(d.statement) : undefined)
+      return { severity: d.severity === 'error' ? 'error' : 'warning', message: d.message, ...(span ? { line: span.startLine, column: span.startColumn } : {}) }
+    }),
     ...(c.render ? c.issues.map((i): Problem => ({ severity: 'warning', message: issueMessage(i, from, target), ...(i.span ? { line: i.span.startLine, column: i.span.startColumn } : {}) })) : [])
   ]
   return {
@@ -313,13 +353,24 @@ function deriveConvert(source: string, job: Job & { kind: 'convert' }, map: Inte
     interfaces: c.interfaces.map((i) => {
       const line = i.statement ? lineOf.get(i.statement) : undefined
       return { source: i.source, ...(i.target !== undefined ? { target: i.target } : {}), ...(i.suggestion ? { suggestion: i.suggestion } : {}), ...(line !== undefined ? { line } : {}) }
-    })
+    }),
+    inputs: [
+      ...asked
+        .reduce((rows, n) => {
+          const given = Object.hasOwn(answers, n.id)
+          const row = rows.get(n.id) ?? { id: n.id, kind: n.kind, message: n.message, lines: [], answered: given && !unanswered.has(n.id), rejected: given && unanswered.has(n.id) }
+          const line = n.statement ? lineOf.get(n.statement) : undefined
+          if (line !== undefined && !row.lines.includes(line)) row.lines.push(line)
+          return rows.set(n.id, row)
+        }, new Map<string, InputRow>())
+        .values()
+    ]
   }
 }
 
-function derive(t: Pick<ConversionTab, 'job' | 'source' | 'interfaceMap'>): Derived {
-  if (t.source.trim() === '') return { output: '', sourceLines: [], links: [], problems: [], interfaces: [] }
-  return t.job.kind === 'convert' ? deriveConvert(t.source, t.job, t.interfaceMap) : deriveTool(t.source, t.job.tool)
+function derive(t: Pick<ConversionTab, 'job' | 'source' | 'interfaceMap' | 'answers'>): Derived {
+  if (t.source.trim() === '') return { output: '', sourceLines: [], links: [], problems: [], interfaces: [], inputs: [] }
+  return t.job.kind === 'convert' ? deriveConvert(t.source, t.job, t.interfaceMap, t.answers) : deriveTool(t.source, t.job.tool)
 }
 
 /** The tab has output that hasn't been saved since it last changed. */
@@ -339,7 +390,7 @@ function mapOf(entries: Iterable<readonly [string, string]>): Record<string, str
 }
 
 function conversionTab(job: Job, sourceName: string | null = null, reopen: string | null = null): ConversionTab {
-  const base = { job, source: '', interfaceMap: mapOf([]) }
+  const base = { job, source: '', interfaceMap: mapOf([]), answers: mapOf([]) }
   return { kind: 'conversion', id: nextTabId(), ...base, ...derive(base), sourceName, sourcePath: null, savedOutput: '', savedPath: null, reopen }
 }
 
@@ -365,7 +416,7 @@ export function activeConversion(s: Pick<State, 'tabs' | 'activeId'>): Conversio
 
 export const useStore = create<State>()((set, get) => {
   /** Applies `patch` to a conversion tab, with what its source gives then. */
-  const update = (id: string, patch: Partial<Pick<ConversionTab, 'job' | 'source' | 'sourceName' | 'sourcePath' | 'interfaceMap' | 'reopen'>>): void => {
+  const update = (id: string, patch: Partial<Pick<ConversionTab, 'job' | 'source' | 'sourceName' | 'sourcePath' | 'interfaceMap' | 'answers' | 'reopen'>>): void => {
     set((s) => ({
       tabs: s.tabs.map((t) => {
         if (t.id !== id || t.kind !== 'conversion') return t
@@ -429,13 +480,13 @@ export const useStore = create<State>()((set, get) => {
     loadSource: (id, text, sourceName, sourcePath = null) => {
       const target = id ?? get().newTab(DISPLAY_SET)
       if (!get().tabs.some((t) => t.id === target && t.kind === 'conversion')) return false
-      // Another config: its interfaces may be other ports, so no name carries over unasked.
-      update(target, { source: withoutBom(text), sourceName, sourcePath, interfaceMap: mapOf([]), reopen: null })
+      // Another config: its interfaces may be other ports, and its keys other keys, so nothing carries over unasked.
+      update(target, { source: withoutBom(text), sourceName, sourcePath, interfaceMap: mapOf([]), answers: mapOf([]), reopen: null })
       return true
     },
     setJob: (job) => {
       const tab = active()
-      if (tab) update(tab.id, { job, ...(job.kind === 'convert' ? { interfaceMap: mapOf([]) } : {}) })
+      if (tab) update(tab.id, { job, ...(job.kind === 'convert' ? { interfaceMap: mapOf([]) } : {}), answers: mapOf([]) })
     },
     setTarget: (targetId) => {
       const job = active()?.job
@@ -450,6 +501,11 @@ export const useStore = create<State>()((set, get) => {
       if (!tab) return
       const name = target.trim()
       update(tab.id, { interfaceMap: mapOf([...Object.entries(tab.interfaceMap).filter(([k]) => k !== source), ...(name ? [[source, name] as const] : [])]) })
+    },
+    setAnswer: (id, answer) => {
+      const tab = active()
+      if (!tab) return
+      update(tab.id, { answers: mapOf([...Object.entries(tab.answers).filter(([k]) => k !== id), ...(answer.trim() ? [[id, answer] as const] : [])]) })
     },
     takeSuggestions: () => {
       const tab = active()

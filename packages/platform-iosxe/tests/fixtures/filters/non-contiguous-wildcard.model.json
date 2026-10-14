@@ -15,35 +15,8 @@
                   "prefixLength": 30
                 }
               }
-            },
-            "filters": {
-              "ipv4": {
-                "output": "ODD-LAST"
-              }
             }
           }
-        }
-      }
-    },
-    "filters": {
-      "ipv4": {
-        "ODD-LAST": {
-          "terms": {
-            "10": {
-              "matches": {
-                "protocols": [
-                  6
-                ],
-                "destinationPorts": [
-                  "22"
-                ]
-              },
-              "actions": {
-                "action": "accept"
-              }
-            }
-          },
-          "implicitAction": "deny"
         }
       }
     }

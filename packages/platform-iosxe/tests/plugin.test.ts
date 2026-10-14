@@ -1294,16 +1294,18 @@ describe('access lists (model 0.5.1)', () => {
     expect(buildLedger(result).complete).toBe(true)
   })
 
-  it('leaves an entry out whole, and the access list with its attachments unless the entry is the last', () => {
+  it('leaves an entry out whole, and the access list with its attachments (#103: only a last deny could go alone, and the parser takes an entry it leaves out to permit)', () => {
     const odd = parse(lines(gi1(' ip access-group F in'), 'ip access-list extended F', ' 10 permit ip 10.0.0.0 0.255.0.255 any', ' 20 deny ip any any'))
     expect(odd.model.filters).toBeUndefined()
     expect(at(odd, '10 permit ip 10.0.0.0 0.255.0.255 any')).toEqual({ kind: 'unsupported', reason: 'a non-contiguous wildcard: the model holds prefixes, and approximating it would match other packets' })
     expect(at(odd, '20 deny ip any any')).toEqual({ kind: 'unsupported', reason: 'left out whole: the entry on line 5 isn\'t converted, and the entries after it would see the packets it decides' })
     expect(at(odd, 'ip access-group F in')).toEqual({ kind: 'unsupported', reason: 'names an access list that isn\'t converted' })
-    const last = lines('ip access-list extended F', ' remark the last', ' 10 permit tcp any any eq 22', ' remark not converted', ' 20 permit ip any any time-range WORK')
-    expect(parse(last).model.filters?.ipv4?.F?.terms).toEqual({ '10': { description: 'the last', matches: { protocols: [6], destinationPorts: ['22'] }, actions: { action: 'accept' } } })
-    expect(at(parse(last), 'remark not converted')).toEqual({ kind: 'unsupported', reason: 'describes the entry on line 5, which isn\'t converted' })
-    expect(roundTrips(last)).toEqual([])
+    // The last entry too: a permit left out would have the list's end deny what it let through.
+    for (const action of ['permit', 'deny']) {
+      const last = lines('ip access-list extended F', ' remark the last', ' 10 permit tcp any any eq 22', ' remark not converted', ` 20 ${action} ip any any time-range WORK`)
+      expect(parse(last).model.filters, action).toBeUndefined()
+      expect(roundTrips(last), action).toEqual([])
+    }
   })
 
   it('reads ports, wildcards and options as IOS does, and writes them back the same', () => {

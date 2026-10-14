@@ -218,7 +218,8 @@ ideas from Capirca and Aerleon's term model (ideas only).
   interface's `ip unreachables` says). A renderer gives it `not-applicable` and raises a semantic warning when its
   platform's differs, or when the filter relies on it (`filterReliesOnImplicitAction()`: no term matching every packet
   accepts, discards or rejects it), even when the defaults agree; a filter of its own default that decides every
-  packet gets none.
+  packet gets none. A renderer asks it of the terms it writes, not the model's (#103): a catch-all left out (a last
+  discard it can't write, which the per-term rule lets go) leaves the end deciding what it did.
 - A term's `matches` all hold for a packet to match (within a list, any entry): `sourcePrefixes`,
   `destinationPrefixes` and `prefixes` (either; Junos `address`), in CIDR form of the filter's family (a Cisco `host`
   is a /32 or /128); `sourcePrefixLists`, `destinationPrefixLists` and `prefixLists` (either), naming
@@ -240,9 +241,13 @@ decides nothing (no `flow`, or `next-term`) and changes nothing a later term mat
 community-set match, the AS path for an AS-path match, the tag for a tag match). The last term always is. Anything it
 doesn't know (a later version's action, or a later term's match) counts against it. When leaving a term out isn't
 safe, the **whole policy** is `unsupported` instead. A filter keeps the same rule (since 0.5.1), with
-`filterTermSkipSafe(filter, key)`: leaving a filter's term out is safe when it is the last, or decides nothing
-(`next-term`: it only counts or logs); otherwise the **whole filter** is `unsupported`, and a subinterface applying it
-can't apply it either. The conformance kit checks the rule (below).
+`filterTermSkipSafe(filter, key)`: leaving a filter's term out is safe when it decides nothing (`next-term`: it only
+counts or logs), or **when it is the last and does what the filter's implicit action does** (#103): a `discard`, under
+either implicit action (Junos's `discard` and a Cisco `deny` both drop). A last `accept` or `reject` (which answers where
+the end doesn't), or an action or implicit action the helper doesn't know, can't be left out alone: its packets would
+reach the end and be decided otherwise, and an only term would leave a filter that decides everything by its end.
+Otherwise the **whole filter** is `unsupported`, and a subinterface applying it can't apply it either. The
+conformance kit checks the rule (below), the attachments included.
 
 ### Validation (`validate.ts`)
 
@@ -385,6 +390,15 @@ error). Interface names are the core's job, not a plugin's, so they never map si
 - no message names an interface (needs-input items say which by `statement` and `field`): a name can be a secret's
   value reused, and messages reach stderr and logs.
 
+**The render's own items and placeless diagnostics get a statement** (#105). A render knows fields, not lines: its
+needs-input items (a key, a password, IOS-XR's eBGP policy, a Junos VRF's RD and RTs) and a diagnostic it raises about
+a field with no span carry only a `field` of the renamed model. `convert()` maps that back to the source's names
+(`sourcePathOf()`, as for issues) and sets `statement` to the first source statement, in tree order, that filled the
+field or a leaf under it, else its nearest ancestor's below the model's top level (`statementAt()`), so shells give
+the item's line. One the plugin placed itself, or a diagnostic with a span, is left as it is. `unanswered` holds every
+item the render raised, answered or not: a plugin raises one only while it has no answer it can use, so an answer in a
+form it doesn't take leaves the item asked (and shells say the answer wasn't taken).
+
 `issues` lists, by source statement in tree order, what didn't carry over: `unmapped`, `unsupported` (the source's
 reason), or `not-rendered` (a field the statement filled that the target marked unsupported or left without a
 disposition, found by mapping the render's paths back to the source's names). Shells show them in the source gutter
@@ -440,7 +454,10 @@ Each fixture goes through five checks (`checkFixture()`):
    that maps into it, widened while its parent maps nothing outside the term) are none of them `unsupported` once
    any maps into the model; on the render, a term's fields are all `unsupported` or none is, and a term left out whose
    skip isn't safe (`termSkipSafe()`, `filterTermSkipSafe()`) leaves every field of its policy or filter `unsupported`
-   (its `fallThrough` or `implicitAction` may be `not-applicable`). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
+   (its `fallThrough` or `implicitAction` may be `not-applicable`). A filter left out whole, whatever its terms, has
+   every leaf `unsupported`, its `implicitAction` included (a filter written, even with no terms left, has that
+   `not-applicable`), and no subinterface's attachment naming it, nor one naming a filter whose unsafe skip left it out,
+   may be `rendered` (#103). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
    judge, from the term's actions, and its own tests show it; so is a partial term in a flat syntax with no
    containers (one statement per line), whose statements the kit can't group; and every statement and field left out
    says why (#111): an `unsupported` or `ignored-by-design` disposition with no reason fails it, given by line or field
@@ -736,7 +753,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     entries); one after the last entry describes nothing. `no N` removes an entry (with its remarks), `no ip
     access-list …` / `no access-list N` the list; anything else in a list (an object group, `log-input`, a time range,
     `no permit …`, a reused sequence number) is `unsupported`. **The per-term rule:** an entry left out is left out
-    whole, and the whole list with it unless it is the last (`filterTermSkipSafe()`), as is a list with no entries
+    whole, and the whole list with it (`filterTermSkipSafe()`, #103: only a last deny could go alone, and the parser
+    takes an entry it leaves out to permit), as is a list with no entries
     (IOS lets every packet through it). An interface's `ip access-group NAME in|out` and `ipv6 traffic-filter NAME
     in|out` (a later one each way replaces the earlier, and the `no` forms take it off) are its subinterface's
     `filters`, resolved once the text is read: one naming a list that isn't converted, or the text doesn't define
@@ -1242,8 +1260,9 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     each (`eq`, `gt`, `lt`, `range`, by number or name, for TCP, UDP and SCTP, as port ranges), an ICMP type and code
     (by number, or by name per family), and `established`, `fragments` (non-initial), `dscp`, `log`, `counter NAME`.
     Anything else (`neq`, an object or net group, ABF `nexthop`, `ttl`, `log-input`, `capture` …) leaves the entry
-    `unsupported`. **The per-term rule:** an entry left out must be one `filterTermSkipSafe()` allows (only the last:
-    every entry permits or denies), else every statement of the list is `unsupported`. `ipv4|ipv6 access-group NAME
+    `unsupported`. **The per-term rule:** an entry left out must be one `filterTermSkipSafe()` allows (only the last,
+    and only a `deny`, as the list's end denies too; #103), else every statement of the list is `unsupported`, and so
+    is every `access-group` applying it. `ipv4|ipv6 access-group NAME
     ingress|egress` on an interface (subinterface `0` for the main one) is the subinterface's `filters` by family and
     direction, once NAME converted in that family (else `unsupported`: the interface applies nothing that way); a
     later one that way replaces it, and its `no` form removes it.
@@ -1327,7 +1346,7 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     isn't a sequence number) is `unsupported` whole, and the whole filter when leaving it out isn't safe
     (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. `implicitAction`
     is `not-applicable` (IOS-XR denies), with the warning `iosxr.filter-implicit-action` on the field when the
-    source's differs (Junos `discard`) or the filter relies on it (`filterReliesOnImplicitAction()`). An interface's
+    source's differs (Junos `discard`) or the entries written rely on it (`filterReliesOnImplicitAction()`). An interface's
     `access-group` is written for a list that is written, else `unsupported`.
   - **Routing policy (#79, `renderPolicy.ts`):** planned first (BGP and VRFs name a policy only when it is written) and
     written before OSPF and BGP: `prefix-set` (a name's IPv4 and IPv6 lists in one set, entries by position; lengths as
@@ -1659,9 +1678,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   **The per-term rule:** a term with anything else (a policer, `routing-instance`, `next-ip`, a nested `filter`, an
   `-except` match, `address … except`, a `to` condition) or naming a prefix list that isn't converted is `unsupported`
   whole; so is one with addresses and prefix lists of one direction, which Junos takes as one list where the model
-  needs both. Leaving it out must be what core's `filterTermSkipSafe()` allows (the last term, or one whose action is
-  `next term` with nothing unknown in it: a term with no action accepts, and an unknown action may decide), else every
-  statement of the filter is `unsupported`. A filter-level setting is `unsupported` with the filter, except
+  needs both. Leaving it out must be what core's `filterTermSkipSafe()` allows (one whose action is `next term`, or
+  the last term when it discards, as the filter's end does (#103), each with nothing unknown in it: a term with no
+  action accepts, and an unknown action may decide), else every statement of the filter is `unsupported`, and so is
+  every unit applying it. A filter-level setting is `unsupported` with the filter, except
   `interface-specific` (counters and policers per interface), which leaves which packets the filter decides alone, so
   only its own statement is `unsupported`. Other families (`ethernet-switching`, `any`…), policers and interface sets
   come later. `interfaces X unit N family inet|inet6 filter input|output F` is the subinterface's `filters`, by
@@ -1751,7 +1771,7 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `unsupported`, and when `filterTermSkipSafe()` doesn't allow leaving it out, so is the filter. `implicitAction` is
   `not-applicable`, and raises `junos.filter-implicit-action` on the filter's `implicitAction` field (a path, never in
   the message) naming its line when the source's is `deny` (a Cisco ACL, which may send an ICMP unreachable) or the
-  filter relies on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {
+  terms written rely on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {
   filter { input F; output G; } }`, beside the family's own settings or alone, each only when the firewall writes that
   filter (else `unsupported`: Junos commits a unit's filter only when it has it).
 - `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's
@@ -1803,9 +1823,21 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   through the core's registry (`createRegistry([junos, iosxe, nxos, iosxr])`): `display-set` as the Junos plugin's tool, `convert`
   through the core's `convert()` with the plugins `--from` and `--to` name and the `--map` file's answers (`--write-map`
   writes every interface to a map file to fill in, through `io.writeFile`). It returns the
-  exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 interfaces unnamed without
+  exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 needs-input items unanswered without
   `--allow-incomplete`). Diagnostics and convert's issues print as `name:line:column: severity: message`, an issue with
-  its plugin's reason only. It never touches `process`, so it can be called directly.
+  its plugin's reason only, and a diagnostic with no span at its `statement`'s. It never touches `process`, so it can
+  be called directly.
+- `src/answers.ts` (#105): the answers file, for every needs-input item but interface names. `parseAnswers()` reads
+  `"id" = answer` lines (the id a JSON string, as ids hold any character; the answer the rest of the line, trimmed) or
+  a JSON object, refusing interface ids (the map's) and an id JSON doesn't read, and saying what's wrong by line,
+  quoting nothing (not even the parser's message); `questions()` makes the items one question per id (a plugin asks
+  once per place an answer goes, as for a BGP group shared by VRFs, and the ledger keeps each), with every place's
+  line, and `formatAnswers()` writes each with a comment giving its lines and the plugin's question. `--answers <file|->` reads one (stdin
+  for `-`, never argv: secrets on a command line are visible to other processes and kept in shell history), and
+  `--write-answers` writes one. What's asked is what a conversion without the answers asks (an answered item isn't
+  raised again), so convert runs twice when answers are given. Each unanswered item prints its line and the plugin's
+  question (`secret needed: …`, `needs input: …`, `(the answer given isn't in the form asked for)` when one was),
+  once per line, never its id or an answer, and the summary counts interfaces and questions (by id) apart.
 - `src/bin.ts`: the entry. It wires `run()` to Node's file system, stdin, stdout and stderr, sets `process.exitCode`,
   and ignores a closed stdout pipe.
 - `vite.config.ts`: `npm run build -w @dialect/cli` bundles `bin.ts` and the workspace packages it imports into one ES
@@ -1826,7 +1858,9 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 - `tests/cli.test.ts` builds into a temp folder with Vite's API and runs the built file with Node: the 22 display set
   fixtures, stdin, invalid input, warnings, unreadable files and usage errors; and convert on
   `tests/fixtures/convert/phase1.conf` (a Junos phase 1 config, its map `phase1.map.csv` and the IOS-XE it gives,
-  `phase1.iosxe`, also used by the web and desktop tests), other maps, exit 3 and `--allow-incomplete`.
+  `phase1.iosxe`, also used by the web and desktop tests), other maps, exit 3 and `--allow-incomplete`; and answers on
+  `tests/fixtures/convert/secrets.conf` (an OSPF key, a BGP password and an eBGP neighbor with no policy, also used by
+  the UI's and the web build's tests) to IOS-XR, IOS-XE and NX-OS.
 
 ## The UI (`packages/ui`)
 
@@ -1892,6 +1926,13 @@ The window is a menu bar, a tab strip and the current tab's page (juniper-decisi
 - `src/components/InterfaceTable.tsx`: convert's interface table: each interface with its name on the target, the
   suggestion as the input's placeholder and a Use button, Use suggestions, and Load map… / Save map in the CLI's map
   format (the core's `parseInterfaceMap()` and `formatInterfaceMap()`).
+- `src/components/NeedsInputPanel.tsx` (#105): convert's Needs input panel, a third column beside the interfaces
+  (stacked below them in a narrow window), shown while the conversion asks for something besides names: each item
+  (the store's `inputs`, from what a conversion without the answers asks, one row per id with every place's line) with
+  the plugin's question, links to its lines and a field. A `secret` item's field is a password input, shown as text only while Show secrets is pressed.
+  The tab's `answers` are in memory only, like its source: never in `session.ts`'s storage, and dropped with the
+  interface map when another file opens or the job changes. An answer the target doesn't take is marked and asked
+  again; no problem or notice repeats an answer.
 - `src/editor/`: the CodeMirror 6 editor component, and Junos colouring as a stream language (colouring only: the
   parser does the real work). The source editor has an issue gutter: a marker on each error or warning line, with what
   it says on hover.

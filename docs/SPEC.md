@@ -21,7 +21,8 @@ product decisions.
     allowed;
   - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout: results to stdout, warnings and errors
     to stderr with their line and column. Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
-    unreadable input, 3 a conversion with interfaces left unnamed (unless `--allow-incomplete`).
+    unreadable input, 3 a conversion with interfaces left unnamed or other needs-input items unanswered (unless
+    `--allow-incomplete`).
 - **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
   content security policy blocks remote content in both shells. The web build's allows only its own inlined script
   and styles, by hash, and no network at all.
@@ -137,8 +138,13 @@ product decisions.
   platform enables OSPF (`network` statements, per interface) and what it does with an eBGP neighbor that has no
   policy (accepts, or rejects as IOS-XR does under RFC 8212, model 0.4.1) are kept with the model, and a target that
   differs warns. **Keys and passwords are never carried**: each is a `secret` needs-input item, written only from an
-  answer, never as a placeholder. The CLI and the app don't take such answers yet: until they do, an unanswered one
-  leaves its line out, and the CLI exits 3 unless `--allow-incomplete`.
+  answer, never as a placeholder. **Answers (#105)**, for these and the `other` items (IOS-XR's eBGP route policy, a
+  Junos VRF's route distinguisher and route targets): the app's Needs input panel, secrets masked unless shown, held
+  in the tab's memory only (never in any storage, dropped with another file or target); the CLI's answers file
+  (`--answers <file|->`, `"id" = answer` lines or a JSON object; `--write-answers` writes every item to fill in), never
+  argv, since argv is visible to other processes and kept in shell history. An answer in a form the target doesn't
+  take is asked again. No message repeats an answer or an id. An unanswered item leaves its line out, and the CLI
+  exits 3 unless `--allow-incomplete`.
 - **Routing policy (phase 3, model 0.5):** prefix lists, community and AS-path sets and policies convert **term by
   term**: a term converts whole or not at all, and when leaving one out could change what a later term sees, the whole
   policy is left out. A regular expression is never translated between dialects, a policy's fall-through (Junos goes
@@ -206,7 +212,10 @@ product decisions.
   configuration. The conformance kit's ledger check holds every plugin to it, over every fixture and the whole corpus
   (#111).
 - **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
-  left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
+  left out when leaving an entry out would change what later ones see. **A term can be left out alone only when that
+  changes nothing the filter decides** (#103): one that only counts or logs, or the last one when it discards, as the
+  filter's end does. Any other (a last permit, a reject, an action not known) takes the whole filter with it, and every
+  interface applying it, so no filter is written that lets through or drops other packets than the source's. A Cisco wildcard becomes a prefix only when it is
   contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos
   silent discard), or a filter relying on its end, gets a semantic warning. A Cisco remark is kept as its entry's
   description.

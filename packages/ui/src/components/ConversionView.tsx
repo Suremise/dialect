@@ -1,5 +1,5 @@
 // A conversion tab's page: its toolbar, the source config on the left and its output on the right (a display set, or a
-// conversion), problems below (and in convert, the interface table beside them). Every open conversion tab keeps its
+// conversion), problems below (and in convert, the interface table beside them, and what else the target asks for). Every open conversion tab keeps its
 // page mounted, hidden while another tab shows, so its editors keep their text, cursor and undo history.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { copyOutput, openFile, paste, reopen, saveOutput } from '../actions'
@@ -8,6 +8,7 @@ import type { Platform } from '../platform'
 import { convertPlugins, jobLabel, outputCount, outputName, SOURCES, targetsFor, toolOf, useStore, type ConversionTab } from '../store'
 import { CheckIcon, CopyIcon, ErrorIcon, OpenIcon, PasteIcon, SaveIcon, WarningIcon } from './Icons'
 import { InterfaceTable } from './InterfaceTable'
+import { NeedsInputPanel } from './NeedsInputPanel'
 import { panelDomId, tabDomId } from './TabStrip'
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
@@ -17,7 +18,9 @@ export function outputSummary(tab: ConversionTab): string {
   if (tab.problems.some((p) => p.severity === 'error')) return 'No output: the config has a syntax error'
   if (tab.source.trim() === '') return ''
   const unnamed = tab.interfaces.filter((i) => i.target === undefined).length
-  return `${outputCount(tab.job, tab.output)}${unnamed ? `, incomplete: ${plural(unnamed, 'interface needs', 'interfaces need')} a name` : ''}`
+  const open = tab.inputs.filter((i) => !i.answered).length
+  const missing = [...(unnamed ? [`${plural(unnamed, 'interface needs', 'interfaces need')} a name`] : []), ...(open ? [`${plural(open, 'item needs', 'items need')} an answer`] : [])]
+  return `${outputCount(tab.job, tab.output)}${missing.length ? `, incomplete: ${missing.join(', ')}` : ''}`
 }
 
 /** The job as the status bar and the output pane name it. */
@@ -179,7 +182,7 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
         </section>
       </main>
 
-      <div className={`bottom${converting ? ' converting' : ''}`}>
+      <div className={`bottom${converting ? ' converting' : ''}${converting && tab.inputs.length ? ' asking' : ''}`}>
         <section className="problems" aria-label="Problems">
           <div className="section-header">
             <span>Problems</span>
@@ -216,6 +219,7 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
           </ul>
         </section>
         {converting && <InterfaceTable tab={tab} platform={platform} />}
+        {converting && tab.inputs.length > 0 && <NeedsInputPanel tab={tab} />}
       </div>
     </div>
   )

@@ -342,6 +342,68 @@ describe('the per-term rule: a term whole or not at all, and the whole policy wh
     expect(r.ledger.problems[0]).toMatch(/^render left out /)
   })
 
+  // #103: a filter's last term can go alone only when it discards as the filter's end does; a filter left out whole
+  // can't be applied.
+  describe('a filter\'s last term, and the interfaces applying the filter', () => {
+    const filterModel = (last: 'accept' | 'discard' | 'reject'): Device => ({
+      interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { filters: { ipv4: { input: 'F' } } } } } },
+      filters: { ipv4: { F: { implicitAction: 'discard', terms: { '1': { matches: { protocols: [6] }, actions: { action: 'accept' } }, '2': { matches: { protocols: [17] }, actions: { action: last } } } } } }
+    })
+    const at = (...path: string[]) => fieldPath('filters', 'ipv4', 'F', ...path)
+    const attachment = fieldPath('interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input')
+    const renderOf = (m: Device, unsupported: (path: string) => boolean): RenderResult => ({
+      text: '',
+      diagnostics: [],
+      dispositions: Object.fromEntries(populatedLeaves(m).map((l): [string, FieldDisposition] => [l.path, unsupported(l.path) ? { kind: 'unsupported', reason: 'can\'t' } : l.path.endsWith('.implicitAction') ? { kind: 'not-applicable', reason: 'the same' } : { kind: 'rendered' }]))
+    })
+    const check = (last: 'accept' | 'discard' | 'reject', unsupported: (path: string) => boolean) => {
+      const m = filterModel(last)
+      return termProblems({ tree: [], model: m, dispositions: {}, diagnostics: [] }, renderOf(m, unsupported))
+    }
+
+    it('passes a last discard left out alone, the filter still applied', () => {
+      expect(check('discard', (p) => p.startsWith(at('terms', '2')))).toEqual([])
+    })
+
+    it('fails a last accept or reject left out alone, the rest of the filter converted', () => {
+      for (const last of ['accept', 'reject'] as const) expect(check(last, (p) => p.startsWith(at('terms', '2'))), last).toEqual([
+        `render left out ${at('terms', '2')}, which later terms would see packets differently without, but converted the rest of the filter: the whole filter is unsupported instead (${at('terms', '1', 'matches', 'protocols')}, ${at('terms', '1', 'actions', 'action')})`
+      ])
+    })
+
+    it('fails the whole filter left out but still applied, and passes it left out with its attachment', () => {
+      expect(check('accept', (p) => p.startsWith(at()) && !p.endsWith('.implicitAction'))).toEqual([`render left out ${at('terms', '1')}, ${at('terms', '2')}, so the whole filter is unsupported, but still applied it (${attachment})`])
+      expect(check('accept', (p) => (p.startsWith(at()) && !p.endsWith('.implicitAction')) || p === attachment)).toEqual([])
+    })
+
+    // A filter left out whole (every leaf unsupported, its implicitAction too) can't be applied, whatever its terms: a
+    // safe only term, no terms, or empty ones.
+    describe('a filter left out whole, whatever its terms, still applied', () => {
+      const whole = (filter: NonNullable<NonNullable<Device['filters']>['ipv4']>[string], applied: boolean) => {
+        const m: Device = { interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { filters: { ipv4: { input: 'F' } } } } } }, filters: { ipv4: { F: filter } } }
+        return termProblems({ tree: [], model: m, dispositions: {}, diagnostics: [] }, renderOf(m, (p) => p.startsWith(at()) || (!applied && p === attachment)))
+      }
+      const cases = {
+        'an only discard': { implicitAction: 'discard', terms: { '1': { actions: { action: 'discard' } } } },
+        'an only next-term': { implicitAction: 'discard', terms: { '1': { actions: { action: 'next-term', count: 'c' } } } },
+        'no terms': { implicitAction: 'deny' },
+        'empty terms': { implicitAction: 'deny', terms: {} }
+      } as const
+      for (const [name, filter] of Object.entries(cases)) {
+        it(`${name}: fails it applied, passes it not`, () => {
+          expect(whole(filter, true)).toEqual([`render left ${at()} out whole, but still applied it (${attachment})`])
+          expect(whole(filter, false)).toEqual([])
+        })
+      }
+
+      it('passes a filter written with a safe term left out, and applied', () => {
+        // Its implicitAction is not-applicable: the filter is written, with no terms left.
+        const m: Device = { interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { filters: { ipv4: { input: 'F' } } } } } }, filters: { ipv4: { F: cases['an only discard'] } } }
+        expect(termProblems({ tree: [], model: m, dispositions: {}, diagnostics: [] }, renderOf(m, (p) => p.startsWith(at('terms'))))).toEqual([])
+      })
+    })
+  })
+
   describe('on the parse side: the statements a term is made of', () => {
     // policy-options { policy-statement P { term a { from community C; from color 5; then accept; } term b { then reject; } } }
     const node = (id: string, children?: SyntaxNode[]): SyntaxNode => ({ id, label: id, ...(children ? { children } : {}) })

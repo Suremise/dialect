@@ -156,7 +156,8 @@ function termOf(path: string): string | null {
  *   of the term reaches the model. A term the parse leaves out whole isn't in the model, so its safety is the parser's
  *   to judge (it knows the term's actions): it can't be checked here.
  * - Render: a term's leaves are all `unsupported` or none is; a term left out whose skip isn't safe leaves every leaf of
- *   its policy or filter `unsupported` (its `fallThrough` or `implicitAction` aside, which may be `not-applicable`).
+ *   its policy or filter `unsupported` (its `fallThrough` or `implicitAction` aside, which may be `not-applicable`),
+ *   and no subinterface's attachment naming such a filter rendered (#103).
  */
 export function termProblems(parsed: ParseResult, rendered?: RenderResult, model: Device = parsed.model): string[] {
   const out: string[] = []
@@ -231,7 +232,15 @@ export function termProblems(parsed: ParseResult, rendered?: RenderResult, model
       Object.entries(model.filters?.[family] ?? {}).map(([name, filter]) => ({ at: ['filters', family, name], terms: filter?.terms, whole: filter, safe: (key: string) => filterTermSkipSafe(filter, key), byDefault: 'implicitAction', what: 'filter' as const, sees: 'packets' }))
     )
   ]
+  /** Filters the render left out whole, by `family\u0000name`, with why, for the attachments check below. */
+  const omitted = new Map<string, string>()
   for (const { at, terms, whole, safe, byDefault, what, sees } of ordered) {
+    // A filter left out whole has every leaf `unsupported`, its implicitAction included (a filter written, even one left
+    // with no terms, has that `not-applicable`): whatever its terms.
+    if (what === 'filter') {
+      const leaves = populatedLeaves(whole, at)
+      if (kind(fieldPath(...at, byDefault)) === 'unsupported' && leaves.every((l) => kind(l.path) === 'unsupported')) omitted.set(`${at[1]}\u0000${at[2]}`, `left ${fieldPath(...at)} out whole`)
+    }
     if (!terms) continue
     const unsafe: string[] = []
     for (const key of Object.keys(terms)) {
@@ -245,7 +254,20 @@ export function termProblems(parsed: ParseResult, rendered?: RenderResult, model
     const platformDefault = fieldPath(...at, byDefault)
     const converted = populatedLeaves(whole, at).filter((l) => kind(l.path) === 'rendered' || (kind(l.path) === 'not-applicable' && l.path !== platformDefault))
     if (converted.length) out.push(`render left out ${unsafe.join(', ')}, which later terms would see ${sees} differently without, but converted the rest of the ${what}: the whole ${what} is unsupported instead (${converted.map((l) => l.path).join(', ')})`)
+    // Such a filter is to be left out whole, whether or not the render says so.
+    if (what === 'filter' && !converted.length) omitted.set(`${at[1]}\u0000${at[2]}`, `left out ${unsafe.join(', ')}, so the whole filter is unsupported`)
   }
+  // #103: a filter left out whole can't be applied either, or the interface would filter by something else (or not at
+  // all, a target taking an unknown name as no filter).
+  for (const [ifName, iface] of Object.entries(model.interfaces ?? {}))
+    for (const [unit, sub] of Object.entries(iface?.subinterfaces ?? {}))
+      for (const family of ['ipv4', 'ipv6'] as const)
+        for (const direction of ['input', 'output'] as const) {
+          const name = sub?.filters?.[family]?.[direction]
+          const path = fieldPath('interfaces', ifName, 'subinterfaces', unit, 'filters', family, direction)
+          const why = name === undefined ? undefined : omitted.get(`${family}\u0000${name}`)
+          if (why !== undefined && kind(path) === 'rendered') out.push(`render ${why}, but still applied it (${path})`)
+        }
   return out
 }
 
