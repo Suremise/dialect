@@ -137,6 +137,10 @@ null-prototype objects (`Object.create(null)`) or a `Map`, never `map[key] ??= {
 `MODEL_VERSION` is the model's own semver, separate from the package's. Minor versions only add; major versions
 break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0.1.0 <1.0.0'`, not `^0.1.0`.
 
+While the model is 0.x, its numbers say this: the **middle number marks a phase** (0.4.0 phase 2, 0.5.0 phase 3), and
+the **last number goes up for every additive change** within it (0.5.1 filters, 0.5.2 VRF policies, 0.5.4 LAGs). Both
+only add, so either kind of bump keeps every 0.x plugin loading; a breaking change waits for 1.0.
+
 | Model | What it added |
 |---|---|
 | 0.1.0 | The phase 1 areas (B2) |
