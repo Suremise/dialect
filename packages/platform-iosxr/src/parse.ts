@@ -5,12 +5,14 @@
 // option on it is understood: one with an option the model can't hold (`server 192.0.2.1 key 1`) is unsupported as a
 // whole, never half-converted. Route policies and sets are kept whole (tree.ts): their simple forms are translated
 // (policy.ts, model 0.5.0), each converted whole or not at all, and a VRF's or BGP peer's route policy names one.
+// Access lists are filters (filters.ts, model 0.5.1), with the interfaces' `access-group` attachments.
 // Later statements act on earlier ones as on the device: a second setting supersedes the first, and `no …` forms and
 // `vrf V` on an interface clear what they remove. No reason or diagnostic repeats a word of the configuration
 // (AGENTS.md, No secrets in diagnostics): they give line numbers and word positions instead.
-import { fieldPath, isAsNumber, isRouteDistinguisher, populatedLeaves, type Context, type Device, type Diagnostic, type Bgp, type BgpAddressFamilyName, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, filterTermSkipSafe, isAsNumber, isRouteDistinguisher, populatedLeaves, type Context, type FilterTerm, type Device, type Diagnostic, type Bgp, type BgpAddressFamilyName, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { interfaceType, isInterfaceName, splitSubinterface } from './names'
+import { readEntry } from './filters'
 import { asPathSet, communitySet, prefixSet, readPolicy, RPL_NAME, toPolicy } from './policy'
 import { parseTree, unquote, type XrNode } from './tree'
 
@@ -400,6 +402,8 @@ export function parse(text: string, _context: Context): ParseResult {
       const lines = clearAddresses(ctx, lw[1] === 'ipv4' ? 4 : 6, `removed by line ${line(node)}`)
       return ignored(lines.length ? `removes the addresses on ${linesText(lines)}: nothing to convert` : 'says the interface has no address: nothing to convert')
     }
+    if ((lw[0] === 'ipv4' || lw[0] === 'ipv6') && lw[1] === 'access-group') return attachFilter(node, ctx, lw[0], w.slice(2), false)
+    if (lw[0] === 'no' && (lw[1] === 'ipv4' || lw[1] === 'ipv6') && lw[2] === 'access-group') return attachFilter(node, ctx, lw[1], w.slice(3), true)
     if (lw[0] === 'vrf') return mapVrfMember(node, ctx, false)
     if (lw[0] === 'no' && lw[1] === 'vrf') return mapVrfMember(node, ctx, true)
     if (lw[0] === 'bundle') return unsupported('a bundle member: link aggregation comes later')
@@ -1756,6 +1760,141 @@ export function parse(text: string, _context: Context): ParseResult {
     return false
   }
 
+  // ---- access lists (model 0.5.1, filters.ts)
+
+  type Family = 'ipv4' | 'ipv6'
+  /** An access list entry: its sequence number, statement and words after the number; a remark only takes its number. */
+  type AclEntry = { readonly seq: number; readonly node: XrNode; readonly words: readonly string[]; readonly remark: boolean }
+  /** Each access list by family and name: the statements that open it, and its entries by sequence number. */
+  type Acl = { readonly headers: XrNode[]; readonly entries: Map<number, AclEntry> }
+  const acls = new Map<string, Acl>()
+  const aclKey = (family: Family, name: string) => JSON.stringify([family, name])
+  /** IOS-XR's sequence numbers: 1 to 2147483646. */
+  const SEQ = { min: 1, max: 2147483646 } as const
+
+  /** One entry of a list, with its number or the next (10 after the highest), or why it isn't one. */
+  const aclEntry = (acl: Acl, node: XrNode, w: readonly string[]): StatementDisposition => {
+    const given = INTEGER.test(w[0] ?? '') ? w[0] : undefined
+    if (given !== undefined && !inRange(given, SEQ)) return unsupported('a sequence number outside 1 to 2147483646')
+    const seq = given !== undefined ? Number(given) : Math.max(0, ...acl.entries.keys()) + 10
+    if (seq > SEQ.max) return unsupported('no sequence number is left after the highest')
+    const rest = given !== undefined ? w.slice(1) : w
+    if (!rest.length) return unsupported('an entry with nothing in it')
+    const earlier = acl.entries.get(seq)
+    if (earlier) set(earlier.node, ignored(`replaced by line ${line(node)}`))
+    const remark = rest[0].toLowerCase() === 'remark'
+    acl.entries.set(seq, { seq, node, words: rest, remark })
+    return remark ? ignored('a remark: a comment the model doesn\'t keep') : mapped([])
+  }
+
+  /** `ipv4|ipv6 access-list NAME`, with its entries in the block, or an entry on the same line. */
+  const mapAccessList = (node: XrNode, family: Family): void => {
+    const w = node.words
+    const name = w[2]
+    if (name === undefined || !/^[\w.-]{1,64}$/.test(name)) return unsupportedTree(node, 'an access list name the model doesn\'t take')
+    const key = aclKey(family, name)
+    const acl: Acl = acls.get(key) ?? { headers: [], entries: new Map() }
+    acls.set(key, acl)
+    if (w.length > 3) {
+      // The one-line form: `ipv4 access-list NAME [N] permit …`.
+      set(node, aclEntry(acl, node, w.slice(3)))
+      for (const child of node.children) unsupportedTree(child)
+      return
+    }
+    acl.headers.push(node)
+    set(node, mapped([]))
+    for (const child of node.children) {
+      const cw = child.words
+      if (child.kind === 'comment') set(child, ignored('a comment'))
+      else if (child.kind !== 'statement' || child.children.length) unsupportedTree(child)
+      else if (cw[0]?.toLowerCase() === 'no' && cw.length === 2 && INTEGER.test(cw[1])) {
+        const entry = acl.entries.get(Number(cw[1]))
+        if (entry) {
+          set(entry.node, ignored(`removed by line ${line(child)}`))
+          acl.entries.delete(entry.seq)
+        }
+        set(child, ignored(entry ? 'removes an entry: nothing to convert' : 'no such entry: nothing to convert'))
+      } else set(child, aclEntry(acl, child, cw))
+    }
+  }
+
+  /** `no ipv4|ipv6 access-list NAME`: removes the list and every entry of it. */
+  const removeAccessList = (node: XrNode, family: Family): StatementDisposition => {
+    const key = aclKey(family, node.words[3])
+    const acl = acls.get(key)
+    if (!acl) return ignored('no such access list: nothing to convert')
+    for (const n of [...acl.headers, ...[...acl.entries.values()].map((e) => e.node)]) set(n, ignored(`removed by line ${line(node)}`))
+    acls.delete(key)
+    return ignored('removes an access list: nothing to convert')
+  }
+
+  /** The access lists converted, by family: an interface applies one of these, or nothing. */
+  const convertedFilters = { ipv4: new Set<string>(), ipv6: new Set<string>() }
+  /** Each `access-group` statement still in force, by subinterface, family and direction. */
+  const attachments = new Map<string, { readonly node: XrNode; readonly ctx: InterfaceContext; readonly family: Family; readonly direction: 'input' | 'output'; readonly name: string }>()
+
+  /** `ipv4|ipv6 access-group NAME ingress|egress` on an interface, or its `no` form: settled once the lists are. */
+  const attachFilter = (node: XrNode, ctx: InterfaceContext, family: Family, w: readonly string[], remove: boolean): StatementDisposition => {
+    const lw = w.map((x) => x.toLowerCase())
+    const where = lw[1] === 'ingress' ? 'input' : lw[1] === 'egress' ? 'output' : undefined
+    if (!where || w.length !== 2 || !/^[\w.-]{1,64}$/.test(w[0])) return unsupported('an access group the model doesn\'t have (an option, or no direction)')
+    const key = JSON.stringify([ctx.name, ctx.sub, family, where])
+    const earlier = attachments.get(key)
+    if (remove) {
+      if (!earlier) return ignored('no such access group: nothing to convert')
+      set(earlier.node, ignored(`removed by line ${line(node)}`))
+      attachments.delete(key)
+      return ignored('removes an access group: nothing to convert')
+    }
+    if (earlier) set(earlier.node, ignored(`replaced by line ${line(node)}`))
+    attachments.set(key, { node, ctx, family, direction: where, name: w[0] })
+    return mapped([])
+  }
+
+  /**
+   * The access lists: each entry a term, keyed by its sequence number; the list's implicit deny recorded. An entry
+   * that isn't converted is left out alone only when nothing follows it (it permits or denies, so later entries would
+   * see what it decides), else the whole list is left out. Then each interface's access groups, naming converted lists.
+   */
+  const buildFilters = (): void => {
+    for (const [key, acl] of acls) {
+      const [family, name] = JSON.parse(key) as [Family, string]
+      const entries = [...acl.entries.values()].filter((e) => !e.remark).sort((a, b) => a.seq - b.seq)
+      const read = entries.map((e) => ({ e, term: readEntry(e.words, family) }))
+      const terms: Record<string, FilterTerm> = Object.create(null)
+      for (const r of read) if (typeof r.term !== 'string') terms[String(r.e.seq)] = r.term
+      const at = ['filters', family, name]
+      // As the model would have each entry, an unconverted one by what it says it does, for filterTermSkipSafe().
+      const probe = { implicitAction: 'deny' as const, terms: Object.fromEntries(read.map((r) => [String(r.e.seq), typeof r.term === 'string' ? { actions: { action: r.e.words[0]?.toLowerCase() === 'permit' ? ('accept' as const) : ('discard' as const) } } : r.term])) }
+      const unsafe = read.find((r) => typeof r.term === 'string' && !filterTermSkipSafe(probe, String(r.e.seq)))
+      if (unsafe) {
+        const why = unsupported(`left out whole: the entry on line ${line(unsafe.e.node)} isn't converted (${unsafe.term as string}), and leaving it out would change what the entries after it see`)
+        for (const n of [...acl.headers, ...entries.map((e) => e.node)]) set(n, why)
+        continue
+      }
+      const implicit = model.set([...at, 'implicitAction'], 'deny')
+      for (const n of acl.headers) set(n, mapped([implicit]))
+      for (const r of read) {
+        if (typeof r.term === 'string') {
+          set(r.e.node, unsupported(r.term))
+          continue
+        }
+        const termAt = [...at, 'terms', String(r.e.seq)]
+        model.set(termAt, r.term)
+        set(r.e.node, mapped([implicit, ...populatedLeaves(r.term, termAt).map((l) => l.path)]))
+      }
+      convertedFilters[family].add(name)
+    }
+    for (const a of attachments.values()) {
+      if (dispositions[a.node.id]?.kind !== 'mapped') continue
+      if (!convertedFilters[a.family].has(a.name)) {
+        set(a.node, unsupported('applies an access list the configuration doesn\'t define, or one that isn\'t converted'))
+        continue
+      }
+      set(a.node, mapped([model.set([...subPath(a.ctx), 'filters', a.family, a.direction], a.name)]))
+    }
+  }
+
   // ---- the top level
 
   const mapTop = (node: XrNode): void => {
@@ -1777,9 +1916,11 @@ export function parse(text: string, _context: Context): ParseResult {
     if (lw[0] === 'ntp' && w.length === 1) return mapNtpBlock(node)
     if (lw[0] === 'router' && lw[1] === 'ospf') return mapRouterOspf(node)
     if (lw[0] === 'router' && lw[1] === 'bgp') return mapRouterBgp(node)
+    if ((lw[0] === 'ipv4' || lw[0] === 'ipv6') && lw[1] === 'access-list') return mapAccessList(node, lw[0])
     if (node.children.length) return unsupportedTree(node)
     if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'ospf') return set(node, removeRouterOspf(node))
     if (lw[0] === 'no' && (lw[1] === 'route-policy' || /^[a-z][a-z0-9-]*-set$/.test(lw[1])) && w.length === 3) return void rpl.push(node)
+    if (lw[0] === 'no' && (lw[1] === 'ipv4' || lw[1] === 'ipv6') && lw[2] === 'access-list' && w.length === 4) return set(node, removeAccessList(node, lw[1]))
     if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'bgp') return set(node, removeRouterBgp(node))
 
     let d: StatementDisposition = unsupported()
@@ -1807,6 +1948,7 @@ export function parse(text: string, _context: Context): ParseResult {
   for (const node of nodes) mapTop(node)
   buildRoutes()
   const policies = buildRoutingPolicy()
+  buildFilters()
 
   // A VRF's route targets: one set in the model, so every address family's must agree (a family with none disagrees
   // with one with some), and none may be left out.

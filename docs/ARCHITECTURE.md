@@ -1011,7 +1011,7 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
 
 The third Cisco platform, built like the NX-OS plugin (its code copied, not imported). Its default export is the
 `PlatformPlugin` (`id: 'iosxr'`, `modelApi: '>=0.5.2 <1.0.0'`, for model 0.4's OSPF and BGP, 0.4.1's eBGP default
-policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`, `render`, and `describeInterface` and
+policy, 0.5.0's routing policy, 0.5.1's filters and 0.5.2's VRF policies), with `detect`, `parse`, `render`, and `describeInterface` and
 `nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as NX-OS's, nested by IOS-XR's one-space indents; `!` lines are separators and `!!`
@@ -1097,6 +1097,22 @@ policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`
     not configuration. A policy on IPv4 doesn't cover IPv6.
   - **A VRF's deletion** (`no vrf X`) leaves its OSPF and BGP so far, and its route distinguisher, out as `unsupported`:
     what the device keeps of them isn't certain.
+  - **Access lists (#88, model 0.5.1, `filters.ts`):** `ipv4|ipv6 access-list NAME` is `filters.ipv4|ipv6.NAME`,
+    `implicitAction: 'deny'` (IOS-XR denies what no entry decides), each entry a term keyed by its sequence number:
+    given, or (as IOS-XR does) 10 more than the highest so far, a remark's included; a remark is `ignored-by-design`
+    (a comment the model doesn't keep). The one-line form (`ipv4 access-list NAME [N] permit …`) and later blocks add to
+    the list; an entry with a number used before replaces it, `no N` in the list removes one, and `no ipv4|ipv6
+    access-list NAME` removes the list. An entry: `permit` (`accept`) or `deny` (`discard`: the ICMP unreachable is the
+    interface's), a protocol (`ipv4`/`ipv6` any, else by name or number), source and destination (`any`, `host A`,
+    `A/L` with no host bits, or an IPv4 address and a contiguous wildcard, never a non-contiguous one), ports after
+    each (`eq`, `gt`, `lt`, `range`, by number or name, for TCP, UDP and SCTP, as port ranges), an ICMP type and code
+    (by number, or by name per family), and `established`, `fragments` (non-initial), `dscp`, `log`, `counter NAME`.
+    Anything else (`neq`, an object or net group, ABF `nexthop`, `ttl`, `log-input`, `capture` …) leaves the entry
+    `unsupported`. **The per-term rule:** an entry left out must be one `filterTermSkipSafe()` allows (only the last:
+    every entry permits or denies), else every statement of the list is `unsupported`. `ipv4|ipv6 access-group NAME
+    ingress|egress` on an interface (subinterface `0` for the main one) is the subinterface's `filters` by family and
+    direction, once NAME converted in that family (else `unsupported`: the interface applies nothing that way); a
+    later one that way replaces it, and its `no` form removes it.
   - **Routing policy (#79, model 0.5.0, `policy.ts`): RPL's simple forms.** Each set and route policy is one atomic
     statement (the tree), so each is converted whole or `unsupported` whole, never in part; the last definition of a
     name counts (an earlier one is `replaced by line N`), and `no route-policy|prefix-set|community-set|as-path-set
@@ -1165,6 +1181,16 @@ policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`
     source whose policy replaces the route targets (Junos, `replaces-route-targets`) raises `iosxr.vrf-policy-mode`, as
     IOS-XR's filters after them. A network instance whose only VRF-level settings are its policies is still written as
     `vrf X`. The global table's are `unsupported`.
+  - **Access lists (#88, `renderFilters.ts`):** planned before the interfaces and written after the VRFs: `ipv4|ipv6
+    access-list NAME` with an entry a term (` SEQ permit|deny PROTOCOL SRC [PORTS] DST [PORTS] [ICMP] [established]
+    [dscp N] [fragments] [log] [counter C]`; a /32 or /128 as `host`, ports as `eq`, `lt`, `gt` or `range`). **The
+    per-term rule:** a term IOS-XR can't write (a `reject`, which IOS-XR leaves to the interface, a `next-term`, a
+    match on either direction, a prefix list or TCP flags, more than one of anything, a first fragment, a key that
+    isn't a sequence number) is `unsupported` whole, and the whole filter when leaving it out isn't safe
+    (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. `implicitAction`
+    is `not-applicable` (IOS-XR denies), with the warning `iosxr.filter-implicit-action` on the field when the
+    source's differs (Junos `discard`) or the filter relies on it (`filterReliesOnImplicitAction()`). An interface's
+    `access-group` is written for a list that is written, else `unsupported`.
   - **Routing policy (#79, `renderPolicy.ts`):** planned first (BGP and VRFs name a policy only when it is written) and
     written before OSPF and BGP: `prefix-set` (a name's IPv4 and IPv6 lists in one set, entries by position; lengths as
     `le`, `ge`, `ge … le` or `eq`, the `form` written when it reads back the same, else `not-applicable`; a list
@@ -1211,9 +1237,13 @@ policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`
   IOS-XR syntax, except the prototype keys as an interface name, which IOS-XR can't have (a name is a type and numbers),
   and as a VLAN name (Layer 2 isn't converted this phase); model 0.5.0's cases in RPL (a term and an entry go with
   their policy and set, which `no route-policy|prefix-set` removes; a set is one statement from its first line), and
-  not yet 0.5.1's filters. `phase2.test.ts` covers OSPF and BGP beyond their fixtures, RFC 8212 with a Junos-sourced
-  model among them, and checks that each phase 2 and 3 warning comes from a saved source fixture or a saved model from
-  another platform (`tests/models`, as NX-OS's; `junos-policy` for the fall-through, a Junos regex and a VRF policy).
+  model 0.5.1's filter cases (an entry removed with `no N`, an access group with its `no` form, a port, prefix and
+  non-contiguous wildcard in an entry). `filters.test.ts` and `policy.test.ts` cover what fixtures don't (numbering,
+  edits, port operators; community action order, regex setters, RFC 8212 coverage), `fixtures/filters` the access
+  lists. `phase2.test.ts` covers OSPF and BGP beyond their fixtures,
+  RFC 8212 with a Junos-sourced model among them, and checks that each phase 2 and 3 warning comes from a saved source
+  fixture or a saved model from another platform (`tests/models`, as NX-OS's; `junos-policy` for the fall-through, a
+  Junos regex and a VRF policy, `junos-filter` for a filter's implicit action and terms IOS-XR can't write).
 
 ## TypeScript
 

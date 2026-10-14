@@ -66,6 +66,10 @@ const dns = lines('domain vrf A name-server 192.0.2.53', 'domain vrf B name-serv
 
 /** A prefix set and a policy matching it (model 0.5.0): a set or policy is atomic in IOS-XR, so `no …` removes it whole. */
 const policy = lines('prefix-set L', '  10.0.0.0/8 le 24,', '  0.0.0.0/0 le 32', 'end-set', '!', 'route-policy P', '  if destination in L then', '    done', '  endif', '  drop', 'end-policy', '!')
+/** An access list of two entries applied to an interface (model 0.5.1). */
+const acl = lines('ipv4 access-list F', ' 10 permit tcp any host 192.0.2.1 eq 22', ' 20 deny ipv4 any any', '!', 'interface GigabitEthernet0/0/0/0', ' ipv4 access-group F ingress', '!')
+/** An access list whose one entry is `entry`, on line 2. */
+const entry = (e: string) => lines('ipv4 access-list F', ` 10 ${e}`)
 /** A policy naming what `line` defines, if anything: its first line is the policy's. */
 const naming = (condition: string) => lines('route-policy P', `  if ${condition} then`, '    done', '  endif', 'end-policy')
 
@@ -142,7 +146,9 @@ export const probes: ProbeAdapter = {
     },
     // A term of an IOS-XR policy goes with its policy, and a set's entry with its set: each is one statement.
     'policy-term': { set: policy, negated: lines(policy, 'no route-policy P'), path: ['routingPolicy', 'policies', 'P', 'terms', '1'] },
-    'prefix-list-entry': { set: policy, negated: lines(policy, 'no route-policy P', 'no prefix-set L'), path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '1'] }
+    'prefix-list-entry': { set: policy, negated: lines(policy, 'no route-policy P', 'no prefix-set L'), path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '1'] },
+    'filter-term': { set: acl, negated: lines(acl, 'ipv4 access-list F', ' no 10'), path: ['filters', 'ipv4', 'F', 'terms', '10'] },
+    'filter-attachment': { set: acl, negated: lines(acl, 'interface GigabitEthernet0/0/0/0', ' no ipv4 access-group F ingress'), path: ['interfaces', 'GigabitEthernet0/0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] }
   },
   malformed: {
     'ipv4-address': { source: lines('interface Loopback0', ' ipv4 address 192.0.2.256 255.255.255.255'), value: '192.0.2.256' },
@@ -153,7 +159,10 @@ export const probes: ProbeAdapter = {
     'vlan-id': { source: lines('interface GigabitEthernet0/0/0/0.10', ' encapsulation dot1q 4095'), value: '4095' },
     // A set is one statement, from its first line.
     prefix: { source: lines('prefix-set L', '  10.0.0.0/33', 'end-set'), value: '10.0.0.0/33', line: 1 },
-    'prefix-length': { source: lines('prefix-set L', '  10.0.0.0/8 le 33', 'end-set'), value: '33', line: 1 }
+    'prefix-length': { source: lines('prefix-set L', '  10.0.0.0/8 le 33', 'end-set'), value: '33', line: 1 },
+    port: { source: entry('permit tcp any any eq 70000'), value: '70000' },
+    'filter-prefix': { source: entry('permit ipv4 10.0.0.1/8 any'), value: '10.0.0.1/8' },
+    wildcard: { source: entry('deny ipv4 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' }
   },
   vrfScoping: {
     delete: { base: routes(), changed: lines(routes(), 'no vrf A'), vrf: 'A' },
@@ -167,11 +176,13 @@ export const probes: ProbeAdapter = {
     'prefix-list': { source: naming('destination in MISSING'), value: 'MISSING', line: 1 },
     'community-set': { source: naming('community matches-any MISSING'), value: 'MISSING', line: 1 },
     'as-path-set': { source: naming('as-path in MISSING'), value: 'MISSING', line: 1 },
-    policy: { source: lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', '   route-policy MISSING in'), value: 'MISSING' }
+    policy: { source: lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', '   route-policy MISSING in'), value: 'MISSING' },
+    filter: { source: lines('interface GigabitEthernet0/0/0/0', ' ipv4 access-group MISSING ingress'), value: 'MISSING' }
   },
   // With repeated spaces and a comma inside the quotes, which are the regex's own.
   regex: {
     source: lines('as-path-set A', '  ios-regex \'_65000_\',', '  ios-regex \'_65001  65002_\'', 'end-set', '!', 'community-set C', '  ios-regex \'_65000:(1,|2)  _\'', 'end-set'),
     regexes: ['_65000_', '_65001  65002_', '_65000:(1,|2)  _']
-  }
+  },
+  implicitAction: { source: acl }
 }

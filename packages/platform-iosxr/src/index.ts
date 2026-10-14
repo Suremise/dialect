@@ -1,6 +1,6 @@
 // @dialect/platform-iosxr: the IOS-XR plugin (B13). The indentation-tree parser with route policies and sets kept whole
 // (tree.ts), mapping into the shared model (parse.ts) and rendering from it (render.ts), for the phase 1 areas, OSPF
-// and BGP, and RPL's simple forms (policy.ts, renderPolicy.ts), and detect(). Platform-neutral: strings in, strings and plain objects out.
+// and BGP, RPL's simple forms (policy.ts, renderPolicy.ts) and access lists (filters.ts, renderFilters.ts), and detect(). Platform-neutral: strings in, strings and plain objects out.
 import type { PlatformPlugin } from '@dialect/core'
 import { detect } from './detect'
 import { describeInterface, nameInterface } from './names'
@@ -29,7 +29,8 @@ const plugin: PlatformPlugin = {
     snmp: { parse: 'partial', render: 'partial' },
     ospf: { parse: 'partial', render: 'partial' },
     bgp: { parse: 'partial', render: 'partial' },
-    'routing-policy': { parse: 'partial', render: 'partial' }
+    'routing-policy': { parse: 'partial', render: 'partial' },
+    filters: { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,

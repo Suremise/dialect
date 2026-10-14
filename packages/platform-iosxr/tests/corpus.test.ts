@@ -37,6 +37,9 @@ export const CASES: readonly (readonly [area: string, path: string])[] = [
   ['policy', 'policy/batfish__route-policy-done.cfg'],
   ['policy', 'policy/batfish__prefix-set.cfg'],
   ['policy', 'policy/batfish__community-set.cfg'],
+  // Access lists (#88): one per family with interfaces applying them, and IPv6 lists with ICMPv6 types.
+  ['filters', 'filters/batfish__interface-acl.cfg'],
+  ['filters', 'filters/batfish__xr-ipv6-access-list.cfg'],
   ['ospf', 'ospf/batfish__unit-tests_ios_xr_ospf.cfg'],
   ['ospf', 'ospf/batfish__ospf-interface.cfg'],
   ['bgp', 'bgp/batfish__xr-bgp.cfg'],
@@ -46,8 +49,8 @@ export const CASES: readonly (readonly [area: string, path: string])[] = [
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
 
 describe('corpus files with an expected model', () => {
-  it('cover every phase 1 area, route policies, OSPF and BGP', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'policy', 'ospf', 'bgp']))
+  it('cover every phase 1 area, route policies, OSPF and BGP, and filters', () => {
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'policy', 'ospf', 'bgp', 'filters']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {
