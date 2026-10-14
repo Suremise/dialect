@@ -1195,6 +1195,33 @@ describe('routing policy (model 0.5.0)', () => {
   })
 })
 
+describe('a VRF\'s import and export maps (model 0.5.2)', () => {
+  const at = (result: ReturnType<typeof parse>, text: string, nth = 0) => result.dispositions[statementsOf(result.tree).filter((n) => (n as IosNode).text === text)[nth].id]
+  const lines = (...l: string[]) => l.join('\n')
+  const vrf = (...families: string[][]) => lines('vrf definition V', ' rd 65000:1', ...families.flatMap(([family, ...inside]) => [` address-family ${family}`, '  route-target both 65000:1', ...inside.map((s) => `  ${s}`)]))
+
+  it('keeps a map that every family names and that resolves, after the route targets, and a VRF-wide one the families override is unused', () => {
+    const text = lines('vrf definition V', ' rd 65000:1', ' import map OLD', ' address-family ipv4', '  route-target both 65000:1', '  import map IN', ' address-family ipv6', '  route-target both 65000:1', '  import map IN', 'route-map IN permit 10', 'route-map OLD permit 10')
+    const result = parse(text)
+    expect(result.model.networkInstances?.V).toMatchObject({ routeTargets: { import: ['65000:1'], export: ['65000:1'] }, importPolicies: ['IN'], vrfPolicyMode: 'after-route-targets' })
+    expect(at(result, 'import map OLD')).toEqual({ kind: 'ignored-by-design', reason: 'overridden by the address families\' own maps' })
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('leaves the route targets out with a map that differs between families or doesn\'t resolve, as it changes what they import', () => {
+    const differ = parse(lines(vrf(['ipv4', 'import map A'], ['ipv6', 'import map B']), 'route-map A permit 10', 'route-map B permit 10'))
+    expect(differ.model.networkInstances?.V).toEqual({ type: 'vrf', routeDistinguisher: '65000:1' })
+    expect(at(differ, 'import map A')).toEqual({ kind: 'unsupported', reason: 'maps that differ between the address families: the model holds one each way for the VRF' })
+    const undefinedMap = parse(vrf(['ipv4', 'export map NOPE']))
+    expect(undefinedMap.model.networkInstances?.V?.routeTargets).toBeUndefined()
+    expect(at(undefinedMap, 'export map NOPE')).toEqual({ kind: 'unsupported', reason: 'names a route map the configuration doesn\'t define' })
+    // And the other way: a map goes with route targets left out for another reason.
+    const other = parse(lines(vrf(['ipv4', 'import map A', 'maximum routes 100 80']), 'route-map A permit 10'))
+    expect(other.model.networkInstances?.V?.importPolicies).toBeUndefined()
+    expect(at(other, 'import map A')).toMatchObject({ kind: 'unsupported' })
+  })
+})
+
 describe('access lists (model 0.5.1)', () => {
   const at = (result: ReturnType<typeof parse>, text: string) => result.dispositions[statementsOf(result.tree).find((n) => (n as IosNode).text === text)!.id]
   const lines = (...l: string[]) => l.join('\n')

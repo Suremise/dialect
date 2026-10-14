@@ -22,6 +22,9 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS / IOS-XE and NX-OS VRF import and export maps convert** with the VRF's route targets, as the policies
+  they name. A Cisco map filters what the route targets import or export, where Junos `vrf-import` and `vrf-export`
+  replace them: converting a Junos VRF policy to IOS-XE or NX-OS warns.
 - **Cisco IOS / IOS-XE and NX-OS access lists convert,** IPv4 and IPv6, with the interfaces that apply them: protocols,
   addresses, ports (eq, neq, gt, lt, range), ICMP types, established and TCP flags, fragments, DSCP and log, and each
   entry's remarks as its description. A non-contiguous wildcard is never approximated: its entry is listed as not

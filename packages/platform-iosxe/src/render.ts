@@ -115,6 +115,9 @@ export function render(model: Device, context: Context): RenderResult {
     if (vlan.description !== undefined) skip([...at, 'description'], 'unsupported', 'IOS VLANs have a name but no description')
   }
 
+  // Routing policy is planned first, as a VRF and BGP name a route map only when its policy is written (renderPolicy.ts).
+  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
+
   // ---- VRF definitions: before the interfaces in them
 
   const instances = Object.entries(model.networkInstances ?? {})
@@ -124,7 +127,7 @@ export function render(model: Device, context: Context): RenderResult {
   function familiesOf(name: string, instance: NetworkInstance): ('ipv4' | 'ipv6')[] {
     const subs = Object.values(model.interfaces ?? {}).flatMap((i) => Object.values(i.subinterfaces ?? {})).filter((s) => s.networkInstance === name)
     const prefixes = Object.keys(instance.staticRoutes ?? {})
-    const v4 = subs.some((s) => s.ipv4 !== undefined) || prefixes.some((p) => !p.includes(':')) || instance.routeDistinguisher !== undefined || instance.routeTargets !== undefined
+    const v4 = subs.some((s) => s.ipv4 !== undefined) || prefixes.some((p) => !p.includes(':')) || instance.routeDistinguisher !== undefined || instance.routeTargets !== undefined || instance.importPolicies !== undefined || instance.exportPolicies !== undefined
     const v6 = subs.some((s) => s.ipv6 !== undefined) || prefixes.some((p) => p.includes(':'))
     return [...(v4 ? ['ipv4' as const] : []), ...(v6 ? ['ipv6' as const] : [])]
   }
@@ -141,11 +144,36 @@ export function render(model: Device, context: Context): RenderResult {
       else skip([...at, 'routeDistinguisher'], 'unsupported', 'not a route distinguisher in the form ASN:nn, IP:nn or ASN4:nn')
     }
     if (instance.routeTargets !== undefined) renderRouteTargets(instance.routeTargets, [...at, 'routeTargets'])
-    for (const family of familiesOf(name, instance)) {
+    const maps = vrfMaps(instance, at)
+    for (const [i, family] of familiesOf(name, instance).entries()) {
       emit(' !')
       emit(` address-family ${family}`)
+      // The VRF's own maps (model 0.5.2), the same in each family: rendered on the first.
+      for (const m of maps) emit(`  ${m.direction} map ${m.name}`, ...(i === 0 ? [m.field] : []))
       emit(' exit-address-family')
     }
+  }
+
+  /**
+   * A VRF's own import and export policies (model 0.5.2) as IOS's maps, one each way, of a route map written. IOS's
+   * map filters after the route targets: a source whose policy replaces them (Junos) gets a semantic warning.
+   */
+  function vrfMaps(instance: NetworkInstance, at: Segments): { direction: 'import' | 'export'; name: string; field: Segments }[] {
+    const out: { direction: 'import' | 'export'; name: string; field: Segments }[] = []
+    for (const [direction, leaf] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const) {
+      const list = instance[leaf]
+      if (list === undefined) continue
+      const field = [...at, leaf]
+      if (!list.length) skip(field, 'not-applicable', 'no policy: nothing to write')
+      else if (list.length > 1) skip(field, 'unsupported', 'IOS applies one map a direction: a chain of policies isn\'t written')
+      else if (!policyPlan.policies.has(list[0])) skip(field, 'unsupported', 'names a policy IOS can\'t write as a route map')
+      else out.push({ direction, name: list[0], field })
+    }
+    if (instance.vrfPolicyMode !== undefined) {
+      skip([...at, 'vrfPolicyMode'], 'not-applicable', 'an IOS map filters what the route targets import or export')
+      if (instance.vrfPolicyMode === 'replaces-route-targets' && out.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.vrf-policy-mode', message: 'The source\'s VRF policy replaces the route targets (its own import and export), where an IOS map filters what the route targets import and export: check the route targets take in and send out what the policy did.', field: fieldPath(...at) })
+    }
+    return out
   }
 
   /** A VRF's route targets, VRF-wide (the model's are the VRF's, for every family). Each list is one field, on its first line. */
@@ -314,8 +342,6 @@ export function render(model: Device, context: Context): RenderResult {
     // router-id, then the areas, the network statements and the passive interfaces (a stable sort keeps each in order).
     for (const l of [...block.lines].sort((a, b) => (a.group ?? 0) - (b.group ?? 0))) emit(l.text, ...l.fields)
   }
-  // Routing policy is planned first, as BGP writes a route map only when its policy is written (renderPolicy.ts).
-  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
   renderBgp()
   if (policyPlan.lines.length) separator()
   for (const l of policyPlan.lines) {
@@ -507,6 +533,7 @@ export function render(model: Device, context: Context): RenderResult {
       if (isEmpty(instance)) skip(at, 'not-applicable', 'the global routing table, with nothing in it')
       if (instance.routeDistinguisher !== undefined) skip([...at, 'routeDistinguisher'], 'unsupported', 'the global routing table has no route distinguisher')
       if (instance.routeTargets !== undefined) skipAll(instance.routeTargets, [...at, 'routeTargets'], 'the global routing table has no route targets')
+      for (const leaf of ['importPolicies', 'exportPolicies', 'vrfPolicyMode'] as const) if (instance[leaf] !== undefined) skip([...at, leaf], 'unsupported', 'the global routing table has no VRF import or export map')
     }
     emptyContainer(instance.staticRoutes, [...at, 'staticRoutes'])
     for (const [prefix, route] of Object.entries(instance.staticRoutes ?? {})) renderRoute(isDefault ? '' : `vrf ${name} `, prefix, route, [...at, 'staticRoutes', prefix])

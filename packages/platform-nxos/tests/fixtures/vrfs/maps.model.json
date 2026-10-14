@@ -1,0 +1,76 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "leaf-5"
+    },
+    "networkInstances": {
+      "CUST": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:10",
+        "vrfPolicyMode": "after-route-targets",
+        "importPolicies": [
+          "CUST-IN"
+        ],
+        "exportPolicies": [
+          "CUST-OUT"
+        ],
+        "routeTargets": {
+          "import": [
+            "65000:10"
+          ],
+          "export": [
+            "65000:10"
+          ]
+        }
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "CUST-NETS": {
+            "entries": {
+              "5": {
+                "action": "permit",
+                "prefix": "192.0.2.0/24",
+                "minLength": 24,
+                "maxLength": 32,
+                "form": "le"
+              }
+            }
+          }
+        }
+      },
+      "policies": {
+        "CUST-IN": {
+          "terms": {
+            "10": {
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "CUST-NETS"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "CUST-OUT": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "localPreference": 200
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}

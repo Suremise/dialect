@@ -180,6 +180,8 @@ export function render(model: Device, context: Context): RenderResult {
 
   // ---- VRFs and static routes
 
+  // Routing policy is planned first, as a VRF and BGP name a route map only when its policy is written (renderPolicy.ts).
+  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
   const instances = Object.entries(model.networkInstances ?? {})
   emptyContainer(model.networkInstances, ['networkInstances'])
   // The global table first, then each VRF with its routes inside `vrf context`.
@@ -204,13 +206,14 @@ export function render(model: Device, context: Context): RenderResult {
     if (isDefault) {
       if (instance.routeDistinguisher !== undefined) skip([...at, 'routeDistinguisher'], 'unsupported', 'the global routing table has no route distinguisher')
       if (instance.routeTargets !== undefined) skipAll(instance.routeTargets, [...at, 'routeTargets'], 'the global routing table has no route targets')
+      for (const leaf of ['importPolicies', 'exportPolicies', 'vrfPolicyMode'] as const) if (instance[leaf] !== undefined) skip([...at, leaf], 'unsupported', 'the global routing table has no VRF import or export map')
     } else if (instance.routeDistinguisher !== undefined) {
       if (isRouteDistinguisher(instance.routeDistinguisher)) emit(`  rd ${instance.routeDistinguisher}`, [...at, 'routeDistinguisher'])
       else skip([...at, 'routeDistinguisher'], 'unsupported', 'not a route distinguisher in the form ASN:nn, IP:nn or ASN4:nn')
     }
     emptyContainer(instance.staticRoutes, [...at, 'staticRoutes'])
     for (const [prefix, route] of Object.entries(instance.staticRoutes ?? {})) renderRoute(indent, prefix, route, [...at, 'staticRoutes', prefix])
-    if (!isDefault && instance.routeTargets !== undefined) renderRouteTargets(instance.routeTargets, [...at, 'routeTargets'])
+    if (!isDefault) renderVrfFamilies(instance, at)
   }
 
   /** Whether a VRF's route distinguisher or route targets are written: they need `feature bgp`. */
@@ -220,23 +223,43 @@ export function render(model: Device, context: Context): RenderResult {
   }
 
   /**
-   * A VRF's route targets: NX-OS sets them per address family, and the model's are the VRF's, so they go under both
-   * IPv4 and IPv6 unicast. Each list is one field (a leaf-list), marked on its first line.
+   * A VRF's route targets and its own maps (model 0.5.2): NX-OS sets them per address family, and the model's are the
+   * VRF's, so they go under both IPv4 and IPv6 unicast. Each list is one field (a leaf-list), marked on its first line.
+   * NX-OS's map filters after the route targets: a source whose policy replaces them (Junos) gets a semantic warning.
    */
-  function renderRouteTargets(targets: RouteTargets, at: Segments) {
-    emptyContainer(targets, at)
+  function renderVrfFamilies(instance: NetworkInstance, vrf: Segments) {
+    const at = [...vrf, 'routeTargets']
+    const targets = instance.routeTargets
     const lists: [direction: 'import' | 'export', values: readonly string[]][] = []
-    for (const direction of ['import', 'export'] as const) {
-      const values = targets[direction]
-      if (values === undefined) continue
-      if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
-      else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
-      else lists.push([direction, values])
+    if (targets !== undefined) {
+      emptyContainer(targets, at)
+      for (const direction of ['import', 'export'] as const) {
+        const values = targets[direction]
+        if (values === undefined) continue
+        if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
+        else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
+        else lists.push([direction, values])
+      }
     }
-    if (!lists.length) return
+    const maps: { direction: 'import' | 'export'; name: string; field: Segments }[] = []
+    for (const [direction, leaf] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const) {
+      const list = instance[leaf]
+      if (list === undefined) continue
+      const field = [...vrf, leaf]
+      if (!list.length) skip(field, 'not-applicable', 'no policy: nothing to write')
+      else if (list.length > 1) skip(field, 'unsupported', 'NX-OS applies one map a direction: a chain of policies isn\'t written')
+      else if (!policyPlan.policies.has(list[0])) skip(field, 'unsupported', 'names a policy NX-OS can\'t write as a route map')
+      else maps.push({ direction, name: list[0], field })
+    }
+    if (instance.vrfPolicyMode !== undefined) {
+      skip([...vrf, 'vrfPolicyMode'], 'not-applicable', 'an NX-OS map filters what the route targets import or export')
+      if (instance.vrfPolicyMode === 'replaces-route-targets' && maps.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.vrf-policy-mode', message: 'The source\'s VRF policy replaces the route targets (its own import and export), where an NX-OS map filters what the route targets import and export: check the route targets take in and send out what the policy did.', field: fieldPath(...vrf) })
+    }
+    if (!lists.length && !maps.length) return
     for (const family of ['ipv4', 'ipv6']) {
       emit(`  address-family ${family} unicast`)
       for (const [direction, values] of lists) values.forEach((v, i) => emit(`    route-target ${direction} ${v}`, ...(family === 'ipv4' && i === 0 ? [[...at, direction]] : [])))
+      for (const m of maps) emit(`    ${m.direction} map ${m.name}`, ...(family === 'ipv4' ? [m.field] : []))
     }
   }
 
@@ -814,8 +837,6 @@ export function render(model: Device, context: Context): RenderResult {
     }
   }
 
-  // Routing policy is planned first, as BGP writes a route map only when its policy is written (renderPolicy.ts).
-  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
   renderOspfProcesses()
   renderBgp()
   if (policyPlan.lines.length) separator()

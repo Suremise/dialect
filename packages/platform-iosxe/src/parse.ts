@@ -726,12 +726,14 @@ export function parse(text: string, _context: Context): ParseResult {
    * them not converted, so removing a family takes its own with it. The route targets are a whole, so one left out in a
    * scope still there leaves them all out.
    */
-  type Scope = { unconverted?: IosNode }
+  /** A VRF's `import map NAME` or `export map NAME` (model 0.5.2), in a scope: a later one each way replaces the earlier. */
+  type VrfMap = { readonly node: IosNode; readonly name: string; readonly direction: 'import' | 'export' }
+  type Scope = { unconverted?: IosNode; readonly maps: Map<'import' | 'export', VrfMap> }
   type Family = Scope & { readonly statements: IosNode[]; readonly targets: RouteTarget[] }
   type VrfState = Scope & { readonly definitions: IosNode[]; readonly common: RouteTarget[]; readonly families: Map<'ipv4' | 'ipv6', Family> }
   const vrfs = new Map<string, VrfState>()
   const vrfState = (instance: string): VrfState => {
-    const state = vrfs.get(instance) ?? { definitions: [], common: [], families: new Map() }
+    const state = vrfs.get(instance) ?? { definitions: [], common: [], families: new Map(), maps: new Map() }
     vrfs.set(instance, state)
     return state
   }
@@ -762,6 +764,30 @@ export function parse(text: string, _context: Context): ParseResult {
     set(node, ignored(removed.length ? `removes the route target on ${linesText(removed.map((t) => line(t.node)))}: nothing to convert` : 'no such route target: nothing to convert'))
   }
 
+  /** Whether a statement is `[no] import|export map [NAME]`. */
+  const isVrfMap = (node: IosNode): boolean => {
+    const lw = node.words.map((x) => x.toLowerCase())
+    const remove = lw[0] === 'no'
+    return (lw[remove ? 1 : 0] === 'import' || lw[remove ? 1 : 0] === 'export') && lw[remove ? 2 : 1] === 'map' && (remove ? lw.length <= 4 : lw.length === 3)
+  }
+  /** `[no] import|export map [NAME]` (isVrfMap()), VRF-wide or in an address family: the scope's map that way. */
+  const mapVrfMap = (node: IosNode, scope: Scope): StatementDisposition => {
+    const w = node.words
+    const lw = w.map((x) => x.toLowerCase())
+    const remove = lw[0] === 'no'
+    const direction = lw[remove ? 1 : 0] as 'import' | 'export'
+    const previous = scope.maps.get(direction)
+    if (remove) {
+      if (!previous || (w.length === 4 && w[3] !== previous.name)) return ignored('no such map: nothing to convert')
+      scope.maps.delete(direction)
+      set(previous.node, ignored(`removed by line ${line(node)}`))
+      return ignored(`removes the map on line ${line(previous.node)}: nothing to convert`)
+    }
+    if (previous) set(previous.node, ignored(`superseded by line ${line(node)}`))
+    scope.maps.set(direction, { node, name: w[2], direction })
+    return mapped([])
+  }
+
   /**
    * `vrf definition V` (and the older `ip vrf V`): the VRF, its route distinguisher and route targets, VRF-wide or in
    * `address-family ipv4|ipv6`. IOS sets route targets per address family; the model holds one set for the VRF, so they
@@ -790,9 +816,10 @@ export function parse(text: string, _context: Context): ParseResult {
         if (previous) set(previous, ignored(`removed by line ${line(child)}`))
         set(child, ignored(previous ? `removes the route distinguisher on line ${line(previous)}: nothing to convert` : 'no route distinguisher to remove: nothing to convert'))
       } else if (leaf && (lw[0] === 'route-target' || (lw[0] === 'no' && lw[1] === 'route-target'))) mapRouteTarget(child, state, state.common)
+      else if (leaf && isVrfMap(child)) set(child, mapVrfMap(child, state))
       else if (!legacy && leaf && lw[0] === 'no' && lw[1] === 'address-family' && (lw[2] === 'ipv4' || lw[2] === 'ipv6') && (cw.length === 3 || (cw.length === 4 && lw[3] === 'unicast'))) set(child, removeFamily(child, instance, lw[2]))
       else if (!legacy && child.kind === 'statement' && lw[0] === 'address-family' && (lw[1] === 'ipv4' || lw[1] === 'ipv6') && (cw.length === 2 || (cw.length === 3 && lw[2] === 'unicast'))) {
-        const family = state.families.get(lw[1]) ?? { statements: [], targets: [] }
+        const family: Family = state.families.get(lw[1]) ?? { statements: [], targets: [], maps: new Map() }
         state.families.set(lw[1], family)
         family.statements.push(child)
         const targets = family.targets
@@ -802,6 +829,7 @@ export function parse(text: string, _context: Context): ParseResult {
           if (c.kind === 'comment') set(c, ignored('a comment'))
           else if (c.kind === 'statement' && !c.children.length && (clw[0] === 'route-target' || (clw[0] === 'no' && clw[1] === 'route-target'))) mapRouteTarget(c, family, targets)
           else if (c.kind === 'statement' && !c.children.length && clw[0] === 'exit-address-family' && c.words.length === 1) set(c, ignored('ends the address family'))
+          else if (c.kind === 'statement' && !c.children.length && isVrfMap(c)) set(c, mapVrfMap(c, family))
           else {
             // An import or export map, a route limit: it may change what the route targets do.
             unsupportedTree(c)
@@ -1596,12 +1624,60 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const n of state.nodes) if (dispositions[n.id]?.kind === 'mapped') set(n, unsupported(`left out whole: line ${line(state.unconverted)} about the same community isn't converted, and may limit or change it`))
   }
 
+  // A VRF's own import and export maps (model 0.5.2): one each way in the model, so every address family's (its own, or
+  // else the VRF-wide one) must name the same, and a route map that is converted. IOS's map filters after the route
+  // targets (`after-route-targets`). One that can't be kept changes what the route targets import or export, so they are
+  // left out with it (below), as before model 0.5.2; and the maps go with the route targets when those are left out.
+  const vrfMaps = new Map<string, { readonly maps: VrfMap[]; readonly chosen: Partial<Record<'import' | 'export', string>> }>()
+  for (const [instance, state] of vrfs) {
+    const maps = [...state.maps.values(), ...[...state.families.values()].flatMap((f) => [...f.maps.values()])]
+    if (!maps.length || model.get(['networkInstances', instance]) === undefined) continue
+    const families = [...state.families.values()]
+    const chosen: Partial<Record<'import' | 'export', string>> = {}
+    let why: string | undefined
+    for (const direction of ['import', 'export'] as const) {
+      const names = families.length ? families.map((f) => (f.maps.get(direction) ?? state.maps.get(direction))?.name) : [state.maps.get(direction)?.name]
+      if (new Set(names).size > 1) why ??= 'maps that differ between the address families: the model holds one each way for the VRF'
+      else if (names[0] !== undefined) chosen[direction] = names[0]
+    }
+    for (const name of Object.values(chosen)) if (!why && !(routingPolicy?.policies && Object.hasOwn(routingPolicy.policies, name))) why = policy.definesRouteMap(name) ? 'names a route map that isn\'t converted' : 'names a route map the configuration doesn\'t define'
+    if (why) {
+      for (const m of maps) set(m.node, unsupported(why))
+      state.unconverted ??= maps.map((m) => m.node).sort((a, b) => line(a) - line(b))[0]
+      continue
+    }
+    vrfMaps.set(instance, { maps, chosen })
+  }
+  /** Each VRF's maps that can be kept, put in the model once its route targets are (they go together). */
+  const keepVrfMaps = (instance: string, state: VrfState, leftOut?: string) => {
+    const kept = vrfMaps.get(instance)
+    if (!kept) return
+    if (leftOut) {
+      for (const m of kept.maps) set(m.node, unsupported(`left out with the VRF's route targets: ${leftOut}`))
+      return
+    }
+    const at = ['networkInstances', instance]
+    const mode = model.set([...at, 'vrfPolicyMode'], 'after-route-targets')
+    const fields: Partial<Record<'import' | 'export', string>> = {}
+    for (const direction of ['import', 'export'] as const) if (kept.chosen[direction] !== undefined) fields[direction] = model.set([...at, direction === 'import' ? 'importPolicies' : 'exportPolicies'], [kept.chosen[direction]])
+    const families = [...state.families.values()]
+    for (const m of kept.maps) {
+      // A VRF-wide map every family overrides with its own isn't used.
+      const overridden = families.length > 0 && state.maps.get(m.direction) === m && families.every((f) => f.maps.has(m.direction))
+      set(m.node, overridden ? ignored('overridden by the address families\' own maps') : mapped([fields[m.direction]!, mode]))
+    }
+  }
+
   // A VRF's route targets: one set in the model, so every address family's (each with the VRF-wide ones) must agree as
   // sets (a family with none disagrees with one with some), and none may be left out.
   for (const [instance, state] of vrfs) {
     const own = [...state.families.values()].map((f) => f.targets)
     const all = [...state.common, ...own.flat()]
-    if (!all.length || model.get(['networkInstances', instance]) === undefined) continue
+    if (model.get(['networkInstances', instance]) === undefined) continue
+    if (!all.length) {
+      keepVrfMaps(instance, state)
+      continue
+    }
     // IOS's inheritance: a family with route targets of its own uses only those; one with none uses the VRF-wide ones.
     const families = own.length ? own.map((targets) => (targets.length ? targets : state.common)) : [state.common]
     const inherited = !own.length || own.some((targets) => !targets.length)
@@ -1624,8 +1700,10 @@ export function parse(text: string, _context: Context): ParseResult {
           ? 'an address family overrides the VRF-wide route targets in one direction only, and what it keeps of the other isn\'t certain'
           : 'route targets that differ between IPv4 and IPv6: the model holds one set for the VRF'
       for (const t of all) set(t.node, unsupported(why))
+      keepVrfMaps(instance, state, why.replace(/^left out whole: /, ''))
       continue
     }
+    keepVrfMaps(instance, state)
     const at = ['networkInstances', instance, 'routeTargets']
     for (const direction of ['import', 'export'] as const) if (lists[0][direction].length) model.set([...at, direction], lists[0][direction])
     for (const t of own.flat()) set(t.node, mapped(t.directions.map((d) => fieldPath(...at, d))))

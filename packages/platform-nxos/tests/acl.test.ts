@@ -1,6 +1,6 @@
 // Access lists (model 0.5.1) beyond their fixture: NX-OS's numbering (remarks take sequence numbers too), port access
 // lists on switch ports, what is left out whole and why (the per-term rule), names as own keys, and rendering filters
-// NX-OS can't write.
+// NX-OS can't write; and a VRF's import and export maps (model 0.5.2), which go with its route targets.
 import { describe, expect, it } from 'vitest'
 import { checkFixture } from '@dialect/conformance'
 import { buildLedger, MODEL_VERSION, type Device, type ParseResult } from '@dialect/core'
@@ -92,5 +92,26 @@ describe('access lists (model 0.5.1)', () => {
     const result = render(model)
     expect(result.text).toBe('\n')
     expect(result.dispositions['filters.ipv4.TIGHT.terms["2"].description']).toEqual({ kind: 'unsupported', reason: 'left out whole: term 2 can\'t be written (a description with no sequence number free before the entry for its remark), and leaving it out would change what the terms after it see' })
+  })
+})
+
+describe('a VRF\'s import and export maps (model 0.5.2)', () => {
+  const vrf = (...families: string[][]) => lines('vrf context V', '  rd 65000:1', ...families.flatMap(([family, ...inside]) => [`  address-family ${family} unicast`, '    route-target both 65000:1', ...inside.map((s) => `    ${s}`)]))
+
+  it('keeps a map every family names that resolves, filtering after the route targets', () => {
+    const text = lines(vrf(['ipv4', 'import map IN'], ['ipv6', 'import map IN']), 'route-map IN permit 10')
+    expect(parse(text).model.networkInstances?.V).toMatchObject({ importPolicies: ['IN'], vrfPolicyMode: 'after-route-targets', routeTargets: { import: ['65000:1'], export: ['65000:1'] } })
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('leaves the route targets out with a map that differs between families or doesn\'t resolve, and with a leak to another VRF', () => {
+    const differ = parse(lines(vrf(['ipv4', 'import map A'], ['ipv6', 'import map B']), 'route-map A permit 10', 'route-map B permit 10'))
+    expect(differ.model.networkInstances?.V).toEqual({ type: 'vrf', routeDistinguisher: '65000:1' })
+    expect(at(differ, 5)).toEqual({ kind: 'unsupported', reason: 'maps that differ between the address families: the model holds one each way for the VRF' })
+    const undefinedMap = parse(vrf(['ipv4', 'export map NOPE']))
+    expect(undefinedMap.model.networkInstances?.V?.routeTargets).toBeUndefined()
+    const leak = parse(lines(vrf(['ipv4', 'import map A', 'import vrf default map A']), 'route-map A permit 10'))
+    expect(leak.model.networkInstances?.V?.routeTargets).toBeUndefined()
+    expect(leak.model.networkInstances?.V?.importPolicies).toBeUndefined()
   })
 })
