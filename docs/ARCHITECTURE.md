@@ -842,7 +842,10 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's
     (dynamic peers), `template peer-session|peer-policy` and other families are `unsupported`. `no neighbor`, `no
     template peer`, `no address-family`, each setting's `no` form and `no router bgp ASN` remove what they name. Once
     every statement is read, BGP in a VRF the text doesn't define, an update source that names no interface and a
-    template a neighbor's VRF doesn't have (a VRF neighbor inheriting a global template, for now) are `unsupported`.
+    template that is neither the neighbor's VRF's nor the global table's are `unsupported`. **A VRF neighbor
+    inheriting a global template (#71)** gives the VRF a copy of it (`copyGroup()`: NX-OS's templates are the
+    process's, the model's groups per network instance), made after the checks, so with what they left out, and mapped
+    by the statements that configure the global template, each of which then maps both paths.
   - **eBGP default policy (model 0.4.1, #69):** NX-OS takes and sends an eBGP peer's routes with no route map (no
     RFC 8212). For each network instance with an eBGP neighbor that has no route map one way in a family it carries
     (each family by its effective policy: the family's own, else the neighbor's, else the template's family's, else the
@@ -899,8 +902,12 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's
     or a second area for one interface, is `unsupported`. One the source enabled with `network` statements raises the
     warning `nxos.ospf-enabled-per-interface`: a later interface in the range doesn't join by itself.
   - **BGP:** `router bgp` with the local AS (a VRF's own other AS is `unsupported`), `router-id`, the global address
-    family for each family a peer carries, groups as `template peer` (a VRF's groups are `unsupported`: NX-OS's
-    templates are the process's) and neighbors, then each VRF as `vrf V`. A Junos `internal` group writes
+    family for each family a peer carries, groups as `template peer` and neighbors, then each VRF as `vrf V`. **A
+    VRF's group (#71)** is written with the global template of its name when it is the same (`planGroups()`, compared
+    as canonical JSON), or, with no global one, as one template for every VRF whose group of that name is the same,
+    written in the global table; either way only when a neighbor of the VRF inherits it, and its fields take the
+    template's dispositions (`renderGroups()`). Any other VRF group (one that differs, or that nothing inherits) is
+    `unsupported`, and so is a neighbor's `group` naming it. A Junos `internal` group writes
     `remote-as` with the local AS; `localAddress` and multihop with no TTL are `unsupported`. Route maps go per family,
     one each way: a policy for the whole peer goes into each family it carries (its template's too) unless the family
     has its own, and a chain of policies is `unsupported`; a policy of the model is named only when it is written.
@@ -1026,7 +1033,9 @@ policy, 0.5.0's routing policy, 0.5.1's filters and 0.5.2's VRF policies), with 
     what is inside it, other families, `af-group`, `session-group` and `use` of them, and neighbor ranges are
     `unsupported`. `no neighbor`, `no neighbor-group`, `no address-family`, each setting's `no` form, `no vrf V` under
     it and `no router bgp ASN` remove what they name. Once every statement is read, BGP in a VRF the text doesn't
-    define, an update source that names no interface and a group a neighbor's VRF doesn't have are `unsupported`.
+    define, an update source that names no interface and a group that is neither the neighbor's VRF's nor the global
+    table's are `unsupported`. **A VRF neighbor using a global neighbor group (#71)** gives the VRF a copy of it
+    (`copyGroup()`, as NX-OS's: IOS-XR's groups are the whole `router bgp`'s), mapped by the global group's statements.
   - **RFC 8212 (model 0.4.1):** IOS-XR drops an eBGP peer's routes, both ways, with no policy. For each network
     instance with an eBGP neighbor (its peer AS, or its group's, isn't the local AS) that has no policy one way in a
     family it carries (its own families and its group's, each by its effective policy: the family's own, else the
@@ -1106,8 +1115,8 @@ policy, 0.5.0's routing policy, 0.5.1's filters and 0.5.2's VRF policies), with 
     with `network` statements raises the warning `iosxr.ospf-enabled-per-interface`.
   - **BGP:** `router bgp` with the local AS (a VRF's own other AS is `unsupported`; with no local AS, BGP and route
     distinguishers are `unsupported`), `bgp router-id`, the global address family for each family a peer carries,
-    groups as `neighbor-group` (a VRF's are `unsupported`: IOS-XR's belong to the whole `router bgp`) and neighbors,
-    then each VRF as `vrf V` with its `rd`. A Junos `internal` group writes `remote-as` with the local AS;
+    groups as `neighbor-group` and neighbors, then each VRF as `vrf V` with its `rd`. A VRF's group is written once
+    with the global one, as NX-OS's (#71, `planGroups()`), else `unsupported`. A Junos `internal` group writes `remote-as` with the local AS;
     `localAddress` is `unsupported`. Route policies go per family, one each way: a policy for the whole peer goes into
     each family it carries (its group's too) unless the family has its own, and a chain of policies is `unsupported`.
     A route policy is named when the model's policy of that name is written; one the model has but IOS-XR can't write

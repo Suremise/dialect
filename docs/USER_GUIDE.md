@@ -205,7 +205,10 @@ platform's. Keys (OSPF and BGP authentication) are never carried over: Dialect a
 switch ports (access and trunk), VLAN interfaces, OSPF and BGP; an OSPF key or a BGP password is never carried, so
 converting to NX-OS asks for it. Cisco IOS-XR also converts OSPF and BGP; converting to IOS-XR asks for an OSPF key or
 a BGP password the same way, and for a route policy for each eBGP neighbor that has none, since IOS-XR exchanges no
-routes with it without one.
+routes with it without one. On both, a VRF's BGP neighbor that inherits a global peer template (NX-OS `inherit peer`)
+or neighbor group (IOS-XR `use neighbor-group`) converts with it. Converting to NX-OS or IOS-XR writes a VRF's group
+as one template for the whole `router bgp` when it is the same as the global group of its name (or, with none, as
+every other VRF's group of that name), and lists one that differs, or that no neighbor of its VRF uses.
 
 Cisco IOS-XR also converts routing policy in RPL's simple forms: prefix sets, community sets (communities and
 `ios-regex`), AS-path sets (`ios-regex`), and route policies made of flat `if … then … endif` blocks (with an `else`)

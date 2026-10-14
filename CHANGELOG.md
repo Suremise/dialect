@@ -22,6 +22,10 @@
   keyboard focus shows.
 
 ### Convert
+- **A VRF's BGP neighbor can inherit a global template on NX-OS and IOS-XR:** `inherit peer T` and `use
+  neighbor-group G` in a VRF now convert with the template's settings, where they were listed as not converted.
+  Converting to NX-OS or IOS-XR writes a VRF's group once as the global template when it is the same as the global one
+  (or every other VRF's), and lists one that differs.
 - **Cisco IOS-XR access lists convert:** `ipv4` and `ipv6 access-list` entries (addresses, contiguous wildcards,
   protocols, ports, ICMP types, `established`, `fragments`, `dscp`, `log`, `counter`) and the interfaces' `access-group`
   attachments. An entry that can't be converted leaves its whole access list out unless it is the last, and a

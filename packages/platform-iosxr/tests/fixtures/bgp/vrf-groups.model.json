@@ -1,0 +1,118 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "pe2"
+    },
+    "networkInstances": {
+      "RED": {
+        "type": "vrf",
+        "bgp": {
+          "localAs": 65000,
+          "neighbors": {
+            "203.0.113.2": {
+              "group": "CE",
+              "description": "red-ce"
+            }
+          },
+          "groups": {
+            "CE": {
+              "peerAs": 64600,
+              "description": "customer-edge",
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "CE-IN"
+                  ],
+                  "exportPolicies": [
+                    "CE-OUT"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "routeDistinguisher": "65000:1"
+      },
+      "BLUE": {
+        "type": "vrf",
+        "bgp": {
+          "localAs": 65000,
+          "neighbors": {
+            "203.0.113.6": {
+              "group": "CE"
+            }
+          },
+          "groups": {
+            "CE": {
+              "peerAs": 64600,
+              "description": "customer-edge",
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "CE-IN"
+                  ],
+                  "exportPolicies": [
+                    "CE-OUT"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "routeDistinguisher": "65000:2"
+      },
+      "default": {
+        "bgp": {
+          "localAs": 65000,
+          "routerId": "192.0.2.1",
+          "groups": {
+            "CE": {
+              "peerAs": 64600,
+              "description": "customer-edge",
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "CE-IN"
+                  ],
+                  "exportPolicies": [
+                    "CE-OUT"
+                  ]
+                }
+              }
+            }
+          },
+          "neighbors": {
+            "198.51.100.1": {
+              "group": "CE"
+            }
+          }
+        }
+      }
+    },
+    "routingPolicy": {
+      "policies": {
+        "CE-IN": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "CE-OUT": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}

@@ -1538,10 +1538,14 @@ export function parse(text: string, _context: Context): ParseResult {
 
   /**
    * BGP's references, once every statement is read: a VRF's BGP needs the VRF defined, an update source an interface of
-   * the model, and a neighbor's template one of its instance's. What doesn't resolve is left out.
+   * the model, and a neighbor's template one of its instance's, or, for a VRF neighbor, one of the whole process's,
+   * which the VRF gets a copy of (copyGroup()). What doesn't resolve is left out.
    */
   const checkBgp = () => {
     for (const instance of bgpStatements.keys()) if (!instanceDefined(instance)) dropBgp(instance, unsupported('BGP in a VRF the configuration doesn\'t define'))
+    const global = model.get([...bgpPath('default'), 'groups'])
+    const globalGroups = isObject(global) ? global : {}
+    const copies: [instance: string, name: string][] = []
     for (const [instance, ni] of Object.entries((model.get(['networkInstances']) as Obj | undefined) ?? {})) {
       const bgp = isObject(ni) && isObject(ni.bgp) ? ni.bgp : undefined
       if (!bgp) continue
@@ -1557,7 +1561,10 @@ export function parse(text: string, _context: Context): ParseResult {
             model.remove([...where, field])
           }
           if (typeof peer.updateSource === 'string' && !interfaceResolves(peer.updateSource)) drop('updateSource', 'names an interface the configuration doesn\'t define')
-          if (typeof peer.group === 'string' && !Object.hasOwn(groups, peer.group)) drop('group', 'names a peer template the configuration doesn\'t define')
+          if (typeof peer.group === 'string' && !Object.hasOwn(groups, peer.group)) {
+            if (instance !== 'default' && Object.hasOwn(globalGroups, peer.group)) copies.push([instance, peer.group])
+            else drop('group', 'names a peer template the configuration doesn\'t define')
+          }
           // A route map names a policy of the model (model 0.5.0), or it isn't kept: a name alone would say nothing.
           for (const [family, af] of Object.entries(isObject(peer.addressFamilies) ? peer.addressFamilies : {})) {
             if (!isObject(af)) continue
@@ -1570,6 +1577,24 @@ export function parse(text: string, _context: Context): ParseResult {
           }
         }
       }
+    }
+    for (const [instance, name] of copies) copyGroup(instance, name)
+  }
+
+  /**
+   * A VRF neighbor's template, one of the whole process's: the model's groups are per network instance, so the VRF gets
+   * a copy of it (#71), mapped by the statements that configure the global one. The render writes it back as one template.
+   */
+  const copyGroup = (instance: string, name: string) => {
+    const from = [...bgpPath('default'), 'groups', name]
+    const to = [...bgpPath(instance), 'groups', name]
+    if (model.get(to) !== undefined) return
+    model.set(to, JSON.parse(JSON.stringify(model.get(from))) as unknown)
+    const prefix = fieldPath(...from)
+    const copied = (f: string) => (f === prefix || f.startsWith(`${prefix}.`) || f.startsWith(`${prefix}[`) ? [fieldPath(...to) + f.slice(prefix.length)] : [])
+    for (const n of new Set(peerStatements.get(peerKey(...from)) ?? [])) {
+      const d = dispositions[n.id]
+      if (d?.kind === 'mapped') set(n, mapped([...d.fields, ...d.fields.flatMap(copied)]))
     }
   }
 
