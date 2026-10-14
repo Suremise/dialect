@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { checkFixture } from '@dialect/conformance'
+import { checkFixture, checkSecrets } from '@dialect/conformance'
 import { buildLedger, createRegistry, fieldPath, ledgerProblems, MODEL_VERSION, populatedLeaves, statementsOf, type Device } from '@dialect/core'
 import plugin from '../src'
 import { isIpv6, lengthMask, maskLength } from '../src/addresses'
@@ -471,6 +471,23 @@ describe('rendering a model from another platform', () => {
     expect(result.diagnostics.map((d) => d.code)).toEqual(['iosxe.primary-chosen', 'iosxe.snmp-community-restricted', 'iosxe.snmp-community-restricted'])
     expect(result.text).toContain(' ip address 192.0.2.1 255.255.255.0\n ip address 198.51.100.1 255.255.255.0 secondary\n')
     expect(result.text).toContain('interface ge-0/0/0.10\n encapsulation dot1Q 10\n ipv6 address 2001:db8::1/64\n')
+  })
+
+  it('names no address in its primary-address warning: an address can be a secret elsewhere, such as a community', () => {
+    const reused: Device = {
+      system: { snmp: { communities: { '192.0.2.1': { access: 'read-only' } } } },
+      interfaces: { 'GigabitEthernet0/1': { subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 }, '198.51.100.1': { prefixLength: 24 } } } } } } }
+    }
+    const rendered = render(reused)
+    const warning = rendered.diagnostics.find((d) => d.code === 'iosxe.primary-chosen')!
+    expect(warning).toEqual({ severity: 'warning', category: 'semantic', code: 'iosxe.primary-chosen', message: 'No primary address given: the first is written as the primary, the others as secondary.', field: 'interfaces["GigabitEthernet0/1"].subinterfaces["0"].ipv4.addresses' })
+    for (const d of rendered.diagnostics) expect(d.message).not.toMatch(/192\.0\.2\.1|198\.51\.100\.1/)
+    // The choice is unchanged: the first address is the primary.
+    expect(rendered.text).toContain('interface GigabitEthernet0/1\n ip address 192.0.2.1 255.255.255.0\n ip address 198.51.100.1 255.255.255.0 secondary\n')
+    // The kit's secrets check on the text it renders to, the community a secret, finds nothing either. (Read back, the
+    // first address is marked primary, so the warning itself is checked above, on the foreign model.)
+    const { leaks } = checkSecrets(plugin, rendered.text, ['192.0.2.1'], { allowances: [] })
+    expect(leaks).toEqual([])
   })
 
   it('leaves out a community limited to some clients, RO or RW, rather than open it to every client', () => {
