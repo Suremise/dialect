@@ -248,7 +248,7 @@ describe('the semantic warnings, each raised by a saved fixture', () => {
       }),
       ...cases.flatMap((name) => codes(render(deserializeModel(readFileSync(new URL(`${name}.model.json`, models), 'utf8')).device)))
     ])
-    for (const code of ['iosxr.route-policy-name-only', 'iosxr.ebgp-default-policy', 'iosxr.bgp-no-address-family', 'iosxr.ospf-enabled-per-interface', 'iosxr.policy-fall-through', 'iosxr.vrf-policy-mode']) expect(raised, code).toContain(code)
+    for (const code of ['iosxr.route-policy-name-only', 'iosxr.ebgp-default-policy', 'iosxr.bgp-no-address-family', 'iosxr.ospf-enabled-per-interface', 'iosxr.policy-fall-through', 'iosxr.vrf-policy-mode', 'iosxr.filter-implicit-action']) expect(raised, code).toContain(code)
   })
 })
 

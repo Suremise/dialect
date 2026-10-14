@@ -9,6 +9,7 @@
 import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type RenderResult, type BgpPeer, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
 import { isIpv4, lengthMask } from './addresses'
 import { SEVERITIES } from './parse'
+import { planFilters } from './renderAcl'
 import { planRoutingPolicy } from './renderPolicy'
 
 type Segments = readonly (string | number)[]
@@ -171,6 +172,8 @@ export function render(model: Device, context: Context): RenderResult {
   const inputs = context.inputs ?? {}
   const answer = (id: string) => (Object.hasOwn(inputs, id) && inputs[id].trim() !== '' ? inputs[id].trim() : undefined)
   planOspf()
+  // Access lists are planned first, as an interface applies one only when it is written (renderAcl.ts).
+  const aclPlan = planFilters(model.filters, skip, skipAll)
 
   /** An interface reference (`Gi1`, `Gi1.10`, `Gi1.0`) as the model's interface and subinterface, when it has them. */
   function resolve(reference: string): { name: string; sub: string; subinterface: Subinterface | undefined } | undefined {
@@ -322,6 +325,13 @@ export function render(model: Device, context: Context): RenderResult {
     const n = lines.length
     if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
   }
+  // Access lists, each a block of its own.
+  for (const l of aclPlan.lines) {
+    if (!l.text.startsWith(' ')) separator()
+    emit(l.text, ...l.fields)
+    const n = lines.length
+    for (const w of l.warnings ?? []) diagnostics.push({ ...w, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
+  }
 
   function renderInterface(name: string, iface: Interface) {
     const at = ['interfaces', name]
@@ -351,6 +361,7 @@ export function render(model: Device, context: Context): RenderResult {
         if (main.enabled !== undefined) skip([...sub, 'enabled'], 'unsupported', 'IOS has one shutdown for the main interface')
         if (main.vlanId !== undefined) skip([...sub, 'vlanId'], 'unsupported', 'IOS has no subinterface 0 to tag')
         if (renderMembership(main, sub)) renderAddresses(main, sub)
+        renderAttachments(main, sub)
       }
       emitOspf(name, '0')
       if (iface.enabled !== undefined) emit(iface.enabled ? ' no shutdown' : ' shutdown', [...at, 'enabled'])
@@ -365,8 +376,28 @@ export function render(model: Device, context: Context): RenderResult {
       if (sub.description !== undefined) emit(` description ${sub.description}`, [...subAt, 'description'])
       if (sub.vlanId !== undefined) emit(` encapsulation dot1Q ${sub.vlanId}`, [...subAt, 'vlanId'])
       if (renderMembership(sub, subAt)) renderAddresses(sub, subAt)
+      renderAttachments(sub, subAt)
       emitOspf(name, index)
       if (sub.enabled !== undefined) emit(sub.enabled ? ' no shutdown' : ' shutdown', [...subAt, 'enabled'])
+    }
+  }
+
+  /** A subinterface's access lists (model 0.5.1), each way and family, when the access list is written. */
+  function renderAttachments(sub: Subinterface, at: Segments) {
+    const filters = sub.filters
+    if (!filters) return
+    emptyContainer(filters, [...at, 'filters'])
+    for (const family of ['ipv4', 'ipv6'] as const) {
+      const directions = filters[family]
+      if (!directions) continue
+      emptyContainer(directions, [...at, 'filters', family])
+      for (const [direction, way] of [['input', 'in'], ['output', 'out']] as const) {
+        const name = directions[direction]
+        if (name === undefined) continue
+        const field = [...at, 'filters', family, direction]
+        if (aclPlan.written[family].has(name)) emit(` ${family === 'ipv4' ? 'ip access-group' : 'ipv6 traffic-filter'} ${name} ${way}`, field)
+        else skip(field, 'unsupported', 'names an access list IOS can\'t write')
+      }
     }
   }
 

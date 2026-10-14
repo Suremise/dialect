@@ -1,0 +1,26 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "test-filter": {
+          "terms": {
+            "50": {
+              "description": "\"$Date:$\" \"$Revision:$\" this is a test extended acl good-term",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

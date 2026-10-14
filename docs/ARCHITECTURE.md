@@ -537,8 +537,8 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.5.0 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default and
-0.5.0's routing policy), with `detect`, `parse`, `render` and `nameInterface`.
+`modelApi: '>=0.5.3 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default,
+0.5.0's routing policy, 0.5.1's access lists and 0.5.3's entry descriptions), with `detect`, `parse`, `render` and `nameInterface`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
   statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
@@ -671,6 +671,30 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     converted or defined, is left out whole; every sequence permits or denies, so leaving one out is safe only for the
     last (`termSkipSafe()`), and otherwise the whole route map is left out, as it is when none of its sequences is
     converted.
+  - **Access lists (#87, model 0.5.1, `acl.ts`):** `ip access-list standard|extended NAME` (a numbered name must be
+    of its kind: 1 to 99 and 1300 to 1999 standard, 100 to 199 and 2000 to 2699 extended), numbered `access-list N …`
+    lines and `ipv6 access-list NAME` are filters of their family, each with `implicitAction: 'deny'`. An entry is a
+    term keyed by its sequence number (written first; on IPv6 `sequence N` first or last; with none, 10 after the
+    highest): `permit` is `accept` and `deny` `discard`; the protocol (`ip`/`ipv6` none, IOS's names or a number;
+    `icmp` in an IPv6 list is 58); `any`, `host A`, an address and wildcard (a standard list's bare address is a host),
+    an IPv6 prefix; for TCP and UDP `eq`, `neq` (two ranges), `gt`, `lt` and `range` with IOS's port names; an ICMP
+    type and code by number or name; `established`, `match-all +flag -flag` and bare flags, `fragments`
+    (`non-initial`), `dscp` and `log`. **A wildcard is a prefix only when it is contiguous** (its address's wildcard
+    bits cleared, as IOS does); a non-contiguous one leaves its entry `unsupported`, never approximated; a /0 is `any`,
+    left out, as the model says every address. **IPv6 lists' end varies by platform:** some IOS platforms permit
+    neighbor discovery (nd-na, nd-ns) before the implicit deny, others don't, so a list that relies on its end (no final
+    entry deciding every packet) keeps the model's deny with the warning `iosxe.ipv6-acl-neighbor-discovery`, on parse
+    and on render; a final catch-all makes it the same everywhere, and raises none. **Remarks**
+    before an entry, joined by a space, are its `description` (model 0.5.3): the entry maps it, and the remarks are
+    `ignored-by-design` as carried by it (a term's statements are its entry's, as remarks sit beside the other
+    entries); one after the last entry describes nothing. `no N` removes an entry (with its remarks), `no ip
+    access-list …` / `no access-list N` the list; anything else in a list (an object group, `log-input`, a time range,
+    `no permit …`, a reused sequence number) is `unsupported`. **The per-term rule:** an entry left out is left out
+    whole, and the whole list with it unless it is the last (`filterTermSkipSafe()`), as is a list with no entries
+    (IOS lets every packet through it). An interface's `ip access-group NAME in|out` and `ipv6 traffic-filter NAME
+    in|out` (a later one each way replaces the earlier, and the `no` forms take it off) are its subinterface's
+    `filters`, resolved once the text is read: one naming a list that isn't converted, or the text doesn't define
+    (IOS then lets every packet through), is `unsupported`.
 - **Render (`render.ts`):** gives every leaf of model 0.3 and of 0.4's areas a disposition (DNS as one
   `ip name-server` line per server) and leaves a later version's fields without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,
   and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then
@@ -727,6 +751,20 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     field and that line, since an IOS route map denies a route no sequence decides and BGP's default accepts it; the
     final permit counts as a later term when judging what can be left out. A policy whose written terms already decide
     every route gets neither. `tests/models/junos-policy-fall-through` shows it.
+  - **Access lists (#87, `renderAcl.ts`):** planned before the interfaces, which apply a list (`ip access-group`,
+    `ipv6 traffic-filter`) only when it is written, and written after routing policy: `ip access-list standard N` for a
+    standard number (its terms matching a source alone), `extended` for any other IPv4 name, `ipv6 access-list NAME`,
+    an entry a term at its sequence number (IPv6 `sequence N`), its description as a `remark` before it. Addresses as
+    `any`, `host A` or an address and wildcard (IPv6 a prefix), ports as one operator (two ranges around a port as
+    `neq`), TCP flags as `match-all`. **A term is written whole or not at all:** one IOS can't say in one entry
+    (several prefixes, protocols or DSCP values, a prefix list, either-way addresses or ports, an initial fragment, a
+    term that only counts) is `unsupported` whole, and the whole list with it unless that is safe
+    (`filterTermSkipSafe()`). A term's `name` and `count` are `not-applicable`; a filter's `description` is
+    `unsupported`. `reject` is written as `deny` with the warning `iosxe.filter-reject` (IOS sends the unreachable by
+    the interface's `ip unreachables`). `implicitAction` is `not-applicable`, and a list whose source discards silently
+    (Junos), or that relies on its end (`filterReliesOnImplicitAction()`), gets `iosxe.filter-implicit-deny` on its
+    header line, and an IPv6 list that relies on its end `iosxe.ipv6-acl-neighbor-discovery` as well. The full port
+    range is `range 0 65535` (`lt` and `gt` only where they stay in range). `tests/models/junos-filter` shows them.
 - **Tests:** `tests/fixtures/<area>` are hand-written, with expected models and renders, through the conformance kit.
   `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
@@ -737,7 +775,11 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   ip prefix-list L seq 5` as negation, a prefix with host bits set and an `le` past 32 as malformed values, a route
   map naming a prefix list, community list or AS-path list the text doesn't define, and a neighbor a route map it
   doesn't, and AS-path and expanded community regexes. `tests/fixtures/routing-policy` has every list and route map
-  statement the plugin converts; the corpus cases include `policy/` files and others with route maps.
+  statement the plugin converts; the corpus cases include `policy/` files and others with route maps. Its model 0.5.1
+  cases are `no 10` in an access list and `no ip access-group` as negation, a port past 65535, a malformed host and a
+  non-contiguous wildcard as malformed values, an interface applying an access list the text doesn't define, and the
+  implicit deny; `tests/fixtures/filters` has every access list form it converts and the non-contiguous wildcard
+  negative fixture, and the corpus cases include Aerleon's IOS outputs.
 - **Convert suggestions (`names.ts`):** `nameInterface()` names an Ethernet port by its speed, `Port-channel`,
   `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. A Junos `irb.100`
   gets `Vlan100` only once the core's convert names an IRB unit on its own (#41): today it names the `irb` interface
@@ -746,8 +788,9 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
 The second Cisco platform, built like the IOS / IOS-XE plugin (its code copied, not imported: plugins don't depend on
-each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.5.0 <1.0.0'`, for model 0.4's
-VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's routing policy), with `detect`, `parse`, `render`, and `describeInterface` and
+each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.5.3 <1.0.0'`, for model 0.4's
+VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's routing policy, 0.5.1's access lists and
+0.5.3's entry descriptions), with `detect`, `parse`, `render`, and `describeInterface` and
 `nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as IOS's, nested by NX-OS's two-space indents; `!Command:` and `!Time:` headers are
@@ -860,6 +903,17 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's
     made or edited, and one with no action sets `permit`, even on a sequence that denied (IOS keeps it). A BGP neighbor's `route-map NAME in|out` names a converted policy, or
     is `unsupported` (`checkBgp()`). `template peer-policy` stays `unsupported`: the model's groups are peer templates,
     and a policy template's per-family route maps, inherited by sequence, have no place in them.
+  - **Access lists (#87, model 0.5.1, `acl.ts`):** IOS-XE's reader (#87) with NX-OS's syntax, kept alike: the same
+    entries, rules and dispositions (contiguous wildcards only, remarks as the next entry's description, the per-term
+    rule, a list with no entries or none defined left out with what applies it). What differs: `ip access-list NAME`
+    and `ipv6 access-list NAME` only (no standard or numbered lists); addresses as `A/len` too (host bits cleared, as
+    NX-OS matches); an entry's sequence number written first or, with none, 10 after the highest **counting remarks**,
+    which NX-OS numbers too (an entry can't take a remark's number, and `no N` naming a remark is `unsupported`);
+    `statistics per-entry` is `ignored-by-design` (NX-OS's counters have no names, the model's do); a top-level `exit`
+    is `ignored-by-design`. An interface applies one with `ip access-group NAME in|out` and `ipv6 traffic-filter NAME
+    in|out`, or on a switch port `ip port access-group NAME in` and `ipv6 port traffic-filter NAME in`: the model says
+    the same of both, on the subinterface (`out` on a port is `unsupported`). An IPv6 list relying on its end gets
+    `nxos.ipv6-acl-neighbor-discovery`, as NX-OS's implicit neighbor discovery permits vary too.
   - **A VRF's deletion** (`no vrf context V`) leaves V's OSPF and BGP so far out as `unsupported`, as its interfaces'
     membership is (#47).
   - **SNMP communities:** a community with any statement not converted, anywhere in the text (an access list in any
@@ -915,6 +969,12 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's
     whose written terms decide every route gets neither). Every list entry is written with its `seq`; regexes in
     double quotes (one with a quote in it is `unsupported`); a prefix range of one length longer than the prefix's,
     with no `form`, as `eq`; names up to 63 characters; route map lines indented by two spaces.
+  - **Access lists (#87, `renderAcl.ts`):** IOS-XE's renderer (#87) with NX-OS's syntax, kept alike, with the
+    warnings `nxos.filter-reject` and `nxos.filter-implicit-deny`. What differs: `ip access-list NAME` for every IPv4
+    list; addresses as `any` or a prefix; entries indented by two spaces at their sequence numbers; a description as a
+    remark at the number before its entry's, which must be free (else the term is `unsupported`, as NX-OS numbers
+    remarks too); TCP flags bare, so a flag that must be clear is `unsupported`. An interface writes its routed form,
+    or on a switch port (no IP configuration) its port form, which filters what comes in only.
   - **Secrets the model only flags** are `secret` needs-input items, each naming the `authentication` leaf, written
     when the answer is one NX-OS takes and never made up: an OSPF key per interface (`nxos.ospf-key:<the OSPF
     interface's path>`; for MD5, `ID KEY`; an area's authentication asks on each interface without its own), a key
@@ -940,16 +1000,18 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's
   Its model 0.5.0 cases are the IOS plugin's in NX-OS syntax (route map and prefix list entry negation, a malformed
   prefix and length, the four unknown references, quoted regexes). `tests/fixtures/routing-policy` has every list and
   route map statement the plugin converts, `policy.test.ts` its routing policy beyond that, and the corpus cases include
-  `policy/` files. `phase2.test.ts` covers the phase 2 areas beyond their fixtures, and checks that each phase 2 warning comes from a
+  `policy/` files. Its model 0.5.1 cases are the IOS plugin's in NX-OS syntax, with a malformed `A/len` prefix;
+  `tests/fixtures/filters` has every access list form it converts, a port access list among them, `acl.test.ts` its access
+  lists beyond that, and the corpus cases include Aerleon's NX-OS outputs. `phase2.test.ts` covers the phase 2 areas beyond their fixtures, and checks that each phase 2 warning comes from a
   saved source fixture or a saved model from another platform (`tests/models`: `<case>.model.json`, its expected
   `.rendered.cfg` and `.warnings.json`), for what an NX-OS parse can't produce (an IRB not named `Vlan<ID>`, OSPF
-  enabled by `network` statements, a Junos policy's fall-through).
+  enabled by `network` statements, a Junos policy's fall-through, a Junos filter).
 
 ## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
 
 The third Cisco platform, built like the NX-OS plugin (its code copied, not imported). Its default export is the
 `PlatformPlugin` (`id: 'iosxr'`, `modelApi: '>=0.5.2 <1.0.0'`, for model 0.4's OSPF and BGP, 0.4.1's eBGP default
-policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`, `render`, and `describeInterface` and
+policy, 0.5.0's routing policy, 0.5.1's filters and 0.5.2's VRF policies), with `detect`, `parse`, `render`, and `describeInterface` and
 `nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as NX-OS's, nested by IOS-XR's one-space indents; `!` lines are separators and `!!`
@@ -1035,6 +1097,22 @@ policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`
     not configuration. A policy on IPv4 doesn't cover IPv6.
   - **A VRF's deletion** (`no vrf X`) leaves its OSPF and BGP so far, and its route distinguisher, out as `unsupported`:
     what the device keeps of them isn't certain.
+  - **Access lists (#88, model 0.5.1, `filters.ts`):** `ipv4|ipv6 access-list NAME` is `filters.ipv4|ipv6.NAME`,
+    `implicitAction: 'deny'` (IOS-XR denies what no entry decides), each entry a term keyed by its sequence number:
+    given, or (as IOS-XR does) 10 more than the highest so far, a remark's included; a remark is `ignored-by-design`
+    (a comment the model doesn't keep). The one-line form (`ipv4 access-list NAME [N] permit …`) and later blocks add to
+    the list; an entry with a number used before replaces it, `no N` in the list removes one, and `no ipv4|ipv6
+    access-list NAME` removes the list. An entry: `permit` (`accept`) or `deny` (`discard`: the ICMP unreachable is the
+    interface's), a protocol (`ipv4`/`ipv6` any, else by name or number), source and destination (`any`, `host A`,
+    `A/L` with no host bits, or an IPv4 address and a contiguous wildcard, never a non-contiguous one), ports after
+    each (`eq`, `gt`, `lt`, `range`, by number or name, for TCP, UDP and SCTP, as port ranges), an ICMP type and code
+    (by number, or by name per family), and `established`, `fragments` (non-initial), `dscp`, `log`, `counter NAME`.
+    Anything else (`neq`, an object or net group, ABF `nexthop`, `ttl`, `log-input`, `capture` …) leaves the entry
+    `unsupported`. **The per-term rule:** an entry left out must be one `filterTermSkipSafe()` allows (only the last:
+    every entry permits or denies), else every statement of the list is `unsupported`. `ipv4|ipv6 access-group NAME
+    ingress|egress` on an interface (subinterface `0` for the main one) is the subinterface's `filters` by family and
+    direction, once NAME converted in that family (else `unsupported`: the interface applies nothing that way); a
+    later one that way replaces it, and its `no` form removes it.
   - **Routing policy (#79, model 0.5.0, `policy.ts`): RPL's simple forms.** Each set and route policy is one atomic
     statement (the tree), so each is converted whole or `unsupported` whole, never in part; the last definition of a
     name counts (an earlier one is `replaced by line N`), and `no route-policy|prefix-set|community-set|as-path-set
@@ -1103,6 +1181,16 @@ policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`
     source whose policy replaces the route targets (Junos, `replaces-route-targets`) raises `iosxr.vrf-policy-mode`, as
     IOS-XR's filters after them. A network instance whose only VRF-level settings are its policies is still written as
     `vrf X`. The global table's are `unsupported`.
+  - **Access lists (#88, `renderFilters.ts`):** planned before the interfaces and written after the VRFs: `ipv4|ipv6
+    access-list NAME` with an entry a term (` SEQ permit|deny PROTOCOL SRC [PORTS] DST [PORTS] [ICMP] [established]
+    [dscp N] [fragments] [log] [counter C]`; a /32 or /128 as `host`, ports as `eq`, `lt`, `gt` or `range`). **The
+    per-term rule:** a term IOS-XR can't write (a `reject`, which IOS-XR leaves to the interface, a `next-term`, a
+    match on either direction, a prefix list or TCP flags, more than one of anything, a first fragment, a key that
+    isn't a sequence number) is `unsupported` whole, and the whole filter when leaving it out isn't safe
+    (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. `implicitAction`
+    is `not-applicable` (IOS-XR denies), with the warning `iosxr.filter-implicit-action` on the field when the
+    source's differs (Junos `discard`) or the filter relies on it (`filterReliesOnImplicitAction()`). An interface's
+    `access-group` is written for a list that is written, else `unsupported`.
   - **Routing policy (#79, `renderPolicy.ts`):** planned first (BGP and VRFs name a policy only when it is written) and
     written before OSPF and BGP: `prefix-set` (a name's IPv4 and IPv6 lists in one set, entries by position; lengths as
     `le`, `ge`, `ge … le` or `eq`, the `form` written when it reads back the same, else `not-applicable`; a list
@@ -1149,9 +1237,13 @@ policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`
   IOS-XR syntax, except the prototype keys as an interface name, which IOS-XR can't have (a name is a type and numbers),
   and as a VLAN name (Layer 2 isn't converted this phase); model 0.5.0's cases in RPL (a term and an entry go with
   their policy and set, which `no route-policy|prefix-set` removes; a set is one statement from its first line), and
-  not yet 0.5.1's filters. `phase2.test.ts` covers OSPF and BGP beyond their fixtures, RFC 8212 with a Junos-sourced
-  model among them, and checks that each phase 2 and 3 warning comes from a saved source fixture or a saved model from
-  another platform (`tests/models`, as NX-OS's; `junos-policy` for the fall-through, a Junos regex and a VRF policy).
+  model 0.5.1's filter cases (an entry removed with `no N`, an access group with its `no` form, a port, prefix and
+  non-contiguous wildcard in an entry). `filters.test.ts` and `policy.test.ts` cover what fixtures don't (numbering,
+  edits, port operators; community action order, regex setters, RFC 8212 coverage), `fixtures/filters` the access
+  lists. `phase2.test.ts` covers OSPF and BGP beyond their fixtures,
+  RFC 8212 with a Junos-sourced model among them, and checks that each phase 2 and 3 warning comes from a saved source
+  fixture or a saved model from another platform (`tests/models`, as NX-OS's; `junos-policy` for the fall-through, a
+  Junos regex and a VRF policy, `junos-filter` for a filter's implicit action and terms IOS-XR can't write).
 
 ## TypeScript
 

@@ -17,7 +17,7 @@ const expected = fileURLToPath(new URL('./corpus/', import.meta.url))
 
 /**
  * Corpus files with an expected model, by area: the phase 1 areas, phase 2's VLANs (switch ports and VLAN interfaces too),
- * OSPF and BGP, and phase 3's routing policy.
+ * OSPF and BGP, and phase 3's routing policy and filters.
  */
 const CASES: readonly (readonly [area: string, path: string])[] = [
   ['system', 'system/cml__ccnaprep-s1e7_cat8000v.cfg'],
@@ -51,14 +51,20 @@ const CASES: readonly (readonly [area: string, path: string])[] = [
   ['routing-policy', 'bgp/batfish__unit-tests_cisco_bgp.cfg'],
   ['routing-policy', 'bgp/batfish__ios-aggregate-address.cfg'],
   ['routing-policy', 'vrfs/batfish__ios-vrf-leaking.cfg'],
-  ['routing-policy', 'whole/batfish__as1border1.cfg']
+  ['routing-policy', 'whole/batfish__as1border1.cfg'],
+  ['filters', 'filters/aerleon__sample_cisco_lab.acl.cfg'],
+  ['filters', 'filters/aerleon__CiscoTest.testIcmpTypes.cfg'],
+  ['filters', 'filters/aerleon__CiscoTest.testNamedStandard.cfg'],
+  ['filters', 'filters/aerleon__CiscoTest.testMixed.cfg'],
+  ['filters', 'filters/aerleon__CiscoTest.testTcpEstablished.cfg'],
+  ['filters', 'filters/batfish__ios-acl.cfg']
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
 
 describe('corpus files with an expected model', () => {
   it('cover every area the plugin converts', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'vlans', 'ospf', 'bgp', 'routing-policy']))
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'vlans', 'ospf', 'bgp', 'routing-policy', 'filters']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {

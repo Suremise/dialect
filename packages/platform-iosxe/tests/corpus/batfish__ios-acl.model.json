@@ -1,0 +1,41 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "ios-acl"
+    },
+    "interfaces": {
+      "Ethernet1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.1.1.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet2": {
+        "type": "ethernet"
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "10": {
+          "terms": {
+            "10": {
+              "actions": {
+                "action": "discard"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

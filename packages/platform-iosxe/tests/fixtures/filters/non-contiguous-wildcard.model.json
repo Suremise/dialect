@@ -1,0 +1,51 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "edge-r5"
+    },
+    "interfaces": {
+      "GigabitEthernet0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 30
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "output": "ODD-LAST"
+              }
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "ODD-LAST": {
+          "terms": {
+            "10": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

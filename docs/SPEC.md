@@ -136,7 +136,8 @@ product decisions.
   whole filter when leaving one out could change what a later term decides, and a unit applying a filter that isn't
   converted applies nothing. A filter's end is kept with the model (Junos discards silently, a Cisco ACL denies) and
   a target says so when its own differs or the filter relies on it. Non-contiguous wildcard masks are never
-  approximated. Junos converts `firewall family inet|inet6` filters and their attachment to units (#86).
+  approximated. Junos converts `firewall family inet|inet6` filters and their attachment to units (#86), IOS-XR
+  `ipv4|ipv6 access-list` and `access-group … ingress|egress` (#88), an access list's remarks being comments.
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
   With all four plugins registered (#50), the CLI and the app convert from any of them to any other.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,
@@ -166,6 +167,11 @@ product decisions.
   on to later statements is left out with its policy, as the model's terms accept or reject. A VRF's own import and
   export route policies (model 0.5.2) convert too, and IOS-XR warns when the source's (Junos) replaces the VRF's route
   targets, where IOS-XR's filters after them.
+- **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
+  left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
+  contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos
+  silent discard), or a filter relying on its end, gets a semantic warning. A Cisco remark is kept as its entry's
+  description.
 
 ## 5. Configs and test data
 

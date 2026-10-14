@@ -219,6 +219,16 @@ the config doesn't define, or that isn't converted, is listed as not converted. 
 adds a final `pass` with a warning, as an IOS-XR policy drops what nothing passes, and warns about a VRF import or
 export policy, which on Junos replaces the VRF's route targets and on IOS-XR filters after them.
 
+Cisco IOS-XR also converts access lists: `ipv4 access-list` and `ipv6 access-list`, numbered as IOS-XR numbers them (an
+entry with no number gets 10 more than the highest, a remark's included), with `any`, `host`, prefixes and contiguous
+wildcards, protocols, ports (`eq`, `gt`, `lt`, `range`, by number or name), ICMP types, `established`, `fragments`,
+`dscp`, `log` and `counter`, and the interfaces' `ipv4|ipv6 access-group … ingress|egress`. Remarks are comments and
+aren't carried. An entry Dialect can't convert (a non-contiguous wildcard, which is never approximated, an object
+group, `neq`, ABF and other options) is listed, alone when it is the last entry, and otherwise with its whole access
+list, as the entries after it would see other packets; an interface applying a list that isn't converted is listed
+too. An IOS-XR access list denies what no entry decides: converting to IOS-XR warns when the source discards instead
+(Junos), or when a list relies on it.
+
 Cisco IOS / IOS-XE also converts routing policy: prefix lists, community lists (standard, expanded and numbered),
 AS-path access lists and route maps (matching prefix lists, communities, AS paths and tags; setting the local
 preference, metric, communities, AS-path prepends, next hop and tag), which its BGP neighbors' route maps name. A regex
@@ -231,6 +241,13 @@ sequence to the route map, with a warning, since an IOS route map denies a route
 Cisco NX-OS converts routing policy the same way: prefix lists (with `eq`), standard and expanded community lists and
 AS-path access lists (each entry by its `seq`), and route maps, which its BGP neighbors' route maps name. A route map a
 neighbor names but the config doesn't define isn't converted.
+
+Cisco IOS / IOS-XE and NX-OS also convert access lists (IPv4 and IPv6, named, and on IOS numbered and standard) and the
+interfaces that apply them, each entry with its remarks kept as its description. An address with a wildcard is
+converted only when the wildcard is a plain prefix: an entry with any other wildcard is listed as not converted, never
+approximated, and so is the whole list unless that entry is the last. Every Cisco access list denies what no entry
+decides: converting a Junos filter, which drops such packets silently, says so with a warning. An IPv6 access list with no final entry deciding every packet warns too: some Cisco
+platforms let neighbor discovery through before the implicit deny, and others don't.
 
 ## The command line
 

@@ -1,0 +1,247 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "pe1"
+    },
+    "interfaces": {
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "EDGE-IN",
+                "output": "EMPTY"
+              },
+              "ipv6": {
+                "input": "EDGE6-IN"
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "100": {
+            "vlanId": 100,
+            "filters": {
+              "ipv4": {
+                "input": "EDGE-IN"
+              }
+            }
+          }
+        },
+        "vlanTagging": true
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "EDGE-IN": {
+          "implicitAction": "deny",
+          "terms": {
+            "20": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "sourcePrefixes": [
+                  "192.0.2.0/24"
+                ],
+                "destinationPrefixes": [
+                  "198.51.100.1/32"
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "action": "accept",
+                "log": true
+              }
+            },
+            "30": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "198.51.100.0/24"
+                ],
+                "destinationPorts": [
+                  "8080-8090"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "40": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "53"
+                ],
+                "destinationPorts": [
+                  "1024-65535"
+                ]
+              },
+              "actions": {
+                "action": "accept",
+                "count": "DNS"
+              }
+            },
+            "50": {
+              "matches": {
+                "protocols": [
+                  1
+                ],
+                "icmpTypes": [
+                  8
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "60": {
+              "matches": {
+                "protocols": [
+                  1
+                ],
+                "icmpTypes": [
+                  3
+                ],
+                "icmpCodes": [
+                  4
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "70": {
+              "matches": {
+                "sourcePrefixes": [
+                  "10.0.0.0/8"
+                ],
+                "fragment": "non-initial"
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "80": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "0-1023"
+                ],
+                "dscp": [
+                  10
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "90": {
+              "matches": {
+                "protocols": [
+                  89
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "100": {
+              "actions": {
+                "action": "discard",
+                "log": true
+              }
+            }
+          }
+        },
+        "EMPTY": {
+          "implicitAction": "deny"
+        }
+      },
+      "ipv6": {
+        "EDGE6-IN": {
+          "implicitAction": "deny",
+          "terms": {
+            "10": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "2001:db8::/32"
+                ],
+                "destinationPorts": [
+                  "80"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "20": {
+              "matches": {
+                "protocols": [
+                  58
+                ],
+                "icmpTypes": [
+                  2
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "30": {
+              "matches": {
+                "protocols": [
+                  58
+                ],
+                "icmpTypes": [
+                  1
+                ],
+                "icmpCodes": [
+                  3
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "40": {
+              "matches": {
+                "sourcePrefixes": [
+                  "2001:db8::1/128"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

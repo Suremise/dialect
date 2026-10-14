@@ -1,0 +1,569 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "edge-inbound": {
+          "terms": {
+            "90": {
+              "description": "\"$Date:$\" \"$Revision:$\" this is a sample edge input filter that generates multiple output formats. deny-from-bogons this is a sample edge input filter with a very very very long and multi-line comment that also has multiple entries.",
+              "matches": {
+                "sourcePrefixes": [
+                  "0.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "100": {
+              "matches": {
+                "sourcePrefixes": [
+                  "192.0.0.0/24"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "110": {
+              "matches": {
+                "sourcePrefixes": [
+                  "192.0.2.0/24"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "120": {
+              "matches": {
+                "sourcePrefixes": [
+                  "198.18.0.0/15"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "130": {
+              "matches": {
+                "sourcePrefixes": [
+                  "198.51.100.0/24"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "140": {
+              "matches": {
+                "sourcePrefixes": [
+                  "203.0.113.0/24"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "150": {
+              "matches": {
+                "sourcePrefixes": [
+                  "224.0.0.0/4"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "160": {
+              "matches": {
+                "sourcePrefixes": [
+                  "240.0.0.0/4"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "180": {
+              "description": "deny-from-reserved",
+              "matches": {
+                "sourcePrefixes": [
+                  "0.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "190": {
+              "matches": {
+                "sourcePrefixes": [
+                  "10.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "200": {
+              "matches": {
+                "sourcePrefixes": [
+                  "100.64.0.0/10"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "210": {
+              "matches": {
+                "sourcePrefixes": [
+                  "127.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "220": {
+              "matches": {
+                "sourcePrefixes": [
+                  "169.254.0.0/16"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "230": {
+              "matches": {
+                "sourcePrefixes": [
+                  "172.16.0.0/12"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "240": {
+              "matches": {
+                "sourcePrefixes": [
+                  "192.168.0.0/16"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "250": {
+              "matches": {
+                "sourcePrefixes": [
+                  "224.0.0.0/4"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "260": {
+              "matches": {
+                "sourcePrefixes": [
+                  "240.0.0.0/4"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "280": {
+              "description": "deny-to-rfc1918",
+              "matches": {
+                "destinationPrefixes": [
+                  "10.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "290": {
+              "matches": {
+                "destinationPrefixes": [
+                  "172.16.0.0/12"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "300": {
+              "matches": {
+                "destinationPrefixes": [
+                  "192.168.0.0/16"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "320": {
+              "description": "permit-mail-services",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.4/32"
+                ],
+                "destinationPorts": [
+                  "25"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "330": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.4/32"
+                ],
+                "destinationPorts": [
+                  "465"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "340": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.4/32"
+                ],
+                "destinationPorts": [
+                  "587"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "350": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.4/32"
+                ],
+                "destinationPorts": [
+                  "995"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "360": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.5/32"
+                ],
+                "destinationPorts": [
+                  "25"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "370": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.5/32"
+                ],
+                "destinationPorts": [
+                  "465"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "380": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.5/32"
+                ],
+                "destinationPorts": [
+                  "587"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "390": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.5/32"
+                ],
+                "destinationPorts": [
+                  "995"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "410": {
+              "description": "permit-web-services",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.1/32"
+                ],
+                "destinationPorts": [
+                  "80"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "420": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.1/32"
+                ],
+                "destinationPorts": [
+                  "443"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "430": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.2/32"
+                ],
+                "destinationPorts": [
+                  "80"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "440": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.2/32"
+                ],
+                "destinationPorts": [
+                  "443"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "460": {
+              "description": "permit-tcp-established",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.1/32"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "470": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.2/32"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "480": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.3/32"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "490": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.4/32"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "500": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.5/32"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "520": {
+              "description": "permit-udp-established",
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "1024-65535"
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.1/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "530": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "1024-65535"
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.2/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "540": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "1024-65535"
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.3/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "550": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "1024-65535"
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.4/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "560": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "1024-65535"
+                ],
+                "destinationPrefixes": [
+                  "200.1.1.5/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "580": {
+              "description": "default-deny",
+              "actions": {
+                "action": "discard"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

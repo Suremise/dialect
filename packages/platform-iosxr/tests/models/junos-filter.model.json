@@ -1,0 +1,66 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "interfaces": {
+      "GigabitEthernet0/0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "PROTECT"
+              }
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "PROTECT": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "ssh",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "2": {
+              "name": "count-all",
+              "actions": {
+                "action": "next-term",
+                "count": "all"
+              }
+            },
+            "3": {
+              "name": "unreachable",
+              "matches": {
+                "sourcePrefixes": [
+                  "10.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "reject"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
