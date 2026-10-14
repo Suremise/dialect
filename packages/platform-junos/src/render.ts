@@ -22,6 +22,8 @@ interface Out {
   readonly text: string
   readonly children: Out[] | null
   readonly fields: Segments[]
+  /** Told the line the statement went to, for a diagnostic that names it. */
+  readonly placed?: (line: number) => void
 }
 
 const JUNOS_SEVERITY: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(SEVERITIES).map(([junos, model]) => [model, junos]))
@@ -699,8 +701,22 @@ export function render(model: Device, context: Context): RenderResult {
       out.push(inner.length ? box(`group ${quote(name)}`, inner, ...(group && g ? self(group, g) : [])) : leaf(`group ${quote(name)}`, ...(group && g ? self(group, g) : [])))
     }
     if (policies) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.policy-by-name', message: "BGP import and export policies are written by name only: their bodies (policy-options) aren't converted yet, and Junos commits a reference only to a policy it has." })
+    // Semantic: a source that rejects an eBGP peer's routes, or doesn't advertise to it, when no policy applies (RFC
+    // 8212, IOS-XR); Junos accepts and advertises, so a peer without a policy here takes and sends everything.
+    let placed: ((line: number) => void) | undefined
+    const policy = bgp.ebgpDefaultPolicy
+    if (policy !== undefined) {
+      for (const side of ['import', 'export'] as const) if (policy[side] !== undefined) skip([...at, 'ebgpDefaultPolicy', side], 'not-applicable', "the source platform's default, not configuration: Junos's is to accept")
+      const rejects = (['import', 'export'] as const).filter((side) => policy[side] === 'reject')
+      if (rejects.length) {
+        const what = rejects.length === 2 ? "rejects an eBGP peer's routes and advertises nothing to it" : rejects[0] === 'import' ? "rejects an eBGP peer's routes" : 'advertises nothing to an eBGP peer'
+        placed = (line) =>
+          diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.ebgp-default-policy', message: `The source ${what} when no policy applies (RFC 8212); Junos accepts and advertises by default, so here an eBGP peer without a policy does (line ${line}).`, span: { startLine: line, startColumn: 1, endLine: line, endColumn: 1 } })
+      }
+    }
     // With no groups, `bgp;` still says BGP runs here, so its AS number and router ID come back with it.
-    return out.length ? box('bgp', out) : leaf('bgp', ...self(bgp, at))
+    const written = out.length ? box('bgp', out) : leaf('bgp', ...self(bgp, at))
+    return placed ? { ...written, placed } : written
   }
 
   // ---- write it out
@@ -712,6 +728,7 @@ export function render(model: Device, context: Context): RenderResult {
       const line = n.children && n.children.length ? `${indent}${n.text} {` : `${indent}${n.text};`
       lines.push(line)
       const at = lines.length
+      n.placed?.(at)
       for (const f of n.fields) dispositions[fieldPath(...f)] = { kind: 'rendered', span: { startLine: at, startColumn: indent.length + 1, endLine: at, endColumn: line.length + 1 } }
       if (n.children && n.children.length) {
         write(n.children, depth + 1)

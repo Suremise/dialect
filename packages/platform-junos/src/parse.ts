@@ -1,6 +1,6 @@
 // Junos text → the shared model, for the phase 1 areas: system (host name, domain name, DNS), interfaces with their
 // units, families and addresses, static routes, routing instances (VRFs and virtual routers: their units, route
-// distinguisher and vrf-target), NTP, syslog and SNMP, and from model 0.4 VLANs, ELS switch ports and IRB units.
+// distinguisher and vrf-target), NTP, syslog and SNMP, and from model 0.4 VLANs, ELS switch ports, IRB units, OSPF and BGP.
 //
 // The text is read into statements (statements.ts), groups and interface ranges are expanded (expand.ts), and each
 // statement is mapped on its own, as a `set` command says it. A statement is `mapped` only when everything it says went
@@ -48,7 +48,6 @@ const isInterfaceName = (s: string): boolean => /^[a-z][\w-]*\d[\w/:.-]*$/i.test
 const LATER: Readonly<Record<string, string>> = {
   security: 'SRX security (zones, policies, NAT) comes later',
   applications: 'SRX applications come later, with security policies',
-  protocols: 'routing protocols other than OSPF and BGP come later',
   'policy-options': 'routing policy comes later',
   firewall: 'firewall filters come later',
   'class-of-service': 'class of service comes later'
@@ -669,7 +668,7 @@ export function parse(text: string, _context: Context): ParseResult {
   const mapProtocols = (instance: string, r: readonly string[], i: number): Mutable => {
     if (r[0] === 'ospf') return mapOspf(instance, r.slice(1), i)
     if (r[0] === 'bgp') return mapBgp(instance, r.slice(1), i)
-    return unsupported(r[0] === 'ospf3' ? 'OSPFv3 comes later: the model has OSPFv2' : 'routing protocols other than OSPF and BGP come later')
+    return unsupported(r[0] === 'ospf3' ? 'OSPFv3 comes later: the model has OSPFv2' : 'routing protocols come later')
   }
 
   const mapOspf = (instance: string, r: readonly string[], i: number): Mutable => {
@@ -716,41 +715,51 @@ export function parse(text: string, _context: Context): ParseResult {
     const group = r[1]
     const g = [...at, 'groups', group]
     const s = r.slice(2)
-    if (s[0] !== 'neighbor') return mapPeer(g, s, i, [container(at), container(g)], true)
+    if (s[0] !== 'neighbor') return mapPeer(g, s, i, () => [container(at), container(g)], true)
     const address = s[1]
     if (address === undefined || !(isIpv4(address) || isIpv6(address))) return unsupported('a BGP neighbor that is not an address')
     const n = [...at, 'neighbors', addressKey(address)]
-    const key = `${instance}\u0000${addressKey(address)}`
-    const state = neighbors.get(key) ?? { instance, address: addressKey(address), groups: new Map<string, number[]>() }
-    neighbors.set(key, state)
-    state.groups.set(group, [...(state.groups.get(group) ?? []), i])
-    const inGroup = model.set([...n, 'group'], group)
-    incidental.add(inGroup)
-    return mapPeer(n, s.slice(2), i, [container(at), container(g), container(n), inGroup], false)
+    // The neighbor, in its group, only once one of its settings converts: one with none isn't in the model.
+    const made = () => {
+      const key = `${instance}\u0000${addressKey(address)}`
+      const state = neighbors.get(key) ?? { instance, address: addressKey(address), groups: new Map<string, number[]>() }
+      neighbors.set(key, state)
+      state.groups.set(group, [...(state.groups.get(group) ?? []), i])
+      const inGroup = model.set([...n, 'group'], group)
+      incidental.add(inGroup)
+      return [container(at), container(g), container(n), inGroup]
+    }
+    return mapPeer(n, s.slice(2), i, made, false)
   }
 
-  /** A setting of a BGP group (`group`) or neighbor: what both say, and a group's type. */
-  const mapPeer = (at: Segments, t: readonly string[], i: number, made: string[], group: boolean): Mutable => {
-    const ok = (fields: (string | null)[]) => mapped([...made, ...fields])
-    if (!t.length) return ok([])
-    if (group && t[0] === 'type' && t.length === 2 && (t[1] === 'internal' || t[1] === 'external')) return ok([put(i, [...at, 'type'], t[1])])
-    if (t[0] === 'peer-as' && t.length === 2) return asNumber(t[1]) !== null ? ok([put(i, [...at, 'peerAs'], asNumber(t[1]))]) : unsupported('not an AS number from 1 to 4294967295, in plain form')
-    if (t[0] === 'description' && t.length === 2) return ok([put(i, [...at, 'description'], t[1])])
-    if (t[0] === 'local-address' && t.length === 2) return isIpv4(t[1]) || isIpv6(t[1]) ? ok([put(i, [...at, 'localAddress'], addressKey(t[1]))]) : unsupported('not an address')
-    if (t[0] === 'multihop' && t.length === 1) return ok([model.ensure([...at, 'multihop'])])
-    if (t[0] === 'multihop' && t[1] === 'ttl' && t.length === 3 && isInteger(t[2], 255) && Number(t[2]) >= 1) return ok([container([...at, 'multihop']), put(i, [...at, 'multihop', 'ttl'], Number(t[2]))])
-    if (t[0] === 'family' && (t[1] === 'inet' || t[1] === 'inet6') && t[2] === 'unicast' && t.length === 3) return ok([model.ensure([...at, 'addressFamilies', t[1] === 'inet' ? 'ipv4-unicast' : 'ipv6-unicast'])])
+  /**
+   * A setting of a BGP group (`group`) or neighbor: what both say, and a group's type. `made` makes sure of the peer
+   * (and its BGP and group), only once the setting converts.
+   */
+  const mapPeer = (at: Segments, t: readonly string[], i: number, made: () => string[], group: boolean): Mutable => {
+    const ok = (fields: () => (string | null)[]) => {
+      const peer = made()
+      return mapped([...peer, ...fields()])
+    }
+    if (!t.length) return ok(() => [])
+    if (group && t[0] === 'type' && t.length === 2 && (t[1] === 'internal' || t[1] === 'external')) return ok(() => [put(i, [...at, 'type'], t[1])])
+    if (t[0] === 'peer-as' && t.length === 2) return asNumber(t[1]) !== null ? ok(() => [put(i, [...at, 'peerAs'], asNumber(t[1]))]) : unsupported('not an AS number from 1 to 4294967295, in plain form')
+    if (t[0] === 'description' && t.length === 2) return ok(() => [put(i, [...at, 'description'], t[1])])
+    if (t[0] === 'local-address' && t.length === 2) return isIpv4(t[1]) || isIpv6(t[1]) ? ok(() => [put(i, [...at, 'localAddress'], addressKey(t[1]))]) : unsupported('not an address')
+    if (t[0] === 'multihop' && t.length === 1) return ok(() => [model.ensure([...at, 'multihop'])])
+    if (t[0] === 'multihop' && t[1] === 'ttl' && t.length === 3 && isInteger(t[2], 255) && Number(t[2]) >= 1) return ok(() => [container([...at, 'multihop']), put(i, [...at, 'multihop', 'ttl'], Number(t[2]))])
+    if (t[0] === 'family' && (t[1] === 'inet' || t[1] === 'inet6') && t[2] === 'unicast' && t.length === 3) return ok(() => [model.ensure([...at, 'addressFamilies', t[1] === 'inet' ? 'ipv4-unicast' : 'ipv6-unicast'])])
     if (t[0] === 'family') return unsupported('BGP address families other than IPv4 and IPv6 unicast, and their options, come later')
-    if ((t[0] === 'import' || t[0] === 'export') && t.length === 2) {
-      if (!/^[A-Za-z0-9_][\w.:/-]*$/.test(t[1])) return unsupported('a policy expression: the model names each policy')
+    if (t[0] === 'import' || t[0] === 'export') {
+      if (t.length !== 2 || !/^[A-Za-z0-9_][\w.:/-]*$/.test(t[1])) return unsupported('a policy expression: the model names each policy')
       const field = [...at, t[0] === 'import' ? 'importPolicies' : 'exportPolicies']
       const list = (model.get(field) as string[] | undefined) ?? []
       if (list.includes(t[1])) return ignored('already a policy of the peer')
       policies.push(i)
-      return ok([model.set(field, [...list, t[1]])])
+      return ok(() => [model.set(field, [...list, t[1]])])
     }
     // The key is never carried: the model says only that there is one.
-    if (t[0] === 'authentication-key' && t.length === 2) return ok([put(i, [...at, 'authentication'], true)])
+    if (t[0] === 'authentication-key' && t.length === 2) return ok(() => [put(i, [...at, 'authentication'], true)])
     return unsupported()
   }
 
@@ -797,6 +806,27 @@ export function parse(text: string, _context: Context): ParseResult {
       if (otherTypes.has(instance)) continue
       const bgp = isObject(model.get(['networkInstances', instance, 'bgp']))
       settleTo(index, bgp ? mapped([model.set(['networkInstances', instance, 'bgp', 'localAs'], value)]) : unsupported('an AS number with no BGP here: the model keeps it with BGP'))
+    }
+
+    // Junos's default for an eBGP peer with no policy: it accepts the peer's routes and advertises its active BGP routes
+    // to it (model 0.4.1). Set for the side(s) an eBGP peer without a policy has, so a target that rejects by default
+    // (IOS-XR, RFC 8212) can say what changes.
+    const instances = model.get(['networkInstances'])
+    for (const name of isObject(instances) ? Object.keys(instances) : []) {
+      const bgp = model.get(['networkInstances', name, 'bgp'])
+      if (!isObject(bgp)) continue
+      const groups = isObject(bgp.groups) ? bgp.groups : {}
+      const sides = new Set<'import' | 'export'>()
+      for (const neighbor of Object.values(isObject(bgp.neighbors) ? bgp.neighbors : {})) {
+        if (!isObject(neighbor)) continue
+        const group = typeof neighbor.group === 'string' && isObject(groups[neighbor.group]) ? (groups[neighbor.group] as Obj) : {}
+        const peerAs = neighbor.peerAs ?? group.peerAs
+        const external = group.type === 'external' || (group.type === undefined && typeof peerAs === 'number' && typeof bgp.localAs === 'number' && peerAs !== bgp.localAs)
+        if (!external) continue
+        // A neighbor's own policies replace its group's, as Junos applies them.
+        for (const [side, field] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const) if (!Array.isArray(neighbor[field] ?? group[field])) sides.add(side)
+      }
+      if (sides.size) model.set(['networkInstances', name, 'bgp', 'ebgpDefaultPolicy'], Object.fromEntries([...sides].sort().map((side) => [side, 'accept'])))
     }
 
     const named = policies.filter((index) => results[index].kind === 'mapped')

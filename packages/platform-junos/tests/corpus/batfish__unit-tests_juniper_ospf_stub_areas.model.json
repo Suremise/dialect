@@ -1,0 +1,20 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "juniper_ospf_stub_areas"
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "areas": {
+            "0.0.0.46": {
+              "type": "stub"
+            }
+          },
+          "routerId": "1.1.1.1"
+        }
+      }
+    }
+  }
+}

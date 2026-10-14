@@ -776,8 +776,10 @@ The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_P
 B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
 areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.4.0 <1.0.0'`, for model
-  0.4's VLANs, switch ports and routed VLANs), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.4.1 <1.0.0'`, for model
+  0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, and 0.4.1's eBGP default policy), with `detect`, `parse`,
+  `render`, `nameInterface` (an aggregate another platform describes, Cisco `Port-channelN` or `Bundle-EtherN`, is
+  suggested as `ae(N-1)`, as the user decided; nothing else yet) and the capabilities per area. Its `tools()` has one tool,
   `displaySetTool`: id `display-set`, name "Display set". `run(text)`
   returns the set lines as text, one per line, each ended by a newline (none on an error), and `sourceLines`, the
   statement's source line for each output line (a quoted value with line breaks makes one set line several output
@@ -847,7 +849,7 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   and communities with `authorization` and `clients`. A statement is `mapped` only when everything it says went into
   the model. A later single-valued setting supersedes an earlier one ("superseded by line N"): a statement left with
   only the fields it filled in passing (the interface's type, its unit) is superseded too. Everything else is
-  `unsupported`, with a reason where one helps (per-facility syslog severities, NTP keys, `protocols`, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
+  `unsupported`, with a reason where one helps (per-facility syslog severities, NTP keys, routing protocols other than OSPF and BGP, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
   can't carry (a `client-list-name`, `clients … restrict`, a `view`) makes all its statements unsupported and leaves it
   out of the model, so it can't come out answering clients it shouldn't. The interface type comes from the name
   (`ge-`, `xe-`, `et-` ethernet, `ae` aggregate, `lo` loopback, `irb` irb-or-svi, the non-ELS `vlan` vlan,
@@ -885,8 +887,23 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   instance membership too, are `unsupported`, with a `junos.irb-without-vlan` warning naming the lines, and the irb
   interface goes whole when none of its units routes, so the model's referential check (`model.irb-without-vlan`)
   holds. Groups and ranges apply as everywhere (R1–R12): a VLAN's ID is a single setting, members add up.
-- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.3 and 0.4's VLAN, switch
-  port and routed VLAN fields with a disposition, and its OSPF and BGP fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
+- **OSPF and BGP (#61), per routing instance** (`protocols` at the top is the global table's, `routing-instances R
+  protocols` R's). OSPF: `area A` (dotted, or a number: `area 0` is `0.0.0.0`) with `stub` or `nssa` (their options,
+  `no-summaries` and the rest, are `unsupported`) and `authentication-type`; `interface X` with `passive`, `metric` (the
+  model's `cost`), `interface-type p2p`, `hello-interval`, `dead-interval` and `authentication` (`simple-password`,
+  `md5 N key`), each interface `enabledBy: 'interface'`. An OSPF interface the model doesn't have, or doesn't convert
+  (an IRB unit with no VLAN), is `unsupported` and out of the model, so `model.unknown-interface` holds; `interface
+  all`, other interface types, `ospf3` and OSPF policies are `unsupported`. BGP: `group G` with `type`, `peer-as`,
+  `description`, `local-address`, `multihop [ttl N]`, `family inet|inet6 unicast`, `import`/`export` (names only, in
+  order; an expression is `unsupported`) and `authentication-key`, and `neighbor N` in it with the same settings
+  (`group` set); a peer is in the model only once one of its settings converts. **Junos refuses a neighbor in two
+  groups**, so it's an error naming the lines, in neither. `routing-options router-id` is the instance's OSPF's and
+  BGP's `routerId`, and `autonomous-system` BGP's `localAs`, each settled once every statement is read (`unsupported`
+  where the instance has no such protocol). **Keys are flags, never values:** a statement with one fills only
+  `authentication`. Policies by name raise a `junos.policy-by-name` warning naming the lines: their bodies aren't
+  converted. An instance with an eBGP peer (a group `type external`, or a peer AS other than the local AS) without an
+  import or export policy gets `ebgpDefaultPolicy` `accept` for that side, Junos's default (model 0.4.1).
+- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.4.1 with a disposition. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
   with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
   `unsupported` with why: a route's description, NTP and syslog source interfaces (Junos uses addresses), a drop beside
@@ -902,6 +919,19 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `unsupported`). A switch port is unit 0's `family ethernet-switching` (`interface-mode`, `vlan members` by name,
   `30-40`, `all`) and `native-vlan-id` on the interface; `vlan members` holds an access port's VLAN or a trunk's, so
   the other mode's VLANs are `unsupported`, as is a native VLAN off a trunk.
+  `routing-options` has the instance's `router-id` (one per instance: BGP's, when it differs from OSPF's, is
+  `unsupported`) and `autonomous-system`, and `protocols` its OSPF and BGP. An OSPF process ID is `not-applicable`, as
+  are a normal area, an active interface and `broadcast` (Junos's LAN default); key chains are `unsupported`. **An
+  interface the source enabled by a `network` statement** is written per interface, with a `junos.ospf-enabled-by-network`
+  semantic warning: Junos names each interface, where the statement also took in later ones. BGP neighbors go in their
+  group; one the model gives without a group (Cisco) goes in `ibgp` or `ebgp` by its peer AS against the local AS, or
+  `peers` when that can't be told. A group's `type` is written only when the model has it (Junos tells internal from
+  external by the peer AS otherwise). An `updateSource` (an interface) and per-family policies are `unsupported`.
+  `ebgpDefaultPolicy` is `not-applicable`, and a side the source `reject`s raises `junos.ebgp-default-policy` naming
+  the `bgp` line: Junos accepts and advertises when no policy applies. **Keys are asked for, never made up:** each
+  flagged one is a `secret` needs-input item (`ospfKeyInputId()`, `bgpKeyInputId()`) with the flag's path as its
+  field, the flag `unsupported` until answered, then written from the answer (`authentication { md5 1 key K; }`,
+  `simple-password K`, `authentication-key K`); the kit's round trip excuses it (#68).
   **A VRF Junos can't commit isn't made whole by guessing:** one without a route distinguisher, or without a route
   target for a side, is written with what it has, and each missing part is a needs-input item
   (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
@@ -925,8 +955,13 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `tests/inheritance.test.ts`: the group and range inheritance rules, one per test, each citing Juniper's page.
   `tests/vlans.test.ts`: VLANs, switch ports and IRB beyond the fixtures (`tests/fixtures/conformance/vlans/`): the
   conflicts Junos refuses, what converts not at all, IRB units without a VLAN, render from another platform's model and
-  names like `Object.prototype`'s. The corpus's expected models include an access, a trunk and an IRB file, and the
-  probes give the VLAN name and the malformed VLAN ID cases.
+  names like `Object.prototype`'s. `tests/protocols.test.ts`: OSPF and BGP beyond the fixtures
+  (`tests/fixtures/conformance/ospf/`, `bgp/`): each semantic warning from a saved model of another platform
+  (`tests/fixtures/semantic/<code>.model.json` raises `junos.<code>`), keys asked for and written from answers, a
+  neighbor in two groups, router IDs and AS numbers with no protocol, render from another platform's model, the
+  aggregate name suggestions, and safe and secret names. The corpus's expected models include an access, a trunk, an
+  IRB, two OSPF and two BGP files, and the probes give every model 0.4 case (VLAN name and BGP group uses, BGP and OSPF
+  negation, malformed AS numbers and VLAN IDs, OSPF and BGP scoping).
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)

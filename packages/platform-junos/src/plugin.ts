@@ -51,9 +51,9 @@ export const displaySetTool: JunosTool = {
 export const junos: PlatformPlugin = {
   id: 'junos',
   name: 'Junos',
-  // 0.4.0: its parse fills VLANs, switch ports and IRB units' routed VLANs, which a 0.3 core doesn't know. Minor
-  // versions only add, so every 0.x from there.
-  modelApi: '>=0.4.0 <1.0.0',
+  // 0.4.1: its parse fills VLANs, switch ports, routed VLANs, OSPF and BGP (0.4.0) and BGP's eBGP default policy
+  // (0.4.1), which an older core doesn't know. Minor versions only add, so every 0.x from there.
+  modelApi: '>=0.4.1 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },

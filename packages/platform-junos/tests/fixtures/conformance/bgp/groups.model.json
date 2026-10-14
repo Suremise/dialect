@@ -1,0 +1,123 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "interfaces": {
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "lo0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "203.0.113.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        },
+        "type": "loopback"
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "groups": {
+            "IBGP": {
+              "type": "internal",
+              "description": "route reflectors",
+              "localAddress": "203.0.113.1",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              },
+              "exportPolicies": [
+                "NEXT-HOP-SELF"
+              ]
+            },
+            "TRANSIT": {
+              "type": "external",
+              "multihop": {
+                "ttl": 2
+              },
+              "addressFamilies": {
+                "ipv4-unicast": {},
+                "ipv6-unicast": {}
+              },
+              "importPolicies": [
+                "TRANSIT-IN",
+                "BOGONS"
+              ],
+              "exportPolicies": [
+                "TRANSIT-OUT"
+              ],
+              "peerAs": 64500
+            }
+          },
+          "neighbors": {
+            "203.0.113.2": {
+              "group": "IBGP"
+            },
+            "203.0.113.3": {
+              "group": "IBGP",
+              "description": "second reflector"
+            },
+            "192.0.2.2": {
+              "group": "TRANSIT"
+            },
+            "2001:db8::2": {
+              "group": "TRANSIT",
+              "importPolicies": [
+                "TRANSIT6-IN"
+              ],
+              "peerAs": 64501
+            }
+          },
+          "routerId": "203.0.113.1",
+          "localAs": 65000
+        }
+      },
+      "CUST": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:1",
+        "bgp": {
+          "groups": {
+            "CE": {
+              "type": "external",
+              "peerAs": 64512
+            }
+          },
+          "neighbors": {
+            "198.51.100.2": {
+              "group": "CE"
+            }
+          },
+          "localAs": 65000,
+          "ebgpDefaultPolicy": {
+            "export": "accept",
+            "import": "accept"
+          }
+        },
+        "routeTargets": {
+          "import": [
+            "65000:1"
+          ],
+          "export": [
+            "65000:1"
+          ]
+        }
+      }
+    }
+  }
+}
