@@ -1,0 +1,3 @@
+# Made by every build: the capability schemas (capabilities/*.json name one for editors) and the Rust build output.
+/gen/schemas
+/target

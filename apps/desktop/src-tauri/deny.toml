@@ -1,0 +1,47 @@
+# cargo-deny's checks for the desktop app's crates (`cargo deny check` here): licenses, where crates come from, and the
+# RustSec advisories. The license rule's own check is scripts/licenses.mjs (`npm run licenses`, in npm test and CI):
+# it tells the crates compiled into the app from the build machine's (proc-macros, build scripts) with `cargo tree`,
+# which cargo-deny can't. Every crate either way is allowed by the list below, which is what may ship (docs/SPEC.md,
+# License: MIT or equally permissive, MPL-2.0 unmodified), so a crate under anything else fails both.
+
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+# scripts/licensePolicy.mjs, SHIPPED_ALLOWED.
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "0BSD",
+  "Zlib",
+  "Unicode-3.0",
+  "BSL-1.0",
+  "CC0-1.0",
+  "Unlicense",
+  "MPL-2.0",
+]
+confidence-threshold = 0.9
+# The list is the rule's, not this app's crates': licenses no crate uses yet stay on it.
+unused-allowed-license = "allow"
+
+[licenses.private]
+# The app itself (publish = false) is ours, MIT.
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
