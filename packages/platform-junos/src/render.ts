@@ -1,11 +1,16 @@
-// The shared model → hierarchical Junos, for the phase 1 areas. Every populated leaf of model 0.2 gets a disposition:
+// The shared model → hierarchical Junos, for the phase 1 areas. Every populated leaf of model 0.3 gets a disposition:
 // `rendered` with the line it went to, `unsupported` with why (Junos can't say it, or this renderer can't yet), or
 // `not-applicable` (Junos implies it). Fields of a later model version are left without one, so the ledger reports
 // them as unrendered rather than this renderer claiming them.
 //
 // Diagnostics never quote the model's keys or values, nor carry a field path with them: a community name is a secret.
-import { fieldPath, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type NextHop, type RenderResult, type StaticRoute, type Subinterface } from '@dialect/core'
+//
+// A VRF can't be committed on Junos without a route distinguisher and route targets: one the model gives without them
+// is written with what it has, and each missing part is a needs-input item (`routeDistinguisherInputId()`,
+// `routeTargetInputId()`), answered through Context.inputs. Nothing is made up.
+import { fieldPath, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type NextHop, type RenderResult, type StaticRoute, type Subinterface } from '@dialect/core'
 import { isIpv4, isIpv6, parsePrefix } from './addresses'
+import { fromJunos, targetFromJunos, toJunos } from './communities'
 import { SEVERITIES } from './parse'
 import { quote } from './words'
 
@@ -24,9 +29,24 @@ const FACILITIES = new Set(['authorization', 'daemon', 'ftp', 'kernel', 'user', 
 const INTEGER = /^\d+$/
 const ROUTE_SETTINGS = ['preference', 'metric', 'tag'] as const
 
-export function render(model: Device, _context: Context): RenderResult {
+/** The needs-input id for a VRF's route distinguisher, which the model doesn't give. */
+export const routeDistinguisherInputId = (instance: string): string => `junos.route-distinguisher:${instance}`
+/** The needs-input id for a VRF's route target, for the side (or sides) the model doesn't give. */
+export const routeTargetInputId = (instance: string): string => `junos.vrf-target:${instance}`
+
+export function render(model: Device, context: Context): RenderResult {
   const dispositions: Record<string, FieldDisposition> = {}
   const diagnostics: Diagnostic[] = []
+  const needsInput: NeedsInput[] = []
+  /** The user's answer for a needs-input item, in the model's form, or null (none, or not one): `read` takes it. */
+  const answer = (id: string, read: (value: string) => string | null): string | null => {
+    const inputs = context.inputs
+    const given = inputs && Object.hasOwn(inputs, id) ? inputs[id] : undefined
+    if (given === undefined) return null
+    const value = read(given.trim())
+    if (value === null) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.input-form', message: "An answer for a VRF isn't in the form asked for, so it isn't used." })
+    return value
+  }
 
   const leaf = (text: string, ...fields: Segments[]): Out => ({ text, children: null, fields })
   const box = (text: string, children: Out[], ...fields: Segments[]): Out => ({ text, children, fields })
@@ -227,6 +247,21 @@ export function render(model: Device, _context: Context): RenderResult {
 
   // ---- static routes and routing instances
 
+  // Each routing instance's units: `interface ge-0/0/0.0` in the instance, from the subinterfaces that name it.
+  const instanceModel = model.networkInstances
+  const members = new Map<string, Out[]>()
+  for (const [name, iface] of Object.entries(model.interfaces ?? {})) {
+    for (const [index, sub] of Object.entries(iface.subinterfaces ?? {})) {
+      // A unit that isn't a number is left out whole (interfaceOf).
+      if (sub.networkInstance === undefined || !INTEGER.test(index)) continue
+      const field = ['interfaces', name, 'subinterfaces', index, 'networkInstance']
+      const instance = sub.networkInstance
+      if (instance === 'default') skip(field, 'not-applicable', 'the global routing table: a unit is in it unless in a routing instance')
+      else if (!instanceModel || !Object.hasOwn(instanceModel, instance)) skip(field, 'unsupported', "names a routing instance the model doesn't have")
+      else members.set(instance, [...(members.get(instance) ?? []), leaf(`interface ${quote(`${name}.${index}`)}`, field)])
+    }
+  }
+
   const instances: Out[] = []
   emptyContainer(model.networkInstances, ['networkInstances'])
   for (const [name, instance] of Object.entries(model.networkInstances ?? {})) {
@@ -235,9 +270,11 @@ export function render(model: Device, _context: Context): RenderResult {
     const out: Out[] = []
     if (instance.type !== undefined) {
       if (isDefault && instance.type === 'default') skip([...at, 'type'], 'not-applicable', 'the global routing table')
-      else if (!isDefault && instance.type === 'vrf') out.push(leaf('instance-type vrf', [...at, 'type']))
-      else skip([...at, 'type'], 'unsupported', isDefault ? 'the global routing table is not a VRF' : 'routing instances other than VRFs come later')
+      else if (!isDefault && (instance.type === 'vrf' || instance.type === 'virtual-router')) out.push(leaf(`instance-type ${instance.type}`, [...at, 'type']))
+      else skip([...at, 'type'], 'unsupported', isDefault ? 'the global routing table is not a VRF' : 'not a Junos instance type')
     }
+    if (!isDefault) out.push(...(members.get(name) ?? []))
+    out.push(...vpnOf(name, instance, at, isDefault))
     const options = routingOptionsOf(instance, at, isDefault ? '' : `${name}.`)
     if (isDefault) {
       if (options) top.push(options)
@@ -245,9 +282,59 @@ export function render(model: Device, _context: Context): RenderResult {
       continue
     }
     if (options) out.push(options)
-    instances.push(out.length ? box(quote(name), out) : leaf(quote(name), ...self(instance, at)))
+    instances.push(out.length ? box(quote(name), out, ...self(instance, at)) : leaf(quote(name), ...self(instance, at)))
   }
   if (instances.length) top.push(box('routing-instances', instances))
+
+  /**
+   * A VRF's route distinguisher and `vrf-target`. Junos takes one route target each way (`vrf-target`, or its `import`
+   * and `export`): more need vrf-import and vrf-export policies, which come later. A VRF missing either is written
+   * with the user's answer, or without it and a needs-input item.
+   */
+  function vpnOf(name: string, instance: NetworkInstance, at: Segments, isDefault: boolean): Out[] {
+    const out: Out[] = []
+    const rdField = [...at, 'routeDistinguisher']
+    const rtField = (side: 'import' | 'export') => [...at, 'routeTargets', side]
+    const notHere = isDefault ? 'the global routing table has no route distinguisher or route targets' : instance.type === 'virtual-router' ? 'a virtual router has no route distinguisher or route targets' : null
+    if (notHere) {
+      if (instance.routeDistinguisher !== undefined) skip(rdField, 'unsupported', notHere)
+      for (const side of ['import', 'export'] as const) if (instance.routeTargets?.[side] !== undefined) skip(rtField(side), 'unsupported', notHere)
+      return out
+    }
+    const isVrf = instance.type === 'vrf'
+
+    let rd: string | null = null
+    if (instance.routeDistinguisher !== undefined) {
+      if (isRouteDistinguisher(instance.routeDistinguisher)) out.push(leaf(`route-distinguisher ${toJunos(instance.routeDistinguisher)}`, rdField))
+      else skip(rdField, 'unsupported', 'not a route distinguisher in a form the model has')
+    } else if (isVrf && (rd = answer(routeDistinguisherInputId(name), fromJunos)) !== null) out.push(leaf(`route-distinguisher ${toJunos(rd)}`))
+    else if (isVrf) needsInput.push({ id: routeDistinguisherInputId(name), kind: 'other', message: 'This VRF needs a route distinguisher on Junos (ASN:nn or IP:nn), which the source doesn\'t give.', field: fieldPath(...at) })
+
+    // Each side's one target, or null when it has none Junos can write here.
+    const sides: Record<'import' | 'export', string | null> = { import: null, export: null }
+    for (const side of ['import', 'export'] as const) {
+      const list = instance.routeTargets?.[side]
+      if (list === undefined) continue
+      if (!list.length) skip(rtField(side), 'not-applicable', 'no route targets: nothing to write')
+      else if (list.length > 1) skip(rtField(side), 'unsupported', 'more than one route target needs a vrf-import or vrf-export policy, which comes later')
+      else if (!isRouteDistinguisher(list[0])) skip(rtField(side), 'unsupported', 'not a route target in a form the model has')
+      else sides[side] = list[0]
+    }
+    // A side the model leaves out takes the user's answer, if any; one still missing is asked for.
+    if (isVrf && (sides.import === null || sides.export === null)) {
+      const given = answer(routeTargetInputId(name), (value) => targetFromJunos(value) ?? fromJunos(value))
+      if (given === null) needsInput.push({ id: routeTargetInputId(name), kind: 'other', message: "This VRF needs a route target on Junos (target:ASN:nn or target:IP:nn) for the routes it imports or exports, which the source doesn't give.", field: fieldPath(...at) })
+      else for (const side of ['import', 'export'] as const) if (sides[side] === null && instance.routeTargets?.[side] === undefined) sides[side] = given
+    }
+    const given = (side: 'import' | 'export'): Segments[] => (instance.routeTargets?.[side]?.length === 1 && isRouteDistinguisher(instance.routeTargets[side][0]) ? [rtField(side)] : [])
+    if (sides.import !== null && sides.import === sides.export) out.push(leaf(`vrf-target target:${toJunos(sides.import)}`, ...given('import'), ...given('export')))
+    else {
+      const inner: Out[] = []
+      for (const side of ['import', 'export'] as const) if (sides[side] !== null) inner.push(leaf(`${side} target:${toJunos(sides[side])}`, ...given(side)))
+      if (inner.length) out.push(box('vrf-target', inner))
+    }
+    return out
+  }
 
   function routingOptionsOf(instance: NetworkInstance, at: Segments, rib: string): Out | null {
     emptyContainer(instance.staticRoutes, [...at, 'staticRoutes'])
@@ -344,5 +431,5 @@ export function render(model: Device, _context: Context): RenderResult {
     }
   }
   write(top, 0)
-  return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics }
+  return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }
 }
