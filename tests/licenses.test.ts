@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 // @ts-expect-error: a plain .mjs module without types
 import { licenseText, noticesDrift, noticesToWrite, staleNoticesMessage, toLf } from '../scripts/licenseText.mjs'
 // @ts-expect-error: a plain .mjs module without types
-import { declaredLicense, licenseProblem, satisfies, SHIPPED_ALLOWED } from '../scripts/licensePolicy.mjs'
+import { chosenLicense, declaredLicense, licenseProblem, satisfies, SHIPPED_ALLOWED } from '../scripts/licensePolicy.mjs'
 // @ts-expect-error: a plain .mjs module without types
 import { buildOnlyText, generateLicenses, licenseProblems, noticesText, packageLink, repositoryUrl } from '../scripts/thirdPartyNotices.mjs'
 // @ts-expect-error: a plain .mjs module without types
@@ -107,6 +107,13 @@ describe('the repository', () => {
     expect(found.filter((l) => !l.startsWith('https://'))).toEqual([])
   })
 
+  it('says on every package and crate offering a choice of licenses which one Dialect uses', () => {
+    const offered = now.notices.text.split('\n').filter((l: string) => /^(\| .* \| .* \| .* \| .* \||License: .*)$/.test(l) && / OR /.test(l) && !/^\| Package|^\| Crate/.test(l))
+    expect(offered.length).toBeGreaterThan(50)
+    expect(offered.filter((l: string) => !/, used under [A-Za-z0-9.+-]/.test(l))).toEqual([])
+    expect(now.notices.text).toMatch(/\| \[dompurify\]\([^)]+\) \| [^|]+ \| \(MPL-2\.0 OR Apache-2\.0\), used under MPL-2\.0 \|/)
+  })
+
   it('lists no copied fixtures: they don\'t ship, and fixtures/LICENSES/ is their attribution', () => {
     for (const repoName of ['juniper-config-converter', 'batfish', 'cml-community']) expect(now.notices.text).not.toContain(repoName)
     expect(now.notices.text).toContain('# Other material\n\nNeither npm packages nor Rust crates: material Dialect includes or adapts, such as copied code, the installer\'s components and native libraries.\n\n## NSIS (the installer)\n')
@@ -185,6 +192,40 @@ describe('the license rule (scripts/licensePolicy.mjs)', () => {
     expect(licenseProblem({ name: 'x', version: '1.0.0', license: 'SEE LICENSE IN EULA.txt' }, 'build-only', [])).toBe(
       'x@1.0.0 (build-only): "SEE LICENSE IN EULA.txt" isn\'t an SPDX license expression'
     )
+  })
+
+  it('takes a choice of licenses under MIT where it is offered, else the first allowed choice, and says so only where there is a choice', () => {
+    expect(chosenLicense('MIT OR Apache-2.0')).toBe('MIT')
+    expect(chosenLicense('Apache-2.0 OR MIT')).toBe('MIT')
+    expect(chosenLicense('Unlicense OR MIT')).toBe('MIT')
+    expect(chosenLicense('(MPL-2.0 OR Apache-2.0)')).toBe('MPL-2.0')
+    expect(chosenLicense('CC0-1.0 OR MIT-0 OR Apache-2.0')).toBe('CC0-1.0')
+    expect(chosenLicense('GPL-3.0-only OR BSD-3-Clause')).toBe('BSD-3-Clause')
+    expect(chosenLicense('GPL-3.0-only OR Apache-2.0 WITH LLVM-exception')).toBe('Apache-2.0 WITH LLVM-exception')
+    // MIT only when it is offered as it is: MIT with an exception or alongside another license is a choice like any other.
+    expect(chosenLicense('Apache-2.0 OR MIT WITH some-exception')).toBe('Apache-2.0')
+    expect(chosenLicense('(Apache-2.0 AND MIT) OR (MIT AND Zlib) OR MIT')).toBe('MIT')
+    // Each OR is decided on its own, inside an AND too.
+    expect(chosenLicense('(MIT OR Apache-2.0) AND Unicode-3.0')).toBe('MIT AND Unicode-3.0')
+    expect(chosenLicense('(GPL-2.0-only OR Zlib) AND (Apache-2.0 OR MIT)')).toBe('Zlib AND MIT')
+    expect(chosenLicense('(Apache-2.0 AND BSD-3-Clause) OR GPL-2.0-only')).toBe('Apache-2.0 AND BSD-3-Clause')
+    // No choice, nothing allowed, or not an expression: nothing to say.
+    for (const none of ['MIT', 'Apache-2.0 AND MIT', 'Apache-2.0 WITH LLVM-exception', 'GPL-3.0-only OR LGPL-3.0-only', 'SEE LICENSE IN LICENSE.md', 'MIT OR', null])
+      expect(chosenLicense(none), String(none)).toBeNull()
+    // A build-only allowlist is the caller's to pass.
+    expect(chosenLicense('GPL-3.0-only OR EPL-2.0', new Set(['EPL-2.0']))).toBe('EPL-2.0')
+  })
+
+  it('shows on a shipped package\'s entry which license Dialect uses when it offers a choice', () => {
+    const r = fixture(['dual', 'single'], [
+      { name: 'dual', version: '1.0.0', license: '(MPL-2.0 OR Apache-2.0)' },
+      { name: 'single', version: '1.0.0', license: 'MIT' }
+    ])
+    expect(r.problems).toEqual([])
+    expect(r.notices.text).toContain('| dual | 1.0.0 | (MPL-2.0 OR Apache-2.0), used under MPL-2.0 | desktop app |')
+    expect(r.notices.text).toContain('## dual 1.0.0\n\nLicense: (MPL-2.0 OR Apache-2.0), used under MPL-2.0\n')
+    expect(r.notices.text).toContain('| single | 1.0.0 | MIT | desktop app |')
+    expect(r.notices.text).not.toContain('MIT, used under')
   })
 
   it('reads the legacy license forms', () => {
@@ -456,7 +497,8 @@ describe('Rust crates (scripts/crateNotices.mjs)', () => {
     expect(inv.crates.shipped.map((c: { name: string }) => c.name)).toEqual(['tauri'])
     expect(inv.crates.buildOnly.map((c: { name: string }) => c.name)).toEqual(['cc', 'cssparser-macros'])
     const text = noticesText(inv, emptyNoticesDir(), [], {}).text
-    expect(text).toContain('| tauri | 2.0.0 | MIT OR Apache-2.0 | desktop app |')
+    expect(text).toContain('| tauri | 2.0.0 | MIT OR Apache-2.0, used under MIT | desktop app |')
+    expect(text).toContain('## tauri 2.0.0 (crate)\n\nLicense: MIT OR Apache-2.0, used under MIT\n')
     expect(text).not.toContain('cssparser-macros')
     expect(buildOnlyText(inv, []).text).toContain('| cssparser-macros | 0.6.1 | MPL-2.0 |')
     expect(licenseProblems(inv, [])).toEqual([])

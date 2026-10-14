@@ -272,7 +272,9 @@ each workspace's `typecheck` script.
   which then gives its link and text on every machine; without one the check fails.
 - `docs/BUILD_ONLY_PACKAGES.md` lists every build-only package with its version and license.
 - `scripts/licensePolicy.mjs` judges each package's SPDX expression against its category's list (`SHIPPED_ALLOWED`
-  or `OPEN_SOURCE`), with the recorded `EXCEPTIONS`.
+  or `OPEN_SOURCE`), with the recorded `EXCEPTIONS`. Its `chosenLicense()` says which license a package or crate
+  offering a choice is used under (MIT where offered, else the first allowed choice, at each `OR`), which each notices
+  entry shows (`shownLicense()`: "MIT OR Apache-2.0, used under MIT").
 - `scripts/licenseText.mjs` keeps the text steps pure: line endings, whether to rewrite a file, and what changed.
 - `scripts/fixtureLicenses.mjs` checks the copied, not shipped fixtures: every source in `fixtures/manifest.json` has
   a license on the shipped allowlist and its text in `fixtures/LICENSES/`, with its NOTICE file when `FIXTURE_NOTICES`
