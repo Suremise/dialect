@@ -1,0 +1,24 @@
+set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/30
+set interfaces ge-0/0/1 unit 0 family inet address 192.0.2.5/30
+set interfaces ge-0/0/2 unit 0 family inet address 192.0.2.9/30
+set interfaces ge-0/0/3 unit 0 family inet address 192.0.2.13/30
+set interfaces lo0 unit 0 family inet address 203.0.113.1/32
+set routing-options router-id 203.0.113.1
+set protocols ospf area 0 interface lo0.0 passive
+set protocols ospf area 0 interface ge-0/0/0.0
+set protocols ospf area 0.0.0.1 stub
+set protocols ospf area 0.0.0.1 interface ge-0/0/1.0 metric 100
+set protocols ospf area 2 nssa
+set protocols ospf area 2 interface ge-0/0/2.0
+set protocols ospf area 0.0.0.3 stub no-summaries
+set protocols ospf area 0.0.0.3 interface ge-0/0/3.0 interface-type nbma
+set protocols ospf area 0.0.0.4 interface ge-0/0/9.0
+set protocols ospf area 0.0.0.0 interface all
+set protocols ospf export REDISTRIBUTE
+set protocols ospf3 area 0.0.0.0 interface lo0.0
+set routing-instances CUST instance-type vrf
+set routing-instances CUST route-distinguisher 65000:1
+set routing-instances CUST vrf-target target:65000:1
+set routing-instances CUST interface ge-0/0/3.0
+set routing-instances CUST routing-options router-id 192.0.2.13
+set routing-instances CUST protocols ospf area 0.0.0.0 interface ge-0/0/3.0 passive

@@ -57,3 +57,13 @@ export function describeInterface(name: string): PortName | undefined {
   const type = interfaceType(name)
   return type ? { type, numbers: [Number(single[2])] } : undefined
 }
+
+/**
+ * The Junos name for a port another plugin described, as a suggestion (convert never takes it silently). Only
+ * aggregates so far, as the user decided: Cisco `Port-channelN`, `port-channelN` and `Bundle-EtherN` start at 1, Junos's
+ * `ae` at 0, so N is `ae(N-1)`. Undefined for anything else.
+ */
+export function nameInterface(port: PortName): string | undefined {
+  if (port.type !== 'aggregate' || port.numbers.length !== 1 || !Number.isInteger(port.numbers[0]) || port.numbers[0] < 1) return undefined
+  return `ae${port.numbers[0] - 1}`
+}

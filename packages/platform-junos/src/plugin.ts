@@ -3,7 +3,7 @@
 import type { Diagnostic, PlatformPlugin, Tool, ToolResult } from '@dialect/core'
 import { detect } from './detect'
 import { displaySet } from './displaySet'
-import { describeInterface } from './names'
+import { describeInterface, nameInterface } from './names'
 import { parse } from './parse'
 import { render } from './render'
 
@@ -62,11 +62,14 @@ export const junos: PlatformPlugin = {
     ntp: { parse: 'partial', render: 'partial' },
     syslog: { parse: 'partial', render: 'partial' },
     snmp: { parse: 'partial', render: 'partial' },
-    vlans: { parse: 'partial', render: 'partial' }
+    vlans: { parse: 'partial', render: 'partial' },
+    ospf: { parse: 'partial', render: 'partial' },
+    bgp: { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,
   render,
   describeInterface,
+  nameInterface,
   tools: () => [displaySetTool]
 }
