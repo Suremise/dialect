@@ -555,7 +555,7 @@ VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and 
 - **Render (`render.ts`):** every leaf of model 0.4 gets a disposition; a later version's fields get none, for the
   ledger to report. The text relies on no switch default: it writes each `feature` a written statement needs before it,
   and `switchport` or `no switchport` on every Ethernet and port-channel interface (`no switchport` with an address or
-  subinterfaces or a VRF). Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
+  subinterfaces, a VRF or OSPF). Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
   `address-family ipv4 unicast` and `ipv6 unicast` (the model's are the VRF's), after `feature bgp`, and before the
   interfaces; `vrf member V` comes before an interface's addresses, which it would otherwise clear, and `mgmt0` always
   gets `vrf member management`. What NX-OS can't write is `unsupported` with why: a membership in a VRF the model
