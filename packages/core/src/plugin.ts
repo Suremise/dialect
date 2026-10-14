@@ -5,8 +5,11 @@ import type { PortName } from './convert'
 import type { Device } from './model'
 import type { Context, Diagnostic, ParseResult, RenderResult } from './results'
 
-/** The model's feature areas, as capabilities name them. Minor model versions add areas (0.2.0: `dns`). */
-export type FeatureArea = 'system' | 'interfaces' | 'static-routes' | 'dns' | 'ntp' | 'syslog' | 'snmp'
+/**
+ * The model's feature areas, as capabilities name them. Minor model versions add areas (0.2.0: `dns`; 0.4.0: `vlans`,
+ * with switch ports and IRB/SVI interfaces, `ospf` and `bgp`).
+ */
+export type FeatureArea = 'system' | 'interfaces' | 'static-routes' | 'dns' | 'ntp' | 'syslog' | 'snmp' | 'vlans' | 'ospf' | 'bgp'
 
 /** How much of an area a plugin handles. */
 export type Support = 'full' | 'partial' | 'none'

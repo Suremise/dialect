@@ -33,8 +33,9 @@ afterAll(() => {
 })
 
 /**
- * A model with `key` as an interface, a VRF (with the interface in it), an SNMP community and a DNS server. Computed
- * keys are own properties.
+ * A model with `key` as an interface, a VRF (with the interface in it), an SNMP community, a DNS server, a VLAN's name,
+ * an OSPF interface (a reference to the interface), a BGP group and a neighbor's group, update source and policy.
+ * Computed keys are own properties.
  */
 const deviceWith = (key: string): Device => ({
   system: {
@@ -42,7 +43,17 @@ const deviceWith = (key: string): Device => ({
     dns: { servers: { [key]: {}, '192.0.2.53': { networkInstance: key } }, search: ['example.net'] }
   },
   interfaces: { [key]: { description: 'uplink', subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } }, networkInstance: key } } } },
-  networkInstances: { [key]: { type: 'vrf', routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'], export: ['65000:1'] }, staticRoutes: { '0.0.0.0/0': { nextHops: { '0': { address: '192.0.2.254' } } } } } }
+  vlans: { '10': { name: key } },
+  networkInstances: {
+    [key]: {
+      type: 'vrf',
+      routeDistinguisher: '65000:1',
+      routeTargets: { import: ['65000:1'], export: ['65000:1'] },
+      staticRoutes: { '0.0.0.0/0': { nextHops: { '0': { address: '192.0.2.254' } } } },
+      ospf: { areas: { '0.0.0.0': { interfaces: { [key]: {} } } } },
+      bgp: { groups: { [key]: {} }, neighbors: { '192.0.2.2': { group: key, updateSource: key, importPolicies: [key] } } }
+    }
+  }
 })
 
 const expectedPaths = (key: string) => [
@@ -53,11 +64,17 @@ const expectedPaths = (key: string) => [
   fieldPath('interfaces', key, 'description'),
   fieldPath('interfaces', key, 'subinterfaces', '0', 'ipv4', 'addresses', '192.0.2.1', 'prefixLength'),
   fieldPath('interfaces', key, 'subinterfaces', '0', 'networkInstance'),
+  fieldPath('vlans', '10', 'name'),
   fieldPath('networkInstances', key, 'type'),
   fieldPath('networkInstances', key, 'routeDistinguisher'),
   fieldPath('networkInstances', key, 'routeTargets', 'import'),
   fieldPath('networkInstances', key, 'routeTargets', 'export'),
-  fieldPath('networkInstances', key, 'staticRoutes', '0.0.0.0/0', 'nextHops', '0', 'address')
+  fieldPath('networkInstances', key, 'staticRoutes', '0.0.0.0/0', 'nextHops', '0', 'address'),
+  fieldPath('networkInstances', key, 'ospf', 'areas', '0.0.0.0', 'interfaces', key),
+  fieldPath('networkInstances', key, 'bgp', 'groups', key),
+  fieldPath('networkInstances', key, 'bgp', 'neighbors', '192.0.2.2', 'group'),
+  fieldPath('networkInstances', key, 'bgp', 'neighbors', '192.0.2.2', 'updateSource'),
+  fieldPath('networkInstances', key, 'bgp', 'neighbors', '192.0.2.2', 'importPolicies')
 ]
 
 describe.each(KEYS)('the key %s', (key) => {
@@ -73,7 +90,8 @@ describe.each(KEYS)('the key %s', (key) => {
     const twice = deserializeModel(serializeModel(once)).device
     for (const d of [once, twice]) {
       expect(d).toEqual(device)
-      for (const map of [d.interfaces!, d.networkInstances!, d.system!.snmp!.communities!, d.system!.dns!.servers!]) {
+      const instance = d.networkInstances![key]
+      for (const map of [d.interfaces!, d.networkInstances!, d.system!.snmp!.communities!, d.system!.dns!.servers!, instance.ospf!.areas!['0.0.0.0'].interfaces!, instance.bgp!.groups!]) {
         expect(Object.hasOwn(map, key)).toBe(true)
         expect(Object.getPrototypeOf(map)).toBe(Object.prototype)
       }
@@ -123,6 +141,23 @@ describe.each(KEYS)('the key %s', (key) => {
     expect(modelProblems({ ...device, networkInstances: nullProto }).map((d) => d.code)).toEqual(['model.unknown-network-instance'])
   })
 
+  it('is a BGP group a neighbor can name, and an interface an OSPF interface and an update source name, by own keys only', () => {
+    const device = deviceWith(key)
+    const bgp = device.networkInstances![key].bgp!
+    // The group declared under another name: `key` must not be found on Object.prototype.
+    const regrouped: Device = { ...device, networkInstances: { [key]: { ...device.networkInstances![key], bgp: { ...bgp, groups: { peers: {} } } } } }
+    expect(modelProblems(regrouped).map((d) => [d.code, d.field])).toEqual([['model.unknown-bgp-group', fieldPath('networkInstances', key, 'bgp', 'neighbors', '192.0.2.2', 'group')]])
+    // The interface renamed: the OSPF interface and the update source name nothing (the subinterface's VRF is still fine).
+    const { [key]: ifc } = device.interfaces!
+    const renamed: Device = { ...device, interfaces: { eth0: ifc } }
+    expect(modelProblems(renamed).map((d) => [d.code, d.field])).toEqual([
+      ['model.unknown-interface', fieldPath('networkInstances', key, 'ospf', 'areas', '0.0.0.0', 'interfaces', key)],
+      ['model.unknown-interface', fieldPath('networkInstances', key, 'bgp', 'neighbors', '192.0.2.2', 'updateSource')]
+    ])
+    const nullProto = Object.assign(Object.create(null), { eth0: ifc }) as Device['interfaces']
+    expect(modelProblems({ ...device, interfaces: nullProto }).map((d) => d.code)).toEqual(['model.unknown-interface', 'model.unknown-interface'])
+  })
+
   it('works in null-prototype maps too', () => {
     const interfaces: Record<string, unknown> = Object.create(null)
     interfaces[key] = Object.assign(Object.create(null), { description: 'uplink' })
@@ -138,16 +173,70 @@ describe('a model document', () => {
   })
 })
 
-describe('model 0.3.0', () => {
-  it('is the core\'s model version, and plugins built for 0.1 and 0.2 still load', () => {
-    expect(MODEL_VERSION).toBe('0.3.0')
-    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0'])
+describe('model 0.4.0', () => {
+  it('is the core\'s model version, and plugins built for 0.1 to 0.3 still load', () => {
+    expect(MODEL_VERSION).toBe('0.4.0')
+    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0', '>=0.3.0 <1.0.0'])
       expect(() => createRegistry([{ id: 'old', name: 'Old', modelApi, capabilities: { system: { parse: 'full', render: 'full' } } }]), modelApi).not.toThrow()
   })
 
+  it('reads 0.3.0 documents, and a 0.3 core refuses a 0.4 one rather than drop its fields', () => {
+    expect(deserializeModel('{"modelVersion":"0.3.0","device":{"networkInstances":{"blue":{"type":"vrf","routeDistinguisher":"65000:1"}}}}').device).toEqual({ networkInstances: { blue: { type: 'vrf', routeDistinguisher: '65000:1' } } })
+    const text = serializeModel({ vlans: { '10': { name: 'users' } } })
+    expect(JSON.parse(text).modelVersion).toBe('0.4.0')
+    expect(() => deserializeModel(text, '0.3.0')).toThrow('The model document was made with model 0.4.0, newer than this core\'s 0.3.0.')
+  })
+
+  it('has VLANs, switch ports, routed VLANs, OSPF and BGP as leaves, through JSON and with nothing wrong', () => {
+    const device: Device = {
+      interfaces: {
+        'ge-0/0/1': { switching: { mode: 'trunk', allowedVlans: ['10', '20-30'], nativeVlan: 10 } },
+        irb: { type: 'irb-or-svi', subinterfaces: { '10': { routedVlan: 10, ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } },
+        lo0: { subinterfaces: { '0': {} } }
+      },
+      vlans: { '10': { name: 'users', description: 'Users' }, '20': {} },
+      networkInstances: {
+        default: {
+          ospf: { processId: '1', routerId: '192.0.2.1', areas: { '0.0.0.0': { type: 'nssa', interfaces: { 'irb.10': { passive: true, enabledBy: 'network' } } } } },
+          bgp: { localAs: 4200000000, groups: { peers: { type: 'internal', updateSource: 'lo0.0' } }, neighbors: { '2001:db8::2': { group: 'peers', multihop: {}, addressFamilies: { 'ipv6-unicast': {} }, authentication: true } } }
+        }
+      }
+    }
+    const ospf = ['networkInstances', 'default', 'ospf'] as const
+    const bgp = ['networkInstances', 'default', 'bgp'] as const
+    expect(populatedLeaves(device).map((l) => l.path)).toEqual([
+      fieldPath('interfaces', 'ge-0/0/1', 'switching', 'mode'),
+      fieldPath('interfaces', 'ge-0/0/1', 'switching', 'allowedVlans'),
+      fieldPath('interfaces', 'ge-0/0/1', 'switching', 'nativeVlan'),
+      fieldPath('interfaces', 'irb', 'type'),
+      fieldPath('interfaces', 'irb', 'subinterfaces', '10', 'routedVlan'),
+      fieldPath('interfaces', 'irb', 'subinterfaces', '10', 'ipv4', 'addresses', '192.0.2.1', 'prefixLength'),
+      fieldPath('interfaces', 'lo0', 'subinterfaces', '0'),
+      fieldPath('vlans', '10', 'name'),
+      fieldPath('vlans', '10', 'description'),
+      fieldPath('vlans', '20'),
+      fieldPath(...ospf, 'processId'),
+      fieldPath(...ospf, 'routerId'),
+      fieldPath(...ospf, 'areas', '0.0.0.0', 'type'),
+      fieldPath(...ospf, 'areas', '0.0.0.0', 'interfaces', 'irb.10', 'passive'),
+      fieldPath(...ospf, 'areas', '0.0.0.0', 'interfaces', 'irb.10', 'enabledBy'),
+      fieldPath(...bgp, 'localAs'),
+      fieldPath(...bgp, 'groups', 'peers', 'type'),
+      fieldPath(...bgp, 'groups', 'peers', 'updateSource'),
+      fieldPath(...bgp, 'neighbors', '2001:db8::2', 'group'),
+      fieldPath(...bgp, 'neighbors', '2001:db8::2', 'multihop'),
+      fieldPath(...bgp, 'neighbors', '2001:db8::2', 'addressFamilies', 'ipv6-unicast'),
+      fieldPath(...bgp, 'neighbors', '2001:db8::2', 'authentication')
+    ])
+    expect(deserializeModel(serializeModel(device)).device).toEqual(device)
+    expect(modelProblems(device)).toEqual([])
+  })
+})
+
+describe('model 0.3.0', () => {
   it('reads 0.2.0 documents, and a 0.2 core refuses a 0.3 one rather than drop its fields', () => {
     expect(deserializeModel('{"modelVersion":"0.2.0","device":{"system":{"dns":{"search":["example.net"]}}}}').device).toEqual({ system: { dns: { search: ['example.net'] } } })
-    const text = serializeModel({ interfaces: { eth0: { subinterfaces: { '0': { networkInstance: 'blue' } } } }, networkInstances: { blue: { type: 'vrf' } } })
+    const text = serializeModel({ interfaces: { eth0: { subinterfaces: { '0': { networkInstance: 'blue' } } } }, networkInstances: { blue: { type: 'vrf' } } }, '0.3.0')
     expect(JSON.parse(text).modelVersion).toBe('0.3.0')
     expect(() => deserializeModel(text, '0.2.0')).toThrow('The model document was made with model 0.3.0, newer than this core\'s 0.2.0.')
   })

@@ -216,6 +216,137 @@ describe('convert: issues and the parse', () => {
   })
 })
 
+describe('convert: OSPF interfaces and BGP update sources name interfaces too (model 0.4.0)', () => {
+  const address = { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } }
+  const OSPF = ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces'] as const
+  const BGP = ['networkInstances', 'default', 'bgp'] as const
+  const model: Device = {
+    interfaces: { eth0: { subinterfaces: { '0': address } }, lo0: { subinterfaces: { '0': address } } },
+    networkInstances: {
+      default: {
+        // gre1 is only an OSPF interface's key: the model configures no gre1.
+        ospf: { areas: { '0.0.0.0': { interfaces: { 'eth0.0': { cost: 10 }, 'gre1.0': { passive: true } } } } },
+        bgp: { localAs: 65000, groups: { peers: { updateSource: 'lo0' } }, neighbors: { '10.0.0.2': { peerAs: 65001, updateSource: 'lo0.0' } } }
+      }
+    }
+  }
+  const tree: SyntaxNode[] = [
+    { id: 'eth0', label: 'eth0' },
+    { id: 'lo0', label: 'lo0' },
+    { id: 'ospf-eth0', label: 'ospf eth0.0 cost 10', span: { startLine: 3, startColumn: 1, endLine: 3, endColumn: 20 } },
+    { id: 'ospf-gre1', label: 'ospf gre1.0 passive', span: { startLine: 4, startColumn: 1, endLine: 4, endColumn: 20 } },
+    { id: 'bgp', label: 'bgp' }
+  ]
+  const dispositions: Record<string, StatementDisposition> = {
+    eth0: { kind: 'mapped', fields: [fieldPath('interfaces', 'eth0', 'subinterfaces', '0', 'ipv4', 'addresses', '192.0.2.1', 'prefixLength')] },
+    lo0: { kind: 'mapped', fields: [fieldPath('interfaces', 'lo0', 'subinterfaces', '0', 'ipv4', 'addresses', '192.0.2.1', 'prefixLength')] },
+    'ospf-eth0': { kind: 'mapped', fields: [fieldPath(...OSPF, 'eth0.0', 'cost')] },
+    'ospf-gre1': { kind: 'mapped', fields: [fieldPath(...OSPF, 'gre1.0', 'passive')] },
+    bgp: { kind: 'mapped', fields: [fieldPath(...BGP, 'localAs'), fieldPath(...BGP, 'groups', 'peers', 'updateSource'), fieldPath(...BGP, 'neighbors', '10.0.0.2', 'peerAs'), fieldPath(...BGP, 'neighbors', '10.0.0.2', 'updateSource')] }
+  }
+  const ospfSource: PlatformPlugin = { ...source, parse: () => ({ tree, model, dispositions, diagnostics: [] }) }
+  /** The target, which can't write an OSPF cost either. */
+  const noCost: PlatformPlugin = {
+    ...target,
+    render: (m, context) => {
+      const r = target.render!(m, context)
+      return { ...r, dispositions: Object.fromEntries(Object.entries(r.dispositions).map(([path, d]) => [path, path.endsWith('.cost') ? { kind: 'unsupported' as const, reason: 'no OSPF cost here' } : d])) }
+    }
+  }
+  const run04 = (to: PlatformPlugin, inputs?: Record<string, string>) => convert(ospfSource, to, 'config', { modelVersion: MODEL_VERSION, ...(inputs ? { inputs } : {}) })
+
+  it('names an interface only an OSPF interface keys, with the OSPF statement that names it', () => {
+    expect(modelInterfaces(model)).toEqual(['eth0', 'lo0', 'gre1'])
+    const gre1 = run04(target).ledger.needsInput.find((n) => n.id === interfaceInputId('gre1'))
+    expect(gre1).toEqual({ id: 'interface:gre1', kind: 'interface-name', message: 'Name this interface on Target.', statement: 'ospf-gre1' })
+  })
+
+  it('renames OSPF interface keys and BGP update sources, keeping each subinterface index', () => {
+    const c = run04(target, interfaceInputs({ eth0: 'Gig0', lo0: 'Loopback0', gre1: 'Tunnel1' }))
+    expect(c.unanswered).toEqual([])
+    const ni = c.model.networkInstances!.default
+    expect(Object.keys(ni.ospf!.areas!['0.0.0.0'].interfaces!)).toEqual(['Gig0.0', 'Tunnel1.0'])
+    expect(ni.ospf!.areas!['0.0.0.0'].interfaces!['Tunnel1.0']).toEqual({ passive: true })
+    expect(ni.bgp!.groups!.peers.updateSource).toBe('Loopback0')
+    expect(ni.bgp!.neighbors!['10.0.0.2']).toEqual({ peerAs: 65001, updateSource: 'Loopback0.0' })
+    expect(c.ledger.complete).toBe(true)
+    expect(populatedLeaves(c.model).length).toBe(populatedLeaves(model).length)
+  })
+
+  it('finds the source statement of a renamed OSPF interface\'s field: its issue and its link', () => {
+    for (const inputs of [undefined, interfaceInputs({ eth0: 'Gig0', gre1: 'Tunnel1' })]) {
+      const c = run04(noCost, inputs)
+      expect(c.issues).toEqual([{ statement: 'ospf-eth0', span: { startLine: 3, startColumn: 1, endLine: 3, endColumn: 20 }, kind: 'not-rendered', reason: 'no OSPF cost here' }])
+      const lines = c.render!.text.split('\n')
+      const passive = c.links.find((l) => l.statement === 'ospf-gre1')
+      expect(lines[passive!.output.startLine - 1]).toBe(`${fieldPath(...OSPF, inputs ? 'Tunnel1.0' : 'gre1.0', 'passive')} = true`)
+    }
+  })
+})
+
+describe('convert: two OSPF interfaces of an area that answers would make one', () => {
+  // eth0 → Gig0.0 and eth1 → Gig0 are distinct names, but turn the area's eth0 and eth1.0 into one reference, Gig0.0.
+  const OSPF = ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces'] as const
+  const model: Device = {
+    interfaces: { eth0: {}, eth1: { subinterfaces: { '0': {} } } },
+    networkInstances: { default: { ospf: { areas: { '0.0.0.0': { interfaces: { eth0: { cost: 10 }, 'eth1.0': { cost: 20 } } } } } } }
+  }
+  const tree: SyntaxNode[] = [
+    { id: 'eth0', label: 'eth0' },
+    { id: 'eth1', label: 'eth1' },
+    { id: 'ospf-eth0', label: 'ospf eth0 cost 10', span: { startLine: 3, startColumn: 1, endLine: 3, endColumn: 18 } },
+    { id: 'ospf-eth1', label: 'ospf eth1.0 cost 20', span: { startLine: 4, startColumn: 1, endLine: 4, endColumn: 20 } }
+  ]
+  const dispositions: Record<string, StatementDisposition> = {
+    eth0: { kind: 'mapped', fields: [fieldPath('interfaces', 'eth0')] },
+    eth1: { kind: 'mapped', fields: [fieldPath('interfaces', 'eth1', 'subinterfaces', '0')] },
+    'ospf-eth0': { kind: 'mapped', fields: [fieldPath(...OSPF, 'eth0', 'cost')] },
+    'ospf-eth1': { kind: 'mapped', fields: [fieldPath(...OSPF, 'eth1.0', 'cost')] }
+  }
+  const ospfSource: PlatformPlugin = { ...source, parse: () => ({ tree, model, dispositions, diagnostics: [] }) }
+
+  it('renameInterfaces() refuses it rather than lose an area entry', () => {
+    expect(() => renameInterfaces(model, { eth0: 'Gig0.0', eth1: 'Gig0' })).toThrow('Two OSPF interfaces of an area would have one name')
+    // Either answer alone is fine.
+    expect(Object.keys(renameInterfaces(model, { eth1: 'Gig0' }).networkInstances!.default.ospf!.areas!['0.0.0.0'].interfaces!)).toEqual(['eth0', 'Gig0.0'])
+  })
+
+  it('convert() refuses both answers with a diagnostic naming lines, never names, and keeps both entries', () => {
+    const c = convert(ospfSource, target, 'config', { modelVersion: MODEL_VERSION, inputs: interfaceInputs({ eth0: 'Gig0.0', eth1: 'Gig0' }) })
+    expect(c.ledger.diagnostics).toEqual([
+      {
+        severity: 'error',
+        category: 'other',
+        code: 'convert.interface-name-taken',
+        message: '2 OSPF interfaces would have one name on Target (lines 3, 4): give each its own.',
+        span: { startLine: 3, startColumn: 1, endLine: 3, endColumn: 18 },
+        statement: 'ospf-eth0'
+      }
+    ])
+    expect(c.interfaces.map((i) => i.target)).toEqual([undefined, undefined])
+    expect(c.unanswered.map((i) => i.id)).toEqual(['interface:eth0', 'interface:eth1'])
+    expect(c.model.networkInstances!.default.ospf!.areas!['0.0.0.0'].interfaces).toEqual({ eth0: { cost: 10 }, 'eth1.0': { cost: 20 } })
+    expect(populatedLeaves(c.model)).toEqual(populatedLeaves(model))
+    // Each cost still links back to its own statement.
+    const lines = c.render!.text.split('\n')
+    expect(c.links.filter((l) => l.statement.startsWith('ospf-')).map((l) => [l.statement, lines[l.output.startLine - 1]])).toEqual([
+      ['ospf-eth0', `${fieldPath(...OSPF, 'eth0', 'cost')} = 10`],
+      ['ospf-eth1', `${fieldPath(...OSPF, 'eth1.0', 'cost')} = 20`]
+    ])
+  })
+
+  it('keeps an answer that clashes with nothing, and links renamed entries to their own statements', () => {
+    const c = convert(ospfSource, target, 'config', { modelVersion: MODEL_VERSION, inputs: interfaceInputs({ eth0: 'Gig9', eth1: 'Gig0' }) })
+    expect(c.ledger.diagnostics).toEqual([])
+    expect(Object.keys(c.model.networkInstances!.default.ospf!.areas!['0.0.0.0'].interfaces!)).toEqual(['Gig9', 'Gig0.0'])
+    const lines = c.render!.text.split('\n')
+    expect(c.links.filter((l) => l.statement.startsWith('ospf-')).map((l) => [l.statement, lines[l.output.startLine - 1]])).toEqual([
+      ['ospf-eth0', `${fieldPath(...OSPF, 'Gig9', 'cost')} = 10`],
+      ['ospf-eth1', `${fieldPath(...OSPF, 'Gig0.0', 'cost')} = 20`]
+    ])
+  })
+})
+
 describe('the interface map file', () => {
   it('reads from,to lines with comments, blank lines, spaces, CRLF and a byte order mark', () => {
     expect(parseInterfaceMap('﻿# Junos,IOS\r\nge-0/0/0, GigabitEthernet0/0/0\r\n\r\n  lo0 ,Loopback0  # the loopback\r\n')).toEqual({

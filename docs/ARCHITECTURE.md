@@ -44,7 +44,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.3.0)
+## Core contracts (`@dialect/core`, model 0.4.0)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -58,11 +58,34 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
   addresses and the `networkInstance` (VRF) they route in when not the global table. A main interface's own L3 is
   subinterface `0`, so NX-OS `vrf member`, IOS `vrf forwarding` and IOS-XR `vrf` on an interface go there, and Junos's
   `routing-instances V interface ge-0/0/0.0` on its unit;
+  - a switch port's `switching` (after OpenConfig `switched-vlan`): `mode` `access` or `trunk`, the `accessVlan`, a
+    trunk's `allowedVlans` (a leaf-list of IDs and ranges, `"10"`, `"20-30"`, `"1-4094"` for all) and `nativeVlan`.
+    Junos ELS `unit 0 family ethernet-switching` and Cisco `switchport` map here. An access port's frames are untagged;
+    a trunk's are tagged, except the native VLAN's. The settings of the mode a port isn't in are kept as the source
+    has them;
+  - a routed VLAN interface (IRB/SVI) is of type `irb-or-svi`, and the subinterface that routes for a VLAN says which
+    in `routedVlan`: Junos `irb` unit 10 (`vlans V l3-interface irb.10`), Cisco `interface Vlan10` on subinterface `0`.
+    Plugins built before 0.4 call these interfaces `vlan`, which stays;
+- `vlans`, keyed by VLAN ID (`"10"`), with a `name` (Junos's key for it) and `description`;
 - `networkInstances`: `default` for the global table, each with a `type` (`default`, `vrf`, `virtual-router`),
   `staticRoutes` and their next hops, and for a VRF its `routeDistinguisher` and `routeTargets` (`import` and `export`
-  leaf-lists), in the forms `ASN:nn`, `IP:nn` or `ASN4:nn` (4-byte AS, plain), without a `target:` prefix.
+  leaf-lists), in the forms `ASN:nn`, `IP:nn` or `ASN4:nn` (4-byte AS, plain), without a `target:` prefix;
+  - `ospf` (OSPFv2, after OpenConfig `ospfv2`): Cisco's `processId`, `routerId`, and `areas` by dotted ID (`0.0.0.0`;
+    Cisco's `area 0` is that), each with a `type` (`normal`, `stub`, `nssa`) and its `interfaces` by interface
+    reference (`ge-0/0/0.0`, `GigabitEthernet0/0/1`): `passive`, `cost`, `networkType` (`point-to-point`,
+    `broadcast`), `helloInterval`, `deadInterval`, and `enabledBy`, whether the source enabled it on the interface or
+    with a `network` statement, so a target that can't say it the same way raises a semantic warning;
+  - `bgp` (after OpenConfig `bgp`): `localAs` and `routerId`, `groups` by name (Junos groups, Cisco peer groups) and
+    `neighbors` by address, each with a `peerAs`, `description`, `localAddress` or `updateSource` (an interface
+    reference), `multihop` (`{}`, or a `ttl`), `addressFamilies` (`ipv4-unicast`, `ipv6-unicast`), and
+    `importPolicies`/`exportPolicies` by name only, on the peer or per address family (policy bodies are phase 3); a
+    neighbor names its `group`, and its own settings win over the group's.
 
-These are the phase 1 areas; later minor versions add VLANs, OSPF, BGP, policy and filters.
+**Secrets are flags, never values:** OSPF `authentication` (`simple`, `md5`, `key-chain`, on an area or an interface)
+and a BGP peer's `authentication: true` say the source had a key; the key never reaches the model, so the target asks
+for it (a needs-input item).
+
+These are the phase 1 and phase 2 areas; later minor versions add policy bodies and filters (phase 3).
 
 Three conventions keep the model walkable by the ledger:
 - **collections are maps keyed by their natural key** (interface name, address, prefix), never arrays of objects, so
@@ -88,10 +111,12 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 | 0.1.0 | The phase 1 areas (B2) |
 | 0.2.0 | `system.dns` (`Dns`, `DnsServer`) and the `dns` feature area (#21) |
 | 0.3.0 | `Subinterface.networkInstance` (VRF membership), `NetworkInstance.routeDistinguisher` and `routeTargets`, and the `virtual-router` type (#44) |
+| 0.4.0 | `Device.vlans`, `Interface.switching`, the `irb-or-svi` type and `Subinterface.routedVlan`, `NetworkInstance.ospf` and `bgp`, and the `vlans`, `ospf` and `bgp` feature areas (#59, phase 2) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
-renderer or a subinterface's `networkInstance` for a 0.2 one, shows in the ledger as unrendered rather than being
-dropped (the kit's negative tests).
+renderer, a subinterface's `networkInstance` for a 0.2 one or any of 0.4's VLAN, switch port, routed VLAN, OSPF and BGP
+fields for a 0.3 one, shows in the ledger as unrendered rather than being dropped (the kit's negative tests). Each
+plugin adopts 0.4 in its own phase 2 cards.
 
 ### Validation (`validate.ts`)
 
@@ -100,6 +125,18 @@ with a `model.…` code and the leaf's path as `field`: a subinterface's `networ
 `networkInstances` (own keys only, so a VRF called `toString` is found only when declared), and isn't `default`, which
 is said by leaving it out; a route distinguisher and each route target must be in one of the three forms
 (`isRouteDistinguisher()`: `ASN:nn` with a 2-byte AS and a 4-byte number, `IP:nn` and `ASN4:nn` with a 2-byte number).
+
+From 0.4.0, references resolve and values are in range:
+- VLANs: keys, access, native and routed VLANs are VLAN IDs from 1 to 4094 (`isVlanId()`, `model.vlan-id`); an
+  allowed VLAN is an ID or a range, first below last (`model.vlan-range`); an access, native, routed or single allowed
+  VLAN names a VLAN of `vlans` (`model.unknown-vlan`; a range carries whichever of its VLANs exist, so `1-4094` needs
+  none declared); an `irb-or-svi` interface routes for a VLAN (`model.irb-without-vlan`), and only such an interface
+  does (`model.routed-vlan-interface`);
+- OSPF and BGP: router IDs are IPv4 addresses (`model.router-id`), areas dotted (`model.ospf-area`), local and peer AS
+  numbers plain, from 1 to 4294967295 (`isAsNumber()`, `model.as-number`); an OSPF interface and a BGP update source
+  name an interface, and with a `.N` that isn't part of a key, one of its subinterfaces (`model.unknown-interface`); a
+  neighbor's group is one of its instance's (`model.unknown-bgp-group`).
+
 Messages never quote the value, which can share its text with a secret. The conformance kit runs it on every parse and
 reparse.
 
@@ -158,16 +195,19 @@ Spans are for display only: the ledger never uses them, because one line can hol
 interfaces renamed by the user's answers, the target's render, and the ledger over both (no render after a parse
 error). Interface names are the core's job, not a plugin's, so they never map silently:
 - every interface the model names, as a key or by reference (`ntp`/`logging` `sourceInterface`, a next hop's
-  `interface`, written `name` or `name.<subinterface>`), is a needs-input item (`kind: 'interface-name'`, id
+  `interface`, an OSPF interface's key, a BGP `updateSource`, written `name` or `name.<subinterface>`), is a needs-input
+  item (`kind: 'interface-name'`, id
   `interface:<name>`, `interfaceInputId()`), first in the ledger's `needsInput`, with its field and the source statement
   that configures it (the outermost whose mapped fields are all that interface's), or the one that references it;
 - a suggestion comes from the source's `describeInterface` and the target's `nameInterface`, and is only offered
   (`suggestions`): an unanswered interface keeps its source name and stays in `unanswered`;
 - `renameInterfaces(model, map)` renames keys and references (`ge-0/0/0.0` → `GigabitEthernet0/0/0.0`; the IOS-XE
-  renderer writes a `.0` reference as the main interface), with null-prototype maps;
+  renderer writes a `.0` reference as the main interface), OSPF interface keys included, with null-prototype maps;
 - two interfaces that would have one name are refused, counting the source names unanswered interfaces keep: the
   answers in a clash are dropped (an error diagnostic, `convert.interface-name-taken`, with the interfaces' lines), so
-  each keeps its distinct source name and none replaces another. `renameInterfaces()` throws rather than merge two;
+  each keeps its distinct source name and none replaces another. So are answers that would give two OSPF interfaces of
+  an area one reference (`eth0` → `Gig0.0` beside `eth1.0` with `eth1` → `Gig0`), with the OSPF statements' lines.
+  `renameInterfaces()` throws rather than merge two;
 - no message names an interface (needs-input items say which by `statement` and `field`): a name can be a secret's
   value reused, and messages reach stderr and logs.
 
@@ -183,13 +223,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.3.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.4.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.3.0", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.4.0", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
@@ -244,7 +284,7 @@ Beside its fixtures, a plugin runs the kit's probes for the bug classes reviews 
 `ProbeAdapter` (`describeConformance(plugin, dir, { probes })`): small sources in its own syntax, and the kit checks
 what comes out the same way for every platform (`runProbes()`):
 1. **prototype keys:** one source using `__proto__`, `constructor` and `toString` as each name it can (an interface, a
-   VRF, an SNMP community, a DNS name), in one text: each stays an own key where the model keeps that name, the source
+   VRF, an SNMP community, a DNS name, a VLAN's name, a BGP group in the default instance), in one text: each stays an own key where the model keeps that name, the source
    passes the five fixture checks with the key as a secret (a community is one, and a VRF of the same name is too), and
    `Object.prototype` is unchanged after two parses and renders: every own property's descriptor (a value or accessor
    by identity, each flag), no property added or removed, and its prototype. What changed is reported and put back;
@@ -252,13 +292,14 @@ what comes out the same way for every platform (`runProbes()`):
    parse and the render → reparse each have it with clients or not at all. A render of the kit's own limited community
    (`PROBE-COMMUNITY`, read-only or read-write, clients `192.0.2.0/24`) → reparse has it back exactly (the same access
    and clients, its fields `rendered`, no other community, no error), or not at all with its fields `unsupported`;
-3. **negation clears state** (an address, a description, a name server, a static route, a community): the value at the
-   case's path is there after `set`, and in neither the parse nor the render → reparse of `negated`;
-4. **malformed values are flagged, not mapped** (an IPv4 or IPv6 address, a mask, a next hop): unless the parse reports
-   an error, a statement on the value's line (the case's `line`, or every line with it) is `unsupported`, none starting
-   there is `mapped` or `ignored-by-design`, and the value is in no model (as a key or a value). A statement that
-   vanishes without a word fails;
-5. **VRF scoping** (a delete, a DNS change, a static route change): every leaf that differs between `base` and
+3. **negation clears state** (an address, a description, a name server, a static route, a community, a BGP neighbor,
+   an OSPF interface): the value at the case's path is there after `set`, and in neither the parse nor the render →
+   reparse of `negated`;
+4. **malformed values are flagged, not mapped** (an IPv4 or IPv6 address, a mask, a next hop, an AS number, a VLAN
+   ID): unless the parse reports an error, a statement on the value's line (the case's `line`, or every line with it)
+   is `unsupported`, none starting there is `mapped` or `ignored-by-design`, and the value is in no model (as a key, a
+   string or a number). A statement that vanishes without a word fails;
+5. **VRF scoping** (a delete, a DNS change, a static route, OSPF or BGP change): every leaf that differs between `base` and
    `changed` is the VRF's, and the case changes something. A leaf is the VRF's under its network instance, or under an
    entry that belongs to it: where `base` puts an entry it already has (no `networkInstance`: the global table), and
    where `changed` puts a new one, so a change can't move another VRF's entry in and make its edits look in scope.
@@ -266,6 +307,10 @@ what comes out the same way for every platform (`runProbes()`):
 Every probe source also goes through the five fixture checks, the secrets check with the community names its parse
 has (and a cleared one's) among its secrets. Every probe and case is a choice in the adapter's types: given, or
 `{ notApplicable: 'why' }` for an area the plugin doesn't have, which the suite shows as a skipped test with its reason.
+The cases model 0.4.0 added (the VLAN and BGP group uses, BGP and OSPF negation, AS and VLAN malformed values, OSPF and
+BGP scoping) are optional in the types, so an adapter written before 0.4 compiles and runs as it did: `runProbes()`
+leaves out the ones it doesn't give, `probesNotGiven()` lists them, and the suite shows them as one skipped test, `not
+given yet (model 0.4.0)`, until the plugin's phase 2 card gives each or declares it not applicable.
 A plugin with no adapter shows its probes as one skipped test, never as passing; each existing plugin's adapter is its
 own lane's follow-up card, which fixes what its probes find in the plugin (that lane owns it), so the probes have no
 allowances of their own; a probe source's secrets go through the secrets allowances like any fixture's.
@@ -278,11 +323,14 @@ checks catch careless plugins:
   unrendered although the neighbor was, also when `multihop` is a field of a later minor model version, and a 0.2
   renderer leaves 0.3's VRF membership, route distinguisher and route targets unrendered;
 - a parse that puts an interface in a VRF it never declares, or gives a malformed route distinguisher, fails the parse
-  check;
+  check; so does a 0.4 model with an access or trunk VLAN, an OSPF interface, a BGP update source or group that doesn't
+  exist, or an IRB/SVI with no VLAN;
+- a 0.3 renderer leaves each of 0.4's areas (VLANs, switch ports, IRB/SVI, OSPF, BGP) unrendered, field by field;
 - a stub that quotes a secret in each kind of message the secrets check looks in (`tests/secrets.test.ts`);
 - a line-language probe stub (`tests/probeStub.ts`) with a switch for each probe's bug class: `{}` containers that
   turn `__proto__` into a prototype, a client list dropped on parse or on render, `no` forms that remove nothing, any
-  address taken as one, and a `no` in one VRF that removes the same thing everywhere. Each fails its probe; the
+  address, AS number or VLAN ID taken as one, and a `no` in one VRF that removes the same thing (a route, a BGP
+  neighbor, an OSPF interface) everywhere. Each fails its probe; the
   careful stub passes them all (`tests/probes.test.ts`).
 
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
