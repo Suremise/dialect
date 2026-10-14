@@ -13,6 +13,10 @@ const SIGNS: readonly (readonly [RegExp, number])[] = [
   [/ use-vrf \S+/m, 0.25],
   [/^switchname \S+/m, 0.4],
   [/^!Command: show running-config/m, 0.3],
+  // A configuration session, NX-OS's (IOS has none, IOS-XR's commits are its own).
+  [/^configure session \S+/m, 0.4],
+  // An IPv4 access list named with no kind: IOS says standard or extended, IOS-XR writes ipv4.
+  [/^ip access-list (?!standard |extended )\S+\s*$/m, 0.25],
   [/^version \d+\.\d+\(\d+\)/m, 0.3],
   [/^\s+ip address \d+\.\d+\.\d+\.\d+\/\d+/m, 0.25],
   [/^ip route \d+\.\d+\.\d+\.\d+\/\d+ /m, 0.2],
