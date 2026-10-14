@@ -127,7 +127,10 @@ product decisions.
   `GigabitEthernet0/0/0`), shown as suggestions and used only once the user takes them. Every target suggests a name
   for an aggregate: Junos `aeN` ↔ Cisco `Port-channel(N+1)`, NX-OS `port-channel(N+1)`, IOS-XR `Bundle-Ether(N+1)`,
   the number kept between Cisco platforms. A plugin describes an aggregate (PortName) by its number counted from 1, as
-  Cisco does, so no target needs to know the source. Until every interface is named,
+  Cisco does, so no target needs to know the source. **IRB units are named one by one** (#80): a routed VLAN interface
+  with several units (Junos `irb.100`, `irb.200`) is a row per unit, each becoming its own interface on a target with
+  one per VLAN; the target suggests Junos `irb.N` ↔ Cisco `VlanN` (IOS-XE, NX-OS; IOS-XR not yet), and SVIs named as
+  units (`Vlan100` → `irb.100`) become units of one interface. Until every interface is named,
   the CLI writes no config and exits 3; `--allow-incomplete` writes it anyway, the unnamed interfaces keeping their
   source names and their lines listed on stderr. Messages give an interface's line, never its name (a name can be a
   secret's value reused); `--write-map` writes the names, with suggestions, to a file the user chose. Two interfaces

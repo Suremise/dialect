@@ -55,9 +55,12 @@ export function describeInterface(name: string): PortName | undefined {
  * NX-OS's name for a port another platform described, as a suggestion the user confirms: an aggregate is
  * `port-channel` and its number. Every plugin describes an aggregate counted from 1, as Cisco does (Junos's `ae0` is 1),
  * so IOS-XE's `Port-channel5` and IOS-XR's `Bundle-Ether5` are `port-channel5`, and Junos's `ae0` is `port-channel1`.
+ * A routed VLAN interface is described by its VLAN's ID (the core does, #80): Junos's `irb.100` is `Vlan100`.
  */
 export function nameInterface(port: PortName): string | undefined {
-  if (port.type !== 'aggregate' || port.numbers.length !== 1) return undefined
+  if (port.numbers.length !== 1) return undefined
   const n = port.numbers[0]
+  if (port.type === 'irb-or-svi' || port.type === 'vlan') return Number.isInteger(n) && n >= 1 && n <= 4094 ? `Vlan${n}` : undefined
+  if (port.type !== 'aggregate') return undefined
   return Number.isInteger(n) && n >= 1 && n <= 4096 ? `port-channel${n}` : undefined
 }

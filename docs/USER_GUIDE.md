@@ -143,6 +143,12 @@ you take it. Aggregated interfaces get one on every target: Junos counts them fr
 suggested as IOS `Port-channel1`, NX-OS `port-channel1` or IOS-XR `Bundle-Ether1`, and the other way round
 `Port-channel1` as `ae0`. Between Cisco platforms the number stays (`Port-channel5` → `Bundle-Ether5`).
 
+**IRB units are named one by one.** A Junos `irb` (or EX `vlan`) interface with several units is listed unit by unit,
+`irb.100`, `irb.200`, since on IOS-XE and NX-OS each becomes its own VLAN interface. Each is suggested as `Vlan` and
+the number of the VLAN it routes for (`irb.100` → `Vlan100`), and a unit you haven't named yet stays in the list to
+name, without holding up the others. The other way, Cisco's `Vlan100` is suggested as Junos's `irb.100`, and the VLAN
+interfaces become units of one `irb`, each with its own description. IOS-XR suggests none yet.
+
 In the app, name them in the **Interfaces** table: type a name, click **Use** to take a row's suggestion, or **Use
 suggestions** to take every one at once. Until an interface has a name, it is marked, keeps its source name in the
 output, and the output pane says the conversion is incomplete. **Load map…** reads a map file (below) and **Save
@@ -166,6 +172,8 @@ or a JSON object:
 ```
 
 A Junos unit becomes a subinterface (`ge-0/0/1` unit 10 → `GigabitEthernet0/0/1.10`); unit 0 is the interface itself.
+An IRB unit has a line of its own (`irb.100,Vlan100`); `irb` on its own isn't a name in such a config, and a map that
+gives it is told so. A name with a unit number puts it at that unit (`Vlan100,irb.100`).
 Two interfaces can't end up with one name, counting the source names that unnamed interfaces keep: Dialect refuses those
 names (an error, with the interfaces' lines) and both stay unnamed, so neither replaces the other. A map that names an
 interface twice is refused whole, in either form.
@@ -252,7 +260,8 @@ end up in terminal and CI logs. To see the names, with suggestions, let `--write
 dialect convert --from junos --to iosxe --write-map names.csv router.conf
 ```
 
-It lists every interface: the name you gave, else the suggestion (marked `# suggested`), else none (`irb,`). Check
+It lists every interface, and every IRB unit on its own line: the name you gave, else the suggestion (marked
+`# suggested`), else none (`lo0,`). Check
 it, fill in the rest and give it back with `--map names.csv`; a line with no name is an interface still to name.
 
 ### Exit codes

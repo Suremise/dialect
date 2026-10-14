@@ -18,6 +18,10 @@
   keyboard focus shows.
 
 ### Convert
+- **Every IRB unit converts:** a Junos `irb` with several units is named unit by unit (`irb.100`, `irb.200`), in the
+  Interfaces table and in map files (`irb.100,Vlan100`), and each becomes its own VLAN interface on IOS-XE and NX-OS,
+  suggested as `Vlan100`, `Vlan200`. Before, only one unit could be converted. The other way, Cisco's `Vlan100` is
+  suggested as Junos's `irb.100`, and VLAN interfaces become units of one `irb`.
 - **Cisco NX-OS and IOS-XR join convert**, in the app and on the command line: convert from any of Junos, IOS / IOS-XE,
   NX-OS and IOS-XR to any other (`dialect convert --from nxos --to iosxr …`). In the app, a new tab's Convert row has
   the platform to convert from and the one to convert to, and a convert tab can change either.
