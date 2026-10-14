@@ -106,6 +106,56 @@ describe('a renderer built for model 0.1 meeting a 0.2 model with DNS set', () =
   })
 })
 
+describe('a renderer built for model 0.2 meeting a 0.3 model with VRF membership, a route distinguisher and route targets', () => {
+  // The stub renders addresses but has never heard of 0.3's fields. A 0.3 source plugin's model reaches it.
+  const old = stubPlugin({ modelApi: '>=0.2.0 <1.0.0' })
+  const model: Device = {
+    interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } }, networkInstance: 'blue' } } } },
+    networkInstances: { blue: { type: 'vrf', routeDistinguisher: '65000:100', routeTargets: { import: ['65000:100'], export: ['65000:100'] } } }
+  }
+  const added = [
+    fieldPath('interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'networkInstance'),
+    fieldPath('networkInstances', 'blue', 'routeDistinguisher'),
+    fieldPath('networkInstances', 'blue', 'routeTargets', 'import'),
+    fieldPath('networkInstances', 'blue', 'routeTargets', 'export')
+  ]
+
+  it('loads, renders the address, and the ledger reports each new field as unrendered, not dropped', () => {
+    expect(() => createRegistry([old], { modelVersion: '0.3.0' })).not.toThrow()
+    const parsed = old.parse!('system { host-name r1; }', { modelVersion: '0.3.0' })
+    const rendered = old.render!(model, { modelVersion: '0.3.0' })
+    expect(rendered.text).toContain('address 192.0.2.1/24;')
+    const ledger = buildLedger(parsed, rendered, model)
+    expect(ledger.complete).toBe(false)
+    // `type` is a 0.1 field this stub doesn't render either; the four 0.3 fields are each there.
+    expect(ledger.target?.unrendered.map((f) => f.path)).toEqual([added[0], fieldPath('networkInstances', 'blue', 'type'), ...added.slice(1)])
+  })
+})
+
+describe('a parse whose model doesn\'t hold together (core\'s modelProblems())', () => {
+  const vrf = fieldPath('interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'networkInstance')
+
+  it('fails the parse check for a subinterface in a VRF the model never declares, though the expected model matches', () => {
+    const source = 'interfaces { ge-0/0/0 { unit 0 { vrf blue; } } }'
+    const expectedModel: Device = { interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { networkInstance: 'blue' } } } } }
+    const r = byCheck(checkFixture(stubPlugin(), { name: 'vrfs/undeclared', source, expectedModel }))
+    expect(r.parse.problems).toEqual([`parse made an invalid model: A subinterface names a network instance the model doesn't have. (${vrf})`])
+  })
+
+  it('passes it once the VRF is declared', () => {
+    const source = 'interfaces { ge-0/0/0 { unit 0 { vrf blue; } } } routing-instances { blue { instance-type vrf; route-distinguisher 65000:1; } }'
+    const expectedModel: Device = { interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { networkInstance: 'blue' } } } }, networkInstances: { blue: { type: 'vrf', routeDistinguisher: '65000:1' } } }
+    expect(byCheck(checkFixture(stubPlugin(), { name: 'vrfs/declared', source, expectedModel })).parse.status).toBe('passed')
+  })
+
+  it('fails it for a route distinguisher in no form the model has, without quoting it', () => {
+    const source = 'routing-instances { blue { instance-type vrf; route-distinguisher CANARY_SECRET; } }'
+    const expectedModel: Device = { networkInstances: { blue: { type: 'vrf', routeDistinguisher: 'CANARY_SECRET' } } }
+    const r = byCheck(checkFixture(stubPlugin(), { name: 'vrfs/bad-rd', source, expectedModel }))
+    expect(r.parse.problems).toEqual(['parse made an invalid model: A route distinguisher isn\'t in the form ASN:nn, IP:nn or ASN4:nn. (networkInstances.blue.routeDistinguisher)'])
+  })
+})
+
 describe('a renderer that drops an NTP server configured with no options', () => {
   const source = 'system { ntp { server 192.0.2.123; } }'
   const server = fieldPath('system', 'ntp', 'servers', '192.0.2.123')

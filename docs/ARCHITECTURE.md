@@ -42,7 +42,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.2.0)
+## Core contracts (`@dialect/core`, model 0.3.0)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -52,9 +52,13 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
 - `system`: hostname, domain name, `dns` (servers by address, each with an optional network instance, and the search
   domains, after OpenConfig `system/dns`), `ntp` (servers), `logging` (remote syslog servers) and `snmp` (location,
   contact, communities);
-- `interfaces`: type, description, enabled, MTU, VLAN tagging, and `subinterfaces` with a VLAN id and `ipv4`/`ipv6`
-  addresses;
-- `networkInstances`: `default` for the global table (VRFs later), each with `staticRoutes` and their next hops.
+- `interfaces`: type, description, enabled, MTU, VLAN tagging, and `subinterfaces` with a VLAN id, `ipv4`/`ipv6`
+  addresses and the `networkInstance` (VRF) they route in when not the global table. A main interface's own L3 is
+  subinterface `0`, so NX-OS `vrf member`, IOS `vrf forwarding` and IOS-XR `vrf` on an interface go there, and Junos's
+  `routing-instances V interface ge-0/0/0.0` on its unit;
+- `networkInstances`: `default` for the global table, each with a `type` (`default`, `vrf`, `virtual-router`),
+  `staticRoutes` and their next hops, and for a VRF its `routeDistinguisher` and `routeTargets` (`import` and `export`
+  leaf-lists), in the forms `ASN:nn`, `IP:nn` or `ASN4:nn` (4-byte AS, plain), without a `target:` prefix.
 
 These are the phase 1 areas; later minor versions add VLANs, OSPF, BGP, policy and filters.
 
@@ -81,9 +85,21 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 |---|---|
 | 0.1.0 | The phase 1 areas (B2) |
 | 0.2.0 | `system.dns` (`Dns`, `DnsServer`) and the `dns` feature area (#21) |
+| 0.3.0 | `Subinterface.networkInstance` (VRF membership), `NetworkInstance.routeDistinguisher` and `routeTargets`, and the `virtual-router` type (#44) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
-renderer, shows in the ledger as unrendered rather than being dropped (the kit's negative tests).
+renderer or a subinterface's `networkInstance` for a 0.2 one, shows in the ledger as unrendered rather than being
+dropped (the kit's negative tests).
+
+### Validation (`validate.ts`)
+
+The types can't say everything a model must hold, so `modelProblems(device)` checks the rest, as error diagnostics
+with a `model.…` code and the leaf's path as `field`: a subinterface's `networkInstance` must name an entry of
+`networkInstances` (own keys only, so a VRF called `toString` is found only when declared), and isn't `default`, which
+is said by leaving it out; a route distinguisher and each route target must be in one of the three forms
+(`isRouteDistinguisher()`: `ASN:nn` with a 2-byte AS and a 4-byte number, `IP:nn` and `ASN4:nn` with a 2-byte number).
+Messages never quote the value, which can share its text with a secret. The conformance kit runs it on every parse and
+reparse.
 
 ### Field paths (`paths.ts`)
 
@@ -165,13 +181,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.2.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.3.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.2.0", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.3.0", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
@@ -192,9 +208,9 @@ describeConformance(plugin, new URL('./fixtures', import.meta.url))
 ```
 
 Each fixture goes through five checks (`checkFixture()`):
-1. parse → no error, and the expected model;
+1. parse → no error, a model with no `modelProblems()`, and the expected model;
 2. render → no error, and the expected text (skipped when there is none and the render reported no error);
-3. render → reparse → no error, and the same model;
+3. render → reparse → no error, a model with no `modelProblems()`, and the same model;
 4. the coverage ledger is complete for the parse and the render;
 5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
 
@@ -225,7 +241,10 @@ checks catch careless plugins:
 - a mapper that handles only `host-name` in `system { host-name r1; services { ssh; } }`: `system services ssh` is
   unmapped although line 1 is "covered";
 - a renderer that handles only a BGP neighbor's address and remote AS: `…neighbors["10.0.0.2"].multihop.ttl` is
-  unrendered although the neighbor was, also when `multihop` is a field of a later minor model version;
+  unrendered although the neighbor was, also when `multihop` is a field of a later minor model version, and a 0.2
+  renderer leaves 0.3's VRF membership, route distinguisher and route targets unrendered;
+- a parse that puts an interface in a VRF it never declares, or gives a malformed route distinguisher, fails the parse
+  check;
 - a stub that quotes a secret in each kind of message the secrets check looks in (`tests/secrets.test.ts`).
 
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)

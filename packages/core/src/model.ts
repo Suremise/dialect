@@ -20,7 +20,7 @@
 // while the ledger reports any populated field it has never heard of as unrendered.
 
 /** The shared model's version (docs/SPEC.md §4). Bump minor for additions, major for breaking changes. */
-export const MODEL_VERSION = '0.2.0'
+export const MODEL_VERSION = '0.3.0'
 
 /** A map from a collection's natural key to its entries. */
 export type Keyed<T> = Readonly<Record<string, T>>
@@ -121,6 +121,12 @@ export interface Subinterface {
   readonly vlanId?: number
   readonly ipv4?: AddressFamily
   readonly ipv6?: AddressFamily
+  /**
+   * The network instance (VRF) the subinterface routes in, when not `default`: NX-OS `vrf member V`, IOS
+   * `vrf forwarding V`, IOS-XR `vrf V`, Junos `routing-instances V interface ge-0/0/0.0`. A main interface's own L3 is
+   * subinterface `0`. It names an entry of `Device.networkInstances` (modelProblems() checks). Since model 0.3.0.
+   */
+  readonly networkInstance?: string
 }
 
 export interface AddressFamily {
@@ -135,10 +141,31 @@ export interface Address {
   readonly primary?: boolean
 }
 
+/**
+ * What a network instance is: the global table, a VRF (an L3VPN instance, with a route distinguisher on platforms that
+ * need one), or a virtual router (its own table, no VPN: Junos `instance-type virtual-router`). `virtual-router` since
+ * model 0.3.0.
+ */
+export type NetworkInstanceType = 'default' | 'vrf' | 'virtual-router'
+
 export interface NetworkInstance {
-  readonly type?: 'default' | 'vrf'
+  readonly type?: NetworkInstanceType
+  /**
+   * The route distinguisher, as `ASN:nn` (a 2-byte AS and a 4-byte number), `IP:nn` (an IPv4 address and a 2-byte
+   * number) or `ASN4:nn` (a 4-byte AS in plain form and a 2-byte number): `65000:100`, `192.0.2.1:100`,
+   * `4200000000:100`. isRouteDistinguisher() says which strings are one. Since model 0.3.0.
+   */
+  readonly routeDistinguisher?: string
+  /** Route targets, in the same three forms as the route distinguisher, without a `target:` prefix. Since model 0.3.0. */
+  readonly routeTargets?: RouteTargets
   /** By destination prefix in CIDR form (`0.0.0.0/0`, `2001:db8::/32`). */
   readonly staticRoutes?: Keyed<StaticRoute>
+}
+
+/** A VRF's route targets (leaf-lists, in the source's order). Since model 0.3.0. */
+export interface RouteTargets {
+  readonly import?: readonly string[]
+  readonly export?: readonly string[]
 }
 
 export interface StaticRoute {
