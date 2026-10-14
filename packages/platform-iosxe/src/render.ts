@@ -6,9 +6,10 @@
 // interface's `vrf forwarding` comes before its addresses, which it would otherwise clear. Routing protocols follow the
 // interfaces, whose blocks carry their own OSPF lines. Secrets (OSPF keys, BGP passwords) are never in the model: each
 // is a needs-input item, written only once answered.
-import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type RenderResult, type BgpPeer, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type RenderResult, type BgpPeer, type RouteTargets, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
 import { isIpv4, lengthMask } from './addresses'
-import { SEVERITIES } from './parse'
+import { interfaceType } from './names'
+import { channelGroupNumber, MAX_CHANNEL_GROUP, MAX_MIN_LINKS, SEVERITIES } from './parse'
 import { planFilters } from './renderAcl'
 import { planRoutingPolicy } from './renderPolicy'
 
@@ -36,6 +37,22 @@ export const bgpPasswordInputId = (instance: string, kind: 'groups' | 'neighbors
 
 /** A word IOS reads back as one: quoted when it has a space in it. */
 const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
+
+/** A switch port's lines after ` switchport`, in `show running-config`'s order (the VLANs, then the mode), each with its field or why it can't be written. */
+function switchingLines(s: Switching): ({ readonly field: string; readonly line: string; readonly why?: undefined } | { readonly field: string; readonly line?: undefined; readonly why: string })[] {
+  const out: ReturnType<typeof switchingLines> = []
+  for (const [field, line] of [['accessVlan', ' switchport access vlan'], ['nativeVlan', ' switchport trunk native vlan']] as const) {
+    const value = s[field]
+    if (value !== undefined) out.push(isVlanId(value) ? { field, line: `${line} ${value}` } : { field, why: 'not a VLAN ID from 1 to 4094' })
+  }
+  if (s.allowedVlans !== undefined)
+    out.push(s.allowedVlans.every(isVlanRange) ? { field: 'allowedVlans', line: ` switchport trunk allowed vlan ${s.allowedVlans.length ? s.allowedVlans.join(',') : 'none'}` } : { field: 'allowedVlans', why: 'not a list of VLAN IDs and ranges from 1 to 4094' })
+  if (s.mode !== undefined) out.push(s.mode === 'access' || s.mode === 'trunk' ? { field: 'mode', line: ` switchport mode ${s.mode}` } : { field: 'mode', why: 'not a switch port mode IOS has' })
+  return out
+}
+
+/** A value as JSON with its objects' keys in order: two values that say the same are the same string. */
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v))
 
 export function render(model: Device, context: Context): RenderResult {
   const lines: string[] = []
@@ -336,8 +353,13 @@ export function render(model: Device, context: Context): RenderResult {
 
   // ---- interfaces
 
+  /** Aggregates whose LACP mode a member's `channel-group` wrote. */
+  const lacpWritten = new Set<string>()
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
   emptyContainer(model.interfaces, ['interfaces'])
+  // IOS gives an aggregate's mode on its members only: with none written, it has nowhere to go.
+  for (const [name, iface] of Object.entries(model.interfaces ?? {}))
+    if (iface.aggregation?.lacp !== undefined && !lacpWritten.has(name)) skip(['interfaces', name, 'aggregation', 'lacp'], 'unsupported', 'IOS gives the LACP mode on each member link, and no member of this aggregate is written')
   // An OSPF interface whose block wasn't written (none should be): its fields say so.
   for (const left of ospfLines.values()) for (const l of left) for (const f of l.fields) skip(f, 'unsupported', 'on an interface IOS doesn\'t write')
 
@@ -381,13 +403,15 @@ export function render(model: Device, context: Context): RenderResult {
     const named = routed !== undefined && iface.type === 'irb-or-svi' && isVlanId(routed) && new RegExp(`^(?:Vlan|Vl)0*${routed}$`, 'i').test(name)
     if (routed !== undefined && !named) skip(routedField, 'unsupported', 'IOS routes a VLAN on the interface named for it (VlanN for VLAN N), and this one isn\'t')
 
-    const hasOwn = iface.description !== undefined || iface.enabled !== undefined || iface.mtu !== undefined || iface.switching !== undefined || main !== undefined || ospfLines.has(`${name}|0`)
+    const lag = iface.aggregate !== undefined || iface.aggregation !== undefined
+    const hasOwn = iface.description !== undefined || iface.enabled !== undefined || iface.mtu !== undefined || iface.switching !== undefined || lag || main !== undefined || ospfLines.has(`${name}|0`)
     if (hasOwn || !subs.some(([index]) => index !== '0')) {
       separator()
       emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []), ...(named ? [routedField] : []))
       if (iface.description !== undefined) emit(` description ${iface.description}`, [...at, 'description'])
       if (iface.mtu !== undefined) emit(` mtu ${iface.mtu}`, [...at, 'mtu'])
       if (iface.switching !== undefined) renderSwitching(iface, at)
+      renderLag(name, iface, at)
       if (main) {
         const sub = [...at, 'subinterfaces', '0']
         if (isEmpty(main)) skip(sub, 'not-applicable', 'IOS has no unit 0 of its own: the main interface is it')
@@ -414,6 +438,48 @@ export function render(model: Device, context: Context): RenderResult {
       emitOspf(name, index)
       if (sub.enabled !== undefined) emit(sub.enabled ? ' no shutdown' : ' shutdown', [...subAt, 'enabled'])
     }
+  }
+
+  /**
+   * A member link's `channel-group N mode M`, which also says its aggregate's LACP mode (model 0.5.4), and an
+   * aggregate's `port-channel min-links`. IOS bundles a member into `Port-channelN` by N, so the aggregate must be named
+   * so; with no LACP mode, the member has no mode either, as IOS routers take it for a static bundle.
+   */
+  function renderLag(name: string, iface: Interface, at: Segments) {
+    const aggregation = iface.aggregation
+    if (aggregation !== undefined) {
+      const lagAt = [...at, 'aggregation']
+      emptyContainer(aggregation, lagAt)
+      if (iface.type !== 'aggregate') skipAll(aggregation, lagAt, 'only an aggregate has LAG settings')
+      else if (aggregation.minLinks !== undefined) {
+        if (Number.isInteger(aggregation.minLinks) && aggregation.minLinks >= 1 && aggregation.minLinks <= MAX_MIN_LINKS) emit(` port-channel min-links ${aggregation.minLinks}`, [...lagAt, 'minLinks'])
+        else skip([...lagAt, 'minLinks'], 'unsupported', `not a number of links from 1 to ${MAX_MIN_LINKS}`)
+      }
+    }
+    const aggregate = iface.aggregate
+    if (aggregate === undefined) return
+    const field = [...at, 'aggregate']
+    const target = model.interfaces && Object.hasOwn(model.interfaces, aggregate) ? model.interfaces[aggregate] : undefined
+    const group = channelGroupNumber(/^Po(?:rt-channel)?(\d+)$/i.exec(aggregate)?.[1] ?? '')
+    if ((iface.type ?? interfaceType(name)) !== 'ethernet') return skip(field, 'unsupported', 'only an Ethernet interface is a member link on IOS')
+    if (target?.type !== 'aggregate') return skip(field, 'unsupported', 'names an interface that isn\'t an aggregate')
+    if (group === null) return skip(field, 'unsupported', `IOS bundles a member into the Port-channel of its number, from 1 to ${MAX_CHANNEL_GROUP}, and this aggregate isn't named so`)
+    const lacp = target.aggregation?.lacp
+    const mode = lacp === 'active' || lacp === 'passive' ? ` mode ${lacp}` : lacp === 'static' ? ' mode on' : ''
+    if (lacp !== undefined && !mode) return skip(field, 'unsupported', 'its aggregate\'s LACP mode isn\'t one IOS has')
+    // A port joins only when it matches its Port-channel: one with no switch port settings or MTU of its own takes the
+    // Port-channel's, as members show them in IOS's own running configuration (no fields of its own); one whose own
+    // differ isn't written.
+    if (iface.switching !== undefined && target.switching !== undefined && canonical(iface.switching) !== canonical(target.switching)) return skip(field, 'unsupported', 'its switch port settings differ from its Port-channel\'s, which IOS refuses')
+    if (iface.mtu !== undefined && target.mtu !== undefined && iface.mtu !== target.mtu) return skip(field, 'unsupported', 'its MTU differs from its Port-channel\'s, which IOS refuses')
+    if (iface.mtu === undefined && target.mtu !== undefined) emit(` mtu ${target.mtu}`)
+    if (iface.switching === undefined && target.switching !== undefined && iface.type !== 'irb-or-svi') {
+      emit(' switchport')
+      for (const l of switchingLines(target.switching)) if (l.line !== undefined) emit(l.line)
+    }
+    const first = lacp !== undefined && !lacpWritten.has(aggregate)
+    lacpWritten.add(aggregate)
+    emit(` channel-group ${group}${mode}`, field, ...(first ? [['interfaces', aggregate, 'aggregation', 'lacp']] : []))
   }
 
   /** A subinterface's access lists (model 0.5.1), each way and family, when the access list is written. */
@@ -444,20 +510,9 @@ export function render(model: Device, context: Context): RenderResult {
       return
     }
     emit(' switchport', ...(isEmpty(s) ? [sw] : []))
-    const vlan = (value: number | undefined, leaf: string, line: string) => {
-      if (value === undefined) return
-      if (isVlanId(value)) emit(`${line} ${value}`, [...sw, leaf])
-      else skip([...sw, leaf], 'unsupported', 'not a VLAN ID from 1 to 4094')
-    }
-    vlan(s.accessVlan, 'accessVlan', ' switchport access vlan')
-    vlan(s.nativeVlan, 'nativeVlan', ' switchport trunk native vlan')
-    if (s.allowedVlans !== undefined) {
-      if (s.allowedVlans.every(isVlanRange)) emit(` switchport trunk allowed vlan ${s.allowedVlans.length ? s.allowedVlans.join(',') : 'none'}`, [...sw, 'allowedVlans'])
-      else skip([...sw, 'allowedVlans'], 'unsupported', 'not a list of VLAN IDs and ranges from 1 to 4094')
-    }
-    if (s.mode !== undefined) {
-      if (s.mode === 'access' || s.mode === 'trunk') emit(` switchport mode ${s.mode}`, [...sw, 'mode'])
-      else skip([...sw, 'mode'], 'unsupported', 'not a switch port mode IOS has')
+    for (const l of switchingLines(s)) {
+      if (l.line !== undefined) emit(l.line, [...sw, l.field])
+      else skip([...sw, l.field], 'unsupported', l.why)
     }
   }
 

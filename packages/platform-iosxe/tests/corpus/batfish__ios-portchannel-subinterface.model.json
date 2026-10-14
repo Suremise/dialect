@@ -7,7 +7,8 @@
     "interfaces": {
       "Ethernet1": {
         "type": "ethernet",
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-Channel1"
       },
       "Port-Channel1": {
         "type": "aggregate",

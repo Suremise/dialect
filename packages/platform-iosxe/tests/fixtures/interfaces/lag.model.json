@@ -1,0 +1,61 @@
+{
+  "modelVersion": "0.5.4",
+  "device": {
+    "system": {
+      "hostname": "dist-sw1"
+    },
+    "interfaces": {
+      "Port-channel1": {
+        "type": "aggregate",
+        "description": "Uplink bundle to core",
+        "switching": {
+          "mode": "trunk"
+        },
+        "aggregation": {
+          "minLinks": 2,
+          "lacp": "active"
+        }
+      },
+      "Port-channel2": {
+        "type": "aggregate",
+        "description": "Static bundle to a server",
+        "aggregation": {
+          "lacp": "static"
+        }
+      },
+      "GigabitEthernet1/0/1": {
+        "type": "ethernet",
+        "description": "Core link A",
+        "aggregate": "Port-channel1"
+      },
+      "GigabitEthernet1/0/2": {
+        "type": "ethernet",
+        "description": "Core link B",
+        "aggregate": "Port-channel1"
+      },
+      "GigabitEthernet1/0/3": {
+        "type": "ethernet",
+        "aggregate": "Port-channel2"
+      },
+      "GigabitEthernet1/0/4": {
+        "type": "ethernet",
+        "aggregate": "Port-channel2"
+      },
+      "GigabitEthernet1/0/5": {
+        "type": "ethernet",
+        "description": "Joins a bundle the text doesn't configure",
+        "aggregate": "Port-channel3"
+      },
+      "GigabitEthernet1/0/6": {
+        "type": "ethernet",
+        "description": "Left its bundle"
+      },
+      "Port-channel3": {
+        "type": "aggregate",
+        "aggregation": {
+          "lacp": "passive"
+        }
+      }
+    }
+  }
+}

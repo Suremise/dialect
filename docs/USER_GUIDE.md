@@ -225,6 +225,18 @@ on it are listed as not converted. Other LAG settings (LACP timers and prioritie
 listed as not converted. An aggregate needs its name on the target like any interface: until you name it (`ae0` for a
 `Port-channel1`, say), its members and settings are listed as not written.
 
+Cisco IOS / IOS-XE and NX-OS convert bundles too: each member's `channel-group N mode
+active|passive|on` (or no mode) puts it in `Port-channelN` (NX-OS `port-channelN`) with its LACP mode, and a
+Port-channel's minimum links (`port-channel min-links` on IOS / IOS-XE, `lacp min-links` on NX-OS) converts too. A
+member whose Port-channel the config doesn't configure brings it in, as the device does. Members of one bundle with
+different modes stop the conversion with an error, since no device runs that, and PAgP (`mode auto` or `desirable`) is
+listed as not converted. Converting to NX-OS writes `feature lacp` when the bundle uses LACP. Each member is written
+to match its bundle, as the device needs to bundle it: with the bundle's switch port settings and MTU, and on NX-OS
+`no switchport` when the bundle routes. A member whose own settings differ, or that has an IP address of its own, is
+listed as not converted. A bundle without LACP is written with no mode
+(`channel-group 1`), which IOS routers and NX-OS take as a static bundle; Catalyst switches want `mode on`, so add it
+when the target is one.
+
 **OSPF.** Every platform converts OSPF, one process per routing table (the global one and each VRF's): the router ID,
 areas (stub, NSSA, authentication) and their interfaces (cost, point-to-point or broadcast, passive, hello and dead
 intervals). Cisco IOS / IOS-XE enables OSPF on an interface with `ip ospf … area` or a `network` statement, NX-OS with

@@ -473,7 +473,10 @@ const NEEDS: readonly (readonly [RegExp, string])[] = [
   [/^\s+(rd|route-target) /, 'bgp'],
   [/^router bgp /, 'bgp'],
   [/^router ospf /, 'ospf'],
-  [/^\s+ip (router )?ospf /, 'ospf']
+  [/^\s+ip (router )?ospf /, 'ospf'],
+  // LACP: a member bundling with it, and a port-channel's minimum links (`mode on`, or no mode, needs nothing).
+  [/^\s+channel-group \d+ (force )?mode (active|passive)$/, 'lacp'],
+  [/^\s+lacp /, 'lacp']
 ]
 function missingFeatures(text: string): string[] {
   const lines = text.split('\n')
@@ -495,6 +498,10 @@ describe('feature lines', () => {
     expect(missingFeatures('router bgp 65000\n  neighbor 192.0.2.2 remote-as 65001\n')).toEqual(['bgp'])
     expect(missingFeatures('interface loopback0\n  ip router ospf 1 area 0.0.0.0\nrouter ospf 1\n')).toEqual(['ospf'])
     expect(missingFeatures('interface Ethernet1/1\n  ip ospf cost 5\n')).toEqual(['ospf'])
+    expect(missingFeatures('interface Ethernet1/1\n  channel-group 1 mode active\n')).toEqual(['lacp'])
+    expect(missingFeatures('interface port-channel1\n  lacp min-links 2\n')).toEqual(['lacp'])
+    expect(missingFeatures('interface Ethernet1/1\n  channel-group 1 mode on\ninterface Ethernet1/2\n  channel-group 2\n')).toEqual([])
+    expect(missingFeatures('feature lacp\ninterface Ethernet1/1\n  channel-group 1 mode passive\n')).toEqual([])
     expect(missingFeatures('feature bgp\nfeature ospf\nrouter ospf 1\nrouter bgp 65000\n')).toEqual([])
   })
 

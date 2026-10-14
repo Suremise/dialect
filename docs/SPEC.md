@@ -192,8 +192,15 @@ product decisions.
   targets, where IOS-XR's filters after them.
 - **LAGs convert** (#109, model 0.5.4): a member link's aggregate and the aggregate's LACP mode (`active`, `passive`
   or `static`) and minimum links. Cisco gives the mode on each member: the aggregate takes it when the members agree,
-  and their statements aren't converted when they don't. Junos writes `chassis aggregated-devices ethernet
-  device-count` from the model's aggregates, as it makes no `ae` interface without it.
+  and their statements aren't converted when they don't; IOS / IOS-XE and NX-OS (#108) also stop the conversion with an
+  **error**, as no device bundles them so. Junos writes `chassis aggregated-devices ethernet device-count` from the
+  model's aggregates, as it makes no `ae` interface without it. IOS / IOS-XE and NX-OS make a Port-channel the config
+  doesn't configure, as the device does, and NX-OS writes `feature lacp` whenever LACP needs it; PAgP is not converted.
+  A member is bundled into its aggregate by number, so it is written only once the aggregate has the target's name
+  (`ae0` → `Port-channel1`, from the interface map's suggestion). **A member matches its bundle** on IOS / IOS-XE and
+  NX-OS: a member's switch port settings and MTU that are its bundle's belong to the bundle in the model, and a render
+  writes them (and NX-OS's `no switchport` for a routed bundle) on each member; a member whose own differ, or with IP
+  configuration of its own, isn't written in the bundle.
 - **Every statement left out says why** (#109): a plugin gives every `unsupported` or `ignored-by-design` statement
   and field a reason, from the statement's keywords when it has nothing more particular to say, never a word of the
   configuration. Each plugin's corpus test checks it over the whole corpus (Junos and IOS-XR so far).
