@@ -133,7 +133,7 @@ writes that model in the target platform's syntax.
 
 Nothing is dropped silently. Every line of the source is either converted, left out on purpose (with why), or marked
 as not converted, and every setting is either written or marked as one the target can't say (a Junos `reject` route
-on IOS-XE, say). These are listed as warnings, by line, with the reason. From Junos and IOS-XR, every line not
+on IOS-XE, say). These are listed as warnings, by line, with the reason. From every platform, every line not
 converted says why, even one Dialect doesn't read at all ("logical systems come later", "IS-IS comes later").
 
 In the app, open a convert tab (**File → New Tab…**, then **Convert**, with the platform to convert from and the one

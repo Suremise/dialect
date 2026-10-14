@@ -262,7 +262,7 @@ describe('addresses, VRF membership and DHCP', () => {
     for (const header of ['interface Ethernet1/1-4', 'interface Ethernet1/1, Ethernet1/3']) {
       const result = parse(`${header}\n  description d`)
       expect(result.model, header).toEqual({})
-      expect(result.dispositions.L1).toEqual({ kind: 'unsupported' })
+      expect(result.dispositions.L1).toEqual({ kind: 'unsupported', reason: "an interface setting this converter doesn't read yet" })
     }
   })
 })
@@ -741,8 +741,8 @@ describe('DNS', () => {
   it('DNS inside a VRF context is unsupported: the model has one DNS configuration', () => {
     const result = parse('vrf context management\n  ip domain-name example.net\n  ip name-server 192.0.2.53')
     expect(result.model).toEqual({ networkInstances: { management: { type: 'vrf' } } })
-    expect(result.dispositions.L2).toEqual({ kind: 'unsupported' })
-    expect(result.dispositions.L3).toEqual({ kind: 'unsupported' })
+    // By the block they are in (unconverted.ts): DNS is the model's device-wide only.
+    for (const id of ['L2', 'L3']) expect(result.dispositions[id]).toEqual({ kind: 'unsupported', reason: "a VRF setting this converter doesn't read yet" })
   })
 })
 

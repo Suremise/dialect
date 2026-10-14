@@ -13,6 +13,7 @@ import { interfaceName, interfaceType, isInterfaceName, splitSubinterface } from
 import { createAclReader } from './acl'
 import { createPolicyReader } from './policy'
 import { BANNER_TYPES, parseTree, unquote, type IosNode } from './tree'
+import { secretValues, unconvertedReason } from './unconverted'
 
 type Obj = { [key: string]: unknown }
 type Segments = readonly string[]
@@ -683,7 +684,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const svi = interfaceType(ctx.name) === 'irb-or-svi'
     const routed = svi ? vlanId(/\d+$/.exec(ctx.name)?.[0] ?? '') : null
     if (svi && (split || routed === null)) {
-      unsupportedTree(node)
+      unsupportedTree(node, split ? 'IOS has no VLAN interface with a subinterface' : 'a VLAN interface for no VLAN ID from 1 to 4094')
       return
     }
     const fields = ensureInterface(ctx.name)
@@ -1135,7 +1136,7 @@ export function parse(text: string, _context: Context): ParseResult {
     }
     if ((lw[1] === 'trap' || lw[1] === 'facility') && w.length === 3) {
       const value = lw[1] === 'trap' ? (Object.hasOwn(SEVERITIES, lw[2]) ? SEVERITIES[lw[2]] : /^[0-7]$/.test(lw[2]) ? SEVERITY_NUMBERS[Number(lw[2])] : undefined) : /^[a-z][a-z0-9]*$/.test(lw[2]) ? lw[2] : undefined
-      if (!value) return unsupported()
+      if (!value) return unsupported(lw[1] === 'trap' ? 'not a syslog severity, by name or from 0 to 7' : 'not a syslog facility')
       const field = lw[1] === 'trap' ? 'severity' : 'facility'
       claim(`logging ${field}`, node)
       // IOS sets one trap level and one facility for every host: the model keeps them per host.
@@ -1224,7 +1225,7 @@ export function parse(text: string, _context: Context): ParseResult {
   /** `vlan N` (or a list, `vlan 100,3000`, `vlan 10-20`): the VLANs, and a single one's `name`. */
   const mapVlan = (node: IosNode): void => {
     const ids = node.words.length > 1 ? readVlanList(node.words.slice(1).join('')) : null
-    if (!ids) return unsupportedTree(node)
+    if (!ids) return unsupportedTree(node, 'not a list of VLAN IDs from 1 to 4094')
     vlanStatements.set(node, ids)
     set(node, mapped([...ids].map((id) => fieldPath('vlans', String(id)))))
     for (const id of ids) {
@@ -1249,7 +1250,7 @@ export function parse(text: string, _context: Context): ParseResult {
         model.remove(name)
         if (previous) set(previous, ignored(`removed by line ${line(child)}`))
         set(child, ignored(previous ? `removes the name on line ${line(previous)}: nothing to convert` : 'no name to remove: nothing to convert'))
-      } else unsupportedTree(child)
+      } else unsupportedTree(child, only !== undefined && leaf && lw[0] === 'name' ? 'a VLAN name of more than one word, which IOS doesn\'t take' : undefined)
     }
   }
 
@@ -1582,7 +1583,7 @@ export function parse(text: string, _context: Context): ParseResult {
   const mapRouterBgp = (node: IosNode): void => {
     const as = node.words.length === 3 ? asNumber(node.words[2]) : null
     // IOS runs one BGP AS: a second is refused.
-    if (as === null || (bgpAs !== undefined && bgpAs !== as)) return unsupportedTree(node)
+    if (as === null || (bgpAs !== undefined && bgpAs !== as)) return unsupportedTree(node, as === null ? 'not an AS number from 1 to 4294967295' : 'IOS runs one BGP AS: a second is left out')
     bgpAs = as
     bgpNodes.push(node)
     set(node, mapped([model.set(['networkInstances', 'default', 'bgp', 'localAs'], as)]))
@@ -1706,10 +1707,10 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const child of node.children) unsupportedTree(child)
   }
 
-  /** A statement nothing maps, and everything inside it. */
-  const unsupportedTree = (node: IosNode): void => {
-    set(node, node.kind === 'comment' ? ignored('a comment') : unsupported())
-    for (const child of node.children) unsupportedTree(child)
+  /** A statement nothing maps, and everything inside it, for the same reason. */
+  const unsupportedTree = (node: IosNode, reason?: string): void => {
+    set(node, node.kind === 'comment' ? ignored('a comment') : unsupported(reason))
+    for (const child of node.children) unsupportedTree(child, reason)
   }
 
   for (const node of nodes) mapTop(node)
@@ -2129,6 +2130,16 @@ export function parse(text: string, _context: Context): ParseResult {
       model.remove(['interfaces', name, leaf])
     }
   }
+
+  // Every statement left out says why: one its mapper had nothing more to say about, by the keywords of the top-level
+  // statement it is in (unconverted.ts), in words no secret of the configuration is in.
+  const secrets = secretValues(text)
+  const explain = (node: IosNode, top: readonly string[]) => {
+    const d = dispositions[node.id]
+    if (d?.kind === 'unsupported' && !d.reason) set(node, unsupported(unconvertedReason(top, secrets)))
+    for (const child of node.children) explain(child, top)
+  }
+  for (const node of nodes) explain(node, node.words.map((x) => x.toLowerCase()))
 
   return { tree: nodes, model: model.root as Device, dispositions, diagnostics }
 }
