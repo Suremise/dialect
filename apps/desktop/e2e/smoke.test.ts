@@ -253,9 +253,25 @@ describe('the desktop app', () => {
     expect(result).toMatch(/^refused: .*(forbidden|scope|not allowed)/i)
   })
 
+  /** How many copies of the built app are running: this test's, until it quits. */
+  const running = (): number => Number(execFileSync('powershell', ['-NoProfile', '-Command', `@(Get-Process dialect -ErrorAction SilentlyContinue | Where-Object Path -eq '${app}').Count`], { encoding: 'utf8' }).trim())
+
+  it("asks before the window's own close loses unsaved output, and stays open when told to", async () => {
+    // A close request to the window, as its ✕ or Alt+F4 makes: the page's close guard answers it.
+    await page().execute(() => {
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string, args: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__
+      void internals.invoke('plugin:window|close', { label: 'main' })
+    })
+    const dialogTitle = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('[role=dialog] .modal-title')?.innerText ?? null)
+    await expect.poll(dialogTitle, UI_WAIT).toBe('Exit Dialect?')
+    expect(await click('[role=dialog] button', 'Cancel')).toBe(true)
+    await expect.poll(dialogTitle, UI_WAIT).toBeNull()
+    expect(running()).toBe(1)
+    expect(await testIdText('output-summary')).not.toBeNull()
+  })
+
   // Last: it quits the app.
   it('quits on File → Exit, once told the unsaved output would go', async () => {
-    const running = (): number => Number(execFileSync('powershell', ['-NoProfile', '-Command', `@(Get-Process dialect -ErrorAction SilentlyContinue | Where-Object Path -eq '${app}').Count`], { encoding: 'utf8' }).trim())
     expect(running()).toBe(1)
     await menu('File', 'Exit')
     await expect.poll(() => click('[role=dialog] button', 'Exit without saving'), UI_WAIT).toBe(true)

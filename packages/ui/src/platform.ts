@@ -43,4 +43,10 @@ export interface Platform {
   openLink: (url: string) => Promise<void>
   /** Quits the app: File → Exit, in the desktop app only (a web page can't close its browser tab). */
   exit?: () => Promise<void>
+  /**
+   * Guards the window's own close (its ✕, Alt+F4, closing or reloading the browser tab): `mayClose` says whether it may
+   * close now. When it says no, the desktop app keeps the window open (the UI then asks, as File → Exit does) and the
+   * web build has the browser ask. Returns what stops the guard.
+   */
+  guardClose?: (mayClose: () => boolean) => () => void
 }

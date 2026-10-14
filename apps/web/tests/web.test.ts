@@ -659,6 +659,40 @@ describe('tabs and the menu bar in the web build', () => {
     await expect.poll(() => tabs().then((t) => t.titles), UI_WAIT).toEqual([])
   })
 
+  it('has the browser ask before the page closes or reloads, only while a tab has unsaved output', async () => {
+    await openPage()
+    // Whether the page cancels an unload now (the browser then asks, in its own words).
+    const asks = (): Promise<boolean> =>
+      page.evaluate(() => {
+        const e = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(e)
+        return e.defaultPrevented
+      })
+    expect(await asks()).toBe(false)
+    await typeSource('system { host-name r1; }')
+    await expect.poll(asks, UI_WAIT).toBe(true)
+    await saveOutput()
+    await expect.poll(asks, UI_WAIT).toBe(false)
+    // Another tab's unsaved output counts too, until that tab is closed without saving.
+    await newTab(DISPLAY_SET_JOB)
+    await typeSource('system { host-name r2; }')
+    await expect.poll(asks, UI_WAIT).toBe(true)
+    // A real close: the browser's question, which the test dismisses; the page stays, and no in-page dialog shows.
+    const asked = new Promise<string>((resolve) =>
+      page.once('dialog', (d) => {
+        resolve(d.type())
+        void d.dismiss()
+      })
+    )
+    await page.close({ runBeforeUnload: true })
+    expect(await asked).toBe('beforeunload')
+    expect(page.isClosed()).toBe(false)
+    expect(await page.getByRole('dialog').count()).toBe(0)
+    await page.keyboard.press('Control+W')
+    await page.getByRole('dialog', { name: /^Close / }).getByRole('button', { name: 'Close without saving' }).click()
+    await expect.poll(asks, UI_WAIT).toBe(false)
+  })
+
   it('brings the tabs back after a reload, with their file names and jobs but never their contents', async () => {
     await openPage()
     await openWithPicker(fixture('config_15.conf'))
