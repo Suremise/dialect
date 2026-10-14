@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Getting Dialect
+- **Nothing to install first.** The `dialect` command is now also a standalone `dialect.exe` with its own runtime: no
+  Node.js needed. The desktop installer installs it beside the app and asks to add it to your PATH (yes by default);
+  uninstalling removes both. It's also a download of its own, `dialect-cli.exe`.
+- **Two installers:** the normal one, which installs Microsoft WebView2 if your PC lacks it (rare; that needs
+  internet), and an offline one with WebView2's installer inside, for a PC with no internet.
+
 ### The window
 - **The Dialect icon everywhere in the desktop app:** on the installer and in Add/Remove Programs, on the window and
   the taskbar, and in the notification area while Dialect runs. Click the tray icon to bring the window back, or

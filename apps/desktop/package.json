@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tauri build",
     "build:app": "tauri build --no-bundle",
+    "build:installers": "node scripts/build-installers.mjs",
     "frontend": "vite build",
     "test:smoke": "vitest run --config vitest.smoke.config.ts",
     "typecheck": "tsc -p . && tsc -p tsconfig.node.json"
