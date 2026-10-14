@@ -15,6 +15,7 @@ import { interfaceType, isInterfaceName, splitSubinterface } from './names'
 import { readEntry } from './filters'
 import { asPathSet, communitySet, prefixSet, readPolicy, RPL_NAME, toPolicy } from './policy'
 import { parseTree, unquote, type XrNode } from './tree'
+import { unconvertedReason } from './unconverted'
 
 type Obj = { [key: string]: unknown }
 type Segments = readonly string[]
@@ -106,6 +107,9 @@ export const VLAN_ID = { min: 1, max: 4094 } as const
 export const MTU = { min: 64, max: 65535 } as const
 export const ROUTE_TAG = { min: 1, max: 4294967295 } as const
 export const PORT = { min: 1, max: 65535 } as const
+/** A bundle's number (`bundle id N`, `Bundle-EtherN`), and how many active links it can be told to need. */
+export const BUNDLE_ID = { min: 1, max: 65535 } as const
+export const MIN_LINKS = { min: 1, max: 64 } as const
 /** Whether `value` (a word of digits, or a number from a model) is a whole number within `range`. */
 export const inRange = (value: string | number, range: { readonly min: number; readonly max: number }): boolean => {
   const n = typeof value === 'number' ? value : /^\d{1,10}$/.test(value) ? Number(value) : NaN
@@ -179,10 +183,10 @@ export function parse(text: string, _context: Context): ParseResult {
     return ignored(`removes the ${what} on line ${line(previous)}: nothing to convert`)
   }
 
-  /** A statement nothing maps, and everything inside it. */
+  /** A statement nothing maps, and everything inside it, for the same reason. */
   const unsupportedTree = (node: XrNode, reason?: string): void => {
     set(node, node.kind === 'comment' ? ignored('a comment') : unsupported(reason))
-    for (const child of node.children) unsupportedTree(child)
+    for (const child of node.children) unsupportedTree(child, reason)
   }
 
   // ---- interfaces
@@ -406,8 +410,78 @@ export function parse(text: string, _context: Context): ParseResult {
     if (lw[0] === 'no' && (lw[1] === 'ipv4' || lw[1] === 'ipv6') && lw[2] === 'access-group') return attachFilter(node, ctx, lw[1], w.slice(3), true)
     if (lw[0] === 'vrf') return mapVrfMember(node, ctx, false)
     if (lw[0] === 'no' && lw[1] === 'vrf') return mapVrfMember(node, ctx, true)
-    if (lw[0] === 'bundle') return unsupported('a bundle member: link aggregation comes later')
+    if (lw[0] === 'bundle') return mapBundle(node, ctx, lw.slice(1), false)
+    if (lw[0] === 'no' && lw[1] === 'bundle') return mapBundle(node, ctx, lw.slice(2), true)
     return unsupported()
+  }
+
+  // ---- bundles (LAGs, model 0.5.4)
+
+  /** Per member link, the `bundle id` statement it is in its bundle by, and the mode it says (none: it says nothing). */
+  const bundleMembers = new Map<string, { readonly node: XrNode; readonly aggregate: string; readonly mode?: 'active' | 'passive' | 'on' }>()
+
+  /**
+   * `bundle id N [mode active|passive|on]` on a member link and `bundle minimum-active links N` on a bundle, with their
+   * `no` forms. The members' modes are settled once every statement is read (settleBundles), as the model gives the
+   * bundle one, and so is the bundle a member names: one only a removed or superseded statement named isn't made up.
+   */
+  const mapBundle = (node: XrNode, ctx: InterfaceContext, b: readonly string[], remove: boolean): StatementDisposition => {
+    if (ctx.isSub) return unsupported('bundle settings on a subinterface: IOS-XR takes them on the main interface')
+    const iface = ['interfaces', ctx.name]
+    const isBundle = interfaceType(ctx.name) === 'aggregate'
+    if (b[0] === 'id') {
+      const path = [...iface, 'aggregate']
+      if (remove) {
+        if (b.length > 4) return unsupported()
+        bundleMembers.delete(ctx.name)
+        return unclaim(fieldPath(...path), node, 'bundle membership', path, iface.length)
+      }
+      const mode = b[2] === 'mode' && b.length === 4 && (b[3] === 'active' || b[3] === 'passive' || b[3] === 'on') ? b[3] : undefined
+      if (!inRange(b[1] ?? '', BUNDLE_ID)) return unsupported(`not a bundle number from ${BUNDLE_ID.min} to ${BUNDLE_ID.max}`)
+      if (b.length !== 2 && mode === undefined) return unsupported('a bundle mode other than active, passive and on')
+      if (isBundle) return unsupported('a bundle as a member link of another, which IOS-XR refuses')
+      const aggregate = `Bundle-Ether${Number(b[1])}`
+      claim(fieldPath(...path), node, () => bundleMembers.delete(ctx.name))
+      bundleMembers.set(ctx.name, { node, aggregate, ...(mode !== undefined ? { mode } : {}) })
+      return mapped([model.set(path, aggregate)])
+    }
+    if (b[0] === 'minimum-active' && b[1] === 'links') {
+      const path = [...iface, 'aggregation', 'minLinks']
+      if (!isBundle) return unsupported("bundle settings on an interface that isn't a bundle (Bundle-EtherN)")
+      if (remove) return b.length <= 3 ? unclaim(fieldPath(...path), node, 'minimum active links', path, iface.length) : unsupported()
+      if (b.length !== 3 || !inRange(b[2], MIN_LINKS)) return unsupported(`not a number of links from ${MIN_LINKS.min} to ${MIN_LINKS.max}`)
+      claim(fieldPath(...path), node)
+      return mapped([model.set(path, Number(b[2]))])
+    }
+    return unsupported('a bundle setting the model has no place for (maximum active links, bandwidth, priorities, load balancing)')
+  }
+
+  /**
+   * Each bundle's LACP mode, from its member links' `bundle id … mode` (no mode is `on`): the model's when they all
+   * agree, said by the members that give it (`static` for `on`), and the bundle made sure of, its type mapped by the
+   * members. When they don't, the model can't hold the bundle's mode, so no member's statement is converted, membership
+   * included: never half a statement.
+   */
+  const settleBundles = () => {
+    const byBundle = new Map<string, { readonly node: XrNode; readonly member: string; readonly mode?: string }[]>()
+    for (const [member, m] of bundleMembers) byBundle.set(m.aggregate, [...(byBundle.get(m.aggregate) ?? []), { node: m.node, member, ...(m.mode !== undefined ? { mode: m.mode } : {}) }])
+    for (const [aggregate, members] of byBundle) {
+      const modes = new Set(members.map((m) => m.mode ?? 'on'))
+      if (modes.size > 1) {
+        for (const m of members) {
+          model.prune(['interfaces', m.member, 'aggregate'], 1)
+          set(m.node, unsupported("the bundle's member links don't agree on its LACP mode: the model has one mode for the bundle"))
+        }
+        continue
+      }
+      const type = model.set(['interfaces', aggregate, 'type'], 'aggregate')
+      const said = members.find((m) => m.mode !== undefined)?.mode
+      const lacp = said === undefined ? undefined : model.set(['interfaces', aggregate, 'aggregation', 'lacp'], said === 'on' ? 'static' : said)
+      for (const m of members) {
+        const d = dispositions[m.node.id]
+        if (d?.kind === 'mapped') dispositions[m.node.id] = mapped([...d.fields, type, ...(m.mode !== undefined && lacp !== undefined ? [lacp] : [])])
+      }
+    }
   }
 
   /** Interfaces that are Layer 2 (`interface X.1 l2transport`): a later `interface X.1` is the same one, still Layer 2. */
@@ -738,6 +812,7 @@ export function parse(text: string, _context: Context): ParseResult {
       if (child.kind === 'comment') set(child, ignored('a comment'))
       else if (child.kind === 'statement' && lw[0] === 'address-family' && child.words.length === 3 && (lw[1] === 'ipv4' || lw[1] === 'ipv6') && lw[2] === 'unicast') mapVrfFamily(child, instance, lw[1])
       else if (lw[0] === 'description') unsupportedTree(child, 'the model has no description for a VRF')
+      else if (lw[0] === 'address-family') unsupportedTree(child, 'address families other than IPv4 and IPv6 unicast come later')
       else unsupportedTree(child)
     }
   }
@@ -1967,6 +2042,7 @@ export function parse(text: string, _context: Context): ParseResult {
     else if (lw[0] === 'end' && w.length === 1) d = ignored('the end of the configuration')
     else if (lw[0] === 'exit' && w.length === 1) d = ignored('leaves a configuration mode: nothing to convert')
     else if (node.text === 'Building configuration...') d = ignored('show running-config\'s header')
+    else if (/^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) [A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}(?:\.\d+)? [A-Z]+$/.test(node.text)) d = ignored('the time show running-config was run')
     set(node, d)
   }
 
@@ -2048,6 +2124,7 @@ export function parse(text: string, _context: Context): ParseResult {
   buildOspf()
   checkBgp()
   sayDefaultPolicy()
+  settleBundles()
 
   // A community with a statement not converted anywhere in the text (an access list, owner access) is left out whole:
   // mapped without it, it could answer clients or allow access the source doesn't.
@@ -2082,6 +2159,15 @@ export function parse(text: string, _context: Context): ParseResult {
     const subs = isObject(iface.subinterfaces) ? Object.values(iface.subinterfaces) : []
     if (!subs.some((sub) => isObject(sub) && sub.vlanId !== undefined)) model.remove(['interfaces', name, 'vlanTagging'])
   }
+
+  // Every statement left out says why: one its mapper had nothing more to say about, by the keywords of the top-level
+  // statement it is in (unconverted.ts).
+  const explain = (node: XrNode, top: readonly string[]) => {
+    const d = dispositions[node.id]
+    if (d?.kind === 'unsupported' && !d.reason) set(node, unsupported(unconvertedReason(top)))
+    for (const child of node.children) explain(child, top)
+  }
+  for (const node of nodes) explain(node, node.words.map((x) => x.toLowerCase()))
 
   return { tree: nodes, model: model.root as Device, dispositions, diagnostics }
 }

@@ -51,10 +51,10 @@ export const displaySetTool: JunosTool = {
 export const junos: PlatformPlugin = {
   id: 'junos',
   name: 'Junos',
-  // 0.5.2: its parse fills a VRF's own policies (0.5.2), filters and their attachments (0.5.1) and routing policy
-  // (0.5.0), beside VLANs, switch ports, routed VLANs, OSPF and BGP (0.4.0) and BGP's eBGP default policy (0.4.1), which
-  // an older core doesn't know. Minor versions only add, so every 0.x from there.
-  modelApi: '>=0.5.2 <1.0.0',
+  // 0.5.4: its parse fills LAG membership and LACP mode (0.5.4), a VRF's own policies (0.5.2), filters and their
+  // attachments (0.5.1) and routing policy (0.5.0), beside VLANs, switch ports, routed VLANs, OSPF and BGP (0.4.0) and
+  // BGP's eBGP default policy (0.4.1), which an older core doesn't know. Versions only add, so every 0.x from there.
+  modelApi: '>=0.5.4 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },

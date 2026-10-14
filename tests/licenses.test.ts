@@ -8,9 +8,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 // @ts-expect-error: a plain .mjs module without types
 import { licenseText, noticesDrift, noticesToWrite, staleNoticesMessage, toLf } from '../scripts/licenseText.mjs'
 // @ts-expect-error: a plain .mjs module without types
-import { chosenLicense, declaredLicense, licenseProblem, satisfies, SHIPPED_ALLOWED } from '../scripts/licensePolicy.mjs'
+import { chosenLicense, declaredLicense, EXCEPTIONS, licenseProblem, satisfies, SHIPPED_ALLOWED } from '../scripts/licensePolicy.mjs'
 // @ts-expect-error: a plain .mjs module without types
-import { buildOnlyText, generateLicenses, licenseProblems, noticesText, packageLink, repositoryUrl } from '../scripts/thirdPartyNotices.mjs'
+import { buildOnlyText, generateLicenses, licenseProblems, noticesText, OTHER, packageLink, repositoryUrl } from '../scripts/thirdPartyNotices.mjs'
 // @ts-expect-error: a plain .mjs module without types
 import { cargoLicense, classifyCrates, treeCrates } from '../scripts/crateNotices.mjs'
 import { tempDir } from './tempDir'
@@ -152,6 +152,16 @@ describe('the repository', () => {
 })
 
 describe('the license rule (scripts/licensePolicy.mjs)', () => {
+  it('records every exception with who decided and why, and one for material that isn’t a package with its notices entry', () => {
+    for (const e of EXCEPTIONS) {
+      expect(e.decidedBy, e.name).toBe('Darren Marshall')
+      expect(e.why.length, e.name).toBeGreaterThan(20)
+      if (e.notices === undefined) continue
+      expect(OTHER.map((o: { file: string }) => o.file), e.name).toContain(e.notices)
+      expect(readFileSync(join(__dirname, '..', 'scripts', 'notices', e.notices), 'utf8'), e.name).toMatch(/recorded exception/)
+    }
+  })
+
   it('fails a shipped GPL package', () => {
     const r = fixture(['gpl-lib'], [{ name: 'gpl-lib', version: '1.0.0', license: 'GPL-3.0-only' }])
     expect(r.problems).toEqual(["gpl-lib@1.0.0 (shipped): GPL-3.0-only isn't allowed in what ships (MIT or equally permissive, MPL-2.0 unmodified)"])

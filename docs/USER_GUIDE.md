@@ -9,20 +9,26 @@ Juniper Networks or Cisco Systems.
 ## Getting Dialect
 
 - **Desktop app** (Windows): `Dialect_<version>_x64-setup.exe` installs Dialect for you alone, with no admin rights,
-  and adds it to the Start menu; uninstall it from Settings → Apps. It uses WebView2, which is part of Windows 10 and 11
-  (the installer downloads it only if it's missing). Open and Save output use the usual Windows dialogs, and you can
+  and adds it to the Start menu; uninstall it from Settings → Apps. It also installs the `dialect` command (below) and
+  asks whether to add it to your PATH (yes unless you say no), so a new terminal can run `dialect`; uninstalling takes
+  both away. Dialect uses WebView2, which is part of Windows 11 and an up-to-date Windows 10; on a PC without it, the
+  installer installs it, which needs internet. For a PC with no internet, use `Dialect_<version>_x64-offline-setup.exe`
+  instead: the same, with Microsoft's WebView2 installer inside. Open and Save output use the usual Windows dialogs, and you can
   drop a file on the window. The Dialect icon is on the installer, the window and the taskbar, and in the notification
   area while Dialect runs: click it to bring the window back, or right-click it for **Show Dialect**, **New tab** and
   **Quit** (which asks first while output is unsaved, as closing the window does; closing the window quits Dialect).
   The app reads and writes only the files you pick, and reaches no network. Until Dialect
   has a code-signing certificate the installer is unsigned, so Windows SmartScreen may warn about it: choose **More
-  info** → **Run anyway**. Until there's a release, build it from a checkout with `npm run build -w @dialect/desktop`
-  (needs Rust), which writes the installer to `apps/desktop/src-tauri/target/release/bundle/nsis/`.
+  info** → **Run anyway**. Until there's a release, build both installers from a checkout with `npm run
+  build:installers -w @dialect/desktop` (needs Rust), which writes them to
+  `apps/desktop/src-tauri/target/release/bundle/nsis/`.
 - **Web build**: one HTML file, `dialect.html`, opened from disk with no install and no server. Open it in Edge or
   Chrome. Until there's a release, build it from a checkout with `npm run build -w @dialect/web`, which writes
   `apps/web/dist/dialect.html`. The page can't reach the network at all: its content security policy allows only its
   own built-in code.
-- **Command line**: the `dialect` command, on Node 24.
+- **Command line**: the `dialect` command, needing nothing installed: the desktop installer adds it, or download
+  `dialect-cli.exe` on its own (one file; rename it `dialect.exe` to type `dialect`). If you have Node 24, the
+  `dialect.mjs` build runs on it too.
 
 ## Your configs stay on your computer
 
@@ -127,7 +133,8 @@ writes that model in the target platform's syntax.
 
 Nothing is dropped silently. Every line of the source is either converted, left out on purpose (with why), or marked
 as not converted, and every setting is either written or marked as one the target can't say (a Junos `reject` route
-on IOS-XE, say). These are listed as warnings, by line, with the reason.
+on IOS-XE, say). These are listed as warnings, by line, with the reason. From Junos and IOS-XR, every line not
+converted says why, even one Dialect doesn't read at all ("logical systems come later", "IS-IS comes later").
 
 In the app, open a convert tab (**File → New Tab…**, then **Convert**, with the platform to convert from and the one
 to convert to); both can be changed at the top of the tab. Then open, drop or paste the config as in display set. The target platform's config appears on the right as you type. Below, the **Problems**
@@ -208,7 +215,17 @@ VLAN ID (`Vlan100`), with a warning otherwise. Cisco IOS-XR converts no Layer 2 
 VLAN interfaces are listed as not converted, both ways (VLAN-tagged subinterfaces do convert). IRB units and VLAN
 interfaces are named as [Interface names](#interface-names) says.
 
-**Link aggregation.** Cisco IOS / IOS-XE and NX-OS convert bundles: each member's `channel-group N mode
+**Link aggregation (LAGs).** Junos and Cisco IOS-XR convert which aggregate each member link is in, the aggregate's
+LACP mode (active, passive, or none) and its minimum links. Junos reads `ether-options 802.3ad aeN` (or
+`gigether-options`) on the members and `aggregated-ether-options` (`lacp active|passive`, `minimum-links`) on the
+aggregate, and writes `ether-options`, with the `chassis aggregated-devices ethernet device-count` Junos needs to make
+the `ae` interfaces. IOS-XR reads and writes `bundle id N mode active|passive|on` on the members and `bundle
+minimum-active links` on the `Bundle-Ether`; it gives the mode on each member, so members of one bundle that disagree
+on it are listed as not converted. Other LAG settings (LACP timers and priorities, link speed, maximum links) are
+listed as not converted. An aggregate needs its name on the target like any interface: until you name it (`ae0` for a
+`Port-channel1`, say), its members and settings are listed as not written.
+
+Cisco IOS / IOS-XE and NX-OS convert bundles too: each member's `channel-group N mode
 active|passive|on` (or no mode) puts it in `Port-channelN` (NX-OS `port-channelN`) with its LACP mode, and a
 Port-channel's minimum links (`port-channel min-links` on IOS / IOS-XE, `lacp min-links` on NX-OS) converts too. A
 member whose Port-channel the config doesn't configure brings it in, as the device does. Members of one bundle with
@@ -216,9 +233,7 @@ different modes stop the conversion with an error, since no device runs that, an
 listed as not converted. Converting to NX-OS writes `feature lacp` when the bundle uses LACP. Each member is written
 to match its bundle, as the device needs to bundle it: with the bundle's switch port settings and MTU, and on NX-OS
 `no switchport` when the bundle routes. A member whose own settings differ, or that has an IP address of its own, is
-listed as not converted. A member is written only
-once its bundle has the target's name: take the suggested name for the aggregate (Junos `ae0` → `Port-channel1`) and
-its members follow; until then they are listed as not converted. A bundle without LACP is written with no mode
+listed as not converted. A bundle without LACP is written with no mode
 (`channel-group 1`), which IOS routers and NX-OS take as a static bundle; Catalyst switches want `mode on`, so add it
 when the target is one.
 
@@ -309,8 +324,10 @@ platforms let neighbor discovery through before the implicit deny, and others do
 
 `dialect display-set` and `dialect convert`: files, stdin and stdout, and exit codes.
 
-The command needs Node 24. Until there's a release, build it from a checkout with `npm run build -w @dialect/cli`,
-which writes one file, `packages/cli/dist/dialect.mjs`, and run that with `node`.
+The command needs nothing installed: `dialect.exe` (installed with the desktop app, or the `dialect-cli.exe`
+download) has its own runtime. Until there's a release, build it from a checkout with `npm run build:exe -w
+@dialect/cli`, which writes `packages/cli/dist/dialect.exe`; or with Node 24, `npm run build -w @dialect/cli` writes
+`packages/cli/dist/dialect.mjs`, which you run with `node`.
 
 ### display-set
 

@@ -7,6 +7,20 @@ Dialect (working name) is a desktop app that translates network configs between 
 - The research behind the design, and the build plan: [docs/spike-desktop-app.md](docs/spike-desktop-app.md)
 - For agents working on the repo: [AGENTS.md](AGENTS.md)
 
+## Getting Dialect
+
+Each release has four downloads, for Windows (x64). None needs anything else installed: no Node.js, no runtime.
+
+| Download | What it is |
+|---|---|
+| `Dialect_<version>_x64-setup.exe` | **The one most people want.** The desktop app and the `dialect` command, for you alone (no admin rights). It needs internet only on the rare PC without Microsoft WebView2 (every Windows 11 and an up-to-date Windows 10 have it). |
+| `Dialect_<version>_x64-offline-setup.exe` | The same, for a PC with no internet: Microsoft's WebView2 installer is inside, so it's much bigger. |
+| `dialect-cli.exe` | The `dialect` command on its own: one file, nothing to install. Rename it `dialect.exe` to type `dialect`. |
+| `dialect.html` | The app as one web page: open it in Edge or Chrome, from any folder or a USB stick, with no network. |
+
+Until Dialect has a code-signing certificate, Windows SmartScreen may warn about the downloads: choose **More info** →
+**Run anyway**. `THIRD_PARTY_NOTICES.md` comes with each release.
+
 ## Building
 
 Needs Node 24 and npm 12. The repo pins npm 12.2.0, whose install scripts are denied by default, but a global npm may
@@ -23,7 +37,9 @@ Under npm 11, `npm test` skips the npm 12 install-script checks with a warning; 
 
 The desktop app and the license check (which lists its Rust crates) also need Rust, through
 [rustup](https://rustup.rs), and the Visual Studio C++ build tools. `npm run build -w @dialect/desktop` makes the
-installer; `npm run test:smoke -w @dialect/desktop` runs its smoke test (docs/ARCHITECTURE.md, The desktop app).
+installer, and `npm run build:installers -w @dialect/desktop` both (normal and offline); `npm run test:smoke -w
+@dialect/desktop` runs its smoke test (docs/ARCHITECTURE.md, The desktop app). `npm run build:exe -w @dialect/cli`
+makes the standalone `dialect.exe` (with the Node version `scripts/notices/node.md` is for).
 
 ## License
 

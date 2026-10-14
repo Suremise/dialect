@@ -22,6 +22,7 @@ import { ignored, mapped, unsupported, type Mutable } from './dispositions'
 import { filterMapper } from './filters'
 import { policyMapper } from './policy'
 import { readConfig, startsWith } from './statements'
+import { unconvertedReason } from './unconverted'
 
 /** The model's syslog severities by Junos's names; `any` is every severity, so down to debug. `none` has no match. */
 export const SEVERITIES: Readonly<Record<string, SyslogSeverity>> = {
@@ -40,13 +41,6 @@ const HOST = /^[A-Za-z0-9][\w.-]*$/
 const isInteger = (s: string | undefined, max = 2 ** 32 - 1): s is string => s !== undefined && INTEGER.test(s) && Number(s) <= max
 /** A next hop that isn't an address: an interface with its unit (`ge-0/0/0.0`), or one without (`st0`). */
 const isInterfaceName = (s: string): boolean => /^[a-z][\w-]*\d[\w/:.-]*$/i.test(s) && !isIpv4(s) && !isIpv6(s)
-
-/** What top-level areas this mapper doesn't convert are, when that's worth saying. */
-const LATER: Readonly<Record<string, string>> = {
-  security: 'SRX security (zones, policies, NAT) comes later',
-  applications: 'SRX applications come later, with security policies',
-  'class-of-service': 'class of service comes later'
-}
 
 /** Per static route: its next hops by what says them, and the route-wide settings that apply to every hop. */
 interface RouteState {
@@ -187,6 +181,8 @@ export function parse(text: string, _context: Context): ParseResult {
     if (r[0] === 'mtu' && r.length === 2 && isInteger(r[1], 65535)) return withIface([put(i, [...iface, 'mtu'], Number(r[1]))])
     if (r[0] === 'vlan-tagging' && r.length === 1) return withIface([put(i, [...iface, 'vlanTagging'], true)])
     if (r[0] === 'native-vlan-id' && r.length === 2) return mapNative(name, r[1], i)
+    if ((r[0] === 'gigether-options' || r[0] === 'ether-options') && r[1] === '802.3ad') return mapLagMember(name, r.slice(2), i)
+    if (r[0] === 'aggregated-ether-options') return mapAggregation(name, r.slice(1), i)
     if (r[0] !== 'unit' || !isInteger(r[1])) return unsupported()
 
     const sub = [...iface, 'subinterfaces', String(Number(r[1]))]
@@ -215,6 +211,47 @@ export function parse(text: string, _context: Context): ParseResult {
       return withSub(fields)
     }
     return unsupported()
+  }
+
+  // ---- LAGs (model 0.5.4)
+
+  /**
+   * `gigether-options 802.3ad aeN` (MX) or `ether-options 802.3ad aeN` (EX, QFX): the interface is a member link of
+   * aggregate `aeN`. Either form sets the one membership. The aggregate is made sure of once memberships are settled
+   * (settleAggregates), so one only a superseded statement named isn't made up.
+   */
+  const mapLagMember = (name: string, o: readonly string[], i: number): Mutable => {
+    if (o[0] === 'lacp') return unsupported("a member link's own LACP settings (port priority, force-up): the model has the aggregate's mode")
+    if (o[0] === 'primary' || o[0] === 'backup') return unsupported('a primary or backup member link: the model has no such role')
+    if (o.length !== 1) return unsupported('an 802.3ad setting the model has no place for')
+    if (!/^ae\d+$/.test(o[0])) return unsupported('not an aggregate (aeN) to be a member link of')
+    if (interfaceType(name) === 'aggregate') return unsupported('an aggregate as a member link of another, which Junos refuses')
+    return mapped([...ensureInterface(name), put(i, ['interfaces', name, 'aggregate'], o[0])])
+  }
+
+  /** Each aggregate a member link names in the end, made sure of: its type is mapped by the member's statement. */
+  const settleAggregates = () => {
+    const interfaces = model.get(['interfaces'])
+    if (!isObject(interfaces)) return
+    for (const [name, iface] of Object.entries(interfaces)) {
+      if (!isObject(iface) || typeof iface.aggregate !== 'string') continue
+      const index = owners.get(fieldPath('interfaces', name, 'aggregate'))
+      const fields = ensureInterface(iface.aggregate)
+      const result = index === undefined ? undefined : results[index]
+      if (result?.kind === 'mapped') result.fields = [...new Set([...result.fields, ...fields])]
+    }
+  }
+
+  /** `aggregated-ether-options` on an aggregate: its LACP mode (`lacp active|passive`) and `minimum-links N`. */
+  const mapAggregation = (name: string, o: readonly string[], i: number): Mutable => {
+    if (interfaceType(name) !== 'aggregate' || !/^ae\d+$/.test(name)) return unsupported("aggregate settings on an interface that isn't an aggregate (aeN)")
+    const at = ['interfaces', name, 'aggregation']
+    const withAggregate = (fields: (string | null)[]) => mapped([...ensureInterface(name), container(at), ...fields])
+    if (o[0] === 'lacp' && o.length === 2 && (o[1] === 'active' || o[1] === 'passive')) return withAggregate([put(i, [...at, 'lacp'], o[1])])
+    if (o[0] === 'lacp') return unsupported('LACP settings other than active and passive (periodic, system ID, admin key…): the model has the mode only')
+    if (o[0] === 'minimum-links' && o.length === 2 && isInteger(o[1], 64) && Number(o[1]) >= 1) return withAggregate([put(i, [...at, 'minLinks'], Number(o[1]))])
+    if (o[0] === 'minimum-links') return unsupported('not a number of links from 1 to 64')
+    return unsupported(o[0] === 'link-speed' ? "an aggregate's link speed: the model has none" : 'an aggregate setting the model has no place for')
   }
 
   // ---- static routes
@@ -604,7 +641,8 @@ export function parse(text: string, _context: Context): ParseResult {
       }
     }
 
-    // A port none of whose switching statements converted isn't one, and an interface only those configured isn't there.
+    // A port none of whose switching statements converted isn't one, and an interface only those configured isn't there
+    // (an aggregate a member link names is made sure of after: settleAggregates).
     for (const name of new Set([...nonEls, ...ports.keys()])) {
       const converted = (test: (w: readonly string[]) => boolean) => statements.some((s, i) => test(s.words) && results[i].kind === 'mapped')
       if (!converted((w) => isSwitching(w, name))) model.remove(['interfaces', name, 'switching'])
@@ -966,8 +1004,11 @@ export function parse(text: string, _context: Context): ParseResult {
         return policy.map(w, i)
       case 'firewall':
         return filter.map(w, i)
+      case 'chassis':
+        if (w[1] === 'aggregated-devices' && w[2] === 'ethernet' && w[3] === 'device-count' && w.length === 5) return ignored("how many aggregates Junos makes room for: a render writes it from the model's aggregates")
+        return unsupported()
       default:
-        return unsupported(Object.hasOwn(LATER, w[0]) ? LATER[w[0]] : undefined)
+        return unsupported()
     }
   }
 
@@ -1060,6 +1101,12 @@ export function parse(text: string, _context: Context): ParseResult {
   filter.settle(settled.lists)
   settleVlans()
   settleProtocols(settled.policies)
+  settleAggregates()
+
+  // Every statement left out says why: one its mapper had nothing more to say about, by its keywords (unconverted.ts).
+  results.forEach((r, i) => {
+    if (r.kind === 'unsupported' && !r.reason) results[i] = unsupported(unconvertedReason(statements[i].words))
+  })
 
   return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics, ...diagnostics] }
 }
@@ -1095,7 +1142,7 @@ function settle(tree: readonly SyntaxNode[], read: Readonly<Record<string, State
     const kids = (node.children ?? []).map(visit)
     const own = Object.hasOwn(read, node.id) ? read[node.id] : Object.hasOwn(expansion.dispositions, node.id) ? expansion.dispositions[node.id] : undefined
     const list = byNode.get(node.id)
-    const d = own ?? (list ? combine(list, false) : Object.hasOwn(expansion.unused, node.id) ? expansion.unused[node.id] : kids.length ? combine(kids, true) : unsupported())
+    const d = own ?? (list ? combine(list, false) : Object.hasOwn(expansion.unused, node.id) ? expansion.unused[node.id] : kids.length ? combine(kids, true) : unsupported("a statement this converter doesn't read"))
     out[node.id] = d
     return d
   }

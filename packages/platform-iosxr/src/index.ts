@@ -16,9 +16,9 @@ export { parseTree, type NodeKind, type XrNode, type XrTree } from './tree'
 const plugin: PlatformPlugin = {
   id: 'iosxr',
   name: 'Cisco IOS-XR',
-  // 0.5.2: its parse fills routing policy (0.5.0) and a VRF's own policies (0.5.2), on top of 0.4.1's OSPF and BGP with
-  // BGP's default policy for eBGP (RFC 8212).
-  modelApi: '>=0.5.2 <1.0.0',
+  // 0.5.4: its parse fills bundles (0.5.4), routing policy (0.5.0) and a VRF's own policies (0.5.2), on top of 0.4.1's
+  // OSPF and BGP with BGP's default policy for eBGP (RFC 8212).
+  modelApi: '>=0.5.4 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },

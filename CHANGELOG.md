@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Getting Dialect
+- **Nothing to install first.** The `dialect` command is now also a standalone `dialect.exe` with its own runtime: no
+  Node.js needed. The desktop installer installs it beside the app and asks to add it to your PATH (yes by default);
+  uninstalling removes both. It's also a download of its own, `dialect-cli.exe`.
+- **Two installers:** the normal one, which installs Microsoft WebView2 if your PC lacks it (rare; that needs
+  internet), and an offline one with WebView2's installer inside, for a PC with no internet.
+
 ### The window
 - **The Dialect icon everywhere in the desktop app:** on the installer and in Add/Remove Programs, on the window and
   the taskbar, and in the notification area while Dialect runs. Click the tray icon to bring the window back, or
@@ -28,6 +35,13 @@
   you take the suggested name. Each member is written to match its bundle (its switch port settings and MTU, and on
   NX-OS `no switchport` for a routed bundle), as the device needs to bundle it. Members of one bundle with different
   modes stop the conversion with an error, and PAgP isn't converted.
+- **Link aggregation converts for Junos and IOS-XR:** which aggregate each member link is in, the LACP mode (active,
+  passive or none) and minimum links, from Junos `802.3ad` and `aggregated-ether-options` and IOS-XR `bundle id` and
+  `bundle minimum-active links`, both ways. Converting to Junos also writes the `chassis aggregated-devices` line Junos
+  needs for its `ae` interfaces.
+- **Every line not converted says why**, from Junos and IOS-XR: a line Dialect doesn't read at all is no longer shown as
+  a bare "not converted", but with what it is and that it comes later ("logical systems come later", "IS-IS comes
+  later", "SNMP traps come later").
 - **Cisco IOS / IOS-XE VLANs, switch ports, VLAN interfaces, OSPF and BGP convert:** VLANs and their names, access and
   trunk ports (allowed VLANs with add, remove and except, a native VLAN), VLAN interfaces, OSPF enabled by `ip ospf …
   area` or `network` statements (areas, stub and NSSA, authentication, cost, network type, passive, timers) and BGP

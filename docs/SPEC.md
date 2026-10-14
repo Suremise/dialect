@@ -61,7 +61,12 @@ product decisions.
   (`apps/desktop/scripts/sign.mjs`) that signs only when `DIALECT_SIGN_COMMAND` is set. A **strict CSP** (nothing remote,
   no inline code, IPC only). Open and save go through the system dialogs, and the app can read and write only the
   files the user picks there; a dropped file is read from the drop itself. Agents build the installer and run the
-  smoke test, but **never run the installer**: Darren installs and tests it himself. The **Dialect icon** is on the
+  smoke test, but **never run the installer**: Darren installs and tests it himself. **Nothing Dialect ships needs a
+  prerequisite** (Darren, #89): the CLI is also a standalone `dialect.exe` (Node's single executable application, its
+  runtime's licenses in the notices), which the installer installs (`cli\dialect.exe`) with an option, on by default,
+  to add it to the user's PATH. **Two installers** (Darren's choice C): the normal one embeds Microsoft's WebView2
+  bootstrapper (`embedBootstrapper`: needs internet only where WebView2 is missing, rare on Windows 10 and 11), the
+  offline one Microsoft's offline WebView2 installer (`offlineInstaller`). The **Dialect icon** is on the
   installer, the window and taskbar, and in the **notification area** (#82): left-click shows the window, the menu has
   Show Dialect, New tab and Quit, and Quit goes through the close guard. **Closing the window quits the app**: no
   minimise-to-tray, as Dialect needn't run in the background (Darren's decision; a setting only if he asks).
@@ -87,7 +92,10 @@ product decisions.
     `npm run licenses` and a unit test check every source against the allowlist and `fixtures/LICENSES/` (decided
     2026-10-14).
   - Anything else fails unless it is a recorded exception (`EXCEPTIONS` in `scripts/licensePolicy.mjs`): the package,
-    its license, why, and who decided. Only the user decides one.
+    its license, why, and who decided. Only the user decides one. **Recorded:** Microsoft's WebView2 bootstrapper and
+    offline installer may ship inside the Windows installers, unmodified, under Microsoft's redistribution terms
+    (Darren, 2026-10-14, #89), with a notices entry giving those terms and their link
+    (`scripts/notices/webview2-installers.md`).
 - **`THIRD_PARTY_NOTICES.md` is generated** from what actually ships (`npm run licenses`): every package with a link,
   version, license and full license text, the products it ships in (a package that publishes no license file, or that
   only another platform installs, needs a reviewed supplement with its text, or the check fails), plus hand-written
@@ -182,21 +190,25 @@ product decisions.
   on to later statements is left out with its policy, as the model's terms accept or reject. A VRF's own import and
   export route policies (model 0.5.2) convert too, and IOS-XR warns when the source's (Junos) replaces the VRF's route
   targets, where IOS-XR's filters after them.
+- **LAGs convert** (#109, model 0.5.4): a member link's aggregate and the aggregate's LACP mode (`active`, `passive`
+  or `static`) and minimum links. Cisco gives the mode on each member: the aggregate takes it when the members agree,
+  and their statements aren't converted when they don't; IOS / IOS-XE and NX-OS (#108) also stop the conversion with an
+  **error**, as no device bundles them so. Junos writes `chassis aggregated-devices ethernet device-count` from the
+  model's aggregates, as it makes no `ae` interface without it. IOS / IOS-XE and NX-OS make a Port-channel the config
+  doesn't configure, as the device does, and NX-OS writes `feature lacp` whenever LACP needs it; PAgP is not converted.
+  A member is bundled into its aggregate by number, so it is written only once the aggregate has the target's name
+  (`ae0` → `Port-channel1`, from the interface map's suggestion). **A member matches its bundle** on IOS / IOS-XE and
+  NX-OS: a member's switch port settings and MTU that are its bundle's belong to the bundle in the model, and a render
+  writes them (and NX-OS's `no switchport` for a routed bundle) on each member; a member whose own differ, or with IP
+  configuration of its own, isn't written in the bundle.
+- **Every statement left out says why** (#109): a plugin gives every `unsupported` or `ignored-by-design` statement
+  and field a reason, from the statement's keywords when it has nothing more particular to say, never a word of the
+  configuration. Each plugin's corpus test checks it over the whole corpus (Junos and IOS-XR so far).
 - **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
   left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
   contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos
   silent discard), or a filter relying on its end, gets a semantic warning. A Cisco remark is kept as its entry's
   description.
-- **Link aggregation (model 0.5.4)** converts member links with their aggregate and its LACP mode (active, passive, or
-  static: Cisco `mode on`) and minimum links. Cisco gives the mode on each member: members of one channel group that
-  agree give it to the aggregate, and members that don't are an **error**, never a guess, as no device bundles them so.
-  IOS / IOS-XE and NX-OS (#108) make a Port-channel the config doesn't configure, as the device does, and NX-OS writes
-  `feature lacp` whenever LACP needs it. A member is bundled into its aggregate by number, so it is written only once
-  the aggregate has the target's name (`ae0` → `Port-channel1`, from the interface map's suggestion); until then it is
-  listed as not converted. PAgP is not converted. **A member matches its bundle:** a member's switch port settings and
-  MTU that are its bundle's belong to the bundle in the model, and a render writes them (and NX-OS's `no switchport`
-  for a routed bundle) on each member; a member whose own differ, or with IP configuration of its own, isn't
-  written in the bundle.
 
 ## 5. Configs and test data
 

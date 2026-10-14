@@ -26,9 +26,8 @@ const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url))
 describe('nothing is dropped silently', () => {
   it('unknown statements, and everything inside them, are unsupported with their text kept', () => {
     const result = parse('router isis 1\n net 49.0001.0000.0000.0001.00\n  interface GigabitEthernet0/0/0/0\nhostname r1')
-    expect(result.dispositions.L1).toEqual({ kind: 'unsupported' })
-    expect(result.dispositions.L2).toEqual({ kind: 'unsupported' })
-    expect(result.dispositions.L3).toEqual({ kind: 'unsupported' })
+    // Each says why, from the keywords of the statement it is in (#109), never a word of its own.
+    for (const id of ['L1', 'L2', 'L3']) expect(result.dispositions[id]).toEqual({ kind: 'unsupported', reason: 'IS-IS comes later' })
     expect(result.model).toEqual({ system: { hostname: 'r1' } })
     expect(buildLedger(result).complete).toBe(true)
   })
@@ -254,7 +253,8 @@ describe('VRF route targets and route distinguishers', () => {
   it('in another address family (multicast, flowspec) are that family\'s, and unsupported', () => {
     const result = parse(vrf(' address-family ipv4 multicast', '  export route-target 65000:1'))
     expect(result.model.networkInstances?.A).toEqual({ type: 'vrf' })
-    expect([result.dispositions.L2, result.dispositions.L3]).toEqual([{ kind: 'unsupported' }, { kind: 'unsupported' }])
+    const why = { kind: 'unsupported', reason: 'address families other than IPv4 and IPv6 unicast come later' }
+    expect([result.dispositions.L2, result.dispositions.L3]).toEqual([why, why])
   })
 
   it('a VRF\'s import and export route policies (model 0.5.2): the same in every family, naming a converted policy, filtering after the route targets', () => {
@@ -511,7 +511,7 @@ describe('logging', () => {
 
   it('"port default" says nothing, and other logging settings are unsupported', () => {
     expect(parse('logging 192.0.2.50 vrf default port default').model.system?.logging?.remoteServers).toEqual({ '192.0.2.50': {} })
-    for (const text of ['logging trap informational', 'logging buffered 1000000', 'logging hostnameprefix r1', 'logging facility local7']) expect(parse(text).dispositions.L1, text).toEqual({ kind: 'unsupported' })
+    for (const text of ['logging trap informational', 'logging buffered 1000000', 'logging hostnameprefix r1', 'logging facility local7']) expect(parse(text).dispositions.L1, text).toEqual({ kind: 'unsupported', reason: 'logging to the console, the buffer, terminals or an archive, and logging options (facility, prefix, events), come later: the model has remote syslog hosts' })
   })
 })
 

@@ -3,7 +3,7 @@
 // installer only, per user, zlib, with the Dialect icon; a strict CSP; file access only through what the user picks; a
 // tray icon whose menu needs no permission). The built app is tested by the smoke test (e2e/).
 import { readFileSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const dialog = vi.hoisted(() => ({ open: vi.fn(), save: vi.fn() }))
@@ -126,12 +126,32 @@ describe('the desktop platform', () => {
 })
 
 describe('the Tauri config', () => {
-  it('builds an NSIS installer only, per user, with zlib, the default WebView2 mode and the signing hook', () => {
+  it('builds an NSIS installer only, per user, with zlib, its hooks, the WebView2 bootstrapper inside and the signing hook', () => {
     expect(config.bundle.targets).toEqual(['nsis'])
-    expect(config.bundle.windows.nsis).toEqual({ installMode: 'currentUser', compression: 'zlib', installerIcon: '../../../branding/out/icon.ico', uninstallerIcon: '../../../branding/out/icon.ico' })
-    // The default (downloadBootstrapper): not set.
-    expect(config.bundle.windows.webviewInstallMode).toBeUndefined()
+    expect(config.bundle.windows.nsis).toEqual({ installMode: 'currentUser', compression: 'zlib', installerIcon: '../../../branding/out/icon.ico', uninstallerIcon: '../../../branding/out/icon.ico', installerHooks: 'windows/hooks.nsh' })
+    // Darren's choice C (#89): this installer embeds the bootstrapper; scripts/build-installers.mjs builds the offline one.
+    expect(config.bundle.windows.webviewInstallMode).toEqual({ type: 'embedBootstrapper' })
     expect(config.bundle.windows.signCommand).toBe('node ../scripts/sign.mjs %1')
+  })
+
+  it('installs the standalone dialect command as cli\\dialect.exe, built before the app (the app is dialect.exe)', () => {
+    expect(config.bundle.resources).toEqual({ '../../../packages/cli/dist/dialect.exe': 'cli/dialect.exe' })
+    expect(config.build.beforeBuildCommand).toBe('npm run frontend && npm run build:exe -w @dialect/cli')
+  })
+
+  it("asks to put the command on the user's PATH after installing (yes by default, also silent), and takes it off on uninstall", () => {
+    const hooks = readFileSync(join(tauri, 'windows', 'hooks.nsh'), 'utf8')
+    const macro = (name: string) => hooks.slice(hooks.indexOf(`!macro ${name}`), hooks.indexOf('!macroend', hooks.indexOf(`!macro ${name}`)))
+    expect(macro('NSIS_HOOK_POSTINSTALL')).toMatch(/MessageBox MB_YESNO\|MB_ICONQUESTION ".*PATH.*" \/SD IDYES IDNO \w+/)
+    expect(macro('NSIS_HOOK_POSTINSTALL')).toContain('!insertmacro DIALECT_EDIT_PATH 1')
+    expect(macro('NSIS_HOOK_POSTUNINSTALL')).toContain('!insertmacro DIALECT_EDIT_PATH 0')
+    // The user's PATH (no admin), unexpanded, with the folder passed in an environment variable, never quoted into a command.
+    const edit = macro('DIALECT_EDIT_PATH')
+    expect(edit).toContain("'HKCU:\\Environment'")
+    expect(edit).toContain("GetValue('Path', '', 'DoNotExpandEnvironmentNames')")
+    expect(edit).toContain('-Type ExpandString')
+    expect(edit).toContain('SetEnvironmentVariable(t "DIALECT_CLI_DIR", t "$INSTDIR\\cli")')
+    expect(edit).not.toMatch(/-Command "[^"]*\$INSTDIR/)
   })
 
   it('gives the installer (the setup file and its window) and the uninstaller the Dialect icon', () => {
@@ -221,5 +241,38 @@ describe('the tray icon', () => {
 
   it('needs no permission of its own: its menu runs in Rust, and the page only listens', () => {
     expect(JSON.stringify(capability.permissions)).not.toMatch(/tray|menu|emit/)
+  })
+})
+
+describe('the dual-installer build (scripts/build-installers.mjs)', () => {
+  it('runs the Tauri CLI with no shell, so a path with spaces or shell characters arrives as one argument', async () => {
+    const { tauriInvocation } = await import('../scripts/build-installers.mjs')
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { spawnSync } = await import('child_process')
+    const { tempDir } = await import('../../../tests/tempDir')
+    const dir = join(tempDir('dialect-args-'), 'a checkout & (folder)')
+    mkdirSync(dir, { recursive: true })
+    try {
+      // A stand-in for Tauri's CLI that prints the arguments it was given.
+      const echo = join(dir, 'echo cli.mjs')
+      writeFileSync(echo, 'console.log(JSON.stringify(process.argv.slice(2)))\n')
+      const args = ['build', '--config', join(dir, 'offline conf.json'), '100%', '"quoted"']
+      const { file, args: argv } = tauriInvocation(args, echo)
+      const r = spawnSync(file, argv, { encoding: 'utf8' })
+      expect(r.status, r.stderr).toBe(0)
+      expect(JSON.parse(r.stdout)).toEqual(args)
+    } finally {
+      rmSync(dirname(dir), { recursive: true, force: true })
+    }
+  })
+
+  it("uses the installed Tauri CLI's own entry by default, run by this Node", async () => {
+    const { tauriInvocation } = await import('../scripts/build-installers.mjs')
+    const { existsSync } = await import('fs')
+    const { file, args } = tauriInvocation(['build'])
+    expect(file).toBe(process.execPath)
+    expect(existsSync(args[0])).toBe(true)
+    expect(args[0]).toMatch(/@tauri-apps[\\/]cli[\\/]tauri\.js$/)
+    expect(args.slice(1)).toEqual(['build'])
   })
 })
