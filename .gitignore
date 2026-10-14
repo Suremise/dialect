@@ -1,0 +1,64 @@
+# Hive and agent tooling: machine-local state, session transcripts and
+# skill copies Hive regenerates from the workspace. Nothing here is shared.
+.hive/
+.agents/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# Rust
+target/
+
+# Build output and installers
+build/
+dist/
+out/
+*.exe
+*.msi
+*.msix
+*.appx
+*.dmg
+*.pkg
+*.AppImage
+*.deb
+*.rpm
+
+# Logs and local env
+*.log
+.env
+.env.*
+!.env.example
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Editors
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
