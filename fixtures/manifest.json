@@ -41,7 +41,8 @@
           "146.112.119.8",
           "208.67.220.220",
           "208.67.222.222"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Untouched original (CRLF) of public/iosxe/whole/racc__csr1_20210629_show_running-config.cfg, kept because that copy was converted to LF.",
       "convertedTo": "public/iosxe/whole/racc__csr1_20210629_show_running-config.cfg"
@@ -69,7 +70,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "8.8.8.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Untouched original (CRLF) of public/iosxe/whole/racc__csr1_20230811_show_running-config.cfg, kept because that copy was converted to LF.",
       "convertedTo": "public/iosxe/whole/racc__csr1_20230811_show_running-config.cfg"
@@ -99,7 +101,8 @@
           "1.1.1.1",
           "1.1.1.2",
           "1.1.1.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Untouched original (CRLF) of public/iosxe/whole/racc__csr2_20230811_show_running-config.cfg, kept because that copy was converted to LF.",
       "convertedTo": "public/iosxe/whole/racc__csr2_20230811_show_running-config.cfg"
@@ -125,7 +128,8 @@
         ],
         "publicIPv4": [
           "1.1.1.100"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Untouched original (CRLF) of public/iosxr/whole/racc__xrv1_20230811_show_running-config.cfg, kept because that copy was converted to LF.",
       "convertedTo": "public/iosxr/whole/racc__xrv1_20230811_show_running-config.cfg"
@@ -150,7 +154,8 @@
         ],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Untouched original (CRLF) of public/junos/whole/tsg8139__srx-lab_leaf01.conf, kept because that copy was converted to LF.",
       "convertedTo": "public/junos/whole/tsg8139__srx-lab_leaf01.conf"
@@ -174,7 +179,8 @@
           "pre-shared-key",
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Untouched original (CRLF) of public/nxos/whole/racc__n9k1_20230811_show_running-config.cfg, kept because that copy was converted to LF.",
       "convertedTo": "public/nxos/whole/racc__n9k1_20230811_show_running-config.cfg"
@@ -205,7 +211,8 @@
           "3.2.0.0",
           "3.3.0.0",
           "4.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -224,7 +231,8 @@
       "sha256": "1476f87360c5bd75d8e88eef9c8090d1871da74cbcd0fefa4adcc4d4b22783d2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -246,7 +254,8 @@
         "publicIPv4": [
           "1.2.3.0",
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -265,7 +274,8 @@
       "sha256": "5d5763d99fa7b44f616ad73acc5bad32783dbfe5e56d22143dea4961d8ee9826",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -284,7 +294,8 @@
       "sha256": "0c927ada1e7a33035a0de735b0b6b94e2bfeffd8f853c977e340576ab625389c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -303,7 +314,8 @@
       "sha256": "132a3f1afd2a2bf750555207762fe7899043ca13e8d1f23a938e251009571daf",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -322,7 +334,8 @@
       "sha256": "40797969f6b86bfd6a4e76d155931c6a268fc0e3de38a2be73ae972f56203f1c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -341,7 +354,8 @@
       "sha256": "d55e61d3d849acd89fb80d3e05d1c4829fde02d243a0ef998ad7b34b30e3bf00",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -362,7 +376,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -385,7 +400,8 @@
         ],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -404,7 +420,8 @@
       "sha256": "b223761309648f5d6d8ef939d2f3787d7074221ba7a78bedc23e5b66905a3436",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -423,7 +440,8 @@
       "sha256": "a657a76dccb469c21bf6daf7d82d98ca1279b9e6db3ce370b2bc9c45a3f883f1",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -442,7 +460,8 @@
       "sha256": "a1ad2194b81ac51271d7b1cd949b1d55a40b812e9ebc095a36caa5508af28cda",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -461,7 +480,10 @@
       "sha256": "3b1b11aa413c70e8fb2c1ee057fa131c57356c0663eada40bc90e8522200ce64",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": [
+          "2001:4860:8000::"
+        ]
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -480,7 +502,8 @@
       "sha256": "fb5009ad4c02f4dac9ed6e26df6dd5ed953ab68c9f30a0019c0e6a8f384a71ee",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -499,7 +522,8 @@
       "sha256": "d03b2b1ef53b4ce7368c1591b95f48bf0040248697f6e06bc7bd6d0d8f688436",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -518,7 +542,8 @@
       "sha256": "452198b10b5eebc9e4e72d74c83ce2a1e67085cfd95406b8682e45e7f9cbef06",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -537,7 +562,8 @@
       "sha256": "eb160ebf5f1f4edaf18b35b50ec4a8c6d0b607778a2ad2861605008c5397491f",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -563,7 +589,8 @@
           "200.1.1.2",
           "200.1.1.4",
           "200.1.1.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -589,7 +616,8 @@
           "200.1.1.3",
           "200.1.1.4",
           "200.1.1.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -611,7 +639,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "4.3.2.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -630,7 +659,8 @@
       "sha256": "05032b1aa35ac5a77502e402848b5bd4db5b4e1de469ebb405895e6a380eeaf2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -651,7 +681,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -673,7 +704,8 @@
         "publicIPv4": [
           "1.0.0.0",
           "2.0.0.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -692,7 +724,8 @@
       "sha256": "716c3804e3e6525f89000243ddc1ea51faeb39c36ccb8a36ab9b62db8454b6f7",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -713,7 +746,8 @@
         "secretLike": [],
         "publicIPv4": [
           "209.165.201.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -732,7 +766,10 @@
       "sha256": "7acd5dda1e88398e4261706d3689231f9736ffb77e0adf1ac320e922325515fb",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": [
+          "2610:18:10:1000::15"
+        ]
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -751,7 +788,8 @@
       "sha256": "7254fdaa2c4f0bec71d0a9e202749a074c98a4890b4d6bed2f4bd02af98357b5",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -774,7 +812,8 @@
           "1.1.1.1",
           "2.2.2.2",
           "3.3.3.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -793,7 +832,8 @@
       "sha256": "f6851b8dc266507f57715c3f2d24bc60b7b84146317f78f43920cb20fa08fa13",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -812,7 +852,8 @@
       "sha256": "d3753a6ec2bcdf80c2e719c826c8cb5f2cc8868b647835d8f21d9a28a5af3f66",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -831,7 +872,8 @@
       "sha256": "cdf7ae819e54db610162d4c89ffe92a6dfcaa063f00d7030996de7f2516112ed",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -850,7 +892,8 @@
       "sha256": "7028531f5601b40638718a34b910e9997345f408a1209f6de2c30588b08f8937",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -869,7 +912,8 @@
       "sha256": "33c07d7ec3bc24962af2b3f0e99a6ee5b2e57f841c580f89e75a860e14e48f8d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -888,7 +932,8 @@
       "sha256": "bb6f544ea7256b29b34814afab9504db2e868884c428d741a9526daae83339e9",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -912,7 +957,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "1.2.3.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -931,7 +977,8 @@
       "sha256": "985c0c7b0ebb2a7e76d69250a6040659297b6ab5ee4a01ff11f290fa99e3af12",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -953,7 +1000,8 @@
         "publicIPv4": [
           "1.1.1.2",
           "1.1.1.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -982,6 +1030,9 @@
           "13.9.2.2",
           "130.59.32.21",
           "130.59.254.2"
+        ],
+        "publicIPv6": [
+          "2222::1"
         ]
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
@@ -1001,7 +1052,8 @@
       "sha256": "477927b6ccdd411ee5395e2ea44c28cf95371f04f7ee6acca414d3be229bb728",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1024,7 +1076,8 @@
           "153.56.0.1",
           "153.56.0.2",
           "153.56.0.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1045,6 +1098,9 @@
         "secretLike": [],
         "publicIPv4": [
           "137.164.25.57"
+        ],
+        "publicIPv6": [
+          "2607:f380::108:9a41:9391"
         ]
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
@@ -1064,7 +1120,8 @@
       "sha256": "0c7f50602296bf5bc6a1ec11a5dccaff949b8ce823d69e6aa0cf67f53ca8df30",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1085,7 +1142,8 @@
         "secretLike": [
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1106,7 +1164,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1125,7 +1184,8 @@
       "sha256": "88db781e50b603507f2d67f9ca6b8968fa2f70e12619ea64aae59336bff9231b",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1148,7 +1208,8 @@
           "1.1.1.1",
           "1.2.3.4",
           "11.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1170,7 +1231,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "2.3.4.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1191,7 +1253,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1212,7 +1275,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1248,7 +1312,8 @@
           "13.13.13.13",
           "22.22.22.22",
           "23.23.23.23"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1280,7 +1345,8 @@
           "7.7.7.7",
           "8.8.8.8",
           "9.9.9.9"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1299,7 +1365,8 @@
       "sha256": "eabe125ca80506127e7f2aaa65e32935d6871f930a8ee3bcfeb93f9750a70403",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1318,7 +1385,8 @@
       "sha256": "0ca9af60a2614825dfe2b291dd508e0b4015518bc472e8eeaeda3ae0c969f35c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1337,7 +1405,8 @@
       "sha256": "33abf51b42815ece72e1d14a1b045037ce3ca1b09dfb77f68b0c532ff197d08e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1358,7 +1427,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1377,7 +1447,8 @@
       "sha256": "35f9bc45cd843085f46af62f1fa457bf3592535ea08ec246441a3aeb9a9a88e1",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1396,7 +1467,8 @@
       "sha256": "2a8141490016fd710155184643c53278562098e52bdce36de8e35a56c0966c03",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1422,7 +1494,8 @@
           "2.2.2.1",
           "3.3.3.1",
           "4.4.4.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1447,7 +1520,8 @@
           "2.2.2.1",
           "3.3.3.0",
           "3.3.3.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1468,7 +1542,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1487,7 +1562,8 @@
       "sha256": "c4d6197d0ef9627fc2a6dc0a0033f0e7ee1c0c0e2664b3b06af84da17ac6c19c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1510,7 +1586,8 @@
           "1.2.3.4",
           "5.6.7.8",
           "11.11.11.11"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1531,7 +1608,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1550,7 +1628,8 @@
       "sha256": "d0a3723f5318e28f0b2ce29aaaf99b966504203faa8f9d459b3aac09202b325a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1571,7 +1650,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1593,7 +1673,8 @@
         "publicIPv4": [
           "20.0.0.0",
           "30.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1614,7 +1695,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1633,7 +1715,8 @@
       "sha256": "416d5059318b22230d2ec164fb5e643ffe1f2f3349e884574c4862262828562e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1659,7 +1742,8 @@
           "1.2.3.4",
           "2.3.4.0",
           "3.4.5.6"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1678,7 +1762,8 @@
       "sha256": "d56179e0a63d0ca888f6b77f217f28b77c287aece5c3dc906b582f47731a6983",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1699,7 +1784,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1718,7 +1804,8 @@
       "sha256": "40f526d587ad86042deef2043e56b620fa3d6486941d18819d8ac0ea37d5a422",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1749,7 +1836,8 @@
           "1.2.39.69",
           "2.3.4.5",
           "5.6.7.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1770,7 +1858,8 @@
         "secretLike": [],
         "publicIPv4": [
           "128.125.253.254"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1789,7 +1878,8 @@
       "sha256": "46b9252812a66d6a0b0dea3015774a4e22f1e2c45f78a55a75cc848279608ad3",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1808,7 +1898,8 @@
       "sha256": "9cc85f2a1f78d130e37e1574f644a6f25e97935e210293a8718009e4b5b398a5",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1827,7 +1918,8 @@
       "sha256": "521c8d82c9dcf0d7a83956dd8ce492f21b43c46f326015edb64b25651da40485",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1846,7 +1938,8 @@
       "sha256": "4f514b532efbccf62d1a63fdf7f8ece85f5045022c3d03c123ca83ec6b52992c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1867,7 +1960,8 @@
         "secretLike": [
           "cisco-type7"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1886,7 +1980,8 @@
       "sha256": "f54a7b23e02701f30f6b4141b255d860b883cd9bb92d666583fa4b329fafd790",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device. Encoded as UTF-16LE without a BOM: an encoding test case, not UTF-8."
     },
@@ -1905,7 +2000,8 @@
       "sha256": "ec954a3ac387c9d3003716df2ea8336f3f1b614f25874f28a105e42d7779732f",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -1928,7 +2024,8 @@
           "1.2.3.4",
           "2.3.4.5",
           "12.5.1.61"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1950,7 +2047,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "2.3.4.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1971,7 +2069,8 @@
         "secretLike": [
           "cisco-secret"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -1990,7 +2089,8 @@
       "sha256": "0ee955df196d71aa4f45d6ffdaf217f4f25436c81bafcb77a905161abf809706",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2011,7 +2111,8 @@
         "secretLike": [
           "ssh-public-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2034,7 +2135,8 @@
           "cisco-secret",
           "crypt-hash"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2055,7 +2157,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2078,7 +2181,8 @@
           "1.1.1.1",
           "2.2.2.2",
           "3.3.3.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2097,7 +2201,8 @@
       "sha256": "135be37bb6cc40350a77bea72063174bc8c9404e513f8fd4099f0ddf2d4950d2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2116,7 +2221,8 @@
       "sha256": "c8c34f8971c60a77b4410d560b75aa4c9595060899c69dd4e8ba54b5db7da441",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2137,7 +2243,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2156,7 +2263,8 @@
       "sha256": "107642ff355626e1881bf74ea01ebc2cdb533787540796954d0b096f9d276b63",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2180,7 +2288,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "2.3.4.6"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2209,7 +2318,8 @@
           "3.4.5.6",
           "6.7.8.9",
           "6.7.8.10"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2228,7 +2338,8 @@
       "sha256": "5ff38bdd9a2544c89e1ec65bc03ddcf5d2206ce586f1a256dcd58b8b6e59bc20",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2252,7 +2363,8 @@
           "2.2.2.0",
           "3.3.3.0",
           "4.4.4.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2271,7 +2383,8 @@
       "sha256": "577fce86dd3baf75894eb70b6f31dfa2ea8ed7dba986ad6ca0094cd0fd344851",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2290,7 +2403,8 @@
       "sha256": "6faf7d9f774069f4d52107b363ee83725c59e8b0d59c876bed5a5c8251fd15b6",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2324,7 +2438,8 @@
           "3.0.2.0",
           "3.2.2.2",
           "5.6.7.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish example network (networks/example/candidate); lab-made."
     },
@@ -2358,7 +2473,8 @@
           "2.12.21.2",
           "2.23.11.2",
           "2.23.12.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish example network (networks/example/candidate); lab-made."
     },
@@ -2395,7 +2511,8 @@
           "2.128.1.1",
           "3.0.1.0",
           "3.0.2.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish example network (networks/example/candidate); lab-made."
     },
@@ -2431,7 +2548,8 @@
           "2.128.0.0",
           "3.0.1.0",
           "3.0.2.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish example network (networks/example/candidate); lab-made."
     },
@@ -2465,7 +2583,8 @@
           "3.10.1.1",
           "18.18.18.18",
           "23.23.23.23"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish example network (networks/example/candidate); lab-made."
     },
@@ -2489,7 +2608,8 @@
           "junos-$9$",
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "netcanon synthetic 'kitchen sink' covering its canonical model."
     },
@@ -2508,7 +2628,8 @@
       "sha256": "821f508a66bc389ebcbc56349c1111e1ba96d9d62c98f5441b7caecf5ee17ad9",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "netcanon minimal synthetic show run."
     },
@@ -2552,7 +2673,8 @@
           "146.112.119.8",
           "208.67.220.220",
           "208.67.222.222"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab CSR1000v/Cat8000v capture from racc (Ansible collection samples). Published with CRLF line endings: converted to LF here; the untouched original is originals/iosxe/whole/racc__csr1_20210629_show_running-config.cfg.",
       "original": "originals/iosxe/whole/racc__csr1_20210629_show_running-config.cfg"
@@ -2580,7 +2702,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "8.8.8.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab CSR1000v/Cat8000v capture from racc (Ansible collection samples). Published with CRLF line endings: converted to LF here; the untouched original is originals/iosxe/whole/racc__csr1_20230811_show_running-config.cfg.",
       "original": "originals/iosxe/whole/racc__csr1_20230811_show_running-config.cfg"
@@ -2610,7 +2733,8 @@
           "1.1.1.1",
           "1.1.1.2",
           "1.1.1.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab CSR1000v/Cat8000v capture from racc (Ansible collection samples). Published with CRLF line endings: converted to LF here; the untouched original is originals/iosxe/whole/racc__csr2_20230811_show_running-config.cfg.",
       "original": "originals/iosxe/whole/racc__csr2_20230811_show_running-config.cfg"
@@ -2640,7 +2764,8 @@
           "4.4.0.0",
           "4.4.4.0",
           "5.5.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2662,7 +2787,8 @@
         "publicIPv4": [
           "1.2.3.0",
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2686,7 +2812,8 @@
           "1.2.3.4",
           "1.2.3.5",
           "2.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2707,7 +2834,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2730,7 +2858,8 @@
           "1.2.1.1",
           "1.2.1.2",
           "1.2.1.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2749,7 +2878,8 @@
       "sha256": "121509ba72ead0eb6c7df5efc02e839d0db115c52b68db1b9aeab3c9f0f9a974",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2768,7 +2898,8 @@
       "sha256": "33d7c2d22951a695961b19f120770f95eadec6500902c1bb226862662eef04f8",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -2787,7 +2918,8 @@
       "sha256": "6b020be59a9e9ed8c5a458b3388e0863ffbb9127f553b5ce075152a59f4e8909",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -2806,7 +2938,8 @@
       "sha256": "eb6a771783999d06834756cd252478f0681d6c6bf270b7973b4a062ce8982fc3",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -2832,7 +2965,8 @@
           "200.1.1.3",
           "200.1.1.4",
           "200.1.1.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -2851,7 +2985,13 @@
       "sha256": "ab9cb795e9996a34de0d813fac516ae08d6fd5489a4e52dff34092e721f26938",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": [
+          "3000::",
+          "3001::",
+          "3002::",
+          "3003::"
+        ]
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2878,6 +3018,9 @@
           "5.5.5.5",
           "6.6.6.0",
           "31.31.31.31"
+        ],
+        "publicIPv6": [
+          "2222:2222:2222:2222::"
         ]
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
@@ -2897,7 +3040,8 @@
       "sha256": "9b4f71b49b5045f946c40958815cf4d37ab24830853753ba2fdc2bf818898dd5",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2916,7 +3060,8 @@
       "sha256": "ac33653637688cd4804ba4ab37b3f91cae90526a6071235b9b58a7a0955635ae",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -2935,7 +3080,8 @@
       "sha256": "d04ddebab752dcfbcd589afd56fdb19ae5b2f7c00fc2bf44fbe046c46075571c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2954,7 +3100,8 @@
       "sha256": "20ea3f30dc5cc43c9d737cfb4f6bdc25aef0b3b69245137970f48afe75a8335e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2973,7 +3120,8 @@
       "sha256": "b479ccfd8cb3803b6120b406c0a54ba6f067b9a49d1759cc71596619b5c772a5",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -2992,7 +3140,8 @@
       "sha256": "18e1b53a30f9d50b526f0c02ff58aa8fb80f95a5b94547ddb5c66794e2d5b95d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3011,7 +3160,8 @@
       "sha256": "e473d1930bd1237c75b591e9195bc9b638a1b45ac217cac9335a8bf34e8df9c5",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3030,7 +3180,8 @@
       "sha256": "cc77b5f472ca5cba4ac03d499a5f6863022b5e6fcdc48fa591596a75882e5e2f",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3049,7 +3200,8 @@
       "sha256": "69deedaecf1f48f485bf59b1e5e64df06d14292503dd59215f3172aa29be0a01",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3068,7 +3220,8 @@
       "sha256": "d9d5d0eb0a7a6f8477ddf2ef92448a674741058649bb0a9e6c131e4f3b17884d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3091,7 +3244,8 @@
         ],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3112,7 +3266,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3135,7 +3290,8 @@
         ],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3156,7 +3312,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3177,7 +3334,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3198,7 +3356,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3217,7 +3376,8 @@
       "sha256": "8bd15150708910201cc1e23b076319fc83d9f39c1eb3f5c55b562a637222a0c6",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3236,7 +3396,8 @@
       "sha256": "2481ef357fc2ab376ce64630dde79aeaf2a007428e23d9e0bd5713ce2d9fe6f8",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3257,6 +3418,9 @@
         "secretLike": [],
         "publicIPv4": [
           "169.232.1.4"
+        ],
+        "publicIPv6": [
+          "2222::"
         ]
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
@@ -3278,7 +3442,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3299,7 +3464,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3320,7 +3486,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3342,7 +3509,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "1.2.3.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3363,7 +3531,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3382,7 +3551,8 @@
       "sha256": "41fb618c710faf10d09c8dcdf01bfad331a0330144338848bfd8db31dd5c7f51",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3410,7 +3580,8 @@
           "192.35.225.0",
           "192.154.2.0",
           "198.17.109.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3435,7 +3606,8 @@
           "1.2.3.4",
           "2.3.4.0",
           "137.164.16.255"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3454,7 +3626,8 @@
       "sha256": "c5391f5d1b65c43ae40e113bc6ed77af5f18e3f446f18a8d5b7a127d5c09b601",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3473,7 +3646,8 @@
       "sha256": "5c1ce7a58d265b52c2793e11d1f537aa0628252dca21f1afb276d2bdcb4191aa",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3507,6 +3681,14 @@
           "6.7.165.2",
           "9.8.192.32",
           "198.188.255.22"
+        ],
+        "publicIPv6": [
+          "2607::",
+          "2607::10:0:0",
+          "2607::110:0:0",
+          "2607::118:9a41:ff0",
+          "2607:0:0:118::",
+          "2607:0:1::"
         ]
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
@@ -3526,7 +3708,8 @@
       "sha256": "af3c9609fd70497155bd4611d4b698edc792a132991081a96c3fa8302ba80622",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3545,7 +3728,8 @@
       "sha256": "38b1cc687c0c8cbcc2ab21971c1b1e60d62cd47d3168734615d13e30607293c0",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3564,7 +3748,8 @@
       "sha256": "7b9101c03c17ff4fbed02740063366a1ef52e1d18175a6f8b450141ab7dd34a2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3583,7 +3768,8 @@
       "sha256": "0d903f1388f7063bdf8f8071fa04c870f8e8bc95fd6160f1bbf5c147a211b2b8",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3602,7 +3788,8 @@
       "sha256": "db577074b12c8a0ab9e63075d7145bc1f3985ac225c66135cd3f6ce3da07ed50",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3621,7 +3808,8 @@
       "sha256": "ff6ad557af7156134c8d1761e4854f2c9d20351419d39a9c886c312cd177757d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -3640,7 +3828,8 @@
       "sha256": "9f878e244b694ca3fa0bebf642ebd563e70d4ca1a454741a220958052564b82b",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3659,7 +3848,8 @@
       "sha256": "47a0fe8df765b28b57f53434cc0bbbdef81ffa3b210ab8dc4da4e4fb5ad991bf",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3680,7 +3870,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3699,7 +3890,8 @@
       "sha256": "e40704ca092acf1d9ba8e70431fce90c02b27a90c9e8bcb409fbe00a048ca049",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device. IOS-XR has no VLAN database: L2 is l2vpn bridge-domains and dot1q subinterfaces."
     },
@@ -3723,6 +3915,10 @@
           "1.5.2.3",
           "1.5.5.5",
           "130.59.255.69"
+        ],
+        "publicIPv6": [
+          "2001:620:0:8018::2",
+          "2001:620:0:c000::86"
         ]
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device. IOS-XR L2 via l2vpn bridge-domains."
@@ -3745,7 +3941,8 @@
         "publicIPv4": [
           "1.1.1.0",
           "4.4.4.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3782,7 +3979,8 @@
           "1.0.2.8",
           "1.0.2.9",
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3801,7 +3999,8 @@
       "sha256": "0de205ebefbb2d223e76e7ea4f2ba56e1ccbd8101a7637bad42e893ab4abe9c2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3820,7 +4019,8 @@
       "sha256": "337195bd3bdf4701d026e5ab6f5c20ea2049c41e5ff6ce747314f1cb25b1d9a1",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -3841,7 +4041,8 @@
         "secretLike": [
           "crypt-hash"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "netcanon synthetic 'kitchen sink' covering its canonical model."
     },
@@ -3866,7 +4067,8 @@
         ],
         "publicIPv4": [
           "1.1.1.100"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab XRv capture from racc. Published with CRLF line endings: converted to LF here; the untouched original is originals/iosxr/whole/racc__xrv1_20230811_show_running-config.cfg.",
       "original": "originals/iosxr/whole/racc__xrv1_20230811_show_running-config.cfg"
@@ -3887,7 +4089,8 @@
       "sha256": "0ce6bd48a101048ff6101207ecbed1d57a724def2cf9b3781eca010ea0c01cd9",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Cisco's own XRd sample topology startup config (xrd-tools/samples); lab-made."
     },
@@ -3908,7 +4111,8 @@
       "sha256": "698cb61f067ba5cec668fc2ec0c8eab6e11cfc21772c150eddee81b7a6d1a915",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Cisco's own XRd sample topology startup config (xrd-tools/samples); lab-made."
     },
@@ -3928,7 +4132,8 @@
       "sha256": "5a45c99f0fca1ed94a98adbaeacee9093939e472b847fa7c01f3c77fc8f9bf2d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Cisco's own XRd sample topology startup config (xrd-tools/samples); lab-made."
     },
@@ -3951,7 +4156,8 @@
         "secretLike": [],
         "publicIPv4": [
           "172.40.0.101"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Cisco's own XRd sample topology startup config (xrd-tools/samples); lab-made."
     },
@@ -3971,7 +4177,8 @@
       "sha256": "b0c193959c31d6d1095fd2331aca7553d254392a3f7d813f6643b3a1a3c31a37",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Cisco's own XRd sample topology startup config (xrd-tools/samples); lab-made."
     },
@@ -3992,7 +4199,8 @@
       "sha256": "14af5ba659be4f66445e35f6ba010c96c506d0965628ef52b9d00f664261cd29",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Cisco's own XRd sample topology startup config (xrd-tools/samples); lab-made."
     },
@@ -4013,7 +4221,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4036,7 +4245,8 @@
           "1.1.1.1",
           "2.2.2.2",
           "3.3.3.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4058,7 +4268,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "2.3.4.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4081,7 +4292,8 @@
           "1.1.1.1",
           "1.1.1.2",
           "1.1.1.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4100,7 +4312,8 @@
       "sha256": "3ab492f3fe464f9706789c33658583e9169ab25290e78a5d78e8af7393b89675",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4121,7 +4334,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4142,7 +4356,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4161,7 +4376,8 @@
       "sha256": "5ee64aff2cc4a19b2ffc167087f7d249052e9a6b98ed5134ad3387d706a6ad50",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4182,7 +4398,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4201,7 +4418,8 @@
       "sha256": "4c482ada304b824634cb526290e542f459a5db2c9b862ae8879595bd891ee014",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4220,7 +4438,8 @@
       "sha256": "d3685995964b99cb97f7d19b1fdb4a65da8db7488d6abe16e8889d8be73851c0",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4244,7 +4463,8 @@
           "1.2.3.5",
           "3.4.5.6",
           "3.4.5.7"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -4265,7 +4485,8 @@
         "secretLike": [
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -4284,7 +4505,8 @@
       "sha256": "3e1a59b14bb6fd2b95c2fa91072d279438876dd381c6b6a511b0b03b12969896",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -4303,7 +4525,8 @@
       "sha256": "f1e62d346100a4e3b21293a4a773df8d9327a89596dd6125460386027e2db4a0",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4322,7 +4545,8 @@
       "sha256": "cc5603ea63d022295506688b6d2cb66372d54ad4ea9b03c68260759fccab8997",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4341,7 +4565,8 @@
       "sha256": "6eabae1a3737b7ab5d8548d97a190bab16136c5aa728e9e76d0b48bd324f0eb2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4360,7 +4585,8 @@
       "sha256": "fcf1abbb5350aeda84b4baa4bfb66d7d5a67b1ba1d2d477a76d6ec49d8d5460f",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4379,7 +4605,8 @@
       "sha256": "3034c7cab036fe6e113d23502408eb0479a530aa40b0eeb6e280ece16dfd93f8",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4398,7 +4625,8 @@
       "sha256": "e23fa439f0f27b6dc0d7a12b8e8a484d2210ceaa542001e8ccb9e59fa4ae945a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4417,7 +4645,8 @@
       "sha256": "9884ccfd50dcc67a4bd78560ea040074ec5565fe10d4e4eefdb656f4c2b79ecb",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4436,7 +4665,8 @@
       "sha256": "5a3ae6cd87a79e0a7de0d69850f29c3cdf2a640ed0794f102e3732c211d7e52a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4455,7 +4685,8 @@
       "sha256": "23dee02e296bf1d8a34155d0da8acf4c5494d1ec4cb1e6116786ae97dac74357",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4474,7 +4705,8 @@
       "sha256": "c2f8a8c1a60185699075a6c978189bb1e636a093e352992860a776f57c18f41e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4499,7 +4731,8 @@
           "200.1.1.3",
           "200.1.1.4",
           "200.1.1.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4524,7 +4757,8 @@
           "200.1.1.3",
           "200.1.1.4",
           "200.1.1.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -4543,7 +4777,8 @@
       "sha256": "deaf4baeb34b0aaf5979bf4fb424d40d12d685f26078dae42c0dd6c82b11b4ec",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4562,7 +4797,8 @@
       "sha256": "739daa1d6d2a1de4833a1881a65ffcfd4f4690ee21ade7c86ef471d1450db98a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4589,7 +4825,8 @@
           "3.2.3.4",
           "4.2.3.4",
           "5.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4608,7 +4845,8 @@
       "sha256": "253f7c54b5b4118583ccf8b88ecc36357caeb64b21fbd768ab981633b498dadb",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4627,7 +4865,8 @@
       "sha256": "4f8ed5e5512741c272e0f3dd7d6e13c40696ee6e4c4c1375e711f54fde3ed247",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4646,7 +4885,8 @@
       "sha256": "1c920e242cd27b0750299c93a57758bb1a998b77f0d4846382e965d7f41b6d68",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4665,7 +4905,8 @@
       "sha256": "1219ff7477a0b4f0bf65ed3f4d86dd8da37e7b2162eb0715f02740b62ec38965",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4684,7 +4925,8 @@
       "sha256": "8319914eb7a1c8f91eb33efc141f21069b1ce2e2b7ec8fcc0e02000604543530",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -4711,7 +4953,8 @@
           "2.4.6.8",
           "2.4.6.9",
           "5.5.5.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -4732,7 +4975,8 @@
         "secretLike": [
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4751,7 +4995,8 @@
       "sha256": "2f9e730a50aa9cb05f79bc0d79284381f2ac2fcff36007703e54f6a01c00b98d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4773,7 +5018,8 @@
         "publicIPv4": [
           "1.0.0.2",
           "1.0.0.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4792,7 +5038,8 @@
       "sha256": "2d6ecf2dac7d53f1e14259d0ae9848f07e3fc3568521962e506eae4645b2ae0e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4814,7 +5061,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "2.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4833,7 +5081,8 @@
       "sha256": "bb5805533a1a18d0f696b5bebbc71c6ffa540e98f38da605896d0d4ed0bb7254",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4852,7 +5101,8 @@
       "sha256": "68c7af2418e0c8ab8b320e49abcc7356c10c43b973b844b47dbfea5809065d04",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4871,7 +5121,8 @@
       "sha256": "2637472bde8be46e3bec7c49ef3f6971a69b02fe3298ed9c7f4c062c702c47cb",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4890,7 +5141,8 @@
       "sha256": "457a818c5cea2b1fd9f554deef4e25476e4a53dfff86add82a22feaa46a60813",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4911,7 +5163,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4930,7 +5183,8 @@
       "sha256": "f31ef8068d80c38da1362218d0005d4724361ebaeab9d998b6d9f33ac151fca4",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4949,7 +5203,8 @@
       "sha256": "e479d6941d2ea376a6f64c24369280d633de5223113a3e94c8d76e508d3297d3",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4968,7 +5223,8 @@
       "sha256": "5eb83e9076e8e4840ae3d735ca660c66d00588b1cc056a453744f6decb2acbd2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -4987,7 +5243,8 @@
       "sha256": "cd6a4534c0eb06a08da9a434e953868fde00fdbc11695ab99445a013bb870f6a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5011,7 +5268,8 @@
         ],
         "publicIPv4": [
           "1.2.3.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5034,7 +5292,8 @@
           "1.0.0.0",
           "1.0.0.1",
           "3.3.3.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5053,7 +5312,8 @@
       "sha256": "8d75de469f39c50428f88d8b0cbe311fc9b9e24957777cde8a9364642138a0f0",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Juniper MNHA (multinode HA) vSRX lab, published by Juniper's JNPRAutomate org. Feature snippet."
     },
@@ -5075,7 +5335,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "2.2.2.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5099,7 +5360,8 @@
         ],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5118,7 +5380,8 @@
       "sha256": "42dee02971853e05016703d31216cc3ae30d3b5891c4c2deb871abda181e27ca",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5137,7 +5400,8 @@
       "sha256": "11120cbc949f8fc601685d62910f6984756349937151ec540c7b50801971c759",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5163,7 +5427,8 @@
           "4.5.6.7",
           "5.6.7.8",
           "6.7.8.9"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5184,7 +5449,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5209,7 +5475,8 @@
         "publicIPv4": [
           "4.5.6.7",
           "5.6.7.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5228,7 +5495,8 @@
       "sha256": "c204418fbbe6d2e20b78a2a728b81c76e5c4ba424584b1d2daa1617534fb05b5",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5253,7 +5521,8 @@
           "1.2.3.4",
           "2.3.4.5",
           "20.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5280,7 +5549,8 @@
           "2.3.4.8",
           "2.3.4.9",
           "4.5.6.7"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5309,7 +5579,8 @@
           "5.3.7.4",
           "8.5.3.3",
           "8.9.0.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5332,7 +5603,8 @@
           "1.2.3.4",
           "3.4.5.6",
           "5.6.7.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5354,7 +5626,8 @@
           "junos-$9$",
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5373,7 +5646,8 @@
       "sha256": "db2928454c2d867eed9738924d8b899cc6e1f679fda82301bf3c66bdcd9ef361",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5392,7 +5666,8 @@
       "sha256": "0796c8a6281dbb23e5ab0ee3320f93ef43c80d6d3071ed2d2991b19c2a8650c7",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5417,7 +5692,8 @@
           "2.0.0.0",
           "2.1.1.1",
           "3.3.3.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5446,7 +5722,8 @@
           "40.40.40.40",
           "50.50.50.50",
           "50.50.50.60"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5469,7 +5746,8 @@
           "1.1.1.1",
           "2.2.2.2",
           "3.3.3.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5493,7 +5771,8 @@
           "1.1.1.1",
           "2.2.2.2",
           "3.3.3.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5512,7 +5791,8 @@
       "sha256": "9618416e8bdc92b6dbf6c5f472f1ccf2729ff6349b0424b0618d245fa9e6e119",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5531,7 +5811,8 @@
       "sha256": "b21daa178641e5df513d47885675f87c054ce0261c2c15755ae92bca6d5d4549",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5552,7 +5833,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5571,7 +5853,8 @@
       "sha256": "5d69fad6c515d8de60ebbbcc3d29b09e103867c4364e2d92e25e1e81e538a631",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5590,7 +5873,8 @@
       "sha256": "81e88f945d18e3dab2e8ee60c06dea8a78d60adbfb6006bcd8b780db035a3831",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5609,7 +5893,8 @@
       "sha256": "6fc87291f70c343ec3a08944636223821343cf1eed35a70a6d183746893a8bd2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5631,7 +5916,8 @@
           "junos-$9$",
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5655,7 +5941,8 @@
           "2.0.0.0",
           "3.0.0.0",
           "4.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5676,7 +5963,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -5698,7 +5986,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "1.2.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5717,7 +6006,8 @@
       "sha256": "e9977fe7650c1354e599aa964f77dbc6e678956873ecb36839223f93b67410c9",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5738,7 +6028,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -5757,7 +6048,8 @@
       "sha256": "8bdf230c5d74b66d1c817f8310ace25f8032b0ade17a686e7fdd68452d747dda",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 1: config_1.txt is hierarchical, config_1_set.txt the expected set form."
     },
@@ -5776,7 +6068,8 @@
       "sha256": "6ba92ff06925285bd0bf621f565ddec6d45c5ee585abedaae555fb1c967d1da8",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 10: config_10.txt is hierarchical, config_10_set.txt the expected set form."
     },
@@ -5795,7 +6088,8 @@
       "sha256": "570b8dca5524ed651bf366d6629e4f2db1d15014a134b86965d5740ce5790132",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 10: config_10.txt is hierarchical, config_10_set.txt the expected set form."
     },
@@ -5814,7 +6108,8 @@
       "sha256": "280b4a9cb90e23c89e87bc3b08414a917fbd98aad3764819235b83592172f34a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 11: config_11.txt is hierarchical, config_11_set.txt the expected set form."
     },
@@ -5833,7 +6128,8 @@
       "sha256": "2bfb52ccf544c90af5c26134be79c0ac7b6e96de9caac9e2646c1eee32c5dc4c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 11: config_11.txt is hierarchical, config_11_set.txt the expected set form."
     },
@@ -5852,7 +6148,8 @@
       "sha256": "2f7044efd9238c8c54a50ca02ce10142d89e72c0d14d0ddffb9aa250aed72c1c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 12: config_12.txt is hierarchical, config_12_set.txt the expected set form."
     },
@@ -5871,7 +6168,8 @@
       "sha256": "a7cc038e08959bf7349d5b8492022e966ed0c231ab0faafdf2eaea6e50c0eb67",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 12: config_12.txt is hierarchical, config_12_set.txt the expected set form."
     },
@@ -5892,7 +6190,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 13: config_13.txt is hierarchical, config_13_set.txt the expected set form."
     },
@@ -5913,7 +6212,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 13: config_13.txt is hierarchical, config_13_set.txt the expected set form."
     },
@@ -5934,7 +6234,8 @@
         "secretLike": [],
         "publicIPv4": [
           "25.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 14: config_14.txt is hierarchical, config_14_set.txt the expected set form."
     },
@@ -5955,7 +6256,8 @@
         "secretLike": [],
         "publicIPv4": [
           "25.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 14: config_14.txt is hierarchical, config_14_set.txt the expected set form."
     },
@@ -5974,7 +6276,8 @@
       "sha256": "f072b497a98242f6dbac62d4f20e15117c58dbce664ee84d0f583f5799c16c52",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 15: config_15.txt is hierarchical, config_15_set.txt the expected set form."
     },
@@ -5993,7 +6296,8 @@
       "sha256": "a824b0ca4349906269f00c587ef699e7f1e878bd5c813e9123247bfcbde8f7da",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 15: config_15.txt is hierarchical, config_15_set.txt the expected set form."
     },
@@ -6012,7 +6316,8 @@
       "sha256": "543c60752c900c089f2a03e46ee51713480ffaddbc632e360aa58edd83004b27",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 16: config_16.txt is hierarchical, config_16_set.txt the expected set form."
     },
@@ -6031,7 +6336,8 @@
       "sha256": "512712bea3d81a7e23e8bf1a3a526c118fee8153880fdf99ef28a5e43e4087e8",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 16: config_16.txt is hierarchical, config_16_set.txt the expected set form."
     },
@@ -6070,7 +6376,8 @@
           "192.1.1.10",
           "192.1.1.11",
           "192.1.1.12"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 17: config_17.txt is hierarchical, config_17_set.txt the expected set form."
     },
@@ -6109,7 +6416,8 @@
           "192.1.1.10",
           "192.1.1.11",
           "192.1.1.12"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 17: config_17.txt is hierarchical, config_17_set.txt the expected set form."
     },
@@ -6131,6 +6439,10 @@
         "publicIPv4": [
           "71.0.0.1",
           "71.0.4.1"
+        ],
+        "publicIPv6": [
+          "2100:1:1:1::cafe:a1",
+          "2100:1:1:1::cafe:a2"
         ]
       },
       "notes": "jcc conversion test pair 18: config_18.txt is hierarchical, config_18_set.txt the expected set form."
@@ -6153,6 +6465,10 @@
         "publicIPv4": [
           "71.0.0.1",
           "71.0.4.1"
+        ],
+        "publicIPv6": [
+          "2100:1:1:1::cafe:a1",
+          "2100:1:1:1::cafe:a2"
         ]
       },
       "notes": "jcc conversion test pair 18: config_18.txt is hierarchical, config_18_set.txt the expected set form."
@@ -6172,7 +6488,8 @@
       "sha256": "ac5a3a7e48c9d8c63a3b068fd12ef3d8d40a93c8ec3504b0b9796acbb3f21d49",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 19: config_19.txt is hierarchical, config_19_set.txt the expected set form."
     },
@@ -6191,7 +6508,8 @@
       "sha256": "45a93a0c71b02d7e80c8788561984ae74e6f3e51211dfd0d8fe398c21aebd9b9",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 19: config_19.txt is hierarchical, config_19_set.txt the expected set form."
     },
@@ -6210,7 +6528,8 @@
       "sha256": "ba8a2e4960772d3983696e2f982347028cb2d418c0584c91fb76bd68dfd5efcd",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 1: config_1.txt is hierarchical, config_1_set.txt the expected set form."
     },
@@ -6229,7 +6548,8 @@
       "sha256": "d083e21a9566b389e5bc1f0898d42e19da1066fc83e8b807f42a09b8f3711e9e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 2: config_2.txt is hierarchical, config_2_set.txt the expected set form."
     },
@@ -6248,7 +6568,8 @@
       "sha256": "4685eaa54a97c712b4bc66271b84147410e1f2a0c551f300e6d4c284a5158d2e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 20: config_20.txt is hierarchical, config_20_set.txt the expected set form."
     },
@@ -6267,7 +6588,8 @@
       "sha256": "486bf78cb61c6597f826651ab23507abdce5bc7c33ac281a7bb500432aa33256",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 20: config_20.txt is hierarchical, config_20_set.txt the expected set form."
     },
@@ -6286,7 +6608,8 @@
       "sha256": "61b56b7ac8663471f9aed66a32c1b2b5c38076aee7ffabf91ee6a8e5dba8fc69",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 21: config_21.txt is hierarchical, config_21_set.txt the expected set form."
     },
@@ -6305,7 +6628,8 @@
       "sha256": "f353ca45e88385a92fae857ae03e91e7c83f5db5f5342cfac987a4b99dd90620",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 21: config_21.txt is hierarchical, config_21_set.txt the expected set form."
     },
@@ -6758,6 +7082,167 @@
           "218.0.2.0",
           "218.0.3.0",
           "218.0.4.1"
+        ],
+        "publicIPv6": [
+          "2001:200::",
+          "2001:200:900::",
+          "2001:200:c000::",
+          "2001:200:e000::",
+          "2001:218::",
+          "2001:218:8000::",
+          "2001:220::",
+          "2001:240::",
+          "2001:250::",
+          "2001:250:204::",
+          "2001:250:e000::",
+          "2001:250:f000::",
+          "2001:251::",
+          "2001:252::",
+          "2001:256::",
+          "2001:258::",
+          "2001:260::",
+          "2001:260:802::",
+          "2001:268::",
+          "2001:270::",
+          "2001:278::",
+          "2001:288::",
+          "2001:290::",
+          "2001:290:4000::",
+          "2001:298::",
+          "2001:2a8::",
+          "2001:2b8::",
+          "2001:2b8:2::",
+          "2001:2b8:7::",
+          "2001:2b8:11::",
+          "2001:2b8:16::",
+          "2001:2b8:17::",
+          "2001:2b8:18::",
+          "2001:2b8:19::",
+          "2001:2b8:20::",
+          "2001:2b8:21::",
+          "2001:2b8:22::",
+          "2001:2b8:26::",
+          "2001:2b8:28::",
+          "2001:2b8:30::",
+          "2001:2b8:31::",
+          "2001:2b8:32::",
+          "2001:2b8:35::",
+          "2001:2b8:36::",
+          "2001:2b8:37::",
+          "2001:2b8:39::",
+          "2001:2b8:40::",
+          "2001:2b8:45::",
+          "2001:2b8:48::",
+          "2001:2b8:49::",
+          "2001:2b8:52::1",
+          "2001:2b8:53::1",
+          "2001:2b8:ab45::1",
+          "2001:340::",
+          "2001:348::",
+          "2001:350::",
+          "2001:358::",
+          "2001:360::",
+          "2001:370::",
+          "2001:378::",
+          "2001:380::",
+          "2001:388::",
+          "2001:388:c::",
+          "2001:388:30::",
+          "2001:388:3048::",
+          "2001:388:406c::",
+          "2001:388:6030::",
+          "2001:388:a0c4::",
+          "2001:398::",
+          "2001:3a0::",
+          "2001:3a8::",
+          "2001:3b0::",
+          "2001:3b8::",
+          "2001:3c0::",
+          "2001:3c8::",
+          "2001:3c8:1145::1",
+          "2001:3c8:1851::",
+          "2001:3c8:5007::",
+          "2001:3c8:aa45::",
+          "2001:3c8:aa45::1",
+          "2001:3c8:ab45::1",
+          "2001:420:2000::",
+          "2001:420:2c48::",
+          "2001:420:4000::",
+          "2001:430::",
+          "2001:438::",
+          "2001:438:11::",
+          "2001:438:20::",
+          "2001:438:29::",
+          "2001:438:32::",
+          "2001:468:1500::",
+          "2001:468:1800::",
+          "2001:468:1802::",
+          "2001:468:1900::",
+          "2001:468:1a00::",
+          "2001:468:1a08::",
+          "2001:468:1af2::",
+          "2001:468:1af4::",
+          "2001:468:1b00::",
+          "2001:468:1f0c::",
+          "2001:468:2101::",
+          "2001:468:f000::",
+          "2001:468:f0ff::",
+          "2001:468:ff00::",
+          "2001:470::",
+          "2001:470:9::",
+          "2001:470:1a::",
+          "2001:470:22::",
+          "2001:470:2f::",
+          "2001:470:30::",
+          "2001:470:31::",
+          "2001:470:32::",
+          "2001:470:33::",
+          "2001:470:37::",
+          "2001:470:3f::",
+          "2001:470:48::",
+          "2001:470:4a::",
+          "2001:470:50::",
+          "2001:470:51::",
+          "2001:470:53::",
+          "2001:470:58::",
+          "2001:470:5a::",
+          "2001:480:62::",
+          "2001:480:90::",
+          "2001:480:a0::",
+          "2001:4b8::",
+          "2001:4c0::",
+          "2001:4c0:1::",
+          "2001:4c0:2000::",
+          "2001:4c0:2001::",
+          "2001:4c0:6000::",
+          "2001:4c0:6002::",
+          "2001:4c0:8002::",
+          "2001:4c8::",
+          "2001:4c8:1011::",
+          "2001:4d0::",
+          "2001:4d0:108::",
+          "2001:4d0:2400::",
+          "2001:4d0:2418::",
+          "2001:4d0:241b::",
+          "2001:4e0::",
+          "2001:4e0:1008::",
+          "2001:4e8::",
+          "2001:4f8::",
+          "2001:500:1::",
+          "2001:500:2::",
+          "2001:500:3::",
+          "2001:500:4::",
+          "2001:500:6::",
+          "2001:500:7::",
+          "2001:500:a::",
+          "2001:500:a::1",
+          "2001:500:a::2",
+          "2001:7f8:1::a500:6777:1",
+          "2001:7f8:1::a500:6777:2",
+          "2001:7f8:1::a500:6888:1",
+          "2001:7f8:1::a500:6888:2",
+          "2001:7f8:1ff::a5ff:7002:1",
+          "2001:7f8:fff1::a502:aaaa:1"
         ]
       },
       "notes": "jcc conversion test pair 22: config_22.txt is hierarchical, config_22_set.txt the expected set form."
@@ -7211,6 +7696,167 @@
           "218.0.2.0",
           "218.0.3.0",
           "218.0.4.1"
+        ],
+        "publicIPv6": [
+          "2001:200::",
+          "2001:200:900::",
+          "2001:200:c000::",
+          "2001:200:e000::",
+          "2001:218::",
+          "2001:218:8000::",
+          "2001:220::",
+          "2001:240::",
+          "2001:250::",
+          "2001:250:204::",
+          "2001:250:e000::",
+          "2001:250:f000::",
+          "2001:251::",
+          "2001:252::",
+          "2001:256::",
+          "2001:258::",
+          "2001:260::",
+          "2001:260:802::",
+          "2001:268::",
+          "2001:270::",
+          "2001:278::",
+          "2001:288::",
+          "2001:290::",
+          "2001:290:4000::",
+          "2001:298::",
+          "2001:2a8::",
+          "2001:2b8::",
+          "2001:2b8:2::",
+          "2001:2b8:7::",
+          "2001:2b8:11::",
+          "2001:2b8:16::",
+          "2001:2b8:17::",
+          "2001:2b8:18::",
+          "2001:2b8:19::",
+          "2001:2b8:20::",
+          "2001:2b8:21::",
+          "2001:2b8:22::",
+          "2001:2b8:26::",
+          "2001:2b8:28::",
+          "2001:2b8:30::",
+          "2001:2b8:31::",
+          "2001:2b8:32::",
+          "2001:2b8:35::",
+          "2001:2b8:36::",
+          "2001:2b8:37::",
+          "2001:2b8:39::",
+          "2001:2b8:40::",
+          "2001:2b8:45::",
+          "2001:2b8:48::",
+          "2001:2b8:49::",
+          "2001:2b8:52::1",
+          "2001:2b8:53::1",
+          "2001:2b8:ab45::1",
+          "2001:340::",
+          "2001:348::",
+          "2001:350::",
+          "2001:358::",
+          "2001:360::",
+          "2001:370::",
+          "2001:378::",
+          "2001:380::",
+          "2001:388::",
+          "2001:388:c::",
+          "2001:388:30::",
+          "2001:388:3048::",
+          "2001:388:406c::",
+          "2001:388:6030::",
+          "2001:388:a0c4::",
+          "2001:398::",
+          "2001:3a0::",
+          "2001:3a8::",
+          "2001:3b0::",
+          "2001:3b8::",
+          "2001:3c0::",
+          "2001:3c8::",
+          "2001:3c8:1145::1",
+          "2001:3c8:1851::",
+          "2001:3c8:5007::",
+          "2001:3c8:aa45::",
+          "2001:3c8:aa45::1",
+          "2001:3c8:ab45::1",
+          "2001:420:2000::",
+          "2001:420:2c48::",
+          "2001:420:4000::",
+          "2001:430::",
+          "2001:438::",
+          "2001:438:11::",
+          "2001:438:20::",
+          "2001:438:29::",
+          "2001:438:32::",
+          "2001:468:1500::",
+          "2001:468:1800::",
+          "2001:468:1802::",
+          "2001:468:1900::",
+          "2001:468:1a00::",
+          "2001:468:1a08::",
+          "2001:468:1af2::",
+          "2001:468:1af4::",
+          "2001:468:1b00::",
+          "2001:468:1f0c::",
+          "2001:468:2101::",
+          "2001:468:f000::",
+          "2001:468:f0ff::",
+          "2001:468:ff00::",
+          "2001:470::",
+          "2001:470:9::",
+          "2001:470:1a::",
+          "2001:470:22::",
+          "2001:470:2f::",
+          "2001:470:30::",
+          "2001:470:31::",
+          "2001:470:32::",
+          "2001:470:33::",
+          "2001:470:37::",
+          "2001:470:3f::",
+          "2001:470:48::",
+          "2001:470:4a::",
+          "2001:470:50::",
+          "2001:470:51::",
+          "2001:470:53::",
+          "2001:470:58::",
+          "2001:470:5a::",
+          "2001:480:62::",
+          "2001:480:90::",
+          "2001:480:a0::",
+          "2001:4b8::",
+          "2001:4c0::",
+          "2001:4c0:1::",
+          "2001:4c0:2000::",
+          "2001:4c0:2001::",
+          "2001:4c0:6000::",
+          "2001:4c0:6002::",
+          "2001:4c0:8002::",
+          "2001:4c8::",
+          "2001:4c8:1011::",
+          "2001:4d0::",
+          "2001:4d0:108::",
+          "2001:4d0:2400::",
+          "2001:4d0:2418::",
+          "2001:4d0:241b::",
+          "2001:4e0::",
+          "2001:4e0:1008::",
+          "2001:4e8::",
+          "2001:4f8::",
+          "2001:500:1::",
+          "2001:500:2::",
+          "2001:500:3::",
+          "2001:500:4::",
+          "2001:500:6::",
+          "2001:500:7::",
+          "2001:500:a::",
+          "2001:500:a::1",
+          "2001:500:a::2",
+          "2001:7f8:1::a500:6777:1",
+          "2001:7f8:1::a500:6777:2",
+          "2001:7f8:1::a500:6888:1",
+          "2001:7f8:1::a500:6888:2",
+          "2001:7f8:1ff::a5ff:7002:1",
+          "2001:7f8:fff1::a502:aaaa:1"
         ]
       },
       "notes": "jcc conversion test pair 22: config_22.txt is hierarchical, config_22_set.txt the expected set form."
@@ -7230,7 +7876,8 @@
       "sha256": "e46f4493367e6709fd163712adc1d26108bd6c31856ed3af295e9dca0e8f56d4",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 2: config_2.txt is hierarchical, config_2_set.txt the expected set form."
     },
@@ -7249,7 +7896,8 @@
       "sha256": "728fe448d3d12a95c2611f962e4a8b3ca29b52eb3c151c095274a562fade98c6",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 3: config_3.txt is hierarchical, config_3_set.txt the expected set form."
     },
@@ -7268,7 +7916,8 @@
       "sha256": "6d82c8b38bc5d17405a2eb071b2f91fa51a4f37c551f14e1e221718bd09126ba",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 3: config_3.txt is hierarchical, config_3_set.txt the expected set form."
     },
@@ -7287,7 +7936,8 @@
       "sha256": "0272a59435164730e7515e07a0af3f2e01bdce54edf235cda76ab929b36bec33",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 4: config_4.txt is hierarchical, config_4_set.txt the expected set form."
     },
@@ -7306,7 +7956,8 @@
       "sha256": "bc4ba939fd82a0ad927d70b62e520fbea0d7270943b22e150dad54e1f14901c4",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 4: config_4.txt is hierarchical, config_4_set.txt the expected set form."
     },
@@ -7325,7 +7976,8 @@
       "sha256": "8e8c21a2aba0bf209661c6f9748eb53e4073ed2f632a41e3fb8758e8786073e8",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 5: config_5.txt is hierarchical, config_5_set.txt the expected set form."
     },
@@ -7344,7 +7996,8 @@
       "sha256": "6ab88a6e5faefa6c95724a7023783b768d55261000a36e9be32aeedf86d6441d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 5: config_5.txt is hierarchical, config_5_set.txt the expected set form."
     },
@@ -7363,7 +8016,8 @@
       "sha256": "84f88c6e96e6a2bcffcf8301ce48a5430aaa4a4d0881a3b52773e1ba4a162e90",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 6: config_6.txt is hierarchical, config_6_set.txt the expected set form."
     },
@@ -7382,7 +8036,8 @@
       "sha256": "06b68aaad5d51b1f4fb9659b715197daac6c682e116c3ad69d116ae1adcd6d24",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 6: config_6.txt is hierarchical, config_6_set.txt the expected set form."
     },
@@ -7401,7 +8056,8 @@
       "sha256": "9d0e5a5e13b4cd27c663dd23c0a46677f82a13508079457fcaa76a57a4fec202",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 7: config_7.txt is hierarchical, config_7_set.txt the expected set form."
     },
@@ -7420,7 +8076,8 @@
       "sha256": "2847e134b09e415176bf029f0715ef1154cdd0c6cb987f2c449dad09dbaea930",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 7: config_7.txt is hierarchical, config_7_set.txt the expected set form."
     },
@@ -7439,7 +8096,8 @@
       "sha256": "aa580395035b243f3ce03be7f91a2d050c7bfc581fa1b6ee36e9064defeef7d0",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 8: config_8.txt is hierarchical, config_8_set.txt the expected set form."
     },
@@ -7458,7 +8116,8 @@
       "sha256": "93a81c8ddc48aaf04884bed53596c79c3f300656e8839c2c06e312b61f7f4595",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 8: config_8.txt is hierarchical, config_8_set.txt the expected set form."
     },
@@ -7487,7 +8146,8 @@
           "1.101.32.69",
           "1.101.32.73",
           "1.101.32.77"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 9: config_9.txt is hierarchical, config_9_set.txt the expected set form."
     },
@@ -7516,7 +8176,8 @@
           "1.101.32.69",
           "1.101.32.73",
           "1.101.32.77"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "jcc conversion test pair 9: config_9.txt is hierarchical, config_9_set.txt the expected set form."
     },
@@ -7537,7 +8198,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7559,7 +8221,8 @@
         "publicIPv4": [
           "1.1.1.0",
           "2.2.2.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7578,7 +8241,8 @@
       "sha256": "984a76ca21a7b3d7282a381aa61166c3712da3896081c989d98571a9b3c0e77d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7599,7 +8263,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7618,7 +8283,8 @@
       "sha256": "8201b776f083dbd00e0e8a08dd0f8c750946eaa1ab086ec52dc1882d6c34eec7",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7640,7 +8306,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "2.2.2.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7659,7 +8326,8 @@
       "sha256": "bc30f1ed6b870f3721dd7f52da9ff7b407243652b02f02ddbc8ba713636633fb",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7678,7 +8346,8 @@
       "sha256": "c5737efaabe7eb8bcf8fe9cd2c60efcba12c5f13035efa8bad33a30c42a2baef",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7700,7 +8369,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "2.3.4.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7723,7 +8393,8 @@
           "1.2.0.0",
           "1.2.3.4",
           "1.7.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7744,7 +8415,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7763,7 +8435,8 @@
       "sha256": "7667ac67a801522f674ae8ae824e88ea2b75d0ed8aea6426ce7105baa089ddce",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -7784,7 +8457,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -7805,7 +8479,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -7831,7 +8506,8 @@
           "1.5.0.0",
           "1.6.0.0",
           "1.7.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -7853,7 +8529,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "2.2.2.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -7872,7 +8549,8 @@
       "sha256": "32940324bab63d298add2c4972f422b7a44527134044858ce616d88cb258dde4",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -7892,7 +8570,8 @@
       "sha256": "858c54df74dc2f0d6548a01f2567118a6478a53d6866a2fc66988a59e897a4ba",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output). SRX security policies."
     },
@@ -7912,7 +8591,8 @@
       "sha256": "fe17f239b27d8b706b6c4e27372e643afbf0fa1c75b46c767138197b709b4baa",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output). SRX security policies."
     },
@@ -7932,7 +8612,8 @@
       "sha256": "b26794ee67344144e5bc16d747ae111d55d83b19a3a9f16c6525d785396166d7",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output). SRX security policies."
     },
@@ -7957,6 +8638,11 @@
           "8.8.8.8",
           "200.1.1.1",
           "200.1.1.2"
+        ],
+        "publicIPv6": [
+          "2001:4860:4860::8844",
+          "2001:4860:4860::8888",
+          "2620:15c:2c4:202:b0e7:158f:6a7a:3188"
         ]
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output). SRX security policies."
@@ -7980,7 +8666,8 @@
           "1.2.3.4",
           "1.2.4.4",
           "2.2.2.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8001,7 +8688,8 @@
         "secretLike": [
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8023,7 +8711,8 @@
           "junos-$9$",
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8046,7 +8735,8 @@
           "1.1.1.1",
           "1.2.3.6",
           "2.2.2.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8068,7 +8758,8 @@
         "publicIPv4": [
           "1.0.0.1",
           "2.0.0.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8087,7 +8778,8 @@
       "sha256": "a87154a1ebb7df295f1e5d89fc5be1420fc493ada28ea36576530f4f56b9d2bd",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8109,7 +8801,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "2.3.4.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8128,7 +8821,8 @@
       "sha256": "54fb01325e28dab12e15e2ddb68adbec4df6a6bdd577b537e4998fc27277b322",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Juniper MNHA (multinode HA) vSRX lab, published by Juniper's JNPRAutomate org. Feature snippet."
     },
@@ -8154,7 +8848,8 @@
           "4.0.0.0",
           "5.0.0.0",
           "6.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8178,7 +8873,8 @@
           "2.0.0.0",
           "3.0.0.0",
           "4.4.4.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8197,7 +8893,8 @@
       "sha256": "9dc16f896e9f133411e48fef16f990c4eb243ffc8b1617c5b6239c1517aee785",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8216,7 +8913,8 @@
       "sha256": "8194cbffc45abc8b8484ad111820667679df4b82fd42a145c912b6c36833b281",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8235,7 +8933,8 @@
       "sha256": "044391de9fa970957dc9a7e47e8e3e485fa0647a32d13d9e26523ccbde0d2820",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8257,7 +8956,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "2.3.4.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8276,7 +8976,12 @@
       "sha256": "779f5510b51b1606274de275c478d599409fe0ad6d7a47188af25a355d9446df",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": [
+          "21f1:8:1e:8fff::11",
+          "3ff1:8:1e:8fff::10",
+          "3ff1:8:1e:8fff::11"
+        ]
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8312,7 +9017,8 @@
           "12.0.0.0",
           "13.0.0.0",
           "14.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8336,7 +9042,8 @@
           "30.0.0.0",
           "35.0.0.0",
           "40.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8358,7 +9065,8 @@
         "publicIPv4": [
           "1.1.1.0",
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8377,7 +9085,8 @@
       "sha256": "55bdb2e950fa985d6db63cbb54b894106c2c4810c2299e086759ebc6e00f0376",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8396,7 +9105,8 @@
       "sha256": "d61611be64911a6aa8489bf6edf4535e735255e2a34e247386cd361d5f97ffbd",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8415,7 +9125,8 @@
       "sha256": "e702d26d29c9d6f967d916334c48d156bbe8304fe449db4e44b31e6814fe3627",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8434,7 +9145,8 @@
       "sha256": "71fb303783a277bb6a4724dd8f5655ae5628cbb004a3ecbfff2a403b950cece2",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8453,7 +9165,8 @@
       "sha256": "637a9ead3eb0a07ad87b547c637c6c359361927e7c8e64f58ffe3921a146d404",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8472,7 +9185,8 @@
       "sha256": "67861c1af8c40e9def1a3b0bd8379bc2cbaa4c9b89c3d528dd8129f424d72c91",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8495,7 +9209,8 @@
           "1.2.3.4",
           "2.0.0.0",
           "3.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8516,7 +9231,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8535,7 +9251,8 @@
       "sha256": "4769265fd13fdb75eb3618a0caddc0ca32209ad557354baa3259cf008e04c9ce",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8554,7 +9271,8 @@
       "sha256": "ced635f4e9cd82f48476976c426e7c656440f170eebdd7d7ef8d7b5e13d56dee",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8573,7 +9291,8 @@
       "sha256": "f11a9192ba05f23b64407dad6e1c01c811a600a5a11c8cee507276e76b0d39ba",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8592,7 +9311,8 @@
       "sha256": "9f6494d58b7d640b628de78cf61c35885de350a4eea428854bba4a84335e4a79",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8611,7 +9331,8 @@
       "sha256": "027eeca44bd5d2eeab73db2eb640ac10a53eb909a80be287cb44d09060ec977b",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8636,7 +9357,8 @@
           "1.2.3.4",
           "1.2.3.5",
           "2.2.2.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8661,7 +9383,8 @@
           "1.2.8.0",
           "1.2.8.2",
           "1.2.80.60"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8687,7 +9410,8 @@
           "2.3.4.5",
           "5.6.7.8",
           "8.7.6.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8708,7 +9432,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8728,7 +9453,8 @@
       "sha256": "6698abd8f94b1279b554fdfc23f5e8477bc4c2654fabe7f736847156fb2ee317",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Juniper MNHA (multinode HA) vSRX lab, published by Juniper's JNPRAutomate org. Feature snippet."
     },
@@ -8747,7 +9473,8 @@
       "sha256": "2466896a48cf1f92f895334e2b06da9322e75c2668e11f00bb1867682a131cd8",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8766,7 +9493,8 @@
       "sha256": "2d06f67e1b8e2340fb79e9b6a3fb1fbf8d9f8b5e0a354ebae4200bdf85012c68",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8785,7 +9513,8 @@
       "sha256": "6f73cc2506204ff613b9e8cd08c1d867d2a042afc2df91d6807b1c38a968e794",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8804,7 +9533,8 @@
       "sha256": "b34a1967b5cfed5b2fccf5c478abdbb44b416ed8b958f8b49772b9cc56a64cef",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8823,7 +9553,8 @@
       "sha256": "1055266de8bb7597cbca1659aa5c22a466c7c6fbb3dee902cb281ffee35b5a8a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8842,7 +9573,8 @@
       "sha256": "34aad20cb143cc7ea3d4f307b1cffa488a2bf888e6c2e47e0ea8c4b120a7075c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8861,7 +9593,8 @@
       "sha256": "dc48d5b912b298e7ea6630d9480e05ba117c4f4ab007433d08c1902adc960c34",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8880,7 +9613,8 @@
       "sha256": "c2e18617f8c2f3c4f153e7fda3370c4fe4a1ab2722834f990d2511585e3ec92b",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -8899,7 +9633,8 @@
       "sha256": "bedb941b789ed6710599c81f35c17e537c1acf8dae639651811e6349955d90b0",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8918,7 +9653,8 @@
       "sha256": "46f41001d2f62cc362ee6968b52587d29634c1db5d1ef6870630c067bae36c70",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8937,7 +9673,8 @@
       "sha256": "63551a76d6f9a1d1f0461635e3c83b6e66c1774ab18b63824d91257584d25818",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8959,7 +9696,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "2.2.2.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8978,7 +9716,8 @@
       "sha256": "4c3a45eb2393a7ee102c3ebb1d3c9b9c1db9f624aeee7207911b35890f88bafb",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -8997,7 +9736,8 @@
       "sha256": "97b7087f8a18b4c4a495384dedf4be00774404d384b0ce18398c6407ef013c07",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9016,7 +9756,8 @@
       "sha256": "656d4a1d5326cb5ad9102c101dabf70f52e6348124f6a43adef7fdb7e1fe6183",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9037,7 +9778,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -9058,7 +9800,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -9077,7 +9820,8 @@
       "sha256": "74a48c9a872ae30f3b3d213c27b4898637b8c00823c1992dbc634c2eebdd3dfd",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9096,7 +9840,8 @@
       "sha256": "8498af18c5d9cf037669c7716f8ce1722f1107432801f676ad2719333dd1051b",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Juniper MNHA (multinode HA) vSRX lab, published by Juniper's JNPRAutomate org. Feature snippet."
     },
@@ -9127,7 +9872,8 @@
           "3.0.2.0",
           "3.2.2.2",
           "5.6.7.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
     },
@@ -9159,7 +9905,8 @@
           "2.12.21.2",
           "2.23.11.2",
           "2.23.12.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
     },
@@ -9192,7 +9939,8 @@
           "2.128.0.1",
           "3.0.1.0",
           "3.0.2.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
     },
@@ -9228,7 +9976,8 @@
           "2.128.0.0",
           "3.0.1.0",
           "3.0.2.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
     },
@@ -9260,7 +10009,8 @@
           "3.0.2.0",
           "3.1.1.1",
           "3.10.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish 'example-juniper' lab network (Junos port of networks/example); lab-made."
     },
@@ -9286,7 +10036,8 @@
           "pre-shared-key",
           "ssh-public-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Batfish SRX testbed; lab-made."
     },
@@ -9312,7 +10063,8 @@
           "pre-shared-key",
           "ssh-public-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Batfish SRX testbed; lab-made."
     },
@@ -9339,7 +10091,8 @@
         ],
         "publicIPv4": [
           "8.8.8.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Juniper MNHA (multinode HA) vSRX lab, published by Juniper's JNPRAutomate org."
     },
@@ -9364,7 +10117,8 @@
         ],
         "publicIPv4": [
           "66.129.255.62"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab device backup from Juniper's lab_management repo (2017); real lab gear, not production."
     },
@@ -9396,7 +10150,8 @@
           "191.168.101.4",
           "191.168.102.1",
           "191.168.102.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab device backup from Juniper's lab_management repo (2017); real lab gear, not production."
     },
@@ -9421,7 +10176,8 @@
         ],
         "publicIPv4": [
           "66.129.255.62"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab device backup from Juniper's lab_management repo (2017); real lab gear, not production."
     },
@@ -9446,7 +10202,8 @@
         "publicIPv4": [
           "66.129.255.62",
           "191.168.100.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab device backup from Juniper's lab_management repo (2017); real lab gear, not production."
     },
@@ -9472,7 +10229,8 @@
         "publicIPv4": [
           "66.129.255.62",
           "191.168.100.6"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab device backup from Juniper's lab_management repo (2017); real lab gear, not production."
     },
@@ -9500,7 +10258,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "8.8.8.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "netcanon synthetic 'kitchen sink' covering its canonical model."
     },
@@ -9525,7 +10284,8 @@
           "junos-$9$",
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Lab EVPN-VXLAN fabric configs (TsG8139/evpn-vxlan-implementation)."
     },
@@ -9550,7 +10310,8 @@
           "junos-$9$",
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Lab EVPN-VXLAN fabric configs (TsG8139/evpn-vxlan-implementation)."
     },
@@ -9575,7 +10336,8 @@
           "junos-$9$",
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Lab EVPN-VXLAN fabric configs (TsG8139/evpn-vxlan-implementation). Pair with the .set file of the same device."
     },
@@ -9600,7 +10362,8 @@
           "junos-$9$",
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Lab EVPN-VXLAN fabric configs (TsG8139/evpn-vxlan-implementation). Set form of the same device as DC-2_POD-1_Leaf_01."
     },
@@ -9624,7 +10387,8 @@
           "junos-$9$",
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Lab EVPN-VXLAN fabric configs (TsG8139/evpn-vxlan-implementation)."
     },
@@ -9648,7 +10412,8 @@
         ],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Lab EVPN-VXLAN fabric configs (TsG8139/evpn-vxlan-implementation). DHCPv6 relay leaf. Contains both hierarchical blocks and set/delete lines. Published with CRLF line endings: converted to LF here; the untouched original is originals/junos/whole/tsg8139__srx-lab_leaf01.conf.",
       "original": "originals/junos/whole/tsg8139__srx-lab_leaf01.conf"
@@ -9681,7 +10446,8 @@
           "5.0.0.0",
           "100.0.0.0",
           "101.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9700,7 +10466,8 @@
       "sha256": "820d9b3d47c87f38116bcd333a3cb041ecdc6c76242a8a2656fd9f3cb388436d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9723,7 +10490,8 @@
           "1.1.1.1",
           "2.2.2.2",
           "3.3.3.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9745,7 +10513,8 @@
         "publicIPv4": [
           "1.2.3.0",
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9766,7 +10535,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9790,7 +10560,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "1.2.3.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -9815,7 +10586,8 @@
           "5.5.5.5",
           "98.98.98.98",
           "99.99.99.99"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9836,7 +10608,8 @@
         "secretLike": [],
         "publicIPv4": [
           "3.3.3.3"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9855,7 +10628,8 @@
       "sha256": "4c251cd207d9028eaf3bd32f88af93557aec0a1692bf0e7f17f4306cb9935fba",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9878,7 +10652,8 @@
         ],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9899,7 +10674,8 @@
         "secretLike": [],
         "publicIPv4": [
           "4.0.0.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -9918,7 +10694,8 @@
       "sha256": "f2af48ec47d7ebadee15211b1cc22cc0cbd13e43da1fc7732f18b163c3478fb1",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -9937,7 +10714,8 @@
       "sha256": "2925b9e1d631784f0a93a9c1e95f00528472fcd8af6035478a3e964c489cff36",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -9956,7 +10734,10 @@
       "sha256": "22cafb2c27085b1d59e58c822076f45b08716a302e3f4b6df881a6a21e214623",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": [
+          "2620:1::"
+        ]
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -9981,7 +10762,8 @@
           "200.1.1.3",
           "200.1.1.4",
           "200.1.1.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Generated by Aerleon from a sample policy (regression reference output)."
     },
@@ -10000,7 +10782,8 @@
       "sha256": "b8992b7fe54637a8e4d83b900cf4932c60fcc938f209fc84b4c6e45d79d05a91",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10019,7 +10802,8 @@
       "sha256": "5cab1157f7f999ab77ebe25533448ed9e4522d0c9fda955079395e2528669642",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10038,7 +10822,8 @@
       "sha256": "cf2d7d7dd1b1edc254b0e7f1f5c54a921e7958d7f015f965e1ee9a8645470381",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10057,7 +10842,8 @@
       "sha256": "cbfd90729e24091fff213161ad247b24b279491dd9f9eea2446cb06911b3b21a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -10078,7 +10864,8 @@
         "secretLike": [
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10097,7 +10884,8 @@
       "sha256": "2726c91564a37bd78482fc7dd91d00cff287565151d177f39b4b0a65ed1ad79f",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10116,7 +10904,8 @@
       "sha256": "3ef44191137233a1b02251caabeeb7b70a534bfc32c52427c0c69da42c27dba1",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10135,7 +10924,8 @@
       "sha256": "ef7088be24ce3c08e071bcd5ba85416f123e04b773f4e7312318f3cd57754f0c",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10159,7 +10949,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "1.2.3.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10178,7 +10969,8 @@
       "sha256": "2566648adc3f8290e2aa0f6671b76b17c808da63dc883416f7b0a88d2e3a7891",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10197,7 +10989,8 @@
       "sha256": "ca28cd5ba5f61417916c6ce909765a898fcd878b9fed7c44878491a25574acc4",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10216,7 +11009,8 @@
       "sha256": "95cfaded4d72cb829e7a9a7c378510d8a4d0526ba46f66d36fcc907016881996",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10235,7 +11029,8 @@
       "sha256": "65c83b3f922774d50c92db3f8bea723ba1721419fa13134b1c860e583f737b49",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10258,7 +11053,8 @@
           "1.1.1.1",
           "1.2.3.4",
           "2.2.2.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -10279,7 +11075,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10298,7 +11095,8 @@
       "sha256": "fa081acf24f21b171056bf913daeacb9786fb58272feb797ede8c42860b020f4",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10317,7 +11115,8 @@
       "sha256": "61b2ac8336fe8ea2a4ba128fbe5454a0d834d888bc96cfcb88c8598b0aa9bd9d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10336,7 +11135,8 @@
       "sha256": "086dec8dc48c660393537463084269fe2cfc859d3d190ad414b1fa9bddfb862a",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10357,7 +11157,8 @@
         "secretLike": [
           "pre-shared-key"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10382,7 +11183,8 @@
           "1.2.3.0",
           "1.2.3.4",
           "2.0.0.0"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10401,7 +11203,8 @@
       "sha256": "3e3d8d043ba97b7f7f819b92ae38ec6400452bf02c208558393254e54bf068db",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -10422,7 +11225,8 @@
         "secretLike": [],
         "publicIPv4": [
           "5.5.5.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10443,7 +11247,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10465,7 +11270,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "5.4.6.7"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10488,7 +11294,8 @@
           "1.1.1.2",
           "1.2.3.4",
           "5.6.7.8"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -10507,7 +11314,8 @@
       "sha256": "d2811e7e71d843e8c880015930685015241bc230bff20b594359f854106010af",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10526,7 +11334,8 @@
       "sha256": "56290d38446a0f3d58f0cd388697fee3c82332b15d712a2cb6b01fe190bcfb37",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10547,7 +11356,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10566,7 +11376,8 @@
       "sha256": "14cf4bd1eaa86f285f50aca482b61e25a60acaf8d94de03c0db03d4d3fdcfffd",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10587,7 +11398,8 @@
         "secretLike": [
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10606,7 +11418,8 @@
       "sha256": "626800ae3825098069c7fa409050fb25a93bf77b2fd16300fe86f3e2726861d9",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -10625,7 +11438,8 @@
       "sha256": "f863471f28b92a45b6c9989e74e800918ccc720a10ef0ab91056a242d62feb05",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10644,7 +11458,8 @@
       "sha256": "95e46af380185847f0e46ed2b407b5c03150556895024dca18a48052fc390d23",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10663,7 +11478,8 @@
       "sha256": "f3e6a50f6e79d855fdff1b6a570f4e2dabd7a81cc9d6f1053e4fe4fb431878ad",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10682,7 +11498,8 @@
       "sha256": "56b22135ea9072da83efde49e7eccde17eba7841c9ca081c43bace655f390c39",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10701,7 +11518,8 @@
       "sha256": "a7f98cb3013e3e4d33b3ae71b0ae4871642d08c0bc6b7b718277f1e98511a7e6",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10720,7 +11538,8 @@
       "sha256": "19507a62c7aabab73990f9c6df9c322a57a53d00d657cc2ca8f053de0fed9d6e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10739,7 +11558,8 @@
       "sha256": "9d4375464fc4761953b8acbc8f3eda67aba4318a843b6da59b9ac28e90790a72",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10758,7 +11578,8 @@
       "sha256": "6a3ab9a41efce8b9e71a010fe54647e7a90b3bd94665bb822dbe9775ee46d1ed",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10777,7 +11598,8 @@
       "sha256": "95b7f9ecec3bb6d84a4b3462540f50a0e544ea9b02eadbecc7ede4c934d1a0dc",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10796,7 +11618,8 @@
       "sha256": "b57af3325938fdb4ab4541b714ac99e13866d673d6314cb18f26d97ff0d4b290",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10815,7 +11638,8 @@
       "sha256": "ac4ff6254763a48df86720ede7e46f25c3e18814e60147a9c586a8bf29081f7d",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10834,7 +11658,8 @@
       "sha256": "a92b504a4df7ae3ce41b4cf70ea544b0873a19dea2cfd6901884a8c2a9c1e90b",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10853,7 +11678,8 @@
       "sha256": "01c96a74b5bc9443ca0d361f48130ce3352338c489fe863558a08ee4b141ce6b",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -10872,7 +11698,8 @@
       "sha256": "8ba789c8f74056c8a3f06940a3f6520cf07dcb10ddc6f29425fc25aa8155e2ca",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -10891,7 +11718,8 @@
       "sha256": "192ff9ba33e71abcdf47bd611e8a8c28a42ce195e2b7d4d18be573b009300df3",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -10910,7 +11738,8 @@
       "sha256": "2b7a811f26e072dd9505387290addf48dd30c73e6b260db0c749ee40e5df0247",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10929,7 +11758,8 @@
       "sha256": "edb6f1d571b1ff9645f3fccf6aa17f29d19f50f72cb915c1194cb1101937bf86",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10948,7 +11778,8 @@
       "sha256": "c4734096ec865f0bb413adbf4271c01d1e598fccdfa8076a948cf47ed06b3a1e",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10970,7 +11801,8 @@
         "publicIPv4": [
           "1.2.3.4",
           "1.2.3.5"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -10991,7 +11823,8 @@
         "secretLike": [],
         "publicIPv4": [
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish grammar test), not a real device."
     },
@@ -11013,7 +11846,8 @@
         "publicIPv4": [
           "1.1.1.1",
           "1.2.3.4"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device."
     },
@@ -11038,7 +11872,8 @@
         ],
         "publicIPv4": [
           "2.2.2.2"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish dataplane test snapshot (NX-OS symmetric IRB EVPN); lab-made."
     },
@@ -11064,7 +11899,8 @@
         "publicIPv4": [
           "1.1.1.3",
           "1.1.1.112"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish dataplane test snapshot (NX-OS symmetric IRB EVPN); lab-made."
     },
@@ -11089,7 +11925,8 @@
         ],
         "publicIPv4": [
           "1.1.1.1"
-        ]
+        ],
+        "publicIPv6": []
       },
       "notes": "Batfish dataplane test snapshot (NX-OS symmetric IRB EVPN); lab-made."
     },
@@ -11108,7 +11945,8 @@
       "sha256": "82669cc1fc50fa352d44fee250fb5599744cd72c784d411851c12d3638345056",
       "flags": {
         "secretLike": [],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Synthetic parser test config (Batfish parsing unit-tests network), not a real device. Long multi-feature Nexus config."
     },
@@ -11131,7 +11969,8 @@
           "pre-shared-key",
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "netcanon synthetic 'kitchen sink' covering its canonical model."
     },
@@ -11154,7 +11993,8 @@
           "pre-shared-key",
           "snmp-community"
         ],
-        "publicIPv4": []
+        "publicIPv4": [],
+        "publicIPv6": []
       },
       "notes": "Lab Nexus 9000v capture from racc. Published with CRLF line endings: converted to LF here; the untouched original is originals/nxos/whole/racc__n9k1_20230811_show_running-config.cfg.",
       "original": "originals/nxos/whole/racc__n9k1_20230811_show_running-config.cfg"

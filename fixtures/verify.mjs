@@ -15,6 +15,7 @@ const PHASE1 = ['system', 'interfaces', 'static-routes', 'mgmt', 'vlans', 'ospf'
 const LATER = ['isis', 'eigrp', 'evpn-vxlan', 'mpls', 'nat', 'security', 'vpn', 'ha', 'qos']
 const SPECIAL = ['whole', 'pairs']
 const AREAS = new Set([...PHASE1, ...LATER, ...SPECIAL])
+const FLAGS = ['secretLike', 'publicIPv4', 'publicIPv6']
 
 const problems = []
 const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'))
@@ -54,6 +55,7 @@ for (const f of manifest.files) {
   if (!f.sourcePath) problems.push(`${where}: no sourcePath`)
   if ((f.platform === 'junos') !== (f.junosForm != null)) problems.push(`${where}: junosForm must be set for Junos only`)
   if (f.junosForm != null && !['hierarchical', 'set', 'mixed'].includes(f.junosForm)) problems.push(`${where}: junosForm ${f.junosForm}`)
+  for (const k of FLAGS) if (!Array.isArray(f.flags?.[k])) problems.push(`${where}: flags.${k} is not a list`)
 }
 
 // Every source repo needs its license text in LICENSES/.
