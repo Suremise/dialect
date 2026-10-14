@@ -913,6 +913,21 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const t of state.common) set(t.node, inherited ? mapped(t.directions.map((d) => fieldPath(...at, d))) : ignored('overridden by the address families\' own route targets'))
   }
 
+  // A VRF only routes name (`ip route vrf V …` with no `vrf definition V` or `ip vrf V`): the model holds it with its
+  // routes, and nothing else (no route distinguisher or targets, nothing invented). Only the parse can tell it had no
+  // definition, so the warning is the parse's; a render writes a definition with the address families its routes need.
+  // Value-free: a VRF can share its name with a secret, so the field says which.
+  for (const [instance, statements] of routeStatements) {
+    if (vrfs.get(instance)?.definitions.length || model.get(['networkInstances', instance]) === undefined) continue
+    if (!statements.length) {
+      // Its routes were all removed: nothing names it any more.
+      model.remove(['networkInstances', instance])
+      model.removeIfEmpty(['networkInstances'])
+      continue
+    }
+    diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.vrf-created', message: 'A VRF only routes name has no definition in the text: it is kept for its routes, with no route distinguisher or route targets, and a render writes a definition for it.', field: fieldPath('networkInstances', instance), statement: statements[0].node.id })
+  }
+
   // A subinterface in a VRF the text doesn't define (with `vrf definition` or `ip vrf`: a route naming it isn't one)
   // would name a VRF the device doesn't have: its membership and its addresses, which would otherwise land in the
   // global table, are left out.
