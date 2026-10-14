@@ -1,7 +1,7 @@
 // modelProblems(), isRouteDistinguisher(), isVlanId(), isAsNumber() and model 0.5.0's isIpAddress(), parsePrefix(),
 // communityType() and isPositionKey(): what a model must hold beyond its types (validate.ts).
 import { describe, expect, it } from 'vitest'
-import { communityType, deserializeModel, fieldPath, isAsNumber, isIpAddress, isPortRange, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, populatedLeaves, serializeModel, type CommunityType, type Device, type PrefixMatchForm, type RegexDialect } from '../src'
+import { communityType, deserializeModel, fieldPath, isAsNumber, isIpAddress, isPortRange, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, populatedLeaves, serializeModel, type CommunityType, type Device, type PrefixMatchForm, type RegexDialect, type VrfPolicyMode } from '../src'
 
 describe('isRouteDistinguisher', () => {
   it('takes the three forms: ASN:nn, IP:nn and ASN4:nn, at their bounds', () => {
@@ -471,6 +471,33 @@ describe('modelProblems, model 0.5.0', () => {
       ['model.number', at('policies', 'P', 'terms', '1', 'actions', 'localPreference')],
       ['model.as-number', at('policies', 'P', 'terms', '1', 'actions', 'asPathPrepend')]
     ])
+  })
+})
+
+describe('modelProblems, model 0.5.2', () => {
+  const policies = { routingPolicy: { policies: { IN: { fallThrough: 'reject' as const }, OUT: { fallThrough: 'next-policy' as const } } } }
+
+  it('finds nothing wrong in a VRF whose import and export policies exist and which says its mode', () => {
+    for (const vrfPolicyMode of ['replaces-route-targets', 'after-route-targets'] as const)
+      expect(modelProblems({ ...policies, networkInstances: { blue: { type: 'vrf', importPolicies: ['IN'], exportPolicies: ['OUT', 'IN'], vrfPolicyMode } } })).toEqual([])
+  })
+
+  it('reports a VRF policy the model doesn\'t have, unless told to leave policy names alone, and a missing or unknown mode', () => {
+    const device: Device = {
+      ...policies,
+      networkInstances: {
+        blue: { type: 'vrf', importPolicies: ['IN', 'toString'], exportPolicies: ['MISSING'], vrfPolicyMode: 'after-route-targets' },
+        red: { type: 'vrf', exportPolicies: ['OUT'] },
+        green: { type: 'vrf', importPolicies: ['IN'], vrfPolicyMode: 'filter' as VrfPolicyMode }
+      }
+    }
+    expect(modelProblems(device).map((d) => [d.code, d.field])).toEqual([
+      ['model.unknown-policy', fieldPath('networkInstances', 'blue', 'importPolicies')],
+      ['model.unknown-policy', fieldPath('networkInstances', 'blue', 'exportPolicies')],
+      ['model.vrf-policy-mode', fieldPath('networkInstances', 'red', 'vrfPolicyMode')],
+      ['model.vrf-policy-mode', fieldPath('networkInstances', 'green', 'vrfPolicyMode')]
+    ])
+    expect(modelProblems(device, { policyReferences: false }).map((d) => d.code)).toEqual(['model.vrf-policy-mode', 'model.vrf-policy-mode'])
   })
 })
 

@@ -185,7 +185,9 @@ const entries = <T>(map: Readonly<Record<string, T>> | undefined): [string, T][]
  *   one of its instance's (`model.unknown-bgp-group`);
  * - since 0.5.0, routing policy (routingPolicyProblems()): positions, prefixes and their lengths, communities, regex
  *   dialects and numbers in the model's forms, and every prefix list, community set and AS-path set a term names, and
- *   with `policyReferences` (the default), every policy a BGP peer or family names, exists;
+ *   with `policyReferences` (the default), every policy a BGP peer or family (or since 0.5.2, a VRF) names, exists;
+ * - since 0.5.2, a network instance with import or export policies says its `vrfPolicyMode`, one of the model's
+ *   (`model.vrf-policy-mode`);
  * - since 0.5.1, filters (filterProblems()): their terms in the model's forms, and every filter a subinterface applies
  *   exists in its family (`model.unknown-filter`).
  */
@@ -267,19 +269,26 @@ export function modelProblems(device: Device, { policyReferences = true }: Model
       if (group !== undefined && (typeof group !== 'string' || !bgp?.groups || !Object.hasOwn(bgp.groups, group)))
         problem('unknown-bgp-group', 'A BGP neighbor is in a group its instance doesn\'t have.', fieldPath('networkInstances', name, 'bgp', 'neighbors', address, 'group'))
     }
+    // Since 0.5.2: a VRF with its own policies says how they stand with its route targets.
+    const vrfPolicies = instance?.importPolicies !== undefined || instance?.exportPolicies !== undefined
+    const mode = instance?.vrfPolicyMode
+    if (mode !== undefined ? mode !== 'replaces-route-targets' && mode !== 'after-route-targets' : vrfPolicies)
+      problem('vrf-policy-mode', 'A network instance with import or export policies doesn\'t say how they stand with its route targets (replaces-route-targets or after-route-targets).', fieldPath('networkInstances', name, 'vrfPolicyMode'))
     if (!policyReferences) continue
-    // Since 0.5.0: each policy a peer or one of its families names is one of the model's.
+    // Since 0.5.0: each policy a peer or one of its families names is one of the model's; since 0.5.2, a VRF's too.
     const policies = device.routingPolicy?.policies
-    const named = (list: unknown, path: readonly PathSegment[]) => {
+    const named = (list: unknown, path: readonly PathSegment[], who = 'A BGP peer') => {
       if (list !== undefined && !(Array.isArray(list) ? list : [list]).every((p) => typeof p === 'string' && policies !== undefined && Object.hasOwn(policies, p)))
-        problem('unknown-policy', 'A BGP peer names a policy the model doesn\'t have.', fieldPath('networkInstances', name, 'bgp', ...path))
+        problem('unknown-policy', `${who} names a policy the model doesn't have.`, fieldPath('networkInstances', name, ...path))
     }
+    named(instance?.importPolicies, ['importPolicies'], 'A network instance')
+    named(instance?.exportPolicies, ['exportPolicies'], 'A network instance')
     const peerPolicies = (p: BgpPeer | undefined, ...path: string[]) => {
-      named(p?.importPolicies, [...path, 'importPolicies'])
-      named(p?.exportPolicies, [...path, 'exportPolicies'])
+      named(p?.importPolicies, ['bgp', ...path, 'importPolicies'])
+      named(p?.exportPolicies, ['bgp', ...path, 'exportPolicies'])
       for (const [family, f] of entries<{ importPolicies?: unknown; exportPolicies?: unknown } | undefined>(p?.addressFamilies as Readonly<Record<string, never>> | undefined)) {
-        named(f?.importPolicies, [...path, 'addressFamilies', family, 'importPolicies'])
-        named(f?.exportPolicies, [...path, 'addressFamilies', family, 'exportPolicies'])
+        named(f?.importPolicies, ['bgp', ...path, 'addressFamilies', family, 'importPolicies'])
+        named(f?.exportPolicies, ['bgp', ...path, 'addressFamilies', family, 'exportPolicies'])
       }
     }
     for (const [group, g] of entries(bgp?.groups)) peerPolicies(g, 'groups', group)

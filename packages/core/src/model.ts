@@ -1,6 +1,6 @@
 // The shared device model: what every platform plugin parses into and renders from (the hub in docs/ARCHITECTURE.md).
 // Shaped like OpenConfig (system, interfaces with subinterfaces and addresses, VLANs, network instances with static
-// routes, OSPF and BGP, routing policy, filters), borrowing its structure and names, not its code, as plain readonly types serialised as JSON (serialize.ts).
+// routes, OSPF and BGP, routing policy, filters, VRF policies), borrowing its structure and names, not its code, as plain readonly types serialised as JSON (serialize.ts).
 //
 // Conventions every type here keeps, because the coverage ledger walks the model generically (ledger.ts):
 // - **Collections are maps keyed by their natural key** (an interface's name, an address, a prefix), never arrays of
@@ -20,7 +20,7 @@
 // while the ledger reports any populated field it has never heard of as unrendered.
 
 /** The shared model's version (docs/SPEC.md §4). Bump minor for additions, major for breaking changes. */
-export const MODEL_VERSION = '0.5.1'
+export const MODEL_VERSION = '0.5.2'
 
 /** A map from a collection's natural key to its entries. */
 export type Keyed<T> = Readonly<Record<string, T>>
@@ -235,7 +235,28 @@ export interface NetworkInstance {
   readonly ospf?: Ospf
   /** BGP in this instance. Since model 0.4.0. */
   readonly bgp?: Bgp
+  /**
+   * A VRF's own import policies, by name, in order: Junos `vrf-import`, IOS-XE and NX-OS VRF `import map`, IOS-XR VRF
+   * `import route-policy`. Each names an entry of `Device.routingPolicy.policies` (modelProblems() checks, as for BGP).
+   * Since model 0.5.2.
+   */
+  readonly importPolicies?: readonly string[]
+  /** A VRF's own export policies, by name, in order: Junos `vrf-export`, Cisco's VRF `export map`. Since model 0.5.2. */
+  readonly exportPolicies?: readonly string[]
+  /**
+   * How the source's VRF policies stand with its route targets: the platform's semantics, kept with the data as a
+   * policy's `fallThrough` is, and given whenever the instance has import or export policies (modelProblems() checks).
+   * `replaces-route-targets` (Junos): `vrf-import` and `vrf-export` replace the `vrf-target` import and export, so the
+   * policy matches and sets the route-target communities itself. `after-route-targets` (Cisco): the route targets
+   * import and export as configured, and the map then filters or changes those routes. A renderer whose platform does
+   * the other raises a semantic warning, or leaves the policies `unsupported` where the meaning can't be kept. Since
+   * model 0.5.2.
+   */
+  readonly vrfPolicyMode?: VrfPolicyMode
 }
+
+/** How a VRF's import and export policies stand with its route targets (since model 0.5.2). */
+export type VrfPolicyMode = 'replaces-route-targets' | 'after-route-targets'
 
 /** A VRF's route targets (leaf-lists, in the source's order). Since model 0.3.0. */
 export interface RouteTargets {
