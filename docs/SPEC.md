@@ -51,6 +51,14 @@ product decisions.
   `CHANGELOG.md` with an Unreleased section. What doesn't carry over (Electron-only) is listed in the spike report.
 - **npm 12, pinned** (`packageManager: npm@12.2.0`, `engines.npm >=12`), for its default deny of install scripts: only
   packages approved in `allowScripts` run theirs. CI installs npm 12 before `npm ci`.
+- **The desktop app** (B7): Tauri 2 around the same UI, Windows first. An **NSIS installer only**
+  (`Dialect_<version>_x64-setup.exe`), installed **per user** (no admin), with NSIS's **zlib** compression (its LZMA
+  module is CPL-licensed) and Tauri's default WebView2 mode (download the bootstrapper only if WebView2 is missing). No
+  MSI: Tauri builds it with WiX 3 (MS-RL). **Unsigned** until there is a certificate: the build runs a signing hook
+  (`apps/desktop/scripts/sign.mjs`) that signs only when `DIALECT_SIGN_COMMAND` is set. A **strict CSP** (nothing remote,
+  no inline code, IPC only). Open and save go through the system dialogs, and the app can read and write only the
+  files the user picks there; a dropped file is read from the drop itself. Agents build the installer and run the
+  smoke test, but **never run the installer**: Darren installs and tests it himself.
 - **Versions:** semver 0.x until the model and the plugin API are stable.
 
 ## 3. License
@@ -77,9 +85,13 @@ product decisions.
 - **`THIRD_PARTY_NOTICES.md` is generated** from what actually ships (`npm run licenses`): every package with a link,
   version, license and full license text, the products it ships in (a package that publishes no license file, or that
   only another platform installs, needs a reviewed supplement with its text, or the check fails), plus hand-written
-  entries for material that ships but isn't a package (`scripts/notices`; copied, not shipped material isn't listed). From B7 it also covers the Rust crates in
-  the Tauri binary (runtime crates only) and the installer's components. **Every link is a working `https://` URL, or
-  there is none.** `npm run licenses -- --check` and a unit test fail when either generated file is stale or the rule
+  entries for material that ships but isn't a package (`scripts/notices`; copied, not shipped material isn't listed). It
+  also covers the desktop app's **Rust crates**: only those compiled into the app (found with `cargo tree`), while the
+  proc-macros and build scripts that run on the build machine are build-only. A crate that publishes no license file
+  needs a reviewed supplement, as a package does. The installer's components (NSIS, its `nsis_tauri_utils` plug-in)
+  and the Microsoft WebView2 loader linked into the app are hand-written entries. A license text that is the same as
+  one given earlier is given once and referred to. So `npm run licenses` needs Rust (cargo). **Every link Dialect gives
+  is a working `https://` URL, or there is none**; quoted license texts keep their own words, addresses included. `npm run licenses -- --check` and a unit test fail when either generated file is stale or the rule
   is broken.
 - **netcanon:** use it **for ideas only**. We write our own converter: don't depend on it, fork it or wrap it. It may be
   used as an optional benchmark.

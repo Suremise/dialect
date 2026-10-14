@@ -278,6 +278,24 @@ each workspace's `typecheck` script.
   a license on the shipped allowlist and its text in `fixtures/LICENSES/`, with its NOTICE file when `FIXTURE_NOTICES`
   records one, and nothing else is in that folder. `fixtures/verify.mjs` checks the files against the manifest.
 
+The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_PRODUCTS`: `apps/desktop/src-tauri`, for
+`x86_64-pc-windows-msvc`), with `--locked` against the committed `Cargo.lock`:
+
+- **Runtime** crates, which ship, are `cargo tree -e normal,no-proc-macro`: normal dependencies, not entering a
+  proc-macro. **Host-only** crates are the rest of `cargo tree -e normal,build`: proc-macros, build scripts and what
+  only they use, such as `cssparser-macros`; they run on the build machine and are build-only. `cargo tree` applies
+  resolver 2's separate host and target features, which `cargo metadata`'s merged resolve doesn't. `cargo metadata`
+  gives each crate's license (Cargo's deprecated `A/B` read as `A OR B`), its link (the same `packageLink()` as npm's)
+  and its source folder, whose LICENSE, COPYING and NOTICE files are its texts (`LICENSE.spdx` is metadata, not a
+  text). A crate with no license file needs a reviewed `CRATE_SUPPLEMENTS` entry.
+- Both files list the crates in a section of their own, and the crates are judged by the same rule. In the notices, a
+  license text that is the same as one given earlier (Apache-2.0's, mostly) is given once and referred to, which
+  keeps the file near 390 KB instead of over 1 MB.
+- The installer's NSIS and `nsis_tauri_utils`, and Microsoft's WebView2 loader, which `webview2-com-sys` links
+  statically into the exe, are hand-written entries in `scripts/notices` (`OTHER`).
+- `apps/desktop/src-tauri/deny.toml` configures cargo-deny (licenses, sources, advisories) as a second look; the rule's
+  own check is the one above, which is in `npm test` and CI.
+
 `--check` writes nothing and fails on a stale file or a broken rule; `tests/licenses.test.ts` checks the same, and
 `tests/fixtures.test.ts` the fixtures.
 
@@ -457,6 +475,40 @@ with no server and no network.
   picker and saving their display set, the output pane, drag and drop, a syntax error and warnings in the problems
   panel, paste and copy, the themes and the linked lines. Every test also fails on a console error or warning, a page
   error, a CSP violation or a blocked request. `DIALECT_SCREENSHOTS=<folder>` also writes light and dark screenshots.
+
+## The desktop app (`apps/desktop`)
+
+`npm run build -w @dialect/desktop` runs `tauri build`: Vite builds the frontend (`src/main.tsx`, the shared UI with
+`src/desktopPlatform.ts`) into `dist/`, cargo builds `src-tauri` with it embedded, and the bundler makes the NSIS
+installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe` (about 1.7 MB; the exe is 4 MB).
+
+- **Rust:** `src-tauri/src/main.rs` only opens the window and adds the dialog and fs plugins. Conversion runs in the
+  webview, from the same TypeScript as the web build.
+- **The Platform** (`src/desktopPlatform.ts`): Open and Save output use `@tauri-apps/plugin-dialog`'s open and save
+  dialogs, then `@tauri-apps/plugin-fs` to read or write that path. A dropped file is read from the drop event, as in
+  the web build: the window sets `dragDropEnabled: false`, so the page gets the HTML drop and the UI hands it to
+  `openDropped`. The clipboard is WebView2's clipboard API.
+- **Capabilities** (`src-tauri/capabilities/default.json`): `dialog:allow-open`, `dialog:allow-save`,
+  `fs:allow-read-text-file` and `fs:allow-write-text-file`, with no fs scope: the dialog plugin adds each file the user
+  picks to the fs scope, so the page can read or write those files and no other (the smoke test checks
+  `C:\Windows\win.ini` is refused).
+- **CSP** (`tauri.conf.json`, `app.security.csp`): `default-src 'none'`, `script-src 'self'`, `style-src 'self'`,
+  `img-src 'self' data:`, `connect-src ipc: http://ipc.localhost`, and `'none'` for `base-uri`, `form-action` and
+  `object-src`. Tauri adds its own scripts' hashes. The editors' styles are constructed stylesheets in shadow roots,
+  as in the web build, so `style-src` needs no `unsafe-inline`.
+- **Installer** (`bundle`): NSIS only, `installMode: currentUser`, `compression: zlib` (no CPL code from NSIS's LZMA),
+  the default WebView2 mode, icons from `branding/out`. `bundle.windows.signCommand` runs `scripts/sign.mjs` on every
+  file the bundler signs: unsigned (it says so) until `DIALECT_SIGN_COMMAND` gives a signing command with `%1` for
+  the file.
+- **Tests:** `tests/desktop.test.ts` (in `npm test`) checks the Platform with the plugins mocked, and the config and
+  capability above. `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
+  (`tauri build --no-bundle`), starts it from the build output through tauri-driver and Edge WebDriver, drops a
+  fixture and checks its display set, then that the CSP refuses an inline script, a remote image and a fetch (WebDriver's
+  own scripts aren't subject to the CSP, so it checks what the page does) and that the fs plugin refuses a file nobody
+  picked. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
+  `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs tauri-driver
+  (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver matching the installed WebView2 (from
+  `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`), through `MSEDGEDRIVER` or `PATH`.
 
 ## Branding
 
