@@ -1,0 +1,60 @@
+/* ==========================================================================
+   Dialect: accent theme tokens. Violet from the app icon is the accent, as honey amber is Hive's.
+   Same names as Hive's src/renderer/src/styles/app.css, so its rules carry over as they are; --violet-light stands
+   for Hive's --honey-light. Contrast is checked by `npm run contrast` against Hive's surface colours (bg, sidebar,
+   activity bar, inputs, hovered and selected rows) until Dialect's UI card sets its own.
+   ========================================================================== */
+:root {
+  /* The brand scale (the icon's colours): light, base and dark of the accent, the small icon's flat fill, and the
+     icon's dark face. Fixed in both themes: use the themed tokens below in the UI. */
+  --brand-violet-300: #c4b5fd;
+  --brand-violet-400: #a78bfa;
+  --brand-violet-500: #8b5cf6;
+  --brand-violet-600: #7c3aed;
+  --brand-violet-700: #6d28d9;
+  --brand-face: #251c35;
+  --brand-face-deep: #140f1e;
+}
+
+:root,
+[data-theme='dark'] {
+  --accent: #a78bfa;
+  --accent-strong: #8b5cf6;
+  --accent-soft: rgba(167, 139, 250, 0.16);
+  /* Text on an accent fill (the primary button): 6.3:1. White on this violet is 2.7:1, so the label is dark. */
+  --accent-fg: #1b1b1b;
+  --accent-fill: var(--accent);
+  /* A hovered fill goes lighter here, as Hive's does in dark (the darker --accent-strong under the dark label is 4.1:1): 9.3:1. */
+  --accent-fill-hover: #c4b5fd;
+  --violet-light: #c4b5fd;
+  /* The accent as an icon on the activity bar: 5.1:1 (3:1 needed). */
+  --accent-on-activity: var(--accent);
+  /* The accent as text and icons on the backgrounds: 6.4:1 at worst, 5.0:1 on its own --accent-soft tint. */
+  --accent-ink: #c4b5fd;
+  --dot-accent: var(--accent);
+  /* The status bar: the deep violet with a white label, 5.7:1. */
+  --status-bg: #7c3aed;
+  --status-fg: #ffffff;
+  /* Focus rings use --accent: 4.3:1 at worst (3:1 needed for non-text). */
+  --focus-ring: var(--accent);
+}
+
+[data-theme='light'] {
+  --accent: #7c3aed;
+  --accent-strong: #6d28d9;
+  --accent-soft: rgba(124, 58, 237, 0.12);
+  /* White on the accent fill: 5.7:1; hovered (--accent-strong) 7.1:1. */
+  --accent-fg: #ffffff;
+  --accent-fill: #7c3aed;
+  --accent-fill-hover: var(--accent-strong);
+  --violet-light: #a78bfa;
+  /* 4.6:1 on the light activity bar. */
+  --accent-on-activity: var(--accent);
+  /* 5.7:1 at worst on the backgrounds, 4.8:1 on its own --accent-soft tint. */
+  --accent-ink: #6d28d9;
+  --dot-accent: var(--accent);
+  --status-bg: var(--accent-fill);
+  --status-fg: #ffffff;
+  /* 4.6:1 at worst. */
+  --focus-ring: var(--accent);
+}
