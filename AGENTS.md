@@ -52,10 +52,10 @@ each naming the card that removes it.
 ## Commands
 
 ```bash
-npm install            # after cloning (needs npm 12: npm install -g npm@12.2.0)
+npx npm@12.2.0 install # after cloning (or ci): npm 12, which the repo pins
 npm run typecheck      # tsc for the repo-wide tests and every workspace package
 npm run lint           # oxlint (.oxlintrc.json), fails on warnings
-npm test               # Vitest: tests/ and each package's tests/
+npx npm@12.2.0 test    # Vitest: tests/ and each package's tests/
 npm run licenses       # regenerate THIRD_PARTY_NOTICES.md and docs/BUILD_ONLY_PACKAGES.md (-- --check: only check)
 npm run icons          # regenerate branding/out/ from the SVG masters
 npm run contrast       # check the theme tokens against WCAG AA
@@ -64,6 +64,10 @@ npm run fixtures       # check fixtures/ against its manifest and print the cove
 
 CI (`.github/workflows/ci.yml`, Windows, Node 24 with npm 12) runs typecheck, lint, the tests and the license check on
 every push to main and every pull request. The repo has no remote yet, so CI hasn't run: run the checks locally.
+
+**npm 12 through npx:** the global npm stays 11, because Hive on the same PC uses it, so run install, ci and test as
+`npx npm@12.2.0 …`. Under npm 11, `npm test` skips the npm 12 install-script checks (`tests/installScripts.test.ts`)
+with a warning; with `CI` set they run anyway and fail, as CI must use npm 12.
 
 ## Licenses and dependencies
 
