@@ -1,9 +1,14 @@
 {
-  "modelVersion": "0.1.0",
+  "modelVersion": "0.2.0",
   "device": {
     "system": {
       "hostname": "edge-r1",
-      "domainName": "example.net"
+      "domainName": "example.net",
+      "dns": {
+        "servers": {
+          "192.0.2.53": {}
+        }
+      }
     }
   }
 }

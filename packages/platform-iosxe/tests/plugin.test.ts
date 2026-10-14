@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { checkFixture } from '@dialect/conformance'
 import { buildLedger, createRegistry, ledgerProblems, MODEL_VERSION, populatedLeaves, statementsOf, type Device } from '@dialect/core'
-import plugin, { NO_DNS_SERVERS } from '../src'
-import { lengthMask, maskLength } from '../src/addresses'
+import plugin from '../src'
+import { isIpv6, lengthMask, maskLength } from '../src/addresses'
 import type { IosNode } from '../src/tree'
 
 const context = { modelVersion: MODEL_VERSION }
@@ -39,9 +39,9 @@ describe('nothing is dropped silently', () => {
   })
 
   it('a statement with an option the model can\'t hold is unsupported as a whole, not half-converted', () => {
-    const result = parse('ntp server 192.0.2.1 key 1\nip name-server 192.0.2.53')
+    const result = parse('ntp server 192.0.2.1 key 1\nip name-server 192.0.2.53 2.3.4.5 use-vrf management')
     expect(result.model).toEqual({})
-    expect(Object.values(result.dispositions)).toEqual([{ kind: 'unsupported', reason: '"key" isn\'t converted yet' }, { kind: 'unsupported', reason: NO_DNS_SERVERS }])
+    expect(Object.values(result.dispositions)).toEqual([{ kind: 'unsupported', reason: '"key" isn\'t converted yet' }, { kind: 'unsupported', reason: '"use-vrf" isn\'t converted yet' }])
   })
 
   it('a later setting supersedes an earlier one, as on the device', () => {
@@ -50,6 +50,52 @@ describe('nothing is dropped silently', () => {
     expect(result.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 2' })
     expect(Object.keys(result.model.interfaces?.Gi1.subinterfaces?.['0'].ipv4?.addresses ?? {})).toEqual(['192.0.2.9'])
     expect(result.dispositions.L4).toEqual({ kind: 'ignored-by-design', reason: 'replaced by line 5' })
+  })
+})
+
+describe('DNS', () => {
+  it('a server already named in another VRF is unsupported: the model keys servers by address alone', () => {
+    const result = parse('ip name-server vrf A 192.0.2.53\nip name-server 192.0.2.53 192.0.2.54')
+    expect(result.model.system?.dns).toEqual({ servers: { '192.0.2.53': { networkInstance: 'A' } } })
+    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: '192.0.2.53 is already a name server in another VRF' })
+  })
+
+  it('a statement with a malformed IPv6 server is unsupported as a whole, with no server added', () => {
+    for (const bad of ['2001:db8:::53', '2001:db8:1:2:3:4:5:6:']) {
+      const result = parse(`ip name-server 192.0.2.53 ${bad}`)
+      expect(result.model, bad).toEqual({})
+      expect(result.dispositions.L1).toEqual({ kind: 'unsupported', reason: `"${bad}" isn't converted yet` })
+    }
+  })
+
+  it('"vrf default" is the global table: same model as no VRF, round-trips, and is no conflict with it', () => {
+    for (const text of ['ip name-server vrf default 192.0.2.53', 'ip name-server vrf default 192.0.2.53\nip name-server 192.0.2.53', 'ip name-server 192.0.2.53\nip name-server vrf default 192.0.2.53']) {
+      const result = parse(text)
+      expect(result.model, text).toEqual({ system: { dns: { servers: { '192.0.2.53': {} } } } })
+      expect(Object.values(result.dispositions).every((d) => d.kind === 'mapped'), text).toBe(true)
+      const fixture = { name: text, source: text, expectedModel: result.model }
+      expect(checkFixture(plugin, fixture).flatMap((r) => (r.status === 'failed' ? r.problems : []))).toEqual([])
+    }
+  })
+
+  it('"vrf default" on NTP and logging servers round-trips too', () => {
+    const text = 'ntp server vrf default 192.0.2.123\nlogging host 192.0.2.50 vrf default'
+    const result = parse(text)
+    expect(result.model.system).toEqual({ ntp: { servers: { '192.0.2.123': {} } }, logging: { remoteServers: { '192.0.2.50': {} } } })
+    expect(checkFixture(plugin, { name: 'vrf default', source: text, expectedModel: result.model }).flatMap((r) => (r.status === 'failed' ? r.problems : []))).toEqual([])
+  })
+
+  it('a search domain listed twice is listed once', () => {
+    const result = parse('ip domain list example.net\nip domain-list example.net')
+    expect(result.model.system?.dns?.search).toEqual(['example.net'])
+    expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'already in the search list' })
+  })
+
+  it('renders servers and search domains from another platform\'s model, every field accounted for', () => {
+    const model: Device = { system: { dns: { search: ['a.example', 'b.example'], servers: { '192.0.2.1': { networkInstance: 'default' }, '2001:db8::1': {}, '192.0.2.2': { networkInstance: 'MGMT' } } } } }
+    const result = plugin.render!(model, context)
+    expect(result.text.split('\n').filter((l) => l.startsWith('ip '))).toEqual(['ip domain list a.example', 'ip domain list b.example', 'ip name-server 192.0.2.1', 'ip name-server 2001:db8::1', 'ip name-server vrf MGMT 192.0.2.2'])
+    expect(ledgerProblems(buildLedger({ tree: [], model, dispositions: {}, diagnostics: [] }, result))).toEqual([])
   })
 })
 
@@ -122,6 +168,13 @@ describe('the plugin', () => {
     expect(registry.targets().map((p) => p.id)).toEqual(['iosxe'])
   })
 
+  it('knows an IPv6 address from a malformed one', () => {
+    const valid = ['2001:db8::53', '2001:db8:0:0:0:0:0:53', '2001:DB8:1:2:3:4:5:6', '::', '::1', 'fe80::', '::ffff:192.0.2.1', '64:ff9b::192.0.2.1', '2001:db8:1:2:3:4:192.0.2.1']
+    const malformed = ['2001:db8:::53', '2001:db8:1:2:3:4:5:6:', ':2001:db8::1', '1::2::3', '2001:db8:1:2:3:4:5', '2001:db8:1:2:3:4:5:6:7', '2001:db8::12345', '192.0.2.1', '1.2.3.4::', '::192.0.2', 'g::1', '']
+    for (const a of valid) expect(isIpv6(a), a).toBe(true)
+    for (const a of malformed) expect(isIpv6(a), a).toBe(false)
+  })
+
   it('converts dotted masks and prefix lengths both ways', () => {
     for (let len = 0; len <= 32; len++) expect(maskLength(lengthMask(len))).toBe(len)
     expect(lengthMask(25)).toBe('255.255.255.128')
@@ -138,12 +191,17 @@ describe('detect', () => {
     for (const [name, text] of whole('iosxe')) expect(plugin.detect!(text), name).toBeGreaterThanOrEqual(0.7)
   })
 
-  // Batfish's example-juniper network keeps four of its routers in IOS: filed under junos/, they are IOS configs.
-  const IOS_UNDER_JUNOS = new Set(['batfish__as2core1.conf', 'batfish__as2dept1.conf', 'batfish__as2dist1.conf', 'batfish__as3border1.conf'])
+  const every = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? every(join(dir, e.name)) : [join(dir, e.name)]))
 
-  it('scores Junos, NX-OS and IOS-XR configs low', () => {
-    for (const platform of ['junos', 'nxos', 'iosxr']) {
-      for (const [name, text] of whole(platform)) if (!IOS_UNDER_JUNOS.has(name)) expect(plugin.detect!(text), `${platform}/${name}`).toBeLessThan(0.4)
+  it('scores every Junos file low', () => {
+    const files = every(join(root, 'junos'))
+    expect(files.length).toBeGreaterThan(200)
+    for (const file of files) expect(plugin.detect!(readFileSync(file, 'utf8')), file).toBeLessThan(0.4)
+  })
+
+  it('scores whole NX-OS and IOS-XR configs low', () => {
+    for (const platform of ['nxos', 'iosxr']) {
+      for (const [name, text] of whole(platform)) expect(plugin.detect!(text), `${platform}/${name}`).toBeLessThan(0.4)
     }
   })
 

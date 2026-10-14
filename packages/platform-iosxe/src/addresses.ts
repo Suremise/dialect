@@ -4,14 +4,27 @@ const IPV4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d
 
 export const isIpv4 = (s: string): boolean => IPV4.test(s)
 
-/** An IPv6 address, loosely: hex groups and colons, at most one `::`, optionally ending in a dotted IPv4. */
+/**
+ * An IPv6 address (RFC 4291 text forms): eight groups of 1–4 hex digits, or fewer with one `::` standing for at least
+ * one zero group, the last two groups optionally a dotted IPv4 address. No empty group outside the `::`, so `:::`, a
+ * single leading or trailing `:` and `1::2::3` are not addresses.
+ */
 export function isIpv6(s: string): boolean {
-  if (!/^[\da-f:.]+$/i.test(s) || !s.includes(':') || s.split('::').length > 2) return false
-  const groups = s.split(':').filter(Boolean)
-  const v4 = groups.length && groups[groups.length - 1].includes('.') ? groups.pop() : undefined
-  if (v4 !== undefined && !isIpv4(v4)) return false
-  const max = v4 === undefined ? 8 : 6
-  return groups.length <= max && groups.every((g) => /^[\da-f]{1,4}$/i.test(g)) && (s.includes('::') ? groups.length < max : groups.length === max)
+  if (!/^[\da-f:.]+$/i.test(s)) return false
+  const halves = s.split('::')
+  if (halves.length > 2) return false
+  const groups = halves.map((h) => (h === '' ? [] : h.split(':')))
+  const all = groups.flat()
+  // A dotted IPv4 address can only end the address, and counts as two groups.
+  const last = all[all.length - 1]
+  let count = all.length
+  if (last !== undefined && last.includes('.')) {
+    if (!isIpv4(last) || !s.endsWith(last)) return false
+    all.pop()
+    count++
+  }
+  if (!all.every((g) => /^[\da-f]{1,4}$/i.test(g))) return false
+  return halves.length === 2 ? count < 8 : count === 8
 }
 
 const toNumber = (ip: string) => ip.split('.').reduce((n, octet) => n * 256 + Number(octet), 0)

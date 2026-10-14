@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.1.0",
+  "modelVersion": "0.2.0",
   "device": {
     "system": {
       "hostname": "rtr01",
@@ -7,6 +7,11 @@
       "ntp": {
         "servers": {
           "192.168.100.100": {}
+        }
+      },
+      "dns": {
+        "servers": {
+          "192.168.255.1": {}
         }
       }
     },

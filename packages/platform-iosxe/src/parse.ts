@@ -1,4 +1,4 @@
-// IOS / IOS-XE text → the shared model, for the phase 1 areas: system (hostname, domain name), interfaces and
+// IOS / IOS-XE text → the shared model, for the phase 1 areas: system (hostname, domain name, DNS), interfaces and
 // subinterfaces with their addresses, static routes, NTP, logging and SNMP. Every statement of the tree gets a
 // disposition: `mapped` when everything it says went into the model, `ignored-by-design` with why, or `unsupported`
 // (its text kept in the tree). A statement is mapped only when every option on it is understood: one with an option
@@ -24,8 +24,6 @@ export const SEVERITIES: Readonly<Record<string, SyslogSeverity>> = {
 }
 const SEVERITY_NUMBERS = Object.values(SEVERITIES)
 
-/** Why `ip name-server` is unsupported: model 0.1 has nowhere to put it (proposed on card #19). */
-export const NO_DNS_SERVERS = 'DNS name servers aren\'t in the shared model yet (model 0.1)'
 
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null
 /** A key's own value: never one inherited from Object.prototype (a community named `constructor`). */
@@ -87,6 +85,11 @@ const unsupported = (reason?: string): StatementDisposition => (reason ? { kind:
 const ignored = (reason: string): StatementDisposition => ({ kind: 'ignored-by-design', reason })
 
 const INTEGER = /^\d+$/
+/**
+ * A VRF named on a statement, or undefined for the global table: IOS writes the global table with no `vrf`, so
+ * `vrf default` is the same thing written out, and the model leaves it out the same way (a render can't bring it back).
+ */
+const vrfName = (name: string): string | undefined => (name === 'default' ? undefined : name)
 const HOST = /^[A-Za-z0-9][\w.-]*$/
 /** Words on a route that aren't an interface name. */
 const ROUTE_KEYWORDS = new Set(['tag', 'name', 'permanent', 'track', 'global', 'dhcp', 'multicast', 'vrf'])
@@ -317,6 +320,40 @@ export function parse(text: string, _context: Context): ParseResult {
     return mapped(fields)
   }
 
+  // ---- DNS
+
+  /** `ip name-server [vrf V] A [B …]`: one statement can name several servers, in order. */
+  const mapNameServers = (node: IosNode): StatementDisposition => {
+    const w = node.words
+    let i = 2
+    let vrf: string | undefined
+    if (w[i]?.toLowerCase() === 'vrf' && w[i + 1]) {
+      vrf = vrfName(w[i + 1])
+      i += 2
+    }
+    const addresses = w.slice(i)
+    if (!addresses.length) return unsupported()
+    const bad = addresses.find((a) => !isIpv4(a) && !isIpv6(a))
+    if (bad !== undefined) return unsupported(`"${bad}" isn't converted yet`)
+    const keys = addresses.map((a) => (isIpv6(a) ? a.toLowerCase() : a))
+    // The model keys servers by address alone: the same server in another VRF has nowhere to go.
+    for (const key of keys) {
+      const existing = model.get(['system', 'dns', 'servers', key])
+      if (existing !== undefined && (existing as Obj).networkInstance !== vrf) return unsupported(`${key} is already a name server in another VRF`)
+    }
+    return mapped(keys.map((key) => (vrf === undefined ? model.set(['system', 'dns', 'servers', key], model.get(['system', 'dns', 'servers', key]) ?? {}) : model.set(['system', 'dns', 'servers', key, 'networkInstance'], vrf))))
+  }
+
+  /** `ip domain list X` / `ip domain-list X`: one search domain, appended in order. */
+  const mapDomainList = (node: IosNode): StatementDisposition => {
+    const w = node.words
+    const args = w.slice(w[1].toLowerCase() === 'domain' ? 3 : 2)
+    if (args.length !== 1) return unsupported()
+    const search = (model.get(['system', 'dns', 'search']) as string[] | undefined) ?? []
+    if (search.includes(args[0])) return ignored('already in the search list')
+    return mapped([model.set(['system', 'dns', 'search'], [...search, args[0]])])
+  }
+
   // ---- NTP, logging, SNMP
 
   const mapNtp = (node: IosNode): StatementDisposition => {
@@ -332,7 +369,8 @@ export function parse(text: string, _context: Context): ParseResult {
     let i = 2
     const server: Obj = {}
     if (lw[i] === 'vrf' && w[i + 1]) {
-      server.networkInstance = w[i + 1]
+      const vrf = vrfName(w[i + 1])
+      if (vrf !== undefined) server.networkInstance = vrf
       i += 2
     }
     const address = w[i++]
@@ -385,7 +423,8 @@ export function parse(text: string, _context: Context): ParseResult {
     i++
     const server: Obj = {}
     if (lw[i] === 'vrf' && w[i + 1]) {
-      server.networkInstance = w[i + 1]
+      const vrf = vrfName(w[i + 1])
+      if (vrf !== undefined) server.networkInstance = vrf
       i += 2
     }
     if (lw[i] === 'transport' && lw[i + 1] === 'udp') {
@@ -438,7 +477,8 @@ export function parse(text: string, _context: Context): ParseResult {
     } else if (lw[0] === 'ip' && ((lw[1] === 'domain' && lw[2] === 'name' && w.length === 4) || (lw[1] === 'domain-name' && w.length === 3))) {
       claim('domain name', node)
       d = mapped([model.set(['system', 'domainName'], w[w.length - 1])])
-    } else if (lw[0] === 'ip' && lw[1] === 'name-server') d = unsupported(NO_DNS_SERVERS)
+    } else if (lw[0] === 'ip' && lw[1] === 'name-server') d = mapNameServers(node)
+    else if (lw[0] === 'ip' && ((lw[1] === 'domain' && lw[2] === 'list') || lw[1] === 'domain-list')) d = mapDomainList(node)
     else if (lw[0] === 'ip' && lw[1] === 'route') d = mapRoute(node, false)
     else if (lw[0] === 'ipv6' && lw[1] === 'route') d = mapRoute(node, true)
     else if (lw[0] === 'ntp') d = mapNtp(node)

@@ -180,7 +180,7 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.1.0 <1.0.0'`), with `detect`, `parse` and `render`.
+`modelApi: '>=0.2.0 <1.0.0'`, for model 0.2's DNS), with `detect`, `parse` and `render`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
   statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
@@ -189,7 +189,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   text after the closing delimiter belongs to it) and a **certificate chain** (`crypto pki|ca certificate chain`, each
   `certificate` running to its own `quit` whatever the hex's indentation). An unterminated one is an error diagnostic
   and takes the rest of the text.
-- **Parse (`parse.ts`):** hostname, `ip domain name`, interfaces and subinterfaces (`Gi0/1.10`: subinterface `10` of
+- **Parse (`parse.ts`):** hostname, `ip domain name`, DNS (`ip name-server [vrf V] A [B …]`, one statement naming
+  several servers, and `ip domain list` search domains), interfaces and subinterfaces (`Gi0/1.10`: subinterface `10` of
   `Gi0/1`; a main interface's addresses are subinterface `0`), dotted masks → prefix lengths, `secondary` addresses (the
   primary gets `primary: true` only beside secondaries), `encapsulation dot1Q` (also setting the parent's
   `vlanTagging`), `shutdown`, `description`, MTUs; `ip route` / `ipv6 route` with VRF, interface, next hop, distance,
@@ -200,10 +201,11 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   `ip route … track 1`) is `unsupported` as a whole, and so is every unknown statement and everything inside it. A later
   single-valued setting supersedes an earlier one (`ignored-by-design`, "superseded by line N"), as on the device, and
   `no ip address` removes the addresses before it. A `secondary` address with no primary is unsupported: the model
-  can mark a primary but not a secondary, so it would come back as the primary. `ip name-server` is unsupported until
-  the model has DNS servers (#21, #22). Keys come from the configuration (`snmp-server community __proto__`), so the
+  can mark a primary but not a secondary, so it would come back as the primary. The model keys name servers by address alone,
+  so the same server in a second VRF is unsupported. `vrf default` (on a name server, NTP server or syslog host) is the
+  global table, mapped as if no VRF were given, since that is how it renders. Keys come from the configuration (`snmp-server community __proto__`), so the
   model is built with own properties only, never through Object.prototype.
-- **Render (`render.ts`):** gives every leaf of model 0.1 a disposition and leaves a later version's fields without
+- **Render (`render.ts`):** gives every leaf of model 0.2 a disposition (DNS as one `ip name-server` line per server) and leaves a later version's fields without
   one, so the ledger reports them. `type` and `vlanTagging` are `not-applicable` (IOS says them through the name and
   `encapsulation dot1Q`). What IOS can't write is `unsupported` with why: unit 0's own description or shutdown, a
   `reject` route, a static route's metric, an SNMP community limited to some clients (left out whole, with a warning, rather than

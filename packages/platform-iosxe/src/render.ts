@@ -1,4 +1,4 @@
-// The shared model → IOS / IOS-XE text, for the phase 1 areas. Every populated leaf of model 0.1 gets a disposition:
+// The shared model → IOS / IOS-XE text, for the phase 1 areas. Every populated leaf of model 0.2 gets a disposition:
 // `rendered` with the line it went to, `unsupported` with why (IOS can't say it, or this renderer can't yet), or
 // `not-applicable` (IOS implies it). Fields of a later model version are left without one, so the ledger reports them
 // as unrendered rather than this renderer claiming them.
@@ -45,6 +45,26 @@ export function render(model: Device, _context: Context): RenderResult {
     emptyContainer(system, ['system'])
     if (system.hostname !== undefined) emit(`hostname ${system.hostname}`, ['system', 'hostname'])
     if (system.domainName !== undefined) emit(`ip domain name ${system.domainName}`, ['system', 'domainName'])
+    const dns = system.dns
+    if (dns) {
+      emptyContainer(dns, ['system', 'dns'])
+      emptyContainer(dns.servers, ['system', 'dns', 'servers'])
+      if (dns.search !== undefined) {
+        if (!dns.search.length) skip(['system', 'dns', 'search'], 'not-applicable', 'an empty search list: nothing to write')
+        // A leaf-list is one field: marked on its first line.
+        dns.search.forEach((domain, i) => emit(`ip domain list ${domain}`, ...(i === 0 ? [['system', 'dns', 'search']] : [])))
+      }
+      for (const [address, server] of Object.entries(dns.servers ?? {})) {
+        const at = ['system', 'dns', 'servers', address]
+        const fields: Segments[] = isEmpty(server) ? [at] : []
+        let line = 'ip name-server'
+        if (server.networkInstance !== undefined) {
+          if (server.networkInstance !== 'default') line += ` vrf ${server.networkInstance}`
+          fields.push([...at, 'networkInstance'])
+        }
+        emit(`${line} ${address}`, ...fields)
+      }
+    }
   }
 
   // ---- interfaces
