@@ -9,14 +9,17 @@ Dialect (working name) is a desktop app that translates network configs between 
 
 ## Building
 
-Needs Node 24 and npm 12 (`npm install -g npm@12.2.0`).
+Needs Node 24 and npm 12. The repo pins npm 12.2.0, whose install scripts are denied by default, but a global npm may
+stay at 11 (Hive, on the same PC, uses it). Run npm 12 through `npx` for installs and tests instead:
 
 ```sh
-npm install
+npx npm@12.2.0 install    # or ci
 npm run typecheck
 npm run lint
-npm test
+npx npm@12.2.0 test
 ```
+
+Under npm 11, `npm test` skips the npm 12 install-script checks with a warning; CI runs them, on npm 12.
 
 ## License
 
