@@ -185,6 +185,9 @@ export function parse(text: string, _context: Context): ParseResult {
   const mapAddress = (node: NxNode, ctx: InterfaceContext, family: 4 | 6): StatementDisposition => {
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
+    // In a VRF since deleted, the address may be in it or in the global table: neither is guessed.
+    const deletedBy = vrfOf(ctx).deletedBy
+    if (deletedBy) return uncertain(deletedBy)
     const state = addressingOf(ctx, family)
     const at = familyPath(ctx, family)
     if (lw[2] === 'dhcp' && w.length === 3) {
@@ -240,9 +243,15 @@ export function parse(text: string, _context: Context): ParseResult {
     return ignored(`removes the address on ${linesText(removed.map((r) => line(r.node)))}: nothing to convert`)
   }
 
-  /** Per interface (`name|sub`): the VRF it is in and the `vrf member` statement that put it there. */
-  const membership = new Map<string, { readonly ctx: InterfaceContext; readonly vrf: string; readonly node?: NxNode }>()
-  const vrfOf = (ctx: InterfaceContext): { vrf: string; node?: NxNode } => membership.get(`${ctx.name}|${ctx.sub}`) ?? { vrf: MGMT.test(ctx.name) && !ctx.isSub ? 'management' : 'default' }
+  /**
+   * Per interface (`name|sub`): the VRF it is in and the `vrf member` statement that put it there. `deletedBy`: the
+   * `no vrf context` that deleted that VRF while the interface was in it. What the device keeps of the membership is
+   * then not certain (#47), until a later `vrf member` or `no vrf member` says it again.
+   */
+  type Membership = { readonly ctx: InterfaceContext; readonly vrf: string; readonly node?: NxNode; readonly deletedBy?: NxNode }
+  const membership = new Map<string, Membership>()
+  const uncertain = (deletedBy: NxNode) => unsupported(`in a VRF line ${line(deletedBy)} deletes: what the device keeps of it isn't certain`)
+  const vrfOf = (ctx: InterfaceContext): { vrf: string; node?: NxNode; deletedBy?: NxNode } => membership.get(`${ctx.name}|${ctx.sub}`) ?? { vrf: MGMT.test(ctx.name) && !ctx.isSub ? 'management' : 'default' }
 
   /**
    * `vrf member V` / `no vrf member [V]`: the subinterface's `networkInstance` (subinterface `0` for a main interface).
@@ -259,7 +268,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (remove && w[2] !== undefined && w[2] !== current.vrf) return ignored('not in that VRF: nothing to convert')
     if (isMgmt && target !== 'management') return unsupported('mgmt0 is always in the management VRF')
     if (!isMgmt && target === 'management') return unsupported('only mgmt0 is in the management VRF')
-    if (target === current.vrf) {
+    if (target === current.vrf && !current.deletedBy) {
       if (isMgmt) return ignored('mgmt0 is always in the management VRF: its interface statement says so')
       return ignored(target === 'default' ? 'already in the default VRF: nothing to convert' : `already in that VRF${current.node ? ` (line ${line(current.node)})` : ''}`)
     }
@@ -575,6 +584,25 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const key of ['rd', 'shutdown']) owners.delete(`vrf ${instance} ${key}`)
     vrfs.delete(instance)
     model.prune(['networkInstances', instance], 0)
+    // Its interfaces: NX-OS's guides don't say what they keep (#47), so their membership and their addresses so far are
+    // left out, even if the VRF comes back; a later `vrf member` or `no vrf member` makes it certain again.
+    for (const [key, m] of membership) {
+      if (m.vrf !== instance || !m.node) continue
+      set(m.node, uncertain(node))
+      model.remove([...subPath(m.ctx), 'networkInstance'])
+      for (const family of [4, 6] as const) {
+        const state = addressing.get(`${m.ctx.name}|${m.ctx.sub}|${family}`)
+        if (!state) continue
+        for (const r of [...(state.primary ? [state.primary] : []), ...state.secondaries]) {
+          if ('address' in r) model.remove([...familyPath(m.ctx, family), 'addresses', r.address])
+          set(r.node, uncertain(node))
+        }
+        addressing.delete(`${m.ctx.name}|${m.ctx.sub}|${family}`)
+        pruneFamily(m.ctx, family)
+      }
+      if (!m.ctx.isSub) pruneMain(m.ctx)
+      membership.set(key, { ctx: m.ctx, vrf: instance, deletedBy: node })
+    }
     return ignored(`removes the VRF and its routes (${linesText(removed.map(line).sort((a, b) => a - b))}): nothing to convert`)
   }
 

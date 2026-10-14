@@ -142,11 +142,9 @@ describe('addresses, VRF membership and DHCP', () => {
     expect(roundTrips(text)).toEqual([])
   })
 
-  it('an interface in a VRF the text doesn\'t define (or removes) is left out with its addresses, not put in the global table', () => {
-    for (const lines of [
-      ['interface Ethernet1/1', '  no switchport', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64'],
-      [vrfA, 'interface Ethernet1/1', '  no switchport', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64', 'no vrf context A']
-    ]) {
+  it('an interface in a VRF the text doesn\'t define is left out with its addresses, not put in the global table', () => {
+    // (One in a VRF the text deletes: "a VRF deleted while interfaces are in it", below.)
+    for (const lines of [['interface Ethernet1/1', '  no switchport', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64']]) {
       const result = parse(lines.join('\n'))
       const member = lines.indexOf('  vrf member A') + 1
       expect(result.model.interfaces, lines.join(' / ')).toEqual({ 'Ethernet1/1': { type: 'ethernet' } })
@@ -266,6 +264,60 @@ describe('addresses, VRF membership and DHCP', () => {
       expect(result.model, header).toEqual({})
       expect(result.dispositions.L1).toEqual({ kind: 'unsupported' })
     }
+  })
+})
+
+describe('a VRF deleted while interfaces are in it (#47)', () => {
+  // NX-OS's guides say `no vrf context` deletes "the VRF and all associated configuration", but not what its interfaces
+  // keep (#47). Their membership and addresses up to the deletion are left out, even if the VRF comes back; a later
+  // `vrf member` or `no vrf member` says it again, and what follows maps normally. Decided on #47 (option 2).
+  const why = (n: number) => ({ kind: 'unsupported', reason: `in a VRF line ${n} deletes: what the device keeps of it isn't certain` })
+  const members = ['vrf context A', 'vrf context B', 'interface Ethernet1/1', '  no switchport', '  vrf member A', '  ip address 192.0.2.1/24', '  ipv6 address 2001:db8::1/64', 'interface Ethernet1/2', '  no switchport', '  vrf member B', '  ip address 198.51.100.1/24']
+  const inB = { networkInstance: 'B', ipv4: { addresses: { '198.51.100.1': { prefixLength: 24 } } } }
+
+  it('deleted and recreated: the membership and its IPv4 and IPv6 addresses are left out; another VRF\'s interface is untouched', () => {
+    const result = parse([...members, 'no vrf context A', 'vrf context A'].join('\n'))
+    expect(result.model.interfaces?.['Ethernet1/1']).toEqual({ type: 'ethernet' })
+    expect(result.model.interfaces?.['Ethernet1/2'].subinterfaces?.['0']).toEqual(inB)
+    expect(result.model.networkInstances).toEqual({ A: { type: 'vrf' }, B: { type: 'vrf' } })
+    for (const l of ['L5', 'L6', 'L7']) expect(result.dispositions[l], l).toEqual(why(12))
+    expect(result.dispositions.L10).toMatchObject({ kind: 'mapped' })
+    expect(buildLedger(result).complete).toBe(true)
+  })
+
+  it('deleted only: the same, and nothing goes to the global table', () => {
+    const result = parse([...members, 'no vrf context A'].join('\n'))
+    expect(result.model.interfaces?.['Ethernet1/1']).toEqual({ type: 'ethernet' })
+    expect(result.model.networkInstances).toEqual({ B: { type: 'vrf' } })
+    for (const l of ['L5', 'L6', 'L7']) expect(result.dispositions[l], l).toEqual(why(12))
+    expect(roundTrips([...members, 'no vrf context A'].join('\n'))).toEqual([])
+  })
+
+  it('an address given after the deletion, with no new membership, is left out too: it may be in the deleted VRF', () => {
+    const result = parse([...members, 'no vrf context A', 'vrf context A', 'interface Ethernet1/1', '  ip address 192.0.2.9/24'].join('\n'))
+    expect(result.model.interfaces?.['Ethernet1/1']).toEqual({ type: 'ethernet' })
+    expect(result.dispositions.L15).toEqual(why(12))
+  })
+
+  it('recreated, then a new membership: it and the addresses after it map, IPv4 and IPv6', () => {
+    const text = [...members, 'no vrf context A', 'vrf context A', 'interface Ethernet1/1', '  vrf member A', '  ip address 192.0.2.9/24', '  ipv6 address 2001:db8::9/64'].join('\n')
+    const result = parse(text)
+    expect(result.model.interfaces?.['Ethernet1/1'].subinterfaces?.['0']).toEqual({ networkInstance: 'A', ipv4: { addresses: { '192.0.2.9': { prefixLength: 24 } } }, ipv6: { addresses: { '2001:db8::9': { prefixLength: 64 } } } })
+    expect(result.dispositions.L15).toEqual({ kind: 'mapped', fields: ['interfaces["Ethernet1/1"].subinterfaces["0"].networkInstance'] })
+    for (const l of ['L5', 'L6', 'L7']) expect(result.dispositions[l], l).toEqual(why(12))
+    expect(result.model.interfaces?.['Ethernet1/2'].subinterfaces?.['0']).toEqual(inB)
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('"no vrf member" after the deletion says the interface is in the global table: addresses after it map there', () => {
+    const result = parse([...members, 'no vrf context A', 'interface Ethernet1/1', '  no vrf member', '  ip address 192.0.2.9/24'].join('\n'))
+    expect(result.model.interfaces?.['Ethernet1/1'].subinterfaces?.['0']).toEqual({ ipv4: { addresses: { '192.0.2.9': { prefixLength: 24 } } } })
+    expect(result.dispositions.L14).toMatchObject({ kind: 'ignored-by-design' })
+  })
+
+  it('names no VRF in its reasons: a VRF can share its name with a secret', () => {
+    const text = ['snmp-server community CANARY_SECRET group network-operator', 'vrf context CANARY_SECRET', 'interface Ethernet1/1', '  no switchport', '  vrf member CANARY_SECRET', '  ip address 192.0.2.1/24', 'no vrf context CANARY_SECRET', 'vrf context CANARY_SECRET', 'interface Ethernet1/1', '  ip address 192.0.2.9/24'].join('\n')
+    expect(checkSecrets(plugin, text, ['CANARY_SECRET'], { allowances: [] }).leaks).toEqual([])
   })
 })
 

@@ -397,9 +397,14 @@ VRF membership, route distinguishers and route targets), with `detect`, `parse` 
     them.
   - **VRF membership:** `vrf member V` is the subinterface's `networkInstance` (subinterface `0` for a main interface),
     and clears the addresses before it, as on the device. `vrf member default` returns the interface to the global
-    table as `no vrf member` does, leaving `networkInstance` out. A VRF the text never defines, or removes with
-    `no vrf context`, would name a network instance the model doesn't have: the membership and the interface's
-    addresses are then `unsupported` rather than put in the global table. `mgmt0` is always in the management VRF, which
+    table as `no vrf member` does, leaving `networkInstance` out. A VRF the text never defines would name a network
+    instance the model doesn't have: the membership and the interface's addresses are then `unsupported` rather than
+    put in the global table. When `no vrf context V` deletes a VRF that interfaces are in, NX-OS's guides say only that
+    it deletes "the VRF and all associated configuration" (and that an interface can be in a VRF that doesn't exist
+    yet, down until it does), not what the interfaces keep, so (#47, the user's decision) their membership and their
+    addresses up to the deletion are `unsupported` ("in a VRF line N deletes: what the device keeps of it isn't
+    certain"), even when V is defined again later; so are addresses given to such an interface before a new
+    `vrf member` or `no vrf member` says where it is, and from then on it maps normally. `mgmt0` is always in the management VRF, which
     is built in: its interface statement maps `networkInstance: management` (and the `management` network instance when
     the text has no `vrf context management`), so the model says so whether `vrf member management` is shown or not;
     that statement is `ignored-by-design`, and any other VRF on mgmt0, or `management` on another interface, is
