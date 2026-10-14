@@ -40,7 +40,8 @@ const FOREIGN_REGEX = 'a Junos regex: regexes are never translated silently, and
  */
 export function planRoutingPolicy(rp: RoutingPolicy | undefined, skip: (field: Segments, kind: 'unsupported' | 'not-applicable', reason: string) => void, skipAll: (value: unknown, at: Segments, reason: string) => void): PolicyPlan {
   const lines: PolicyLine[] = []
-  const written = { prefixSets: new Set<string>(), communitySets: new Set<string>(), asPathSets: new Set<string>(), policies: new Set<string>() }
+  // Community sets of literal communities only are `settable`: IOS-XR sets or adds no regex.
+  const written = { prefixSets: new Set<string>(), communitySets: new Set<string>(), settable: new Set<string>(), asPathSets: new Set<string>(), policies: new Set<string>() }
   if (!rp) return { lines, policies: written.policies }
   const at0 = ['routingPolicy']
   const empty = (value: object | undefined, at: Segments) => {
@@ -133,6 +134,7 @@ export function planRoutingPolicy(rp: RoutingPolicy | undefined, skip: (field: S
     }))
     set(`community-set ${name}`, elements, first)
     written.communitySets.add(name)
+    if (!regexes) written.settable.add(name)
   }
 
   // ---- AS-path sets: each entry one ios-regex, a route matching any of them
@@ -267,10 +269,12 @@ export function planRoutingPolicy(rp: RoutingPolicy | undefined, skip: (field: S
       body.push({ text: `prepend as-path ${as[0]}${as.length > 1 ? ` ${as.length}` : ''}`, fields: [[...aAt, 'asPathPrepend']] })
     }
     if (a.communityAdd !== undefined && a.communitySet !== undefined) return 'communities both added and replaced'
-    for (const [leaf, write] of [['communitySet', (s: string) => `set community ${s}`], ['communityAdd', (s: string) => `set community ${s} additive`], ['communityDelete', (s: string) => `delete community in ${s}`]] as const) {
+    // In the order the model's community actions have: deleted, then replaced, then added (the parse reads this order).
+    for (const [leaf, write] of [['communityDelete', (s: string) => `delete community in ${s}`], ['communitySet', (s: string) => `set community ${s}`], ['communityAdd', (s: string) => `set community ${s} additive`]] as const) {
       const v = a[leaf]
       if (v === undefined) continue
       if (v.values !== undefined || v.sets?.length !== 1 || !written.communitySets.has(v.sets[0])) return 'IOS-XR\'s simple form names one community set it writes, not values'
+      if (leaf !== 'communityDelete' && !written.settable.has(v.sets[0])) return 'a community set with a regex, which IOS-XR doesn\'t set or add'
       body.push({ text: write(v.sets[0]), fields: [[...aAt, leaf, 'sets']] })
     }
     body.push({ text: flow === 'accept' ? 'done' : 'drop', fields: [[...aAt, 'flow']] })

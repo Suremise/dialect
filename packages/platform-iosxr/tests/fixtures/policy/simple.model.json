@@ -136,6 +136,12 @@
               "regexes": [
                 "_65000:9[0-9]_"
               ]
+            },
+            "5": {
+              "action": "permit",
+              "regexes": [
+                "_65000:(1,|2  )"
+              ]
             }
           }
         },
@@ -162,6 +168,10 @@
             "2": {
               "action": "permit",
               "regex": "_65002$"
+            },
+            "3": {
+              "action": "permit",
+              "regex": "_65003  65004_"
             }
           }
         }
@@ -244,7 +254,7 @@
               "actions": {
                 "communitySet": {
                   "sets": [
-                    "CUSTOMER"
+                    "TAGGED"
                   ]
                 },
                 "nextHopSelf": true,

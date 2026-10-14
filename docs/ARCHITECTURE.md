@@ -1041,15 +1041,19 @@ policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`
       certain.
     - `community-set` (type `standard`): each element its own permit entry, as `matches-any` reads it: `A:B`,
       `no-export`, `no-advertise`, `local-AS` (`no-export-subconfed`), `accept-own`, `graceful-shutdown`, and `ios-regex
-      '…'` (dialect `cisco`). `as-path-set`: each `ios-regex` its own permit entry. Wildcards, ranges, `internet`,
+      '…'` (dialect `cisco`). `as-path-set`: each `ios-regex` its own permit entry. A regex is kept byte for byte, its
+      spaces and commas inside the quotes included; only whitespace outside them is made one space. Wildcards, ranges, `internet`,
       `dfa-regex`, `passes-through`, `length` and the rest leave the set out; other set kinds (`extcommunity-set`,
       `rd-set` …) are `unsupported`.
     - `route-policy NAME` (no parameters): a flat sequence of `if <match> then <actions> [else <actions>] endif` blocks
       and top-level actions, each block a term (an `else` a term with no match). Matches, joined with `and`, one of each:
       `destination in SET` (the set's families), `community matches-any SET`, `as-path in SET`, `tag eq N`. Actions:
       `set local-preference|med|tag N`, `set next-hop A|self`, `set community SET [additive]`, `delete community in
-      SET`, `prepend as-path AS [N]`, and `done` (accept), `drop` (reject) or `pass`. **RPL's semantics are kept
-      exactly:** a block that passes a route (`pass`, or a set with no `done` or `drop`) lets it on to later statements,
+      SET`, `prepend as-path AS [N]`, and `done` (accept), `drop` (reject) or `pass`. A block's community actions are
+      read only in the order the render writes them, deleted, then replaced, then added, as RPL runs a block's
+      statements in turn: a block that adds or replaces before it deletes leaves its policy out. A policy that sets or
+      adds a community set with a regex is left out too, as IOS-XR refuses it (one only matches or deletes). **RPL's
+      semantics are kept exactly:** a block that passes a route (`pass`, or a set with no `done` or `drop`) lets it on to later statements,
       accepted at the end unless one drops it, which the model's flows can't say; so it is a term that accepts only
       where nothing later can see that route (the last block, or the `then` of a last `if` with an `else`), and
       anywhere else the policy is `unsupported`. Nothing may follow `done` or `drop` in a block, nor any block a
@@ -1104,15 +1108,18 @@ policy, 0.5.0's routing policy and 0.5.2's VRF policies), with `detect`, `parse`
     translated**) is `unsupported` whole, and a term naming it can't be written either. **A policy follows the per-term
     rule:** a term is an `if` block (top-level statements with no match) ending in `done` (accept) or `drop` (reject);
     one IOS-XR can't write (a flow that goes on, which IOS-XR would pass, a match it doesn't have, more than one set or
-    tag, a prefix list named in one family of a set that has both, values instead of a set's name for communities, an
-    AS-path prepend of different ASes) is `unsupported` whole, and the whole policy is when leaving it out isn't safe
+    tag, a prefix list named in one family of a set that has both, values instead of a set's name for communities, a
+    community set with a regex set or added, an AS-path prepend of different ASes) is `unsupported` whole; community
+    actions are written deleted, then replaced, then added, and the whole policy is when leaving it out isn't safe
     (`termSkipSafe()`). A term's name is `not-applicable`. **The fall-through:** `reject` is `not-applicable`, RPL's
     drop; `next-policy` (Junos) gets a final top-level `pass` and the warning `iosxr.policy-fall-through`, on the field
     and that line, as an IOS-XR policy drops what nothing passes and BGP's default accepts it (the `pass` counts as a
     later term when judging what can be left out); a policy whose written terms already decide every route gets
     neither.
   - **RFC 8212:** an eBGP neighbor with no policy one way (its own or its group's) exchanges nothing that way on
-    IOS-XR. Each such neighbor is a needs-input item (`iosxr.ebgp-policy:<the neighbor's path>`, kind `other`) asking
+    IOS-XR. A policy counts only where a `route-policy` line is written: one the model names that IOS-XR can't write
+    (its body, or a chain) covers nothing, and a neighbor's own that isn't written leaves its group's, which IOS-XR
+    inherits. Each such neighbor is a needs-input item (`iosxr.ebgp-policy:<the neighbor's path>`, kind `other`) asking
     for an existing route policy's name, written each way the neighbor has none in each family it carries; no `pass`
     policy is made up. When the source accepted those routes (`ebgpDefaultPolicy` `accept` that way: Junos, IOS-XE,
     NX-OS), the render also raises `iosxr.ebgp-default-policy`.

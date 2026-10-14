@@ -1673,6 +1673,8 @@ export function parse(text: string, _context: Context): ParseResult {
     }
     const prefixFamilies = new Map<string, ('ipv4' | 'ipv6')[]>()
     const communitySets = new Set<string>()
+    /** Community sets of literal communities only, which a policy may set or add (never a regex). */
+    const literalCommunitySets = new Set<string>()
     const asPaths = new Set<string>()
     const defined = new Set<string>()
     const converted = new Set<string>()
@@ -1707,6 +1709,7 @@ export function parse(text: string, _context: Context): ParseResult {
         else {
           set(node, mapped(put(node, [...rp, 'communitySets', name], { type: 'standard', ...(r.regex ? { regexDialect: 'cisco' } : {}), entries: r.entries })))
           communitySets.add(name)
+          if (!r.regex) literalCommunitySets.add(name)
         }
       } else {
         const r = asPathSet(node)
@@ -1732,6 +1735,10 @@ export function parse(text: string, _context: Context): ParseResult {
       const missing = !read.names.prefixSets.every((n) => prefixFamilies.has(n)) || !read.names.communitySets.every((n) => communitySets.has(n)) || !read.names.asPathSets.every((n) => asPaths.has(n))
       if (missing) {
         set(node, unsupported(`a route policy, ${size(node)}, left out whole: it names a set the configuration doesn't define, or one that isn't converted`))
+        continue
+      }
+      if (!read.names.communitySetters.every((n) => literalCommunitySets.has(n))) {
+        set(node, unsupported(`a route policy, ${size(node)}, left out whole: it sets or adds a community set with a regex, which IOS-XR refuses`))
         continue
       }
       const name = node.words[1]

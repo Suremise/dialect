@@ -28,7 +28,10 @@ function body(node: XrNode): string[] {
     .filter((l) => l !== '' && !l.startsWith('#'))
 }
 
-/** A set's elements: its body's text split at commas outside quotes, each trimmed. Null for an element left empty. */
+/**
+ * A set's elements: its body's text split at commas outside quotes, each trimmed, its whitespace outside quotes made one
+ * space. What is inside quotes (a regex) is kept byte for byte. Null for an element left empty.
+ */
 function elements(node: XrNode): string[] | null {
   const text = body(node).join('\n')
   const out: string[] = []
@@ -39,10 +42,10 @@ function elements(node: XrNode): string[] | null {
     if (c === ',' && !quote) {
       out.push(current)
       current = ''
-    } else current += c
+    } else current += quote || c === '\'' || !/\s/.test(c) ? c : current.endsWith(' ') || current === '' ? '' : ' '
   }
   out.push(current)
-  const trimmed = out.map((e) => e.replace(/\s+/g, ' ').trim())
+  const trimmed = out.map((e) => e.trim())
   if (trimmed.length === 1 && trimmed[0] === '') return []
   return trimmed.some((e) => e === '') ? null : trimmed
 }
@@ -126,6 +129,8 @@ export function asPathSet(node: XrNode): Record<string, AsPathSetEntry> | string
 export interface Names {
   readonly prefixSets: string[]
   readonly communitySets: string[]
+  /** Community sets a policy sets or adds: IOS-XR takes only literal communities there, never a regex. */
+  readonly communitySetters: string[]
   readonly asPathSets: string[]
 }
 
@@ -148,13 +153,17 @@ interface Actions {
 export function readPolicy(node: XrNode): ReadPolicy | string {
   if (node.words.length !== 2 || !RPL_NAME.test(node.words[1])) return 'a route policy with parameters, or a name IOS-XR\'s simple form doesn\'t have'
   const lines = body(node)
-  const names: Names = { prefixSets: [], communitySets: [], asPathSets: [] }
+  const names: Names = { prefixSets: [], communitySets: [], communitySetters: [], asPathSets: [] }
   /** Blocks in order: a condition (none for top-level actions) and its actions, with an `else`'s as its own item. */
   const items: { matches?: PolicyMatches & { prefixSet?: string }; run: Actions; elseOf?: number }[] = []
   let i = 0
   const actions = (stop: (line: string) => boolean): Actions | string => {
     const a: { -readonly [K in keyof Omit<PolicyActions, 'flow'>]: Omit<PolicyActions, 'flow'>[K] } = {}
     let end: Actions['end'] = 'none'
+    // RPL runs a block's statements in order, and the model's community actions have one: deleted, then replaced, then
+    // added, as the render writes them. A block that says them in another order is left out.
+    const COMMUNITY_ORDER = ['communityDelete', 'communitySet', 'communityAdd'] as const
+    const inOrder = (leaf: (typeof COMMUNITY_ORDER)[number]) => COMMUNITY_ORDER.slice(COMMUNITY_ORDER.indexOf(leaf) + 1).every((later) => a[later] === undefined)
     for (; i < lines.length && !stop(lines[i]); i++) {
       // `done` and `drop` end the policy there: nothing after them in the block is ever run.
       if (end === 'drop' || end === 'done') return 'a statement after done or drop, which is never run'
@@ -171,9 +180,13 @@ export function readPolicy(node: XrNode): ReadPolicy | string {
         else if (isIpAddress(w[2])) a.nextHop = w[2].toLowerCase()
         else return 'a next hop the model has no form for (discard, and the rest)'
       } else if (w[0] === 'set' && w[1] === 'community' && (w.length === 3 || (w.length === 4 && w[3] === 'additive')) && RPL_NAME.test(w[2]) && !said('communityAdd') && !said('communitySet')) {
-        a[w.length === 4 ? 'communityAdd' : 'communitySet'] = { sets: [w[2]] }
+        const leaf = w.length === 4 ? 'communityAdd' : 'communitySet'
+        if (!inOrder(leaf)) return 'community actions in an order the model can\'t keep (it deletes, then replaces, then adds)'
+        a[leaf] = { sets: [w[2]] }
         names.communitySets.push(w[2])
+        names.communitySetters.push(w[2])
       } else if (w[0] === 'delete' && w[1] === 'community' && w[2] === 'in' && w.length === 4 && RPL_NAME.test(w[3]) && !said('communityDelete')) {
+        if (!inOrder('communityDelete')) return 'community actions in an order the model can\'t keep (it deletes, then replaces, then adds)'
         a.communityDelete = { sets: [w[3]] }
         names.communitySets.push(w[3])
       } else if (w[0] === 'prepend' && w[1] === 'as-path' && (w.length === 3 || w.length === 4) && !said('asPathPrepend')) {

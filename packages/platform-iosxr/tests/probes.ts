@@ -169,8 +169,9 @@ export const probes: ProbeAdapter = {
     'as-path-set': { source: naming('as-path in MISSING'), value: 'MISSING', line: 1 },
     policy: { source: lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', '   route-policy MISSING in'), value: 'MISSING' }
   },
+  // With repeated spaces and a comma inside the quotes, which are the regex's own.
   regex: {
-    source: lines('as-path-set A', '  ios-regex \'_65000_\'', 'end-set', '!', 'community-set C', '  ios-regex \'_65000:[0-9]+_\'', 'end-set'),
-    regexes: ['_65000_', '_65000:[0-9]+_']
+    source: lines('as-path-set A', '  ios-regex \'_65000_\',', '  ios-regex \'_65001  65002_\'', 'end-set', '!', 'community-set C', '  ios-regex \'_65000:(1,|2)  _\'', 'end-set'),
+    regexes: ['_65000_', '_65001  65002_', '_65000:(1,|2)  _']
   }
 }

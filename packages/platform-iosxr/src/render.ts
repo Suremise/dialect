@@ -679,10 +679,13 @@ export function render(model: Device, context: Context): RenderResult {
     const inherited = (f: BgpAddressFamilyName) => group?.addressFamilies?.[f]
     const peerAs = peer.peerAs ?? group?.peerAs ?? (group?.type === 'internal' ? local : undefined)
     const ebgp = local !== undefined && peerAs !== undefined && peerAs !== local
-    // A direction is missing when no family the neighbor carries has a policy that way, its own or its group's.
+    // A direction is missing when a family the neighbor carries has no route policy written that way: its own (the
+    // family's, else the peer's), else its group's, which IOS-XR inherits where the neighbor writes none. A policy the
+    // model names but IOS-XR can't write (its body can't be, or a chain) covers nothing: routes would stop there.
     const carried = FAMILIES.filter((f) => own[f] !== undefined || inherited(f) !== undefined)
-    const policy = (f: BgpAddressFamilyName, field: 'importPolicies' | 'exportPolicies') => own[f]?.[field] ?? peer[field] ?? inherited(f)?.[field] ?? group?.[field]
-    const missing = ebgp ? (['importPolicies', 'exportPolicies'] as const).filter((field) => !carried.length || carried.some((f) => !policy(f, field)?.length)) : []
+    const written = (list: readonly string[] | undefined) => list !== undefined && list.length === 1 && RPL_NAME.test(list[0]) && policyName(list[0]) !== 'not-written'
+    const covered = (f: BgpAddressFamilyName, field: 'importPolicies' | 'exportPolicies') => written(own[f]?.[field] ?? peer[field]) || written(inherited(f)?.[field] ?? group?.[field])
+    const missing = ebgp ? (['importPolicies', 'exportPolicies'] as const).filter((field) => !carried.length || carried.some((f) => !covered(f, field))) : []
     const id = `iosxr.ebgp-policy:${fieldPath(...at)}`
     const given = missing.length ? answer(id, /^[\w.-]{1,64}$/) : undefined
     // The source exchanged these routes without a policy; IOS-XR won't.
@@ -701,10 +704,10 @@ export function render(model: Device, context: Context): RenderResult {
       for (const [field, direction] of [['importPolicies', 'in'], ['exportPolicies', 'out']] as const) {
         const list = af?.[field] ?? peer[field]
         const where = af?.[field] !== undefined ? [...afAt, field] : [...at, field]
+        // The answer for RFC 8212, where the family has no policy written that way of its own or its group's.
+        if (given !== undefined && missing.includes(field) && !covered(family, field)) emit(`${indent} route-policy ${given} ${direction}`)
         if (list === undefined || !list.length) {
           if (list !== undefined) skip(where, 'not-applicable', 'no policy: nothing to write')
-          // The answer for RFC 8212, where the family has no policy that way of its own or its group's.
-          if (given !== undefined && missing.includes(field) && !inherited(family)?.[field]?.length && !group?.[field]?.length) emit(`${indent} route-policy ${given} ${direction}`)
           continue
         }
         if (list.length > 1) skip(where, 'unsupported', 'IOS-XR applies one route policy each way here: a chain of policies isn\'t written')
