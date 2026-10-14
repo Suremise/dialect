@@ -1,0 +1,60 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "system": {
+      "hostname": "prefix-set"
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "pre_ipv4": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "1.2.3.4/30",
+                "minLength": 30,
+                "maxLength": 30,
+                "form": "exact"
+              }
+            }
+          },
+          "pre_combo": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "1.2.3.4/30",
+                "minLength": 30,
+                "maxLength": 30,
+                "form": "exact"
+              }
+            }
+          }
+        },
+        "ipv6": {
+          "pre_ipv6": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "2001::ffff:0/124",
+                "minLength": 124,
+                "maxLength": 124,
+                "form": "exact"
+              }
+            }
+          },
+          "pre_combo": {
+            "entries": {
+              "2": {
+                "action": "permit",
+                "prefix": "2001::ffff:0/124",
+                "minLength": 124,
+                "maxLength": 124,
+                "form": "exact"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

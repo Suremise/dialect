@@ -6,7 +6,8 @@
 //   and `#` comments inside, however its body is indented (or not);
 // - a **set**, `prefix-set`, `community-set`, `as-path-set`, `rd-set`, `extcommunity-set rt` and the rest … `end-set`;
 // - a **banner**, `banner motd #…#`, any delimiter, over as many lines as it takes.
-// A policy or set is never split: the model can't hold one yet, and a half-converted policy would mean something else.
+// A policy or set is never split: a half-converted policy would mean something else. Its simple forms are translated as
+// a whole (policy.ts), and anything else leaves it out whole.
 import type { Diagnostic, Span, SyntaxNode } from '@dialect/core'
 
 /** What a statement is, when it isn't an ordinary command line. */

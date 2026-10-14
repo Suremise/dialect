@@ -102,12 +102,20 @@ describe('BGP', () => {
     expect(roundTrips(text)).toEqual([])
   })
 
-  it('a route policy is taken by name only, with a warning that doesn\'t name it; one with parameters isn\'t', () => {
-    const result = parse(lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', '   route-policy CANARY in', '   route-policy P(10) out', '!'))
+  it('a route policy names one the text converts (#79); one it doesn\'t define, one not converted and one with parameters are left out, unnamed', () => {
+    const peer = (...policy: string[]) => ['router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', ...policy, '!']
+    const result = parse(lines(...peer('   route-policy CANARY in', '   route-policy P(10) out'), 'route-policy CANARY', '  done', 'end-policy'))
     expect(bgp(result)?.neighbors?.['192.0.2.2'].addressFamilies).toEqual({ 'ipv4-unicast': { importPolicies: ['CANARY'] } })
-    expect(result.diagnostics).toEqual([expect.objectContaining({ code: 'iosxr.route-policy-name-only', statement: 'L5' })])
-    expect(result.diagnostics[0].message).not.toContain('CANARY')
-    expect(at(result, 6)).toEqual({ kind: 'unsupported', reason: 'a route policy with parameters, which comes with route policies' })
+    expect(result.model.routingPolicy?.policies?.CANARY).toEqual({ terms: { '1': { actions: { flow: 'accept' } } }, fallThrough: 'reject' })
+    expect(result.diagnostics.filter((d) => d.code === 'iosxr.route-policy-name-only')).toEqual([])
+    expect(at(result, 6)).toEqual({ kind: 'unsupported', reason: 'a route policy with parameters, which the simple form doesn\'t have' })
+    const undefinedPolicy = parse(lines(...peer('   route-policy CANARY in')))
+    expect(bgp(undefinedPolicy)?.neighbors?.['192.0.2.2'].addressFamilies).toEqual({ 'ipv4-unicast': {} })
+    expect(at(undefinedPolicy, 5)).toEqual({ kind: 'unsupported', reason: 'names a route policy the configuration doesn\'t define' })
+    const nested = parse(lines(...peer('   route-policy CANARY in'), 'route-policy CANARY', '  if tag eq 1 then', '    if tag eq 2 then', '      drop', '    endif', '  endif', 'end-policy'))
+    expect(at(nested, 5)).toEqual({ kind: 'unsupported', reason: 'names a route policy that isn\'t converted' })
+    // No message or reason names it (field paths name the config's own structure).
+    for (const r of [result, undefinedPolicy, nested]) expect(JSON.stringify([r.diagnostics.map((d) => d.message), Object.values(r.dispositions).map((d) => ('reason' in d ? d.reason : ''))])).not.toContain('CANARY')
   })
 
   it('"no" forms: a neighbor, a group, a family, a setting, BGP itself', () => {
@@ -183,11 +191,14 @@ describe('RFC 8212: an eBGP neighbor with no policy exchanges no routes on IOS-X
   })
 
   it('an IOS-XR source says its default: reject, the ways a neighbor has no policy', () => {
-    const result = parse(lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', '   route-policy IN in', '!'))
+    // The policies they name, defined after them (a policy is converted once the text is read), so line numbers stay.
+    const defined = ['IN', 'OUT', 'IN6', 'G-IN', 'G-OUT', 'OWN'].flatMap((n) => [`route-policy ${n}`, '  pass', 'end-policy'])
+    const withPolicies = (...l: string[]) => [...l, ...defined].join('\n')
+    const result = parse(withPolicies('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', '   route-policy IN in', '!'))
     expect(result.model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toEqual({ export: 'reject' })
     expect(at(result, 1)).toEqual({ kind: 'mapped', fields: ['networkInstances.default.bgp.localAs', 'networkInstances.default.bgp.ebgpDefaultPolicy.export'] })
     // Each family it carries counts on its own: a policy on IPv4 doesn't cover IPv6, the neighbor's or its group's.
-    const policy = (...l: string[]) => parse(lines('router bgp 65000', ...l, '!')).model.networkInstances?.default.bgp?.ebgpDefaultPolicy
+    const policy = (...l: string[]) => parse(withPolicies('router bgp 65000', ...l, '!')).model.networkInstances?.default.bgp?.ebgpDefaultPolicy
     const v4 = ['  address-family ipv4 unicast', '   route-policy IN in', '   route-policy OUT out', '  !']
     expect(policy(' neighbor 192.0.2.2', '  remote-as 65001', ...v4, '  address-family ipv6 unicast', '  !', ' !')).toEqual({ import: 'reject', export: 'reject' })
     expect(policy(' neighbor-group G', '  remote-as 65001', ...v4, ' !', ' neighbor 192.0.2.2', '  use neighbor-group G', '  address-family ipv6 unicast', '  !', ' !')).toEqual({ import: 'reject', export: 'reject' })
@@ -198,7 +209,7 @@ describe('RFC 8212: an eBGP neighbor with no policy exchanges no routes on IOS-X
     // With no family at all, as before: nothing carries a policy, both ways.
     expect(policy(' neighbor 192.0.2.2', '  remote-as 65001', ' !')).toEqual({ import: 'reject', export: 'reject' })
     // An iBGP neighbor says nothing of it.
-    expect(parse(lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65000', '!')).model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toBeUndefined()
+    expect(parse(withPolicies('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65000', '!')).model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toBeUndefined()
   })
 })
 
@@ -227,7 +238,7 @@ describe('the semantic warnings, each raised by a saved fixture', () => {
     })
   }
 
-  it('every phase 2 warning comes from a saved source fixture or model', () => {
+  it('every phase 2 and 3 warning comes from a saved source fixture or model', () => {
     const fixtures = new URL('./fixtures/', import.meta.url)
     const sources = ['ospf', 'bgp'].flatMap((area) => readdirSync(new URL(`${area}/`, fixtures)).filter((f) => f.endsWith('.cfg') && !f.endsWith('.rendered.cfg')).map((f) => new URL(`${area}/${f}`, fixtures)))
     const raised = new Set([
@@ -237,7 +248,7 @@ describe('the semantic warnings, each raised by a saved fixture', () => {
       }),
       ...cases.flatMap((name) => codes(render(deserializeModel(readFileSync(new URL(`${name}.model.json`, models), 'utf8')).device)))
     ])
-    for (const code of ['iosxr.route-policy-name-only', 'iosxr.ebgp-default-policy', 'iosxr.bgp-no-address-family', 'iosxr.ospf-enabled-per-interface']) expect(raised, code).toContain(code)
+    for (const code of ['iosxr.route-policy-name-only', 'iosxr.ebgp-default-policy', 'iosxr.bgp-no-address-family', 'iosxr.ospf-enabled-per-interface', 'iosxr.policy-fall-through', 'iosxr.vrf-policy-mode']) expect(raised, code).toContain(code)
   })
 })
 

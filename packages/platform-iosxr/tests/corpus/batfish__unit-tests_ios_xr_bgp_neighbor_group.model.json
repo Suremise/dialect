@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.1",
+  "modelVersion": "0.5.2",
   "device": {
     "system": {
       "hostname": "ios_xr_bgp_neighbor_group"
@@ -12,24 +12,13 @@
             "BGPMonitor": {
               "peerAs": 65202,
               "addressFamilies": {
-                "ipv4-unicast": {
-                  "importPolicies": [
-                    "deny_bgp_routes"
-                  ],
-                  "exportPolicies": [
-                    "advertise_fooey_dc_and_isp_routes_ipv4"
-                  ]
-                }
+                "ipv4-unicast": {}
               }
             },
             "foobar-iBGP_ipv4": {
               "peerAs": 5555,
               "addressFamilies": {
-                "ipv4-unicast": {
-                  "exportPolicies": [
-                    "advertise_fooey_routes_only"
-                  ]
-                }
+                "ipv4-unicast": {}
               }
             },
             "foobar-iBGP_ipv6": {
@@ -41,11 +30,7 @@
             "foobar-iBGP_border_ipv4": {
               "peerAs": 5555,
               "addressFamilies": {
-                "ipv4-unicast": {
-                  "exportPolicies": [
-                    "deny_default_network_ipv4"
-                  ]
-                }
+                "ipv4-unicast": {}
               }
             },
             "foobar-iBGP_border_ipv6": {

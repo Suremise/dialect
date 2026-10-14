@@ -26,6 +26,11 @@
   and written back, and a VRF with a policy for a side needs no route target there. Converting a Cisco VRF's import
   or export map to Junos leaves it out with a warning: a Cisco map filters routes after the route targets, while
   Junos's replaces them, so the meaning can't be kept.
+- **Cisco IOS-XR routing policy converts, in RPL's simple forms:** prefix sets, community sets, AS-path sets and route
+  policies made of flat `if … then … else … endif` blocks, and BGP neighbors' and VRFs' route policies now carry the
+  policy itself, not only its name. A set or policy converts whole or not at all: nested `if`, `elseif`, parameters,
+  `apply` and the like are listed as not converted. Converting a Junos policy to IOS-XR adds a final `pass`, with a
+  warning, and a VRF's import or export policy warns where Junos and IOS-XR treat route targets differently.
 - **Junos firewall filters convert:** `firewall family inet` and `inet6` filters (and the older `firewall filter`),
   with their terms' conditions (addresses and prefix lists by source, destination or either, protocol and
   next-header, ports and ranges by number or name, ICMP types and codes, DSCP and traffic class, TCP established,

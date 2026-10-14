@@ -1,0 +1,110 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "system": {
+      "hostname": "route-policy-done"
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 2,
+          "neighbors": {
+            "10.1.1.1": {
+              "peerAs": 3,
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "exportPolicies": [
+                    "rp_ip"
+                  ]
+                }
+              }
+            }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "reject"
+          }
+        }
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "accept_this_ip": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "1.2.3.4/32",
+                "minLength": 32,
+                "maxLength": 32,
+                "form": "exact"
+              }
+            }
+          },
+          "accept_this_ip_2": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "1.2.3.5/32",
+                "minLength": 32,
+                "maxLength": 32,
+                "form": "exact"
+              }
+            }
+          }
+        },
+        "ipv6": {
+          "accept_this_ip_2": {
+            "entries": {
+              "2": {
+                "action": "permit",
+                "prefix": "2001::ffff:0/124",
+                "minLength": 124,
+                "maxLength": 124,
+                "form": "exact"
+              }
+            }
+          }
+        }
+      },
+      "policies": {
+        "rp_ip": {
+          "terms": {
+            "1": {
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "accept_this_ip"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "accept_this_ip_2"
+                  ],
+                  "ipv6": [
+                    "accept_this_ip_2"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            },
+            "3": {
+              "actions": {
+                "flow": "reject"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}
