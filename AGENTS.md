@@ -122,6 +122,7 @@ only when the package doesn't work without it, and say why on the card.
 | `packages/core` | The shared model, the coverage ledger, the plugin interface and the registry (B2) |
 | `packages/conformance` | The conformance kit plugins' fixtures run through (B2) |
 | `packages/platform-junos` | The Junos plugin: tree parser and display set (B3), mapping and rendering |
+| `packages/platform-iosxe`, `platform-nxos`, `platform-iosxr` | The Cisco plugins: IOS / IOS-XE (B8), NX-OS (B12) and IOS-XR (B13), each a tree parser, mapping, rendering and detect |
 | `packages/cli`, `packages/ui`, `apps/web`, `apps/desktop` | The CLI, the shared UI and the two shells (group C) |
 | `scripts/licenses.mjs`, `thirdPartyNotices.mjs`, `licensePolicy.mjs`, `licenseText.mjs`, `notices/` | The generated notices, the build-only list and the license check |
 | `scripts/build-icons.mjs`, `check-contrast.mjs`, `branding/` | The icon pipeline and the theme tokens |
