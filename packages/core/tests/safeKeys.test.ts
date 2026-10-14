@@ -9,6 +9,7 @@ import {
   deserializeModel,
   fieldPath,
   MODEL_VERSION,
+  modelProblems,
   pathSegments,
   populatedLeaves,
   serializeModel,
@@ -31,14 +32,17 @@ afterAll(() => {
   expect(prototypeNow()).toEqual(before)
 })
 
-/** A model with `key` as an interface, a VRF, an SNMP community and a DNS server. Computed keys are own properties. */
+/**
+ * A model with `key` as an interface, a VRF (with the interface in it), an SNMP community and a DNS server. Computed
+ * keys are own properties.
+ */
 const deviceWith = (key: string): Device => ({
   system: {
     snmp: { communities: { [key]: { access: 'read-only' } } },
     dns: { servers: { [key]: {}, '192.0.2.53': { networkInstance: key } }, search: ['example.net'] }
   },
-  interfaces: { [key]: { description: 'uplink', subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } } },
-  networkInstances: { [key]: { type: 'vrf', staticRoutes: { '0.0.0.0/0': { nextHops: { '0': { address: '192.0.2.254' } } } } } }
+  interfaces: { [key]: { description: 'uplink', subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } }, networkInstance: key } } } },
+  networkInstances: { [key]: { type: 'vrf', routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'], export: ['65000:1'] }, staticRoutes: { '0.0.0.0/0': { nextHops: { '0': { address: '192.0.2.254' } } } } } }
 })
 
 const expectedPaths = (key: string) => [
@@ -48,7 +52,11 @@ const expectedPaths = (key: string) => [
   fieldPath('system', 'dns', 'search'),
   fieldPath('interfaces', key, 'description'),
   fieldPath('interfaces', key, 'subinterfaces', '0', 'ipv4', 'addresses', '192.0.2.1', 'prefixLength'),
+  fieldPath('interfaces', key, 'subinterfaces', '0', 'networkInstance'),
   fieldPath('networkInstances', key, 'type'),
+  fieldPath('networkInstances', key, 'routeDistinguisher'),
+  fieldPath('networkInstances', key, 'routeTargets', 'import'),
+  fieldPath('networkInstances', key, 'routeTargets', 'export'),
   fieldPath('networkInstances', key, 'staticRoutes', '0.0.0.0/0', 'nextHops', '0', 'address')
 ]
 
@@ -102,6 +110,19 @@ describe.each(KEYS)('the key %s', (key) => {
     expect(ledger.complete).toBe(true)
   })
 
+  it('is a VRF a subinterface can name: modelProblems() finds it as an own key, and misses it when it isn\'t one', () => {
+    const device = deviceWith(key)
+    expect(modelProblems(device)).toEqual([])
+    expect(modelProblems(deserializeModel(serializeModel(device)).device)).toEqual([])
+    // Declared under another name only: `key` must not be found on Object.prototype (`toString`, `constructor`).
+    const { [key]: vrf, ...others } = device.networkInstances!
+    const undeclared: Device = { ...device, networkInstances: { ...others, blue: vrf } }
+    expect(modelProblems(undeclared).map((d) => d.code)).toEqual(['model.unknown-network-instance'])
+    expect(modelProblems({ interfaces: device.interfaces }).map((d) => d.field)).toEqual([fieldPath('interfaces', key, 'subinterfaces', '0', 'networkInstance')])
+    const nullProto = Object.assign(Object.create(null), { blue: vrf }) as Device['networkInstances']
+    expect(modelProblems({ ...device, networkInstances: nullProto }).map((d) => d.code)).toEqual(['model.unknown-network-instance'])
+  })
+
   it('works in null-prototype maps too', () => {
     const interfaces: Record<string, unknown> = Object.create(null)
     interfaces[key] = Object.assign(Object.create(null), { description: 'uplink' })
@@ -117,12 +138,39 @@ describe('a model document', () => {
   })
 })
 
-describe('model 0.2.0', () => {
-  it('is the core\'s model version, and plugins built for 0.1 still load', () => {
-    expect(MODEL_VERSION).toBe('0.2.0')
-    expect(() => createRegistry([{ id: 'old', name: 'Old', modelApi: '>=0.1.0 <1.0.0', capabilities: { system: { parse: 'full', render: 'full' } } }])).not.toThrow()
+describe('model 0.3.0', () => {
+  it('is the core\'s model version, and plugins built for 0.1 and 0.2 still load', () => {
+    expect(MODEL_VERSION).toBe('0.3.0')
+    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0'])
+      expect(() => createRegistry([{ id: 'old', name: 'Old', modelApi, capabilities: { system: { parse: 'full', render: 'full' } } }]), modelApi).not.toThrow()
   })
 
+  it('reads 0.2.0 documents, and a 0.2 core refuses a 0.3 one rather than drop its fields', () => {
+    expect(deserializeModel('{"modelVersion":"0.2.0","device":{"system":{"dns":{"search":["example.net"]}}}}').device).toEqual({ system: { dns: { search: ['example.net'] } } })
+    const text = serializeModel({ interfaces: { eth0: { subinterfaces: { '0': { networkInstance: 'blue' } } } }, networkInstances: { blue: { type: 'vrf' } } })
+    expect(JSON.parse(text).modelVersion).toBe('0.3.0')
+    expect(() => deserializeModel(text, '0.2.0')).toThrow('The model document was made with model 0.3.0, newer than this core\'s 0.2.0.')
+  })
+
+  it('has a subinterface\'s VRF, and a VRF\'s type, route distinguisher and route targets as leaves', () => {
+    const device: Device = {
+      interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { networkInstance: 'blue' } } } },
+      networkInstances: { blue: { type: 'vrf', routeDistinguisher: '65000:100', routeTargets: { import: ['65000:100', '65000:200'], export: ['65000:100'] } }, lab: { type: 'virtual-router' } }
+    }
+    expect(populatedLeaves(device)).toEqual([
+      { path: 'interfaces["ge-0/0/0"].subinterfaces["0"].networkInstance', value: 'blue' },
+      { path: 'networkInstances.blue.type', value: 'vrf' },
+      { path: 'networkInstances.blue.routeDistinguisher', value: '65000:100' },
+      { path: 'networkInstances.blue.routeTargets.import', value: ['65000:100', '65000:200'] },
+      { path: 'networkInstances.blue.routeTargets.export', value: ['65000:100'] },
+      { path: 'networkInstances.lab.type', value: 'virtual-router' }
+    ])
+    expect(deserializeModel(serializeModel(device)).device).toEqual(device)
+    expect(modelProblems(device)).toEqual([])
+  })
+})
+
+describe('model 0.2.0', () => {
   it('reads 0.1.0 documents', () => {
     expect(deserializeModel('{"modelVersion":"0.1.0","device":{"system":{"hostname":"r1"}}}').device).toEqual({ system: { hostname: 'r1' } })
   })
