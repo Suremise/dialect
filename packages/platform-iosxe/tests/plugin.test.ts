@@ -1146,6 +1146,13 @@ describe('routing policy (model 0.5.0)', () => {
     expect(foreign.dispositions['routingPolicy.asPathSets["20"].entries["1"].regex']).toMatchObject({ kind: 'unsupported' })
   })
 
+  it('keeps a prefix list\'s description as written, quotes and all', () => {
+    const text = lines('ip prefix-list L description "Customer prefixes"', 'ip prefix-list L seq 5 permit 10.0.0.0/8')
+    expect(parse(text).model.routingPolicy?.prefixLists?.ipv4?.L?.description).toBe('"Customer prefixes"')
+    expect(render(parse(text).model).text).toContain('ip prefix-list L description "Customer prefixes"\n')
+    expect(roundTrips(text)).toEqual([])
+  })
+
   it('keeps any name as an own key, and leaves Object.prototype alone', () => {
     const before = Object.getOwnPropertyNames(Object.prototype).sort()
     const text = lines('ip prefix-list __proto__ seq 5 permit 10.0.0.0/8', 'ip community-list standard constructor permit 65000:1', 'route-map toString permit 10', ' match ip address prefix-list __proto__', ' match community constructor')

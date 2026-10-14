@@ -40,7 +40,9 @@ export function iosRegex(s: unknown): string | null {
   if (s.trim() !== s) return s.includes('"') ? null : `"${s}"`
   return s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? null : s
 }
-const isOneLine = (s: unknown): s is string => iosRegex(s) !== null
+const isRegex = (s: unknown): s is string => iosRegex(s) !== null
+/** Text IOS reads back the same from the end of its line (a description): one line, not empty, no space at its ends. */
+const isOneLine = (s: unknown): s is string => typeof s === 'string' && s.trim() === s && s !== '' && !/[\r\n]/.test(s)
 const isUint32 = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 4294967295
 /** A community as IOS writes it, or null for one it has no word for. */
 const iosCommunity = (v: unknown): string | null => (typeof v !== 'string' ? null : Object.hasOwn(IOS_COMMUNITY_NAMES, v) ? IOS_COMMUNITY_NAMES[v] : /^\d+:\d+$/.test(v) && communityType(v) === 'standard' ? v : null)
@@ -72,7 +74,7 @@ export function planRoutingPolicy(rp: RoutingPolicy | undefined, skip: (field: S
           ? FOREIGN_REGEX
           : !entries.length
             ? 'IOS can\'t write an AS-path access list with no entries'
-            : entries.some(([, e]) => !isAction(e?.action) || !isOneLine(e?.regex))
+            : entries.some(([, e]) => !isAction(e?.action) || !isRegex(e?.regex))
               ? 'an entry IOS can\'t write (a permit or deny and a one-line regex it reads back the same)'
               : undefined
     if (why) {
@@ -104,7 +106,7 @@ export function planRoutingPolicy(rp: RoutingPolicy | undefined, skip: (field: S
               ? 'literal communities and regexes in one list: an IOS list is standard or expanded'
               : expanded && set.regexDialect !== 'cisco'
                 ? FOREIGN_REGEX
-                : entries.some(([, e]) => !isAction(e?.action) || (expanded ? e.regexes?.length !== 1 || !isOneLine(e.regexes[0]) : !e.members?.length || e.members.some((m) => iosCommunity(m) === null)))
+                : entries.some(([, e]) => !isAction(e?.action) || (expanded ? e.regexes?.length !== 1 || !isRegex(e.regexes[0]) : !e.members?.length || e.members.some((m) => iosCommunity(m) === null)))
                   ? 'an entry IOS can\'t write: several regexes in one entry, none, or a community IOS has no word for'
                   : undefined
     if (why) {
