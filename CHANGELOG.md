@@ -26,8 +26,9 @@
   each interface (areas, stub and NSSA, cost, network type, passive, timers, `passive-interface default`) and BGP
   (neighbors, peer templates, eBGP multihop, address families, route maps by name only), in the global table and in
   VRFs. The `feature` lines they need are written. OSPF keys and BGP passwords are never carried: converting to NX-OS
-  asks for them. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route
-  (IOS-XR exchanges none, RFC 8212), and OSPF enabled with `network` statements is enabled per interface.
+  asks for them. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route,
+  where an IOS-XR source exchanged none (RFC 8212), and OSPF enabled with `network` statements is enabled per
+  interface.
 - **Cisco IOS-XR OSPF and BGP convert:** OSPF processes with their areas (stub, NSSA, authentication) and interfaces
   (cost, network type, passive, timers), taking IOS-XR's inheritance from the area and the process into each interface,
   and BGP (neighbors, neighbor groups, eBGP multihop, address families, route policies by name only), in the global

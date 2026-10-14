@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.0",
+  "modelVersion": "0.4.1",
   "device": {
     "system": {
       "hostname": "nxos_bgp_peer_template"
@@ -16,6 +16,10 @@
               "group": "peer-rr-overlay",
               "peerAs": 64602
             }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "accept",
+            "export": "accept"
           }
         }
       }

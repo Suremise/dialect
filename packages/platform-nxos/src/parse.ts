@@ -5,7 +5,7 @@
 // every option on it is understood: one with an option the model can't hold (`ntp server 192.0.2.1 key 1`) is
 // unsupported as a whole, never half-converted. Later statements act on earlier ones as on the device: a second setting
 // supersedes the first, and `no …` forms and `vrf member` clear what they remove.
-import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Diagnostic, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Bgp, type BgpAddressFamilyName, type Diagnostic, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { OSPF_FEATURE, REQUIRED_FEATURES, VPN_FEATURE } from './features'
 import { interfaceName, interfaceType, isInterfaceName, isSwitchable, splitSubinterface } from './names'
@@ -1570,6 +1570,35 @@ export function parse(text: string, _context: Context): ParseResult {
     }
   }
 
+  /**
+   * What NX-OS does with an eBGP peer's routes when no route map applies: it takes and sends them all (no RFC 8212).
+   * Said, as model 0.4.1 has it, for each network instance with an eBGP neighbor that has no route map one way in a
+   * family it carries (each family by its effective policy: the family's own, else the neighbor's, else the template's
+   * family's, else the template's; with no family, the neighbor's or the template's), so a target that drops them warns.
+   * It is the platform's default, not configuration: the instance's own statement maps it.
+   */
+  const sayDefaultPolicy = () => {
+    for (const [instance, ni] of Object.entries((model.get(['networkInstances']) as Obj | undefined) ?? {})) {
+      const bgp = isObject(ni) && isObject(ni.bgp) ? (ni.bgp as Bgp) : undefined
+      const opening = bgpStatements.get(instance)?.[0]
+      if (!bgp || !opening) continue
+      const sides = new Set<'import' | 'export'>()
+      for (const neighbor of Object.values(bgp.neighbors ?? {})) {
+        const group = neighbor.group !== undefined && bgp.groups && Object.hasOwn(bgp.groups, neighbor.group) ? bgp.groups[neighbor.group] : undefined
+        const peerAs = neighbor.peerAs ?? group?.peerAs
+        if (peerAs === undefined || peerAs === bgp.localAs) continue
+        const families = [...new Set([...Object.keys(neighbor.addressFamilies ?? {}), ...Object.keys(group?.addressFamilies ?? {})])] as BgpAddressFamilyName[]
+        for (const [field, side] of [['importPolicies', 'import'], ['exportPolicies', 'export']] as const) {
+          const effective = (f?: BgpAddressFamilyName) => (f ? neighbor.addressFamilies?.[f]?.[field] : undefined) ?? neighbor[field] ?? (f ? group?.addressFamilies?.[f]?.[field] : undefined) ?? group?.[field]
+          if (families.length ? families.some((f) => !effective(f)?.length) : !effective()?.length) sides.add(side)
+        }
+      }
+      const fields = [...sides].map((side) => model.set([...bgpPath(instance), 'ebgpDefaultPolicy', side], 'accept'))
+      const d = dispositions[opening.id]
+      if (fields.length && d?.kind === 'mapped') set(opening, mapped([...d.fields, ...fields]))
+    }
+  }
+
   /** Whether an interface reference names an interface of the model, or one of its subinterfaces (as the core checks). */
   const interfaceResolves = (ref: string): boolean => {
     if (model.get(['interfaces', ref]) !== undefined) return true
@@ -1780,6 +1809,7 @@ export function parse(text: string, _context: Context): ParseResult {
 
   buildOspf()
   checkBgp()
+  sayDefaultPolicy()
 
   // `no switchport` makes a routed port: the render writes it back for an interface with IP configuration. Without
   // any, the model can't say the port is routed rather than switched.
