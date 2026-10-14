@@ -1,0 +1,35 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_bgp"
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 1,
+          "groups": {
+            "PEER_BLLF": {
+              "peerAs": 12345,
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "IN_BBB"
+                  ],
+                  "exportPolicies": [
+                    "EG_CCC"
+                  ]
+                }
+              }
+            }
+          },
+          "neighbors": {
+            "1.1.1.1": {
+              "group": "PEER_BLLF"
+            }
+          }
+        }
+      }
+    }
+  }
+}

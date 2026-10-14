@@ -1,0 +1,56 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_ospf"
+    },
+    "networkInstances": {
+      "OTHER": {
+        "type": "vrf",
+        "ospf": {
+          "processId": "1",
+          "areas": {
+            "0.0.0.1": {
+              "type": "stub",
+              "interfaces": {
+                "ethernet0/0": {
+                  "enabledBy": "interface"
+                }
+              }
+            }
+          }
+        }
+      },
+      "foo": {
+        "type": "vrf",
+        "ospf": {
+          "processId": "100"
+        }
+      },
+      "default": {
+        "ospf": {
+          "processId": "ignored",
+          "routerId": "5.6.7.8"
+        }
+      }
+    },
+    "interfaces": {
+      "ethernet0/0": {
+        "type": "ethernet",
+        "enabled": true,
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "OTHER",
+            "ipv4": {
+              "addresses": {
+                "1.1.1.2": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

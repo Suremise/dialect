@@ -1,0 +1,62 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "leaf-1"
+    },
+    "vlans": {
+      "1": {},
+      "10": {
+        "name": "SERVERS"
+      },
+      "20": {
+        "name": "VOICE"
+      },
+      "30": {},
+      "31": {},
+      "32": {}
+    },
+    "interfaces": {
+      "Ethernet1/1": {
+        "type": "ethernet",
+        "description": "access port",
+        "switching": {
+          "mode": "access",
+          "accessVlan": 10
+        }
+      },
+      "Ethernet1/2": {
+        "type": "ethernet",
+        "description": "trunk to leaf-2",
+        "switching": {
+          "mode": "trunk",
+          "nativeVlan": 20,
+          "allowedVlans": [
+            "10",
+            "20",
+            "30-32"
+          ]
+        }
+      },
+      "Ethernet1/3": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "1-19",
+            "21-3999"
+          ]
+        }
+      },
+      "port-channel5": {
+        "type": "aggregate",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "10"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -16,9 +16,8 @@ export { parseTree, type IosNode, type IosTree, type NodeKind } from './tree'
 const plugin: PlatformPlugin = {
   id: 'iosxe',
   name: 'Cisco IOS / IOS-XE',
-  // 0.3.0: its parse fills a subinterface's networkInstance and a VRF's route distinguisher and targets, which a 0.2
-  // core doesn't know.
-  modelApi: '>=0.3.0 <1.0.0',
+  // 0.4.0: its parse fills VLANs, switch ports and a VLAN interface's routed VLAN, which a 0.3 core doesn't know.
+  modelApi: '>=0.4.0 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'full', render: 'full' },
@@ -26,7 +25,8 @@ const plugin: PlatformPlugin = {
     'static-routes': { parse: 'partial', render: 'partial' },
     ntp: { parse: 'partial', render: 'full' },
     syslog: { parse: 'partial', render: 'partial' },
-    snmp: { parse: 'partial', render: 'partial' }
+    snmp: { parse: 'partial', render: 'partial' },
+    vlans: { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,

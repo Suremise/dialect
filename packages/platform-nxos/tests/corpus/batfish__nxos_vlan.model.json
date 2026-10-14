@@ -1,0 +1,100 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_vlan"
+    },
+    "vlans": {
+      "1": {},
+      "2": {
+        "name": "Name-Of-Vlan-2"
+      },
+      "4": {},
+      "6": {},
+      "7": {},
+      "8": {},
+      "4000": {}
+    },
+    "interfaces": {
+      "Vlan1": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 1
+          }
+        }
+      },
+      "Vlan2": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 2
+          }
+        }
+      },
+      "Vlan3": {
+        "type": "vlan",
+        "enabled": true
+      },
+      "Vlan4": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 4
+          }
+        },
+        "enabled": true
+      },
+      "Vlan6": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 6
+          }
+        },
+        "enabled": true
+      },
+      "Vlan7": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 7
+          }
+        },
+        "enabled": true
+      },
+      "Ethernet1/1": {
+        "type": "ethernet",
+        "switching": {
+          "accessVlan": 7
+        }
+      },
+      "Vlan1000": {
+        "type": "vlan",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.2.3.4": {
+                  "prefixLength": 26
+                }
+              }
+            }
+          }
+        },
+        "description": "no extraction test, just parsing",
+        "enabled": true,
+        "mtu": 9216
+      },
+      "Vlan4000": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 4000
+          }
+        },
+        "enabled": true
+      }
+    }
+  }
+}

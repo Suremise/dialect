@@ -183,7 +183,8 @@ Convert goes from any of them to any other, in the app and on the command line. 
 name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP, syslog and SNMP; what one can't read
 or write is listed as not converted, with why. Junos also converts VLANs, switch ports (access and trunk, with a
 native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches; the older non-ELS syntax is listed
-as not converted.
+as not converted. Cisco NX-OS also converts VLANs, switch ports (access and trunk), VLAN interfaces, OSPF and BGP; an
+OSPF key or a BGP password is never carried, so converting to NX-OS asks for it.
 
 ## The command line
 

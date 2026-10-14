@@ -2,7 +2,7 @@
 // keys interfaces by name as the source writes it, so names are kept as written, except that a space between type and
 // number is closed up (`loopback 0` is `loopback0`, as NX-OS itself shows it). Mapping names between platforms is the
 // user's (B9's interface map).
-import type { InterfaceType } from '@dialect/core'
+import type { InterfaceType, PortName } from '@dialect/core'
 
 /**
  * The interface name starting at `words[i]`, and how many words it took: `Ethernet1/1` (one), or `loopback 0` (two, a
@@ -43,4 +43,22 @@ export function interfaceType(name: string): InterfaceType | undefined {
 export const isSwitchable = (name: string): boolean => {
   const type = interfaceType(name)
   return type === 'ethernet' || type === 'aggregate'
+}
+
+/** What an NX-OS interface name says, for another platform's suggested name (the core's PortName): `port-channel10` is aggregate 10. */
+export function describeInterface(name: string): PortName | undefined {
+  const m = /^po(?:rt-channel)?(\d+)$/i.exec(name)
+  return m ? { type: 'aggregate', numbers: [Number(m[1])] } : undefined
+}
+
+/**
+ * NX-OS's name for a port another platform described, as a suggestion the user confirms: an aggregate is
+ * `port-channel` and its number, counted from 1 as Cisco does. Junos counts its `ae` interfaces from 0, so `ae0` is
+ * `port-channel1`; IOS-XE's `Port-channel` and IOS-XR's `Bundle-Ether` keep their number. `source` is the id of the
+ * plugin that described the port: without it the numbering isn't known, and nothing is suggested.
+ */
+export function nameInterface(port: PortName, source?: string): string | undefined {
+  if (port.type !== 'aggregate' || port.numbers.length !== 1) return undefined
+  const n = source === 'junos' ? port.numbers[0] + 1 : source === 'iosxe' || source === 'iosxr' || source === 'nxos' ? port.numbers[0] : undefined
+  return n !== undefined && n >= 1 && n <= 4096 ? `port-channel${n}` : undefined
 }
