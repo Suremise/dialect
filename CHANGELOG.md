@@ -32,6 +32,12 @@
 - **A filter whose last entry can't be converted is no longer turned into one that drops everything:** an entry left
   out goes alone only when that changes nothing (it only counts, or it is the last and denies, as the filter's end
   does). Otherwise the whole filter is listed as not converted, and so is every interface that applies it.
+- **Cisco IOS / IOS-XE and NX-OS bundles (port-channels) convert:** each member's `channel-group` with its LACP mode
+  (active, passive or on), the Port-channel's minimum links, and on NX-OS the `feature lacp` LACP needs. Converting a
+  Junos `ae0` with its members gives `Port-channel1` (`port-channel1` on NX-OS) with the same members and mode, once
+  you take the suggested name. Each member is written to match its bundle (its switch port settings and MTU, and on
+  NX-OS `no switchport` for a routed bundle), as the device needs to bundle it. Members of one bundle with different
+  modes stop the conversion with an error, and PAgP isn't converted.
 - **Link aggregation converts for Junos and IOS-XR:** which aggregate each member link is in, the LACP mode (active,
   passive or none) and minimum links, from Junos `802.3ad` and `aggregated-ether-options` and IOS-XR `bundle id` and
   `bundle minimum-active links`, both ways. Converting to Junos also writes the `chassis aggregated-devices` line Junos

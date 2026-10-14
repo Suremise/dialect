@@ -319,6 +319,35 @@ describe('a VRF deleted while interfaces are in it (#47)', () => {
     const text = ['snmp-server community CANARY_SECRET group network-operator', 'vrf context CANARY_SECRET', 'interface Ethernet1/1', '  no switchport', '  vrf member CANARY_SECRET', '  ip address 192.0.2.1/24', 'no vrf context CANARY_SECRET', 'vrf context CANARY_SECRET', 'interface Ethernet1/1', '  ip address 192.0.2.9/24'].join('\n')
     expect(checkSecrets(plugin, text, ['CANARY_SECRET'], { allowances: [] }).leaks).toEqual([])
   })
+
+  it('a numeric community reused as a route map sequence, an access list entry or a term\'s key never reaches a message either', () => {
+    const secret = '48213'
+    const next = String(Number(secret) + 1)
+    const community = `snmp-server community ${secret} group network-operator`
+    const cases: [string[], RegExp][] = [
+      // Removing the sequence, a sequence left out whole and the route map with it, and an access list entry.
+      [[community, `route-map M permit ${secret}`, '  set tag 1', `no route-map M permit ${secret}`], /^removes the route map sequence configured on lines 2, 3:/],
+      [[community, `route-map M permit ${secret}`, '  match interface Ethernet1/1', `route-map M permit ${next}`], /^left out whole: the sequence of line 2 isn't converted/],
+      [[community, `route-map M permit ${secret}`, '  match interface Ethernet1/1', `route-map M permit ${next}`], /^part of the route map sequence of line 2/],
+      [[community, 'ip access-list F', `  ${secret} permit ip 10.0.0.0 0.255.0.255 any`, `  ${next} deny ip any any`], /^left out whole: the entry on line 3 isn't converted/]
+    ]
+    for (const [lines, reason] of cases) {
+      const text = lines.join('\n')
+      // The case reaches the reason it is about, and no message carries the number.
+      expect(Object.values(parse(text).dispositions).some((d) => 'reason' in d && reason.test(d.reason ?? '')), text).toBe(true)
+      expect(checkSecrets(plugin, text, [secret], { allowances: [] }).leaks, text).toEqual([])
+    }
+    // A render from another platform, with the number as a term's key.
+    const filter = { matches: { routeFilters: { '1': { prefix: '10.0.0.0/8', minLength: 8, maxLength: 32 } } } }
+    const rendered = render({
+      routingPolicy: { policies: { P: { fallThrough: 'reject', terms: { [secret]: { ...filter, actions: { flow: 'reject' } }, [next]: { actions: { flow: 'accept' } } } } } },
+      filters: { ipv4: { F: { implicitAction: 'deny', terms: { [secret]: { matches: { prefixes: ['10.0.0.0/8'] }, description: 'x'.repeat(300), actions: { action: 'discard' } }, [next]: { actions: { action: 'accept' } } } } } }
+    })
+    const reasons = Object.values(rendered.dispositions).flatMap((d) => ('reason' in d && d.reason !== undefined ? [d.reason] : []))
+    expect(reasons.some((r) => r.startsWith('left out whole: one of its terms can\'t be written'))).toBe(true)
+    for (const r of reasons) expect(r).not.toContain(secret)
+    expect(rendered.diagnostics.map((d) => d.message).join(' ')).not.toContain(secret)
+  })
 })
 
 describe('VRF route distinguishers and route targets', () => {
@@ -473,7 +502,10 @@ const NEEDS: readonly (readonly [RegExp, string])[] = [
   [/^\s+(rd|route-target) /, 'bgp'],
   [/^router bgp /, 'bgp'],
   [/^router ospf /, 'ospf'],
-  [/^\s+ip (router )?ospf /, 'ospf']
+  [/^\s+ip (router )?ospf /, 'ospf'],
+  // LACP: a member bundling with it, and a port-channel's minimum links (`mode on`, or no mode, needs nothing).
+  [/^\s+channel-group \d+ (force )?mode (active|passive)$/, 'lacp'],
+  [/^\s+lacp /, 'lacp']
 ]
 function missingFeatures(text: string): string[] {
   const lines = text.split('\n')
@@ -495,6 +527,10 @@ describe('feature lines', () => {
     expect(missingFeatures('router bgp 65000\n  neighbor 192.0.2.2 remote-as 65001\n')).toEqual(['bgp'])
     expect(missingFeatures('interface loopback0\n  ip router ospf 1 area 0.0.0.0\nrouter ospf 1\n')).toEqual(['ospf'])
     expect(missingFeatures('interface Ethernet1/1\n  ip ospf cost 5\n')).toEqual(['ospf'])
+    expect(missingFeatures('interface Ethernet1/1\n  channel-group 1 mode active\n')).toEqual(['lacp'])
+    expect(missingFeatures('interface port-channel1\n  lacp min-links 2\n')).toEqual(['lacp'])
+    expect(missingFeatures('interface Ethernet1/1\n  channel-group 1 mode on\ninterface Ethernet1/2\n  channel-group 2\n')).toEqual([])
+    expect(missingFeatures('feature lacp\ninterface Ethernet1/1\n  channel-group 1 mode passive\n')).toEqual([])
     expect(missingFeatures('feature bgp\nfeature ospf\nrouter ospf 1\nrouter bgp 65000\n')).toEqual([])
   })
 

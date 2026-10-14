@@ -94,7 +94,7 @@ describe('access lists (model 0.5.1)', () => {
     }
     const result = render(model)
     expect(result.text).toBe('\n')
-    expect(result.dispositions['filters.ipv4.TIGHT.terms["2"].description']).toEqual({ kind: 'unsupported', reason: 'left out whole: term 2 can\'t be written (a description with no sequence number free before the entry for its remark), and leaving it out would change what the terms after it see' })
+    expect(result.dispositions['filters.ipv4.TIGHT.terms["2"].description']).toEqual({ kind: 'unsupported', reason: 'left out whole: one of its terms can\'t be written (a description with no sequence number free before the entry for its remark), and leaving it out would change what the terms after it see' })
   })
 })
 

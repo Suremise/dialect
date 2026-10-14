@@ -137,6 +137,9 @@
             "30",
             "40"
           ]
+        },
+        "aggregation": {
+          "lacp": "active"
         }
       },
       "Port-channel2": {
@@ -147,6 +150,9 @@
           "allowedVlans": [
             "20"
           ]
+        },
+        "aggregation": {
+          "lacp": "passive"
         }
       },
       "Loopback0": {
@@ -207,54 +213,26 @@
       "TenGigabitEthernet1/0/1": {
         "type": "ethernet",
         "description": "LACP member to core (Po1)",
-        "switching": {
-          "mode": "trunk",
-          "nativeVlan": 10,
-          "allowedVlans": [
-            "10",
-            "20",
-            "30",
-            "40"
-          ]
-        },
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-channel1"
       },
       "TenGigabitEthernet1/0/2": {
         "type": "ethernet",
         "description": "LACP member to core (Po1)",
-        "switching": {
-          "mode": "trunk",
-          "nativeVlan": 10,
-          "allowedVlans": [
-            "10",
-            "20",
-            "30",
-            "40"
-          ]
-        },
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-channel1"
       },
       "TenGigabitEthernet1/0/3": {
         "type": "ethernet",
         "description": "Server bond member (Po2)",
-        "switching": {
-          "mode": "trunk",
-          "allowedVlans": [
-            "20"
-          ]
-        },
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-channel2"
       },
       "TenGigabitEthernet1/0/4": {
         "type": "ethernet",
         "description": "Server bond member (Po2)",
-        "switching": {
-          "mode": "trunk",
-          "allowedVlans": [
-            "20"
-          ]
-        },
-        "enabled": true
+        "enabled": true,
+        "aggregate": "Port-channel2"
       },
       "TenGigabitEthernet1/0/5": {
         "type": "ethernet",
