@@ -148,7 +148,8 @@ export function planFilters(filters: Filters | undefined, skip: (field: Segments
     const unsafe = planned.find((p) => typeof p.e !== 'string' && !filterTermSkipSafe(filter, p.key))
     const kept = planned.filter((p) => typeof p.e === 'string')
     if (unsafe || !kept.length) {
-      skipAll(filter, at, unsafe ? `left out whole: term ${unsafe.key} can't be written (${(unsafe.e as { why: string }).why}), and leaving it out would change what the terms after it see` : 'no term IOS can write: an access list with no entries lets every packet through')
+      // No term key in a reason: a key of the config can be a secret's value reused (AGENTS.md).
+      skipAll(filter, at, unsafe ? `left out whole: one of its terms can't be written (${(unsafe.e as { why: string }).why}), and leaving it out would change what the terms after it see` : 'no term IOS can write: an access list with no entries lets every packet through')
       return
     }
     const out: AclLine[] = [{ text: family === 'ipv4' ? `ip access-list ${kind} ${name}` : `ipv6 access-list ${name}`, fields: [] }]

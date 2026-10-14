@@ -37,7 +37,7 @@ describe('nothing is dropped silently', () => {
     expect(nodes[0]).toMatchObject({ kind: 'banner', text: banner.join('\n'), children: [] })
     expect(result.dispositions[nodes[0].id]).toEqual({ kind: 'unsupported', reason: 'a login banner, 5 lines, kept verbatim' })
     expect(nodes[1]).toMatchObject({ kind: 'certificate-chain', text: chain.join('\n'), children: [] })
-    expect(result.dispositions[nodes[1].id]).toEqual({ kind: 'unsupported', reason: 'certificate chain TP-1, 4 lines, kept verbatim' })
+    expect(result.dispositions[nodes[1].id]).toEqual({ kind: 'unsupported', reason: 'a certificate chain, 4 lines, kept verbatim' })
     // The interface inside the banner is banner text, not configuration.
     expect(result.model).toEqual({ system: { hostname: 'r1' } })
   })
@@ -45,7 +45,7 @@ describe('nothing is dropped silently', () => {
   it('a statement with an option the model can\'t hold is unsupported as a whole, not half-converted', () => {
     const result = parse('ntp server 192.0.2.1 key 1\nip name-server 192.0.2.53 2.3.4.5 use-vrf management')
     expect(result.model).toEqual({})
-    expect(Object.values(result.dispositions)).toEqual([{ kind: 'unsupported', reason: '"key" isn\'t converted yet' }, { kind: 'unsupported', reason: '"use-vrf" isn\'t converted yet' }])
+    expect(Object.values(result.dispositions)).toEqual([{ kind: 'unsupported', reason: 'word 4 isn\'t converted yet' }, { kind: 'unsupported', reason: 'word 5 isn\'t an address' }])
   })
 
   it('a later setting supersedes an earlier one, as on the device', () => {
@@ -57,18 +57,64 @@ describe('nothing is dropped silently', () => {
   })
 })
 
+describe('reasons say where, never a word of the config (AGENTS.md, No secrets in diagnostics)', () => {
+  it('a community reused as a route word, a route name, a name server, an NTP or logging option and a trustpoint never reaches a message', () => {
+    const secret = 'CANARY-COMMUNITY'
+    const text = [
+      `snmp-server community ${secret} RO`,
+      `ip route 10.0.0.0 255.0.0.0 192.0.2.1 ${secret}`,
+      'ip route 10.1.0.0 255.255.0.0 192.0.2.1 name first',
+      `ip route 10.1.0.0 255.255.0.0 192.0.2.2 name ${secret}`,
+      `ip name-server 192.0.2.53 ${secret}`,
+      `ntp server 192.0.2.1 ${secret}`,
+      `logging host 192.0.2.9 ${secret}`,
+      `crypto pki certificate chain ${secret}`,
+      ' certificate self-signed 01',
+      '  30820330',
+      '  quit'
+    ].join('\n')
+    const result = parse(text)
+    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: 'word 6 isn\'t converted yet' })
+    expect(result.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'a second name for the route named on line 3' })
+    expect(result.dispositions.L5).toEqual({ kind: 'unsupported', reason: 'word 4 isn\'t an address' })
+    expect(result.dispositions.L6).toEqual({ kind: 'unsupported', reason: 'word 4 isn\'t converted yet' })
+    expect(result.dispositions.L7).toEqual({ kind: 'unsupported', reason: 'word 4 isn\'t converted yet' })
+    expect(result.dispositions.L8).toEqual({ kind: 'unsupported', reason: 'a certificate chain, 4 lines, kept verbatim' })
+    expect(checkSecrets(plugin, text, [secret], { allowances: [] }).leaks).toEqual([])
+  })
+
+  it('a numeric community reused as a route map sequence or a term\'s key never reaches a message either', () => {
+    const secret = '48213'
+    const next = String(Number(secret) + 1)
+    for (const text of [
+      [`snmp-server community ${secret} RO`, `route-map M permit ${secret}`, `no route-map M permit ${secret}`],
+      [`snmp-server community ${secret} RO`, `route-map M permit ${secret}`, ' continue', `route-map M permit ${next}`],
+      [`snmp-server community ${secret} RO`, `route-map M deny 10`, ' match tag 1', `route-map M permit ${secret}`, ' continue'],
+      [`snmp-server community ${secret} RO`, 'ip access-list extended F', ` ${secret} permit ip 10.0.0.0 0.255.0.255 any`, ` ${next} deny ip any any`]
+    ].map((l) => l.join('\n'))) expect(checkSecrets(plugin, text, [secret], { allowances: [] }).leaks, text).toEqual([])
+    // A render from another platform, with the number as a term's key.
+    const filter = { matches: { routeFilters: { '1': { prefix: '10.0.0.0/8', minLength: 8, maxLength: 32 } } } }
+    const rendered = render({
+      routingPolicy: { policies: { P: { fallThrough: 'reject', terms: { [secret]: { ...filter, actions: { flow: 'reject' } }, [next]: { actions: { flow: 'accept' } } } } } },
+      filters: { ipv4: { F: { implicitAction: 'deny', terms: { [secret]: { matches: { prefixes: ['10.0.0.0/8'] }, actions: { action: 'discard' } }, [next]: { actions: { action: 'accept' } } } } } }
+    })
+    for (const d of Object.values(rendered.dispositions)) if ('reason' in d) expect(d.reason).not.toContain(secret)
+    expect(rendered.diagnostics.map((d) => d.message).join(' ')).not.toContain(secret)
+  })
+})
+
 describe('DNS', () => {
   it('a server already named in another VRF is unsupported: the model keys servers by address alone', () => {
     const result = parse('ip name-server vrf A 192.0.2.53\nip name-server 192.0.2.53 192.0.2.54')
     expect(result.model.system?.dns).toEqual({ servers: { '192.0.2.53': { networkInstance: 'A' } } })
-    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: '192.0.2.53 is already a name server in another VRF' })
+    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: 'a server of line 1 in another VRF: the model keys name servers by address alone' })
   })
 
   it('a statement with a malformed IPv6 server is unsupported as a whole, with no server added', () => {
     for (const bad of ['2001:db8:::53', '2001:db8:1:2:3:4:5:6:']) {
       const result = parse(`ip name-server 192.0.2.53 ${bad}`)
       expect(result.model, bad).toEqual({})
-      expect(result.dispositions.L1).toEqual({ kind: 'unsupported', reason: `"${bad}" isn't converted yet` })
+      expect(result.dispositions.L1).toEqual({ kind: 'unsupported', reason: 'word 4 isn\'t an address' })
     }
   })
 
@@ -1089,8 +1135,8 @@ describe('routing policy (model 0.5.0)', () => {
     expect(at(result, 'match community C')).toEqual({ kind: 'unsupported', reason: 'names a community list that isn\'t converted' })
     // Sequence 10 decides (it permits), so leaving it out would let sequence 20 see its routes: the whole route map goes.
     expect(result.model.routingPolicy?.policies).toBeUndefined()
-    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'left out whole: sequence 10 (line 3) isn\'t converted, and the sequences after it would see the routes it decides' })
-    expect(at(result, 'set tag 1')).toEqual({ kind: 'unsupported', reason: 'part of route map sequence 10, converted whole or not at all: line 4 isn\'t converted' })
+    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'left out whole: the sequence of line 3 isn\'t converted, and the sequences after it would see the routes it decides' })
+    expect(at(result, 'set tag 1')).toEqual({ kind: 'unsupported', reason: 'part of the route map sequence of line 3, converted whole or not at all: line 4 isn\'t converted' })
     expect(buildLedger(result).complete).toBe(true)
   })
 
@@ -1098,7 +1144,7 @@ describe('routing policy (model 0.5.0)', () => {
     const text = lines('route-map M deny 10', ' match tag 7', 'route-map M permit 20', ' match ip address 10')
     const result = parse(text)
     expect(result.model.routingPolicy?.policies).toEqual({ M: { terms: { '10': { matches: { tags: [7] }, actions: { flow: 'reject' } } }, fallThrough: 'reject' } })
-    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'part of route map sequence 20, converted whole or not at all: line 4 isn\'t converted' })
+    expect(at(result, 'route-map M permit 20')).toEqual({ kind: 'unsupported', reason: 'part of the route map sequence of line 3, converted whole or not at all: line 4 isn\'t converted' })
     expect(roundTrips(text)).toEqual([])
   })
 

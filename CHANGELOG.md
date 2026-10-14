@@ -22,6 +22,8 @@
   keyboard focus shows.
 
 ### Convert
+- **IOS-XE messages no longer quote the config:** a statement that isn't converted says which word, by its position, or
+  which line, never the word itself, so a password or community reused there doesn't show up in a warning or log.
 - **A VRF's BGP neighbor can inherit a global template on NX-OS and IOS-XR:** `inherit peer T` and `use
   neighbor-group G` in a VRF now convert with the template's settings, where they were listed as not converted.
   Converting to NX-OS or IOS-XR writes a VRF's group once as the global template when it is the same as the global one
