@@ -1,5 +1,6 @@
-// @dialect/platform-junos: the Junos plugin. Its default export is the plugin for the core's registry, whose tools()
-// has display set; the parser and the flattener are exported too. The mapping to and from the shared model comes in B4.
+// @dialect/platform-junos: the Junos plugin. Its default export is the plugin for the core's registry: parse into the
+// shared model and render from it for the phase 1 areas, detect(), and display set in tools(). The tree parser, the
+// flattener and the mapping's steps are exported too. Platform-neutral: strings in, strings and plain objects out.
 import { junos } from './plugin'
 
 export const PACKAGE_NAME = '@dialect/platform-junos'
@@ -9,3 +10,8 @@ export { displaySetTool, junos, type JunosTool } from './plugin'
 export { JunosParseError, tokenize, type Token, type TokenKind } from './tokenizer'
 export { parseConfig, type ConfigNode, type ParsedConfig, type ParseWarning, type WarningCode } from './tree'
 export { annotationWarnings, displaySet, flatten, type DisplaySetError, type DisplaySetResult, type SetLine } from './displaySet'
+export { detect } from './detect'
+export { parse } from './parse'
+export { render } from './render'
+export { isSetForm, readConfig, type ReadConfig, type Statement } from './statements'
+export { expand, memberRange, type Expanded, type Expansion } from './expand'

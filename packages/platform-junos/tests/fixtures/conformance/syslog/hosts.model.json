@@ -1,0 +1,24 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "logging": {
+        "remoteServers": {
+          "192.0.2.20": {
+            "severity": "notice",
+            "facility": "local7",
+            "port": 1514
+          },
+          "192.0.2.21": {
+            "severity": "debug",
+            "networkInstance": "mgmt_junos"
+          },
+          "192.0.2.22": {
+            "severity": "informational"
+          },
+          "syslog.example.net": {}
+        }
+      }
+    }
+  }
+}
