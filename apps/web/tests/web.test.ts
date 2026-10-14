@@ -96,7 +96,8 @@ function expectedOutput(n: number): string {
   return lines.join('\n') + '\n'
 }
 
-const setLines = (n: number): string => `${n} set line${n === 1 ? '' : 's'}`
+/** The output's count in display set: its set commands. */
+const setCommands = (n: number): string => `${n} set command${n === 1 ? '' : 's'}`
 
 async function openWithPicker(path: string): Promise<void> {
   const chooser = page.waitForEvent('filechooser', UI_WAIT)
@@ -155,7 +156,7 @@ describe('the web build', () => {
     const lineCount = expectedOutput(n).split('\n').length - 1
     await expect
       .poll(summary, UI_WAIT)
-      .toEqual({ name: `config_${n}.conf`, output: setLines(lineCount), problems: '0 warnings', status: setLines(lineCount), saveDisabled: false })
+      .toEqual({ name: `config_${n}.conf`, output: setCommands(lineCount), problems: '0 warnings', status: setCommands(lineCount), saveDisabled: false })
     expect(await saveOutput()).toEqual({ name: `config_${n}.set`, text: expectedOutput(n) })
   })
 
@@ -178,14 +179,14 @@ describe('the web build', () => {
     await target.dispatchEvent('dragover', { dataTransfer: data })
     await target.dispatchEvent('drop', { dataTransfer: data })
     await expect.poll(() => text('source-name'), UI_WAIT).toBe('dropped.conf')
-    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setLines(7))
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setCommands(7))
     expect(await saveOutput()).toEqual({ name: 'dropped.set', text: expectedOutput(16) })
   })
 
   it('ignores a byte order mark at the start of typed or pasted text', async () => {
     await openPage()
     await typeSource('﻿system { host-name r1; }')
-    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setLines(1))
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setCommands(1))
     expect(await saveOutput()).toEqual({ name: 'display-set.set', text: 'set system host-name r1\n' })
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await page.evaluate(() => navigator.clipboard.writeText('﻿system {\n    host-name r2;\n}\n'))
@@ -208,7 +209,7 @@ describe('the web build', () => {
     await expect.poll(() => page.locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('}')
     // Fixing it brings the output back.
     await typeSource('system {\n    host-name r1;\n}\n')
-    await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: setLines(1), problems: '0 warnings', status: setLines(1), saveDisabled: false })
+    await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: setCommands(1), problems: '0 warnings', status: setCommands(1), saveDisabled: false })
     await expect.poll(() => page.locator('.problem').count(), UI_WAIT).toBe(0)
   })
 
@@ -218,7 +219,7 @@ describe('the web build', () => {
     await expect
       .poll(() => page.locator('.problem.warning').allInnerTexts(), UI_WAIT)
       .toEqual(["annotation on this statement isn't shown in display set\nline 3, column 5", "unknown tag 'deleted:' kept as a word\nline 4, column 5"])
-    await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: setLines(2), problems: '2 warnings', status: setLines(2), saveDisabled: false })
+    await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: setCommands(2), problems: '2 warnings', status: setCommands(2), saveDisabled: false })
   })
 
   it('pastes from the clipboard and copies the output to it', async () => {
@@ -227,12 +228,12 @@ describe('the web build', () => {
     await page.evaluate((t) => navigator.clipboard.writeText(t), readFileSync(fixture('config_3.conf'), 'utf8'))
     await page.getByRole('button', { name: 'Paste' }).click()
     const lineCount = expectedOutput(3).split('\n').length - 1
-    await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: setLines(lineCount), problems: '0 warnings', status: setLines(lineCount), saveDisabled: false })
+    await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: setCommands(lineCount), problems: '0 warnings', status: setCommands(lineCount), saveDisabled: false })
     await page.evaluate(() => navigator.clipboard.writeText(''))
     await page.getByRole('button', { name: 'Copy output' }).click()
     // Windows' clipboard keeps text with CRLF line endings.
     await expect.poll(async () => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n'), UI_WAIT).toBe(expectedOutput(3))
-    await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toBe(`Copied ${setLines(lineCount)}.`)
+    await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toBe(`Copied ${setCommands(lineCount)}.`)
   })
 
   it('asks for Ctrl+V when it may not read the clipboard', async () => {
@@ -258,10 +259,22 @@ describe('the web build', () => {
     await expect.poll(theme, UI_WAIT).toEqual({ label: 'System theme', theme: 'light', background: 'rgb(255, 255, 255)' })
   })
 
+  it("counts a banner's lines as one set command, and links each of them to its statement", async () => {
+    await openPage()
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await typeSource('system {\n    host-name r1;\n    login {\n        message "one\ntwo \\"x\\"\nthree";\n    }\n}\n')
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe('2 set commands (4 lines)')
+    expect(await page.locator('[data-pane=output] .cm-line').count()).toBe(4)
+    await page.locator('[data-pane=output] .cm-line').nth(3).click()
+    await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('        message "one')
+    await page.getByRole('button', { name: 'Copy output' }).click()
+    await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toBe('Copied 2 set commands (4 lines).')
+  })
+
   it('links an output line to its source statement', async () => {
     await openPage()
     await typeSource('system {\n    host-name r1;\n    inactive: services {\n        ssh;\n    }\n}\n')
-    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setLines(3))
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setCommands(3))
     await page.locator('[data-pane=output] .cm-line').nth(2).click()
     await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('    inactive: services {')
   })
@@ -348,7 +361,7 @@ describe('the web build', () => {
     await page.getByRole('button', { name: '← Display set' }).click()
     await expect.poll(() => page.locator('[data-pane=source]').isVisible(), UI_WAIT).toBe(true)
     expect(await sourceText()).toBe(both)
-    expect(await text('output-summary')).toBe(setLines(2))
+    expect(await text('output-summary')).toBe(setCommands(2))
     await page.locator('[data-pane=source] .cm-content').click()
     await page.keyboard.press('Control+Z')
     await expect.poll(sourceText, UI_WAIT).toBe(undone)
@@ -516,7 +529,7 @@ describe('convert mode in the web build', () => {
     await expect.poll(() => page.getByRole('button', { name: '← Convert' }).count(), UI_WAIT).toBe(1)
     await page.getByRole('button', { name: '← Convert' }).click()
     await page.getByRole('button', { name: 'Display set' }).click()
-    await expect.poll(() => text('output-summary'), UI_WAIT).toMatch(/^\d+ set lines$/)
+    await expect.poll(() => text('output-summary'), UI_WAIT).toMatch(/^\d+ set commands$/)
     expect(await page.locator('.interfaces').count()).toBe(0)
   })
 })
@@ -527,7 +540,7 @@ describe.runIf(Boolean(shots))('screenshots', () => {
   it.each(['dark', 'light'] as const)('%s', async (scheme) => {
     await openPage(scheme)
     await openWithPicker(fixture('config_15.conf'))
-    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setLines(12))
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setCommands(12))
     await page.locator('[data-pane=output] .cm-line').nth(6).click()
     await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').count(), UI_WAIT).toBe(1)
     await page.screenshot({ path: join(shots!, `dialect-${scheme}.png`) })

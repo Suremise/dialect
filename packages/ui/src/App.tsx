@@ -11,7 +11,7 @@ import { DocsView } from './help/DocsView'
 import { HelpMenu } from './help/HelpMenu'
 import { useHelp } from './help/state'
 import type { Platform } from './platform'
-import { outputName, SOURCE_PLUGIN, TARGETS, targetPlugin, useStore, type Mode, type ThemeChoice } from './store'
+import { countCommands, outputName, SOURCE_PLUGIN, TARGETS, targetPlugin, useStore, type Mode, type ThemeChoice } from './store'
 
 const MODES: readonly { mode: Mode; label: string; title: string }[] = [
   { mode: 'display-set', label: 'Display set', title: 'Hierarchical Junos config to display set commands' },
@@ -68,6 +68,11 @@ export function App({ platform }: { platform: Platform }) {
 
   const unnamed = interfaces.filter((i) => i.target === undefined).length
   const outputLines = output ? output.split('\n').length : 0
+  // Display set counts commands: a banner's quoted line breaks make one command several lines, said when they do.
+  const commands = converting ? 0 : countCommands(output)
+  const outputCount = converting
+    ? plural(outputLines, 'line', 'lines')
+    : `${plural(commands, 'set command', 'set commands')}${commands === outputLines ? '' : ` (${plural(outputLines, 'line', 'lines')})`}`
 
   const sourceMarks = useMemo<LineMark[]>(
     () => [
@@ -133,11 +138,11 @@ export function App({ platform }: { platform: Platform }) {
     if (!output) return
     try {
       await platform.writeClipboard(output + '\n')
-      notify('info', `Copied ${converting ? plural(outputLines, 'line', 'lines') : plural(outputLines, 'set line', 'set lines')}.`)
+      notify('info', `Copied ${outputCount}.`)
     } catch (e) {
       notify('error', `Couldn't copy the output: ${(e as Error).message}`)
     }
-  }, [platform, output, converting, outputLines])
+  }, [platform, output, outputCount])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -183,8 +188,8 @@ export function App({ platform }: { platform: Platform }) {
     : source.trim() === ''
       ? ''
       : converting
-        ? `${plural(outputLines, 'line', 'lines')}${unnamed ? `, incomplete: ${plural(unnamed, 'interface needs', 'interfaces need')} a name` : ''}`
-        : plural(outputLines, 'set line', 'set lines')
+        ? `${outputCount}${unnamed ? `, incomplete: ${plural(unnamed, 'interface needs', 'interfaces need')} a name` : ''}`
+        : outputCount
   const outputTitle = converting ? target.name : 'Display set'
 
   return (
