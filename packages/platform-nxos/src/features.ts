@@ -18,5 +18,11 @@ export const VPN_FEATURE = 'bgp'
 /** The feature OSPF needs: `router ospf` and an interface's `ip router ospf` and `ip ospf …`. */
 export const OSPF_FEATURE = 'ospf'
 
+/**
+ * The feature LACP needs: a member's `channel-group N mode active|passive` and a port-channel's `lacp min-links`.
+ * `mode on`, or no mode, bundles without LACP and needs nothing.
+ */
+export const LACP_FEATURE = 'lacp'
+
 /** The features an interface needs, by its name. */
 export const featuresFor = (name: string): string[] => REQUIRED_FEATURES.filter(([, needs]) => needs.test(name)).map(([feature]) => feature)

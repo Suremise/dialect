@@ -113,6 +113,9 @@
             "10",
             "20"
           ]
+        },
+        "aggregation": {
+          "lacp": "active"
         }
       },
       "Ethernet1/1": {
@@ -178,11 +181,13 @@
       },
       "Ethernet1/5": {
         "type": "ethernet",
-        "description": "bundle member"
+        "description": "bundle member",
+        "aggregate": "port-channel1"
       },
       "Ethernet1/6": {
         "type": "ethernet",
-        "description": "bundle member"
+        "description": "bundle member",
+        "aggregate": "port-channel1"
       },
       "Ethernet1/7": {
         "type": "ethernet",

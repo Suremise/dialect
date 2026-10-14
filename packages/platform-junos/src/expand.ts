@@ -114,7 +114,7 @@ export function expand(statements: readonly Statement[]): Expansion {
   statements.forEach((s, order) => {
     const w = s.words
     if (w[0] === 'groups') {
-      if (w.length < 2) note(s.node, unsupported())
+      if (w.length < 2) note(s.node, unsupported('groups with no group named'))
       else if (w.length === 2) {
         if (!groups.has(w[1])) groups.set(w[1], [])
         note(s.node, ignored('defines a group: its statements are mapped where it is applied'))

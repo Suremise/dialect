@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.0",
+  "modelVersion": "0.5.4",
   "device": {
     "interfaces": {
       "ge-0/0/0": {
@@ -77,19 +77,23 @@
       },
       "ge-0/0/2": {
         "description": "LAG ae0 member 1",
-        "type": "ethernet"
+        "type": "ethernet",
+        "aggregate": "ae0"
       },
       "ge-0/0/3": {
         "description": "LAG ae0 member 2",
-        "type": "ethernet"
+        "type": "ethernet",
+        "aggregate": "ae0"
       },
       "ge-0/0/4": {
         "description": "LAG ae1 member 1",
-        "type": "ethernet"
+        "type": "ethernet",
+        "aggregate": "ae1"
       },
       "ge-0/0/5": {
         "description": "LAG ae1 member 2",
-        "type": "ethernet"
+        "type": "ethernet",
+        "aggregate": "ae1"
       },
       "ae0": {
         "description": "Bonded uplink to spine",
@@ -105,6 +109,9 @@
               }
             }
           }
+        },
+        "aggregation": {
+          "lacp": "active"
         }
       },
       "ae1": {
@@ -120,6 +127,9 @@
               }
             }
           }
+        },
+        "aggregation": {
+          "lacp": "active"
         }
       },
       "irb": {

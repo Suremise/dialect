@@ -444,7 +444,7 @@ export function createPolicyReader(dispositions: Record<string, StatementDisposi
     state.nodes.push(node)
     // A route map whose last sequence goes is gone, as on the device.
     if (!state.sequences.size && !state.unconverted) routeMaps.delete(name)
-    return ignored(`removes route map sequence ${seq}, configured on ${linesText(sequence.nodes)}: nothing to convert`)
+    return ignored(`removes the route map sequence configured on ${linesText(sequence.nodes)}: nothing to convert`)
   }
 
   /** Reads a top-level statement if it is routing policy, with its disposition; false when it isn't. */
@@ -564,11 +564,11 @@ export function createPolicyReader(dispositions: Record<string, StatementDisposi
       // that is safe. Every sequence permits or denies, so only the last can be left out (termSkipSafe() says so).
       const flowOf = (s: Sequence) => (s.action === 'permit' ? 'accept' : 'reject')
       const probe: Policy = { fallThrough: 'reject', terms: keyed(sequences.map(([seq, s]) => [String(seq), { actions: { flow: flowOf(s), ...(s.problem ? { unknown: true } : {}) } } as PolicyTerm])) }
-      for (const [seq, s] of sequences) if (s.problem) for (const n of s.nodes) demote(n, `part of route map sequence ${seq}, converted whole or not at all: line ${line(s.problem.node)} isn't converted`)
+      for (const [, s] of sequences) if (s.problem) for (const n of s.nodes) demote(n, `part of the route map sequence of line ${line(s.headers[0])}, converted whole or not at all: line ${line(s.problem.node)} isn't converted`)
       const unsafe = sequences.find(([seq, s]) => s.problem && !termSkipSafe(probe, String(seq)))
       const converted = sequences.filter(([, s]) => !s.problem)
       if (unsafe || !converted.length) {
-        const reason = unsafe ? `left out whole: sequence ${unsafe[0]} (line ${line(unsafe[1].headers[0])}) isn't converted, and the sequences after it would see the routes it decides` : 'left out whole: none of its sequences is converted'
+        const reason = unsafe ? `left out whole: the sequence of line ${line(unsafe[1].headers[0])} isn't converted, and the sequences after it would see the routes it decides` : 'left out whole: none of its sequences is converted'
         for (const n of state.nodes) demote(n, reason)
         continue
       }

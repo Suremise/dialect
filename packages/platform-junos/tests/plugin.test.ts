@@ -24,14 +24,14 @@ describe('the Junos plugin', () => {
     const registry = createRegistry([junos])
     expect(registry.modelVersion).toBe(MODEL_VERSION)
     expect(registry.get('junos')).toBe(junos)
-    expect(junos).toMatchObject({ id: 'junos', name: 'Junos', modelApi: '>=0.5.2 <1.0.0' })
+    expect(junos).toMatchObject({ id: 'junos', name: 'Junos', modelApi: '>=0.5.4 <1.0.0' })
   })
 
-  it("covers every 0.x model from 0.5.2 on (its parse fills 0.5.2's VRF policies), and no 0.5.1 or 1.x", () => {
-    for (const version of ['0.5.2', '0.5.7', '0.9.0']) expect(pluginProblem(junos, version)).toBeNull()
-    expect(pluginProblem(junos, '0.5.1')).not.toBeNull()
+  it("covers every 0.x model from 0.5.4 on (its parse fills 0.5.4's LAGs), and no 0.5.3 or 1.x", () => {
+    for (const version of ['0.5.4', '0.5.7', '0.9.0']) expect(pluginProblem(junos, version)).toBeNull()
+    expect(pluginProblem(junos, '0.5.3')).not.toBeNull()
     expect(() => createRegistry([junos], { modelVersion: '1.0.0' })).toThrow(PluginRejectedError)
-    expect(() => createRegistry([junos], { modelVersion: '1.0.0' })).toThrow('Plugin "junos" supports model versions >=0.5.2 <1.0.0, but this core\'s model is 1.0.0.')
+    expect(() => createRegistry([junos], { modelVersion: '1.0.0' })).toThrow('Plugin "junos" supports model versions >=0.5.4 <1.0.0, but this core\'s model is 1.0.0.')
   })
 
   it('lists display set in tools(), with its id, name and what it reads and writes', () => {

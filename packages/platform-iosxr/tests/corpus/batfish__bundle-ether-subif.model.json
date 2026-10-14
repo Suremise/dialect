@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.5.4",
   "device": {
     "system": {
       "hostname": "bundle-ether-subif"
@@ -13,10 +13,14 @@
             "vlanId": 2
           }
         },
-        "vlanTagging": true
+        "vlanTagging": true,
+        "aggregation": {
+          "lacp": "active"
+        }
       },
       "TenGigE0/1": {
-        "type": "ethernet"
+        "type": "ethernet",
+        "aggregate": "Bundle-Ether500"
       },
       "Bundle-Ether600": {
         "type": "aggregate",
@@ -27,10 +31,14 @@
             "vlanId": 3
           }
         },
-        "vlanTagging": true
+        "vlanTagging": true,
+        "aggregation": {
+          "lacp": "active"
+        }
       },
       "TenGigE0/2": {
-        "type": "ethernet"
+        "type": "ethernet",
+        "aggregate": "Bundle-Ether600"
       }
     }
   }
