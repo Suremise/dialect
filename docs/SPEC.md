@@ -203,7 +203,8 @@ product decisions.
   configuration of its own, isn't written in the bundle.
 - **Every statement left out says why** (#109): a plugin gives every `unsupported` or `ignored-by-design` statement
   and field a reason, from the statement's keywords when it has nothing more particular to say, never a word of the
-  configuration. Each plugin's corpus test checks it over the whole corpus (Junos and IOS-XR so far).
+  configuration. The conformance kit's ledger check holds every plugin to it, over every fixture and the whole corpus
+  (#111).
 - **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
   left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
   contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos

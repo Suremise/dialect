@@ -42,6 +42,41 @@ describe('a mapper that handles only host-name, on one line', () => {
   })
 })
 
+describe('a plugin that leaves something out without saying why (#111)', () => {
+  const source = 'system { host-name r1; services { ssh; } }'
+  const fixture: Fixture = { name: 'system/one-line', source, expectedModel: { system: { hostname: 'r1' } } }
+  const careful = stubPlugin()
+
+  it('fails the ledger check for a statement unsupported with no reason, by its line only', () => {
+    const silent: PlatformPlugin = {
+      ...careful,
+      parse: (text, context) => {
+        const parsed = careful.parse!(text, context)
+        const dispositions = Object.fromEntries(Object.entries(parsed.dispositions).map(([id, d]) => [id, d.kind === 'unsupported' ? ({ kind: 'unsupported' } satisfies StatementDisposition) : d] as const))
+        return { ...parsed, dispositions }
+      }
+    }
+    expect(byCheck(checkFixture(careful, fixture)).ledger.status).toBe('passed')
+    const r = byCheck(checkFixture(silent, fixture))
+    expect(r.ledger.status).toBe('failed')
+    // `system services` and `system services ssh`, both on line 1.
+    expect(r.ledger.problems).toEqual(['line 1: unsupported with no reason', 'line 1: unsupported with no reason'])
+  })
+
+  it('fails it for a field the render leaves out with no reason, by its path', () => {
+    const silent: PlatformPlugin = {
+      ...careful,
+      render: (model, context) => {
+        const rendered = careful.render!(model, context)
+        return { ...rendered, dispositions: { ...rendered.dispositions, 'system.hostname': { kind: 'unsupported' } } }
+      }
+    }
+    const r = byCheck(checkFixture(silent, fixture))
+    expect(r.ledger.status).toBe('failed')
+    expect(r.ledger.problems).toContain('system.hostname: unsupported with no reason')
+  })
+})
+
 describe('a renderer that handles only a BGP neighbor\'s address and remote AS', () => {
   const source = 'protocols { bgp { neighbor 10.0.0.2 { peer-as 65001; multihop { ttl 2; } } } }'
   const neighbor = fieldPath('networkInstances', 'default', 'bgp', 'neighbors', '10.0.0.2')

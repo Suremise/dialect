@@ -260,6 +260,18 @@ function secretsCheck(plugin: PlatformPlugin, fixture: Fixture, modelVersion: st
 }
 
 /**
+ * Every statement and field left out says why (#109, #111): an `unsupported` or `ignored-by-design` disposition with no
+ * reason is a problem, so the user never sees a bare "not converted". By line or field path, never the statement's text.
+ */
+function unexplained(ledger: ReturnType<typeof buildLedger>): string[] {
+  const bare = (d: { readonly kind: string; readonly reason?: string } | null) => (d?.kind === 'unsupported' || d?.kind === 'ignored-by-design') && !d.reason?.trim()
+  return [
+    ...ledger.source.statements.filter((s) => bare(s.disposition)).map((s) => `${s.span ? `line ${s.span.startLine}` : `statement ${s.id}`}: ${s.disposition!.kind} with no reason`),
+    ...(ledger.target?.fields ?? []).filter((f) => bare(f.disposition)).map((f) => `${f.path}: ${f.disposition!.kind} with no reason`)
+  ]
+}
+
+/**
  * The five checks on `fixture` with `plugin`, against the core's model version (tests pass another), with the
  * secrets check's options: its temporary allowances (tests pass their own) and the plugin's config tools.
  */
@@ -303,7 +315,8 @@ export function checkFixture(plugin: PlatformPlugin, fixture: Fixture, { modelVe
   const roundTrip = result('round-trip', [...errors('reparse', reparsed), ...invalid('reparse', reparsed.model), ...modelDifferences(expected, withoutEmptied(reparsed.model, emptied)).map((d) => `render → reparse changed the model: ${d}`)])
   checks.push(deferred.length ? { ...roundTrip, deferred } : roundTrip)
 
-  checks.push(result('ledger', [...ledgerProblems(buildLedger(parsed, rendered)), ...termProblems(parsed, rendered)]))
+  const ledger = buildLedger(parsed, rendered)
+  checks.push(result('ledger', [...ledgerProblems(ledger), ...unexplained(ledger), ...termProblems(parsed, rendered)]))
   checks.push(secretsCheck(plugin, fixture, modelVersion, options))
   return checks
 }

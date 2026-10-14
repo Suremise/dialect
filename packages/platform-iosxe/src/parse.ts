@@ -13,6 +13,7 @@ import { interfaceName, interfaceType, isInterfaceName, splitSubinterface } from
 import { createAclReader } from './acl'
 import { createPolicyReader } from './policy'
 import { BANNER_TYPES, parseTree, unquote, type IosNode } from './tree'
+import { unconvertedReason } from './unconverted'
 
 type Obj = { [key: string]: unknown }
 type Segments = readonly string[]
@@ -2129,6 +2130,15 @@ export function parse(text: string, _context: Context): ParseResult {
       model.remove(['interfaces', name, leaf])
     }
   }
+
+  // Every statement left out says why: one its mapper had nothing more to say about, by the keywords of the top-level
+  // statement it is in (unconverted.ts).
+  const explain = (node: IosNode, top: readonly string[]) => {
+    const d = dispositions[node.id]
+    if (d?.kind === 'unsupported' && !d.reason) set(node, unsupported(unconvertedReason(top)))
+    for (const child of node.children) explain(child, top)
+  }
+  for (const node of nodes) explain(node, node.words.map((x) => x.toLowerCase()))
 
   return { tree: nodes, model: model.root as Device, dispositions, diagnostics }
 }
