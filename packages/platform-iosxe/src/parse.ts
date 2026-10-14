@@ -430,12 +430,15 @@ export function parse(text: string, _context: Context): ParseResult {
       return pending()
     }
     if (a[0] === 'authentication-key' || a[0] === 'message-digest-key') return ignored(remove ? 'removes an OSPF key, which is never carried: nothing to convert' : 'an OSPF key: never carried, so a target asks for it')
+    // A process number as `router ospf` takes it, from 1 to 65535 (`01` is 1).
+    const process = INTEGER.test(a[0] ?? '') && a[1] === 'area' ? inRange(a[0], 1, 65535) : null
+    if (INTEGER.test(a[0] ?? '') && a[1] === 'area' && process === null) return unsupported('not an OSPF process number from 1 to 65535')
     if (!remove) {
-      if (INTEGER.test(a[0] ?? '') && a[1] === 'area' && a.length === 3) {
+      if (process !== null && a.length === 3) {
         const area = ospfArea(a[2])
         if (area === null) return unsupported('not an OSPF area')
         if (state.area) set(state.area.node, ignored(`superseded by line ${line(node)}`))
-        state.area = { process: a[0], area, node }
+        state.area = { process: String(process), area, node }
         return pending()
       }
       if (a.length === 2 && (a[0] === 'cost' || a[0] === 'hello-interval' || a[0] === 'dead-interval')) return replace(OSPF_LEAVES[a[0]], inRange(a[1], 1, 65535), `not an OSPF ${a[0] === 'cost' ? 'cost' : 'interval'} from 1 to 65535`)
@@ -446,9 +449,9 @@ export function parse(text: string, _context: Context): ParseResult {
       }
       return unsupported()
     }
-    if (INTEGER.test(a[0] ?? '') && a[1] === 'area' && a.length <= 3) {
+    if (process !== null && a.length <= 3) {
       const previous = state.area
-      if (!previous || previous.process !== a[0]) return ignored('not in that OSPF process: nothing to convert')
+      if (!previous || previous.process !== String(process)) return ignored('not in that OSPF process: nothing to convert')
       state.area = undefined
       set(previous.node, ignored(`removed by line ${line(node)}`))
       return ignored(`removes the OSPF area on line ${line(previous.node)}: nothing to convert`)
@@ -1284,12 +1287,16 @@ export function parse(text: string, _context: Context): ParseResult {
   /** The `router bgp` statements, so `no router bgp` can remove them with everything in them. */
   const bgpNodes: IosNode[] = []
   /** Each peer's statements, by `instance|kind|key`, so `no neighbor X` can remove them. */
-  type Peer = { readonly instance: string; readonly kind: 'groups' | 'neighbors'; readonly key: string; readonly nodes: IosNode[]; deactivated?: IosNode }
+  type Peer = { readonly instance: string; readonly kind: 'groups' | 'neighbors'; readonly key: string; readonly nodes: IosNode[]; readonly families: Map<'ipv4-unicast' | 'ipv6-unicast', PeerFamily> }
+  /**
+   * A peer's address family as read: activated (`neighbor X activate`, or by being defined in a VRF's family), taken
+   * out (`no neighbor X activate`), and its route maps. The model's `addressFamilies` is built from it once every
+   * statement is read, as a family is there only when the peer carries it: a route map alone activates nothing.
+   */
+  type PeerFamily = { activate?: IosNode; auto?: IosNode; deactivate?: IosNode; readonly policies: Map<'importPolicies' | 'exportPolicies', { readonly name: string; readonly node: IosNode }> }
   const peers = new Map<string, Peer>()
   /** Update sources, checked once every interface is read: a source that isn't one of them is left out. */
   const updateSources: { readonly path: Segments; readonly node: IosNode }[] = []
-  /** Route maps kept by name, for their warning once the statement's disposition is final. */
-  const routeMaps: { readonly field: string; readonly node: IosNode }[] = []
 
   /** A neighbor's key (`192.0.2.2`, an IPv6 address in lower case) or a peer group's name, with its kind. */
   const peerOf = (instance: string, word: string): Peer => {
@@ -1297,7 +1304,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const kind = v6 || isIpv4(word) ? 'neighbors' : 'groups'
     const key = v6 ? word.toLowerCase() : word
     const id = `${instance}|${kind}|${key}`
-    const peer = peers.get(id) ?? { instance, kind, key, nodes: [] }
+    const peer: Peer = peers.get(id) ?? { instance, kind, key, nodes: [], families: new Map() }
     peers.set(id, peer)
     return peer
   }
@@ -1322,6 +1329,12 @@ export function parse(text: string, _context: Context): ParseResult {
       peer.nodes.push(node)
       return mapped([model.set(path, value)])
     }
+    const familyState = (): PeerFamily => {
+      const f = peer.families.get(family) ?? { policies: new Map() }
+      peer.families.set(family, f)
+      return f
+    }
+    const direction = a[0] === 'route-map' && a.length === 3 && (a[2] === 'in' || a[2] === 'out') ? (a[2] === 'in' ? 'importPolicies' : 'exportPolicies') : undefined
 
     if (remove) {
       if (!exists) return ignored('no such neighbor: nothing to convert')
@@ -1339,17 +1352,32 @@ export function parse(text: string, _context: Context): ParseResult {
         return ignored(`removes the ${group ? 'peer group' : 'neighbor'} configured on ${linesText([...new Set(removed.flatMap((p) => p.nodes.map(line)))].sort((x, y) => x - y))}: nothing to convert`)
       }
       const leaf = a[0] === 'description' ? 'description' : a[0] === 'update-source' ? 'updateSource' : a[0] === 'ebgp-multihop' ? 'multihop' : a[0] === 'password' ? 'authentication' : !group && a[0] === 'peer-group' ? 'group' : undefined
-      let path: Segments | undefined = leaf ? [...base, leaf] : undefined
       if (a[0] === 'activate' && a.length === 1) {
-        path = [...base, 'addressFamilies', family]
-        // Under `bgp default ipv4-unicast`, a neighbor carries IPv4 unless this says otherwise.
-        if (family === 'ipv4-unicast' && instance === 'default') peer.deactivated = node
+        // The neighbor leaves the family, and its configuration there goes with it, as on the device. Under `bgp default
+        // ipv4-unicast`, this also keeps it out of IPv4.
+        const f = familyState()
+        const why = ignored(`removed by line ${line(node)}, which takes the neighbor out of the address family`)
+        for (const n of [f.activate, ...[...f.policies.values()].map((p) => p.node)]) if (n) set(n, why)
+        f.activate = undefined
+        f.auto = undefined
+        f.policies.clear()
+        f.deactivate = node
+        peer.nodes.push(node)
+        return ignored('takes the neighbor out of the address family, which the model says by leaving the family out')
       }
-      if (a[0] === 'route-map' && a.length === 3 && (a[2] === 'in' || a[2] === 'out')) path = [...base, 'addressFamilies', family, a[2] === 'in' ? 'importPolicies' : 'exportPolicies']
+      if (direction) {
+        const f = familyState()
+        const previous = f.policies.get(direction)
+        if (!previous) return ignored('no such route map: nothing to convert')
+        f.policies.delete(direction)
+        set(previous.node, ignored(`removed by line ${line(node)}`))
+        return ignored(`removes the route map on line ${line(previous.node)}: nothing to convert`)
+      }
+      const path: Segments | undefined = leaf ? [...base, leaf] : undefined
       if (!path) return unsupported()
       const previous = owners.get(fieldPath(...path))
       owners.delete(fieldPath(...path))
-      if (model.get(path) === undefined) return ignored(peer.deactivated === node ? 'keeps the neighbor out of IPv4, which the model says by leaving the family out' : 'not set: nothing to convert')
+      if (model.get(path) === undefined) return ignored('not set: nothing to convert')
       model.remove(path)
       if (previous) set(previous, ignored(`removed by line ${line(node)}`))
       return ignored(`removes the setting${previous ? ` on line ${line(previous)}` : ''}: nothing to convert`)
@@ -1365,10 +1393,13 @@ export function parse(text: string, _context: Context): ParseResult {
     if (a[0] === 'remote-as' && a.length === 2) {
       const as = asNumber(a[1])
       if (as === null) return unsupported('not an AS number from 1 to 4294967295')
-      const d = setting([...base, 'peerAs'], as)
       // A neighbor defined in a VRF's address family carries it.
-      if (instance !== 'default' && !group && d.kind === 'mapped') return mapped([...d.fields, model.set([...base, 'addressFamilies', family], model.get([...base, 'addressFamilies', family]) ?? {})])
-      return d
+      if (instance !== 'default' && !group) {
+        const f = familyState()
+        f.auto = node
+        f.deactivate = undefined
+      }
+      return setting([...base, 'peerAs'], as)
     }
     if (!group && a[0] === 'peer-group' && a.length === 2) {
       const name = w[i + 3]
@@ -1391,17 +1422,21 @@ export function parse(text: string, _context: Context): ParseResult {
     // The password itself is never carried: the model flags it, and a target asks for it.
     if (a[0] === 'password' && a.length >= 2) return setting([...base, 'authentication'], true)
     if (a[0] === 'activate' && a.length === 1) {
-      const path = [...base, 'addressFamilies', family]
-      if (family === 'ipv4-unicast' && instance === 'default' && peer.deactivated) peer.deactivated = undefined
+      const f = familyState()
       peer.nodes.push(node)
-      return mapped([model.set(path, model.get(path) ?? {})])
+      if (f.activate) return ignored(`already active in the address family (line ${line(f.activate)})`)
+      f.activate = node
+      f.deactivate = undefined
+      return pending()
     }
-    if (a[0] === 'route-map' && a.length === 3 && (a[2] === 'in' || a[2] === 'out')) {
+    if (direction) {
       // IOS has one route map a direction: a later one replaces it. Its body isn't converted (phase 3).
-      const path = [...base, 'addressFamilies', family, a[2] === 'in' ? 'importPolicies' : 'exportPolicies']
-      const d = setting(path, [w[i + 3]])
-      if (d.kind === 'mapped') routeMaps.push({ field: fieldPath(...path), node })
-      return d
+      const f = familyState()
+      const previous = f.policies.get(direction)
+      if (previous) set(previous.node, ignored(`superseded by line ${line(node)}`))
+      f.policies.set(direction, { name: w[i + 3], node })
+      peer.nodes.push(node)
+      return pending()
     }
     return unsupported()
   }
@@ -1794,16 +1829,33 @@ export function parse(text: string, _context: Context): ParseResult {
     model.remove(path)
     set(node, unsupported('names an interface the configuration doesn\'t have'))
   }
-  if (!noDefaultIpv4) {
-    for (const peer of peers.values()) {
-      const base = ['networkInstances', peer.instance, 'bgp', peer.kind, peer.key]
-      if (peer.instance !== 'default' || peer.kind !== 'neighbors' || peer.deactivated || model.get(base) === undefined || model.get([...base, 'addressFamilies', 'ipv4-unicast']) !== undefined) continue
-      const field = model.set([...base, 'addressFamilies', 'ipv4-unicast'], {})
-      const first = peer.nodes.find((n) => dispositions[n.id]?.kind === 'mapped')
-      const d = first && dispositions[first.id]
-      if (first && d?.kind === 'mapped') set(first, mapped([...d.fields, field]))
+  // Each peer's address families: those it carries (activated, defined in a VRF's family, or a global IPv4 neighbor
+  // under `bgp default ipv4-unicast`, IOS's default, unless taken out), with their route maps. A route map in a family
+  // the peer doesn't carry is left out: the model keeps policies with a family it carries, which would activate it.
+  // IOS stopped activating IPv6 neighbors in IPv4 by default (12.2(33)SRE4), so the default is for IPv4 addresses only.
+  for (const peer of peers.values()) {
+    const base = ['networkInstances', peer.instance, 'bgp', peer.kind, peer.key]
+    if (model.get(base) === undefined) continue
+    const implicit = !noDefaultIpv4 && peer.instance === 'default' && peer.kind === 'neighbors' && isIpv4(peer.key)
+    if (implicit && !peer.families.has('ipv4-unicast')) peer.families.set('ipv4-unicast', { policies: new Map() })
+    for (const [family, f] of peer.families) {
+      const by = f.activate ?? f.auto ?? (family === 'ipv4-unicast' && implicit && !f.deactivate ? peer.nodes.find((n) => dispositions[n.id]?.kind === 'mapped') : undefined)
+      if (!by) {
+        for (const p of f.policies.values()) set(p.node, unsupported('a route map in an address family the neighbor doesn\'t carry: the model keeps policies only with a family it carries'))
+        continue
+      }
+      const at = [...base, 'addressFamilies', family]
+      const field = model.set(at, {})
+      const d = dispositions[by.id]
+      set(by, mapped([...(d?.kind === 'mapped' ? d.fields : []), field]))
+      for (const [leaf, p] of f.policies) {
+        const policy = model.set([...at, leaf], [p.name])
+        set(p.node, mapped([policy]))
+        diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A route map is kept by name only: its body isn\'t converted, so a target needs a policy of that name.', field: policy, statement: p.node.id })
+      }
     }
   }
+
   // What IOS does with an eBGP peer's routes when no policy applies (model 0.4.1): it accepts them, both ways. Set for
   // the side(s) that apply, on an instance with an eBGP peer (its own or its group's peer AS, not the local one) that
   // carries a family with no route map in that direction (its own, its group's, for the peer or the family).
@@ -1821,11 +1873,6 @@ export function parse(text: string, _context: Context): ParseResult {
           if (!(n[leaf] ?? group?.[leaf] ?? n.addressFamilies?.[family]?.[leaf] ?? group?.addressFamilies?.[family]?.[leaf])) sides.add(side)
     }
     if (sides.size) model.set(['networkInstances', instance, 'bgp', 'ebgpDefaultPolicy'], { ...(sides.has('import') ? { import: 'accept' } : {}), ...(sides.has('export') ? { export: 'accept' } : {}) })
-  }
-
-  for (const { field, node } of routeMaps) {
-    if (dispositions[node.id]?.kind !== 'mapped') continue
-    diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A route map is kept by name only: its body isn\'t converted, so a target needs a policy of that name.', field, statement: node.id })
   }
 
   return { tree: nodes, model: model.root as Device, dispositions, diagnostics }

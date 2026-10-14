@@ -435,6 +435,7 @@ default), with `detect`,
     `unsupported`). An interface is in an area by its own `ip ospf P area A` (`enabledBy: 'interface'`, which wins;
     with no `router ospf P` the process is made in the interface's VRF, as IOS does), or else by the most specific
     `network ADDR WILDCARD area A` of a process in its VRF matching its primary IPv4 address (`enabledBy: 'network'`).
+    Process numbers are 1 to 65535 wherever they are named (`01` is 1).
     A network statement that enables no interface is `unsupported`: the model keeps OSPF per interface, not ranges for
     interfaces to come. `passive-interface X|default` (and `no passive-interface X` under `default`) and the interface's
     `ip ospf cost|network point-to-point|broadcast|hello-interval|dead-interval|authentication` go on its area entry,
@@ -447,9 +448,12 @@ default), with `detect`,
     use): `remote-as` (`peerAs`), `peer-group G` (`group`), `description`, `update-source` (left out when it names no
     interface of the model), `ebgp-multihop [ttl]`, and `password`, flagged as `authentication: true` and never
     carried. In an address family, `neighbor X activate` and `route-map NAME in|out` (by name only, with a warning,
-    `iosxe.route-map-name-only`, that its body isn't converted) are the peer's `addressFamilies`; a VRF's neighbor
-    carries the family it is defined in. Under `bgp default ipv4-unicast`, IOS's default, a global neighbor carries
-    IPv4 unless `no neighbor X activate` says otherwise; `no bgp default ipv4-unicast` leaves only the explicit ones.
+    `iosxe.route-map-name-only`, that its body isn't converted) are the peer's `addressFamilies`, built once the text
+    is read: a family is there only when the peer carries it, so a route map alone activates nothing (in a family the
+    peer doesn't carry it is `unsupported`), and `no neighbor X activate` takes the family out with its route maps, as
+    on the device. A VRF's neighbor carries the family it is defined in. Under `bgp default ipv4-unicast`, IOS's
+    default, a global IPv4 neighbor carries IPv4 unless `no neighbor X activate` says otherwise (IPv6 neighbors haven't
+    been activated in IPv4 by default since 12.2(33)SRE4); `no bgp default ipv4-unicast` leaves only the explicit ones.
     `no neighbor X` (or `… remote-as`) removes the peer, a peer group with its members; `no router bgp` removes BGP
     everywhere. An instance with an eBGP peer (its own or its group's peer AS, not the local one) carrying a family
     with no route map in a direction gets `ebgpDefaultPolicy` `accept` for that side (model 0.4.1): IOS's default.
@@ -458,7 +462,8 @@ default), with `detect`,
   and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then
   its mode, as `show running-config` orders them (an empty allowed list as `none`); a routed VLAN is rendered by the
   interface's name, `interface VlanN`, and is `unsupported` on an interface of another name or a subinterface.
-  OSPF follows the interfaces, one `router ospf` an instance (the global table's first; the model's process number
+  OSPF follows the interfaces, one `router ospf` an instance (an interface routing in another VRF than the instance
+  is `unsupported`) (the global table's first; the model's process number
   where it is one and free, else the lowest free one), with the area types and authentication, then the network
   statements and passive interfaces. An interface the model enables per interface gets `ip ospf P area A` in its own
   block, with its cost, network type and timers; one enabled by a network statement gets an exact one

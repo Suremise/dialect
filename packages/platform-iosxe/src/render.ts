@@ -235,6 +235,11 @@ export function render(model: Device, context: Context): RenderResult {
             skipAll(i, iAt, 'names an interface the model doesn\'t have')
             continue
           }
+          // IOS runs a process in one VRF: an interface routing in another can't be in it.
+          if ((target.subinterface?.networkInstance ?? 'default') !== instance) {
+            skipAll(i, iAt, 'on an interface in another VRF than this OSPF instance')
+            continue
+          }
           const ifLines = ospfLines.get(`${target.name}|${target.sub}`) ?? []
           ospfLines.set(`${target.name}|${target.sub}`, ifLines)
           const written = target.sub === '0' ? target.name : `${target.name}.${target.sub}`

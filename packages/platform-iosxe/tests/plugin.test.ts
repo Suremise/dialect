@@ -841,6 +841,30 @@ describe('OSPF (model 0.4.0)', () => {
     expect(at(other, 'ip ospf 1 area 0')).toEqual({ kind: 'unsupported', reason: 'the interface is in another VRF than the OSPF process' })
   })
 
+  it('takes a process number from 1 to 65535, as router ospf does, and reads 01 as 1', () => {
+    for (const bad of ['0', '65536']) {
+      const result = parse([...gi1, ` ip ospf ${bad} area 0`].join('\n'))
+      expect(at(result, `ip ospf ${bad} area 0`), bad).toEqual({ kind: 'unsupported', reason: 'not an OSPF process number from 1 to 65535' })
+      expect(result.model.networkInstances, bad).toBeUndefined()
+    }
+    const padded = parse([...gi1, ' ip ospf 01 area 0', 'router ospf 1', ' router-id 192.0.2.1'].join('\n'))
+    expect(ospf(padded)).toEqual({ processId: '1', routerId: '192.0.2.1', areas: { '0.0.0.0': { interfaces: { Gi1: { enabledBy: 'interface' } } } } })
+    expect(ospf(parse([...gi1, ' ip ospf 1 area 0', ' no ip ospf 01 area 0'].join('\n')))).toBeUndefined()
+  })
+
+  it('renders an OSPF interface only in its own VRF\'s process', () => {
+    const vrfA = { A: { type: 'vrf' as const } }
+    const inA: Device = { interfaces: { Gi1: { subinterfaces: { '0': { networkInstance: 'A', ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } } }, networkInstances: { ...vrfA, default: { ospf: { processId: '1', areas: { '0.0.0.0': { interfaces: { Gi1: { enabledBy: 'interface', cost: 10 } } } } } } } }
+    const global: Device = { interfaces: { Gi1: { subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } } }, networkInstances: { A: { type: 'vrf', ospf: { processId: '2', areas: { '0.0.0.0': { interfaces: { Gi1: { enabledBy: 'network' } } } } } } } }
+    for (const [model, instance] of [[inA, 'default'], [global, 'A']] as const) {
+      const rendered = render(model)
+      const entry = `networkInstances.${instance}.ospf.areas["0.0.0.0"].interfaces.Gi1`
+      for (const [path, d] of Object.entries(rendered.dispositions)) if (path.startsWith(entry)) expect(d, path).toEqual({ kind: 'unsupported', reason: 'on an interface in another VRF than this OSPF instance' })
+      expect(rendered.text).not.toMatch(/ip ospf \d+ area|ip ospf cost|network 192\.0\.2\.1/)
+    }
+    expect(render({ ...inA, networkInstances: { ...vrfA, A: { type: 'vrf', ospf: inA.networkInstances!.default.ospf } } }).text).toContain(' ip ospf 1 area 0\n ip ospf cost 10\n')
+  })
+
   it('leaves out a second process in a VRF, and one in a VRF the text doesn\'t define', () => {
     const second = parse([...gi1, 'router ospf 1', ' network 192.0.2.0 0.0.0.255 area 0', 'router ospf 2', ' router-id 192.0.2.9'].join('\n'))
     expect(ospf(second)?.processId).toBe('1')
@@ -881,6 +905,32 @@ describe('BGP (model 0.4.0)', () => {
     expect(bgp(parse('router bgp 65000\n neighbor 192.0.2.2 remote-as 65001'))?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001, addressFamilies: { 'ipv4-unicast': {} } })
     expect(bgp(parse('router bgp 65000\n no bgp default ipv4-unicast\n neighbor 192.0.2.2 remote-as 65001'))?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
     expect(bgp(parse('router bgp 65000\n neighbor 192.0.2.2 remote-as 65001\n address-family ipv4\n  no neighbor 192.0.2.2 activate'))?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+  })
+
+  it('a route map activates no family: one where the neighbor isn\'t active is left out, in either order', () => {
+    const v4 = (...af: string[]) => parse(['router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', ...af].join('\n'))
+    const inactive = v4('  no neighbor 192.0.2.2 activate', '  neighbor 192.0.2.2 route-map FILTER in')
+    expect(bgp(inactive)?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    expect(at(inactive, 'neighbor 192.0.2.2 route-map FILTER in')).toEqual({ kind: 'unsupported', reason: 'a route map in an address family the neighbor doesn\'t carry: the model keeps policies only with a family it carries' })
+    expect(render(inactive.model).text).not.toContain('activate')
+    // Taken out after the route map: the route map goes with it, as on the device.
+    const after = v4('  neighbor 192.0.2.2 route-map FILTER in', '  no neighbor 192.0.2.2 activate')
+    expect(bgp(after)?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    expect(at(after, 'neighbor 192.0.2.2 route-map FILTER in')).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 5, which takes the neighbor out of the address family' })
+    // IPv6, never activated.
+    const v6 = parse(['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv6', '  neighbor 192.0.2.2 route-map V6 in'].join('\n'))
+    expect(bgp(v6)?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    // Activated then taken out: no empty family left behind.
+    const standalone = ['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  neighbor 192.0.2.2 activate', '  no neighbor 192.0.2.2 activate'].join('\n')
+    expect(bgp(parse(standalone))?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    for (const text of [standalone, ['router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  no neighbor 192.0.2.2 activate', '  neighbor 192.0.2.2 activate', '  neighbor 192.0.2.2 route-map FILTER in'].join('\n')]) expect(roundTrips(text), text).toEqual([])
+  })
+
+  it('activates only an IPv4 neighbor in IPv4 by default, as IOS has since 12.2(33)SRE4, keeping an explicit one', () => {
+    const v6 = parse(['router bgp 65000', ' neighbor 2001:db8::2 remote-as 65001', ' address-family ipv6', '  neighbor 2001:db8::2 activate'].join('\n'))
+    expect(bgp(v6)?.neighbors?.['2001:db8::2']?.addressFamilies).toEqual({ 'ipv6-unicast': {} })
+    const explicit = parse(['router bgp 65000', ' neighbor 2001:db8::2 remote-as 65001', ' address-family ipv4', '  neighbor 2001:db8::2 activate'].join('\n'))
+    expect(bgp(explicit)?.neighbors?.['2001:db8::2']?.addressFamilies).toEqual({ 'ipv4-unicast': {} })
   })
 
   it('refuses a second AS, a malformed AS and a peer group it doesn\'t define', () => {
