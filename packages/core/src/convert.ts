@@ -20,7 +20,10 @@ export interface PortName {
   readonly type: InterfaceType
   /** An Ethernet port's speed in Mb/s, when its name says it. */
   readonly speed?: number
-  /** The numbers in the name, as the platform writes them: `ge-1/0/3` → [1, 0, 3], `lo0` → [0], `xe-0/0/0:2` → [0, 0, 0, 2]. */
+  /**
+   * The numbers in the name, as the platform writes them: `ge-1/0/3` → [1, 0, 3], `lo0` → [0], `xe-0/0/0:2` → [0, 0, 0, 2].
+   * An aggregate's number is counted from 1, as Cisco does: Junos `ae0` is [1].
+   */
   readonly numbers: readonly number[]
 }
 
