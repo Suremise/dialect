@@ -1,5 +1,5 @@
-# The desktop app's shell: a window around the frontend in ../dist, and the dialog and fs plugins it opens and saves
-# files with. No conversion logic lives here: that runs in the webview, from the same TypeScript as the web build.
+# The desktop app's shell: a window around the frontend in ../dist, the dialog and fs plugins it opens and saves files
+# with, and its notification-area icon (tauri's tray-icon; the icon is decoded when the app is built). No conversion logic lives here: that runs in the webview, from the same TypeScript as the web build.
 [package]
 name = "dialect"
 version = "0.0.0"
@@ -13,7 +13,7 @@ publish = false
 tauri-build = { version = "2.7.2", features = [] }
 
 [dependencies]
-tauri = { version = "2.12.3", features = [] }
+tauri = { version = "2.12.3", features = ["tray-icon"] }
 tauri-plugin-dialog = "2.8.2"
 tauri-plugin-fs = "2.7.0"
 tauri-plugin-opener = "2.7.1"

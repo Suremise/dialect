@@ -61,7 +61,10 @@ product decisions.
   (`apps/desktop/scripts/sign.mjs`) that signs only when `DIALECT_SIGN_COMMAND` is set. A **strict CSP** (nothing remote,
   no inline code, IPC only). Open and save go through the system dialogs, and the app can read and write only the
   files the user picks there; a dropped file is read from the drop itself. Agents build the installer and run the
-  smoke test, but **never run the installer**: Darren installs and tests it himself.
+  smoke test, but **never run the installer**: Darren installs and tests it himself. The **Dialect icon** is on the
+  installer, the window and taskbar, and in the **notification area** (#82): left-click shows the window, the menu has
+  Show Dialect, New tab and Quit, and Quit goes through the close guard. **Closing the window quits the app**: no
+  minimise-to-tray, as Dialect needn't run in the background (Darren's decision; a setting only if he asks).
 - **Versions:** semver 0.x until the model and the plugin API are stable.
 
 ## 3. License
@@ -147,9 +150,9 @@ product decisions.
   policy statements, Cisco route maps). A list is converted whole or not at all, and a policy term by term, each whole or
   not at all; the whole policy is left out when leaving a term out would change what later terms see. Regexes are kept
   as written and never translated between platforms. Where the target treats a route no term decides differently, it
-  says so: IOS/IOS-XE, whose route maps deny such a route, adds a final permit sequence for a Junos policy that passes
-  it on (BGP's default accepts it), with a semantic warning. A BGP route map the IOS config never defines isn't
-  converted, as IOS then denies every route. **IOS-XR's RPL converts in its simple forms only** (#79): prefix,
+  says so: IOS/IOS-XE and NX-OS, whose route maps deny such a route, add a final permit sequence for a Junos policy
+  that passes it on (BGP's default accepts it), with a semantic warning. A BGP route map the Cisco config never defines
+  isn't converted (IOS then denies every route). **IOS-XR's RPL converts in its simple forms only** (#79): prefix,
   community and AS-path sets, and route policies that are a flat sequence of `if … then … [else …] endif` blocks and
   top-level actions; each set and policy is one statement, converted whole or left out whole (nested `if`, `elseif`,
   `or`, parameters, `apply`, inline sets and elements the model can't hold leave it out). A block that passes a route

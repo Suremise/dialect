@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### The window
+- **The Dialect icon everywhere in the desktop app:** on the installer and in Add/Remove Programs, on the window and
+  the taskbar, and in the notification area while Dialect runs. Click the tray icon to bring the window back, or
+  right-click it for Show Dialect, New tab and Quit. Quit asks first while output is unsaved, as closing the window
+  does, and closing the window still quits Dialect.
 - **Tabs and a menu bar**, the same in the desktop app and the web build. Open several conversions at once, each in
   its own tab (File → New Tab, Ctrl+T, or +, then Display set or Convert), with its own source, output, interface
   names and undo history. A dot marks a tab whose output isn't saved, and closing it asks first. The Docs pages open in
@@ -23,6 +27,10 @@
   policy itself, not only its name. A set or policy converts whole or not at all: nested `if`, `elseif`, parameters,
   `apply` and the like are listed as not converted. Converting a Junos policy to IOS-XR adds a final `pass`, with a
   warning, and a VRF's import or export policy warns where Junos and IOS-XR treat route targets differently.
+- **Cisco NX-OS routing policy converts:** prefix lists (IPv4 and IPv6, with `eq`), standard and expanded community lists
+  and AS-path access lists with their sequence numbers, and route maps; BGP neighbors' route maps now carry the policy,
+  not only its name. As on IOS-XE, regexes are kept as written, a route map converts sequence by sequence, and a Junos
+  policy that passes undecided routes on gets a final permit sequence, with a warning.
 - **Cisco IOS / IOS-XE routing policy converts:** prefix lists (IPv4 and IPv6), community lists (standard, expanded and
   numbered), AS-path access lists and route maps, and BGP neighbors' route maps now carry the policy itself, not only
   its name. Regexes are kept as written and never translated between platforms. A route map converts sequence by

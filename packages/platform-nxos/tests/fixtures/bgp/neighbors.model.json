@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.1",
+  "modelVersion": "0.5.1",
   "device": {
     "system": {
       "hostname": "border-1"
@@ -88,6 +88,36 @@
               }
             }
           }
+        }
+      }
+    },
+    "routingPolicy": {
+      "policies": {
+        "TRANSIT-IN": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "localPreference": 200
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "TRANSIT-OUT": {
+          "terms": {
+            "10": {
+              "matches": {
+                "tags": [
+                  7
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
         }
       }
     }

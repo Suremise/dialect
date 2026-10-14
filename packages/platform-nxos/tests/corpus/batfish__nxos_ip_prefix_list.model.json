@@ -1,0 +1,46 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "nxos_ip_prefix_list"
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "pl_test": {
+            "entries": {
+              "3": {
+                "action": "permit",
+                "prefix": "10.0.3.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              },
+              "5": {
+                "action": "permit",
+                "prefix": "10.0.1.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              },
+              "10": {
+                "action": "deny",
+                "prefix": "10.0.2.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              },
+              "15": {
+                "action": "permit",
+                "prefix": "10.0.4.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

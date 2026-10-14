@@ -11,7 +11,10 @@ Juniper Networks or Cisco Systems.
 - **Desktop app** (Windows): `Dialect_<version>_x64-setup.exe` installs Dialect for you alone, with no admin rights,
   and adds it to the Start menu; uninstall it from Settings → Apps. It uses WebView2, which is part of Windows 10 and 11
   (the installer downloads it only if it's missing). Open and Save output use the usual Windows dialogs, and you can
-  drop a file on the window. The app reads and writes only the files you pick, and reaches no network. Until Dialect
+  drop a file on the window. The Dialect icon is on the installer, the window and the taskbar, and in the notification
+  area while Dialect runs: click it to bring the window back, or right-click it for **Show Dialect**, **New tab** and
+  **Quit** (which asks first while output is unsaved, as closing the window does; closing the window quits Dialect).
+  The app reads and writes only the files you pick, and reaches no network. Until Dialect
   has a code-signing certificate the installer is unsigned, so Windows SmartScreen may warn about it: choose **More
   info** → **Run anyway**. Until there's a release, build it from a checkout with `npm run build -w @dialect/desktop`
   (needs Rust), which writes the installer to `apps/desktop/src-tauri/target/release/bundle/nsis/`.
@@ -223,6 +226,10 @@ map sequence by sequence: one Dialect can't convert is listed, and the whole rou
 change what the sequences after it do. A route map named by a neighbor but not defined isn't converted, as IOS then
 denies every route. Converting a Junos policy that passes undecided routes on to the next policy adds a final permit
 sequence to the route map, with a warning, since an IOS route map denies a route no sequence decides.
+
+Cisco NX-OS converts routing policy the same way: prefix lists (with `eq`), standard and expanded community lists and
+AS-path access lists (each entry by its `seq`), and route maps, which its BGP neighbors' route maps name. A route map a
+neighbor names but the config doesn't define isn't converted.
 
 ## The command line
 

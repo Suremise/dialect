@@ -52,7 +52,9 @@
       "signCommand": "node ../scripts/sign.mjs %1",
       "nsis": {
         "installMode": "currentUser",
-        "compression": "zlib"
+        "compression": "zlib",
+        "installerIcon": "../../../branding/out/icon.ico",
+        "uninstallerIcon": "../../../branding/out/icon.ico"
       }
     }
   }

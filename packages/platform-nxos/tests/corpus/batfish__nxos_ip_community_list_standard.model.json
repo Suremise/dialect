@@ -1,0 +1,63 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "nxos_ip_community_list_standard"
+    },
+    "routingPolicy": {
+      "communitySets": {
+        "cl_seq": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "1:1"
+              ]
+            },
+            "5": {
+              "action": "permit",
+              "members": [
+                "5:5"
+              ]
+            },
+            "10": {
+              "action": "permit",
+              "members": [
+                "10:10"
+              ]
+            },
+            "11": {
+              "action": "permit",
+              "members": [
+                "11:11"
+              ]
+            }
+          }
+        },
+        "cl_test": {
+          "entries": {
+            "1": {
+              "action": "deny",
+              "members": [
+                "1:1",
+                "2:2"
+              ]
+            },
+            "2": {
+              "action": "permit",
+              "members": [
+                "1:1"
+              ]
+            },
+            "3": {
+              "action": "permit",
+              "members": [
+                "2:2"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

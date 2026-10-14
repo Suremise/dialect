@@ -7,8 +7,9 @@ tools that make them don't.
 | --- | --- |
 | `icon.svg` | The master, on a 512×512 viewBox. Used for 48 px and up. |
 | `icon-small.svg` | The 16–32 px variant on a 64×64 viewBox: flat fill, no gradient or gloss, thicker strokes. |
+| `tray.svg` | The desktop app's notification-area icon on a 64×64 viewBox: the small icon filling its square, with heavier strokes, readable on light and dark taskbars. |
 | `theme-tokens.css` | The accent tokens for the UI, light and dark. |
-| `out/` | Generated: `icon.png` (512), `icon-16.png` … `icon-256.png` (16, 24, 32, 48, 64, 128, 256), `icon.ico` (all seven sizes) and `icon.icns`. |
+| `out/` | Generated: `icon.png` (512), `icon-16.png` … `icon-256.png` (16, 24, 32, 48, 64, 128, 256), `icon.ico` (all seven sizes), `icon.icns`, and `tray-16.png` and `tray-32.png` from `tray.svg`. |
 | `concepts/` | The three phase-1 concepts, kept as a record (see its README). |
 
 ## Regenerating
