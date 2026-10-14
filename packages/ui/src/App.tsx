@@ -194,86 +194,82 @@ export function App({ platform }: { platform: Platform }) {
         </div>
       </header>
 
-      {docsPage ? (
-        <DocsView platform={platform} />
-      ) : (
-        <>
-          <main className="workbench">
-            <section className="pane" aria-label="Source">
-              <div className="pane-header">
-                <span>Source</span>
-                <span className="pane-detail" data-testid="source-name">
-                  {sourceName ?? (source ? 'Pasted text' : 'Junos, hierarchical')}
-                </span>
-              </div>
-              <Editor
-                pane="source"
-                label="Source config"
-                value={source}
-                onChange={(text) => setSource(text)}
-                placeholder="Paste a hierarchical Junos config here, open a file, or drop one anywhere in this window."
-                marks={sourceMarks}
-                reveal={reveal}
-                onCursorLine={onSourceCursor}
-                dark={dark}
-              />
-            </section>
-            <section className="pane" aria-label="Output">
-              <div className="pane-header">
-                <span>Display set</span>
-                <span className="pane-detail" data-testid="output-summary">
-                  {outputSummary}
-                </span>
-              </div>
-              <Editor
-                pane="output"
-                label="Display set output"
-                value={output}
-                readOnly
-                placeholder={error ? 'Fix the syntax error to see the display set.' : 'The display set commands appear here.'}
-                marks={outputMarks}
-                reveal={reveal}
-                onCursorLine={onOutputCursor}
-                dark={dark}
-              />
-            </section>
-          </main>
+      {/* While the Docs show, the panes are hidden, not unmounted: the editors keep their state and undo history. */}
+      {docsPage && <DocsView platform={platform} />}
+      <main className="workbench" hidden={!!docsPage}>
+        <section className="pane" aria-label="Source">
+          <div className="pane-header">
+            <span>Source</span>
+            <span className="pane-detail" data-testid="source-name">
+              {sourceName ?? (source ? 'Pasted text' : 'Junos, hierarchical')}
+            </span>
+          </div>
+          <Editor
+            pane="source"
+            label="Source config"
+            value={source}
+            onChange={(text) => setSource(text)}
+            placeholder="Paste a hierarchical Junos config here, open a file, or drop one anywhere in this window."
+            marks={sourceMarks}
+            reveal={reveal}
+            onCursorLine={onSourceCursor}
+            dark={dark}
+          />
+        </section>
+        <section className="pane" aria-label="Output">
+          <div className="pane-header">
+            <span>Display set</span>
+            <span className="pane-detail" data-testid="output-summary">
+              {outputSummary}
+            </span>
+          </div>
+          <Editor
+            pane="output"
+            label="Display set output"
+            value={output}
+            readOnly
+            placeholder={error ? 'Fix the syntax error to see the display set.' : 'The display set commands appear here.'}
+            marks={outputMarks}
+            reveal={reveal}
+            onCursorLine={onOutputCursor}
+            dark={dark}
+          />
+        </section>
+      </main>
 
-          <section className="problems" aria-label="Problems">
-            <div className="section-header">
-              <span>Problems</span>
-              <span className="count" data-testid="problem-count">
-                {error ? '1 error' : plural(warnings.length, 'warning', 'warnings')}
-              </span>
-            </div>
-            <ul className="problem-list">
-              {problems.length === 0 ? (
-                <li className="problem-empty">
-                  {source.trim() === '' ? (
-                    'Open or paste a Junos config to see its display set.'
-                  ) : (
-                    <>
-                      <CheckIcon /> No problems.
-                    </>
-                  )}
-                </li>
+      <section className="problems" aria-label="Problems" hidden={!!docsPage}>
+        <div className="section-header">
+          <span>Problems</span>
+          <span className="count" data-testid="problem-count">
+            {error ? '1 error' : plural(warnings.length, 'warning', 'warnings')}
+          </span>
+        </div>
+        <ul className="problem-list">
+          {problems.length === 0 ? (
+            <li className="problem-empty">
+              {source.trim() === '' ? (
+                'Open or paste a Junos config to see its display set.'
               ) : (
-                problems.map((p, i) => (
-                  <li key={i}>
-                    <button className={`problem ${p.severity}`} onClick={() => revealAt('source', p.line, p.column, true)}>
-                      {p.severity === 'error' ? <ErrorIcon /> : <WarningIcon />}
-                      <span className="problem-message">{p.message}</span>
-                      <span className="problem-place">
-                        line {p.line}, column {p.column}
-                      </span>
-                    </button>
-                  </li>
-                ))
+                <>
+                  <CheckIcon /> No problems.
+                </>
               )}
-            </ul>
-          </section>
-        </>
-      )}
+            </li>
+          ) : (
+            problems.map((p, i) => (
+              <li key={i}>
+                <button className={`problem ${p.severity}`} onClick={() => revealAt('source', p.line, p.column, true)}>
+                  {p.severity === 'error' ? <ErrorIcon /> : <WarningIcon />}
+                  <span className="problem-message">{p.message}</span>
+                  <span className="problem-place">
+                    line {p.line}, column {p.column}
+                  </span>
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      </section>
 
       <footer className="statusbar">
         <span className="status-item">Junos → display set</span>

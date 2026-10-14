@@ -305,6 +305,38 @@ describe('the web build', () => {
     await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
   })
 
+  it('keeps the editors and their undo history while the Docs show', async () => {
+    await openPage()
+    const first = 'system { host-name alpha; }'
+    const both = `${first}\ninterfaces { }`
+    const sourceText = (): Promise<string> => page.locator('[data-pane=source] .cm-content').innerText()
+    await typeSource(first)
+    await page.keyboard.press('End')
+    await page.keyboard.insertText('\ninterfaces { }')
+    await expect.poll(sourceText, UI_WAIT).toBe(both)
+    // The control: what one undo gives here (CodeMirror joins quick edits into one undo step), then redo.
+    await page.keyboard.press('Control+Z')
+    await expect.poll(sourceText, UI_WAIT).not.toBe(both)
+    const undone = await sourceText()
+    await page.keyboard.press('Control+Y')
+    await expect.poll(sourceText, UI_WAIT).toBe(both)
+    // To the Docs and back, by F1 and Esc, then by the menu and the back button.
+    await page.keyboard.press('F1')
+    await expect.poll(() => page.locator('[data-pane=source]').isVisible(), UI_WAIT).toBe(false)
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'Release Notes' }).click()
+    await page.getByRole('button', { name: '← Display set' }).click()
+    await expect.poll(() => page.locator('[data-pane=source]').isVisible(), UI_WAIT).toBe(true)
+    expect(await sourceText()).toBe(both)
+    expect(await text('output-summary')).toBe(setLines(2))
+    await page.locator('[data-pane=source] .cm-content').click()
+    await page.keyboard.press('Control+Z')
+    await expect.poll(sourceText, UI_WAIT).toBe(undone)
+    await page.keyboard.press('Control+Y')
+    await expect.poll(sourceText, UI_WAIT).toBe(both)
+  })
+
   it('lists a shipped package in the notices with its version, license and full license text, as committed', async () => {
     await openPage()
     await page.getByRole('button', { name: 'Help' }).click()

@@ -42,6 +42,11 @@
 }
 
 /* ---------- Docs view ---------- */
+/* The panes and the problems panel while the Docs show: hidden, not unmounted (App.tsx), over their own display. */
+.app > [hidden] {
+  display: none;
+}
+
 /* In place of the panes and the problems panel: both of the app grid's rows (app.css). */
 .docs {
   grid-row: 2 / 4;
