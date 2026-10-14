@@ -3,26 +3,42 @@
 Card #1. Research only; no product code. Checked on 2026-10-14. Throwaway code
 backing the claims below is under `spike/` (see `spike/README.md`).
 
+**Revised for card #4 (2026-10-14)** to match the user's decisions in
+[Recorded decisions](#recorded-decisions): TypeScript + Tauri 2 instead of
+Python + PySide6, the whole project MIT, netcanon for ideas only. The product's
+working name is **Dialect**. The original stack comparison is kept as history
+in [Original comparison (superseded)](#original-comparison-superseded).
+
 ## Summary
 
-- **Recommended stack:** Python 3.13+ (3.14 is installed here) + PySide6 (Qt), packaged as a signed
-  onedir build inside an installer. Keep the conversion core a pure-Python
-  package with no Qt imports, so it can be tested headless and gets a CLI for
-  free. Details: [Desktop app stack](#desktop-app-stack).
-- **Tool 1 (display set):** write our own small parser in Python. Don't wrap or
+- **Stack:** **TypeScript (strict) + Tauri 2**, in an npm-workspaces monorepo:
+  a UI-free `core` package, one package per platform plugin, a `cli` package,
+  a shared `ui` package, and two shells around it: the Tauri desktop app and
+  an offline single-file browser build. Details:
+  [Desktop app stack](#desktop-app-stack).
+- **Conventions from Hive** (the user's own MIT TypeScript app): its
+  TypeScript settings, oxlint, Vitest, Windows CI, generated third-party
+  notices, line-endings test, icon pipeline and agent docs. See
+  [Conventions adopted from Hive](#conventions-adopted-from-hive).
+- **Licensing:** the whole project is MIT. Every library this report mentions
+  is checked in [License check](#license-check).
+- **Tool 1 (display set):** write our own small parser in TypeScript. Don't wrap or
   port the prior art. The prior art the card points at
   ([saidvandeklundert/juniper-config-converter](https://github.com/saidvandeklundert/juniper-config-converter))
   is a **Rust** crate, not Python scripts. It has no syntax tree and several
   real bugs: a panic, a hang, corrupted `deactivate` lines and silently dropped
-  characters. A 350-line stdlib prototype (`spike/display_set/junos_set.py`)
+  characters. A 350-line stdlib Python prototype (`spike/display_set/junos_set.py`)
   produces the same lines as all 22 of its test fixtures (4,952 output lines)
   and fixes those bugs. It follows Juniper's documented `deactivate` ordering,
-  which jcc gets wrong for stanzas. Size: **S**.
-  The best Python alternative found, [junoscfg](https://github.com/dg-i/junoscfg)
-  (MIT), is schema-driven and does the **reverse** (set → hierarchical)
+  which jcc gets wrong for stanzas. The prototype is the **reference for the
+  TypeScript port**, not code to keep: its self-test cases and the fixture
+  comparison carry over as the port's tests. Size: **S**.
+  The best alternative found, [junoscfg](https://github.com/dg-i/junoscfg)
+  (Python, MIT), is schema-driven and does the **reverse** (set → hierarchical)
   properly. But on our tests it matched only 18 of 22 of jcc's fixtures, with
-  silent errors in some of them. Use it as a candidate for the reverse
-  direction, not for the forward one.
+  silent errors in some of them. It isn't a dependency we can take from
+  TypeScript; its schema-driven approach is the one to learn from for the
+  reverse direction.
 - **Tool 2 (Junos ⇄ Cisco):** the user is broadly right. No mature tool does
   offline Junos ⇄ Cisco translation:
   - Batfish parses many vendors but never writes config.
@@ -33,8 +49,9 @@ backing the claims below is under `spike/` (see `spike/README.md`).
   The one exception is new: [netcanon](https://github.com/netcanon/netcanon)
   (MIT, Python, started May 2026). It translates the basics (interfaces, VLANs,
   static routes, VRFs, SNMP) but deliberately **doesn't render** routing
-  protocols, ACLs/firewall filters or route policy. Building on it vs building
-  our own is a decision for the user (open question 1). If we build our own: a
+  protocols, ACLs/firewall filters or route policy. **Decided:** netcanon is
+  for ideas only; we write our own converter and don't depend on it, fork it
+  or wrap it. Our design: a
   **hub model**, where each platform plugin parses into a shared,
   OpenConfig-shaped model and renders from it. The core, not the plugin,
   checks that every source *statement* and every populated model *field* got
@@ -44,9 +61,10 @@ backing the claims below is under `spike/` (see `spike/README.md`).
 - **Sizes for the MVP feature set, per plugin:** Junos (the hub side) **M–L**,
   IOS/IOS-XE **M**, NX-OS **M**, IOS-XR **M–L** (its route-policy language is
   the hard part).
-- **Plugins:** first-party plugins are separate Python packages, found through
-  entry points and bundled into the installer. Leave third-party drop-in
-  plugins out of v1.
+- **Plugins:** each platform is its own TypeScript workspace package. At first
+  they are built in, through a static registry that the CLI, the desktop app
+  and the web build import. Loading plugins at runtime comes later, and
+  third-party drop-in plugins stay out of v1.
 - **First MVP:** one direction, Junos → IOS-XE, covering
   system/interfaces/static routes/NTP/syslog/SNMP, then OSPF and BGP basics,
   then ACLs and policy. Which direction and which Cisco platform come first is
@@ -101,9 +119,10 @@ skipped. A `#` skips to the end of the line.
 
 **Why it falls short for us.** Beyond the bugs, it has no syntax tree, so it
 can't feed the Junos ⇄ Cisco converter, map output lines back to source lines,
-or do the reverse direction. Its language is Rust, so using it from the
-recommended Python app means PyO3 bindings or a subprocess, for about 600 lines
-of logic that are simpler to rewrite.
+or do the reverse direction. Its language is Rust, so using it from our
+TypeScript core means a WASM build or a subprocess (and a subprocess isn't
+possible in the offline browser build), for about 600 lines of logic that are
+simpler to rewrite.
 
 ### Other Junos converters
 
@@ -182,13 +201,16 @@ license allows porting with attribution.
 
 | Option | Verdict |
 |---|---|
-| Wrap jcc (PyO3 or a subprocess) | No. It's Rust, buggy, abandoned, and has no tree to reuse. |
+| Wrap jcc (WASM or a subprocess) | No. It's Rust, buggy, abandoned, and has no tree to reuse. |
 | Port jcc's logic | No. Its streaming design is what causes the bugs. |
-| Depend on junoscfg for the forward direction | No. Silent errors on 4/22 real fixtures (above), a young single-maintainer project, and a large dependency (schema files, Lark, netutils) for a job a small tree parser does exactly. |
-| **Write our own: tokenizer → generic tree → flatteners** | **Yes.** It's small, it gives one tree for display-set, the reverse and the Junos plugin's model mapping, and we control the error messages. Borrow Batfish's design and jcc's MIT fixtures as test data. |
+| Use junoscfg for the forward direction | No. Silent errors on 4/22 real fixtures (above), a young single-maintainer project, and it's Python, so a TypeScript app could only run it as a sidecar. |
+| **Write our own in TypeScript: tokenizer → generic tree → flatteners** | **Yes.** It's small, it gives one tree for display-set, the reverse and the Junos plugin's model mapping, and we control the error messages. Borrow Batfish's design and jcc's MIT fixtures as test data. |
 
-The throwaway prototype `spike/display_set/junos_set.py` (stdlib only) shows
-the size of the job:
+The throwaway Python prototype `spike/display_set/junos_set.py` (stdlib only)
+shows the size of the job. It is the **reference for the TypeScript port**, not
+code to keep: port its tokenizer, tree and flattener into the Junos plugin, and
+carry its 12 self-test cases and the jcc fixture comparison over as Vitest
+tests. Then delete `spike/`.
 
 - **Tokenizer:** quoted strings with escapes; `/* annotations */`, including the
   `/* SECRET-DATA */` placeholder Junos prints where a secret value would be;
@@ -224,10 +246,23 @@ The order matters when output is pasted to recreate config: Juniper notes
 and junoscfg (always) put it first. The prototype follows the documented
 order.
 
-A grammar library isn't needed for the curly-brace syntax: the hand-written
-tokenizer is about 60 lines. If we want one later,
-[Lark](https://pypi.org/project/lark/) (MIT, 1.3.1) is the fit. junoscfg
-already generates a Lark grammar from the Junos schema. There is no
+<a id="parser-approach"></a>**Parser approach: hand-written, no parser
+library.** A grammar library isn't needed for the curly-brace syntax: the
+prototype's hand-written tokenizer is about 60 lines, and a recursive-descent
+tree builder on top of it gives exact error positions and messages we control.
+The Cisco side is the same: an indentation tree plus explicit recognisers for
+delimited bodies (see [the hub model](#approach-a-hub-model-not-pairwise-translators)).
+So the parsers add no runtime dependency.
+If a grammar library becomes worth it later (most likely for XR RPL's
+expression language), these were checked on npm on 2026-10-14:
+- [Peggy](https://www.npmjs.com/package/peggy) 5.1.0: **MIT, OK**. A PEG parser
+  generator. The first choice if we need one.
+- [Ohm](https://www.npmjs.com/package/ohm-js) 17.5.0: **MIT, OK**.
+- [Chevrotain](https://www.npmjs.com/package/chevrotain) 13.2.0: **Apache-2.0,
+  OK** with attribution, plus its NOTICE file if it ships one.
+
+junoscfg generates a Lark grammar (Python, MIT) from the Junos schema; that's
+an idea to borrow for the reverse, not a library we can use. There is no
 tree-sitter grammar for Junos.
 
 ### The reverse (set → hierarchical)
@@ -254,11 +289,15 @@ A faithful reverse needs the Junos schema. There are two sources:
 - A device can dump its own `netconf.xsd`, which is what junoser and junoscfg
   build from.
 
-junoscfg's reverse already worked correctly in my test (above). So the options
-are:
-- adopt junoscfg for the reverse only, behind our own interface, with our
-  fixtures guarding it: **S–M**;
-- build our own schema loader: **M**.
+junoscfg's reverse already worked correctly in my test (above), which shows
+the schema-driven approach works. But junoscfg is Python, so the TypeScript app
+can't take it as a dependency (and a Python sidecar wouldn't run in the offline
+browser build). The option now is:
+- build our own schema loader in TypeScript, from Juniper/yang (Apache-2.0:
+  attribute it, and keep its NOTICE text if it has any, in
+  `THIRD_PARTY_NOTICES.md` when a schema derived from it ships): **M**. junoscfg
+  (MIT) can still serve as a test oracle, run outside the app, to compare
+  outputs.
 
 The cheap version, folding chains as above, isn't good enough to ship.
 
@@ -269,9 +308,8 @@ The cheap version, folding chains as above, isn't good enough to ship.
    dropped. **S**.
 2. Options: show `deactivate`/`protect` lines or not; strip `SECRET-DATA`
    lines. **S**.
-3. (Later, if wanted) set → hierarchical, schema-driven: either wrap
-   junoscfg's reverse (**S–M**) or build our own from Juniper/yang or the
-   device XSD (**M**).
+3. (Later, if wanted) set → hierarchical, schema-driven: our own TypeScript
+   schema loader, built from Juniper/yang or the device XSD (**M**).
 
 ---
 
@@ -285,10 +323,10 @@ marks what I couldn't confirm from a primary source.
 
 | Tool | What it is | License / status | Why it isn't enough |
 |---|---|---|---|
-| [**netcanon**](https://github.com/netcanon/netcanon) | "Multi-vendor network config translator". Python, with a shared canonical model; every field is labelled supported, lossy or unsupported. Codecs include IOS-XE CLI, NX-OS, IOS-XR and Junos (set form; hierarchical input is converted to set form first, per [CAPABILITIES.md](https://github.com/netcanon/netcanon/blob/HEAD/docs/CAPABILITIES.md)). FastAPI web UI plus a Windows PySide6 shell | MIT; created 2026-05-13, PyPI 0.7.7 (2026-10-08), 11 stars | **The closest thing to Tool 2, and new.** By design its "Tier 3" (firewall rules/ACLs, route-maps/policy, **dynamic routing protocols**, QoS, NAT) is detected and listed but **never rendered**. Its README also says that where a codec doesn't handle a field, "the source-side value is currently dropped without a banner". So it covers our phase 1 but not phases 2–3, which are the valuable part. **Not run hands-on:** `pip install` failed on Windows path length in my scratch folder, so this is from its docs only |
+| [**netcanon**](https://github.com/netcanon/netcanon) | "Multi-vendor network config translator". Python, with a shared canonical model; every field is labelled supported, lossy or unsupported. Codecs include IOS-XE CLI, NX-OS, IOS-XR and Junos (set form; hierarchical input is converted to set form first, per [CAPABILITIES.md](https://github.com/netcanon/netcanon/blob/HEAD/docs/CAPABILITIES.md)). FastAPI web UI plus a Windows PySide6 shell | MIT; created 2026-05-13, PyPI 0.7.7 (2026-10-08), 11 stars. **Ideas only (decided):** no dependency, fork or wrapper | **The closest thing to Tool 2, and new.** By design its "Tier 3" (firewall rules/ACLs, route-maps/policy, **dynamic routing protocols**, QoS, NAT) is detected and listed but **never rendered**. Its README also says that where a codec doesn't handle a field, "the source-side value is currently dropped without a banner". So it covers our phase 1 but not phases 2–3, which are the valuable part. **Not run hands-on:** `pip install` failed on Windows path length in my scratch folder, so this is from its docs only |
 | [**Batfish**](https://github.com/batfish/batfish) / pybatfish | Java analysis engine. It parses Junos (MX/EX/QFX/SRX…), IOS, IOS-XE, NX-OS, IOS-XR, ASA, Arista and more into a vendor-independent model, then answers reachability and policy questions | Apache-2.0, very active (1.5k stars) | **Parse-only**: there's no config writer, and the model keeps derived semantics rather than the syntax needed to re-render. Good reference for our model (routing policy, ACL semantics) and for the Junos flattener |
-| [**Ansible network resource modules**](https://github.com/ansible-collections/cisco.ios) (`state: parsed` / `state: rendered`) | Offline parse → structured data → render, per resource (interfaces, l3_interfaces, vlans, static_routes, ospfv2, bgp_global, acls, prefix_lists, ntp_global, snmp_server, logging_global, …), for Junos, IOS, NX-OS and IOS-XR | **GPL-3.0**. cisco.ios/nxos/iosxr active. The `junipernetworks.junos` repo is **archived**; the code now lives in [Juniper/ansible-junos-stdlib](https://github.com/Juniper/ansible-junos-stdlib) (`ansible_collections/juniper/device`, still GPL-3.0 per the module headers) | **The data shapes are per vendor, not shared** (e.g. Junos static routes use `next_hop[].forward_router_address`, IOS uses `next_hops[]`), so every resource needs mapping glue. The **Junos side takes and emits XML** (`parsed` expects `<rpc-reply><configuration>…`; `rendered` emits `<nc:routing-options …>`), not set or brace text. There's no users/AAA resource, and GPL-3.0 rules out embedding unless the app is GPL. Useful as a test oracle |
-| [**ciscoconfparse2**](https://github.com/mpenning/ciscoconfparse2) (and the archived [ciscoconfparse](https://github.com/mpenning/ciscoconfparse)) | Parses indented configs into parent/child line objects for querying. Its Junos support strips braces and re-indents "as IOS would" | **GPL-3.0**; ciscoconfparse archived (last release 2024-11); ciscoconfparse2 0.9.18 | A text-tree query tool with no model and no translation. GPL |
+| [**Ansible network resource modules**](https://github.com/ansible-collections/cisco.ios) (`state: parsed` / `state: rendered`) | Offline parse → structured data → render, per resource (interfaces, l3_interfaces, vlans, static_routes, ospfv2, bgp_global, acls, prefix_lists, ntp_global, snmp_server, logging_global, …), for Junos, IOS, NX-OS and IOS-XR | **GPL-3.0**. cisco.ios/nxos/iosxr active. The `junipernetworks.junos` repo is **archived**; the code now lives in [Juniper/ansible-junos-stdlib](https://github.com/Juniper/ansible-junos-stdlib) (`ansible_collections/juniper/device`, still GPL-3.0 per the module headers) | **The data shapes are per vendor, not shared** (e.g. Junos static routes use `next_hop[].forward_router_address`, IOS uses `next_hops[]`), so every resource needs mapping glue. The **Junos side takes and emits XML** (`parsed` expects `<rpc-reply><configuration>…`; `rendered` emits `<nc:routing-options …>`), not set or brace text. There's no users/AAA resource. **GPL-3.0: not allowed** in an MIT project. At most a test oracle run outside the repo, never a dependency |
+| [**ciscoconfparse2**](https://github.com/mpenning/ciscoconfparse2) (and the archived [ciscoconfparse](https://github.com/mpenning/ciscoconfparse)) | Parses indented configs into parent/child line objects for querying. Its Junos support strips braces and re-indents "as IOS would" | **GPL-3.0**; ciscoconfparse archived (last release 2024-11); ciscoconfparse2 0.9.18 | A text-tree query tool with no model and no translation. **GPL-3.0: not allowed** |
 | [**NAPALM**](https://github.com/napalm-automation/napalm) | Uniform API to *live* devices: getters, config merge/replace/compare/rollback | Apache-2.0, active | No translation: candidate config must already be in the device's own syntax ([support matrix](https://napalm.readthedocs.io/en/latest/support/)) |
 | [**napalm-yang**](https://github.com/napalm-automation/napalm-yang) / [yangify](https://github.com/networktocode/yangify) | Native config ⇄ OpenConfig mapping | napalm-yang **archived** (last push 2019-05, README says abandoned); yangify dormant since 2021-09 | The closest past attempt at native → model → native. Dead, with tiny coverage and no IOS-XR |
 | [**OpenConfig**](https://github.com/openconfig/public) + gNMI | Vendor-neutral YANG models served by devices | Apache-2.0, active. Every vendor publishes deviations: Juniper in [Juniper/yang](https://github.com/Juniper/yang), Cisco in [YangModels/yang](https://github.com/YangModels/yang/tree/main/vendor/cisco) | A device API, not an offline text translator; coverage is partial per vendor. **The best shape to borrow for our model** |
@@ -302,10 +340,12 @@ marks what I couldn't confirm from a primary source.
 | **LLMs** | Widely used informally | | They can silently drop or change meaning (ACL order and implicit deny, defaults, interface names) and give no field-level guarantees. A possible later *assistant* for leftovers, not the engine |
 
 **So:** the user's "nothing reliable out there" holds for routing protocols,
-policy and filters. netcanon now covers the simple L1–L3 basics, and is worth
-evaluating before we build our own (open question 1). Batfish, OpenConfig and
-Aerleon are the design references. Avoid embedding the GPL-3.0 ones
-(ciscoconfparse2, the Ansible collections) unless the app is GPL.
+policy and filters. netcanon now covers the simple L1–L3 basics. As decided, we
+use it for ideas only and write our own; at most it's an optional benchmark
+for the phase 1 areas. Batfish, OpenConfig and Aerleon are the design
+references. The GPL-3.0 ones (ciscoconfparse2, the Ansible resource modules)
+are not allowed in this MIT project. Every library's verdict is in
+[License check](#license-check).
 
 ### Approach: a hub model, not pairwise translators
 
@@ -351,8 +391,9 @@ Aerleon are the design references. Avoid embedding the GPL-3.0 ones
   static routes, OSPF, BGP), `routing-policy` (prefix-sets, policy
   definitions), `acl` and `system/ntp|logging|aaa`. Borrow the structure and
   naming from the [OpenConfig models](https://github.com/openconfig/public)
-  (Apache-2.0) and implement them as plain
-  Python dataclasses. YANG tooling isn't worth it for an offline converter.
+  (Apache-2.0: we borrow structure and names, not code) and implement them as
+  plain TypeScript types (readonly interfaces) serialised as JSON. YANG tooling
+  isn't worth it for an offline converter.
 - **No silent drops, enforced by the core through a coverage ledger.** It
   works at the level of individual statements and model fields, not lines or
   objects. Line or object granularity hides data: one Junos line can hold
@@ -504,21 +545,27 @@ How unconverted content is shown:
 
 ### What a platform plugin provides
 
-A Python package (e.g. `juniper-platform-junos`) that exposes one object
-implementing this interface. It's illustrative, not final:
+A TypeScript workspace package (e.g. `@dialect/platform-junos` in
+`packages/platform-junos`) whose entry point exports one object implementing
+this interface from `@dialect/core`. It's illustrative, not final:
 
-```python
-class PlatformPlugin(Protocol):
-    id: str                      # "junos", "ios", "nxos", "iosxr"
-    name: str                    # "Cisco IOS / IOS-XE"
-    model_api: str               # model versions it supports, e.g. ">=1.2,<2"
-    capabilities: Capabilities   # per feature area: parse/render = full | partial | none
+```ts
+export interface PlatformPlugin {
+  readonly id: string                 // "junos", "iosxe", "nxos", "iosxr"
+  readonly name: string               // "Cisco IOS / IOS-XE"
+  readonly modelApi: string           // model versions it supports (semver range), e.g. ">=1.2.0 <2.0.0"
+  readonly capabilities: Capabilities // per feature area: parse/render = full | partial | none
 
-    def detect(self, text: str) -> float: ...                     # 0..1, for auto-detect
-    def parse(self, text: str, ctx: Context) -> ParseResult: ...  # tree + model + statement dispositions
-    def render(self, model: Device, ctx: Context) -> RenderResult: ...  # text + field dispositions
-    def tools(self) -> list[Tool]: ...  # extra platform-only actions (Junos: display set)
+  detect(text: string): number                       // 0..1, for auto-detect
+  parse(text: string, ctx: Context): ParseResult     // tree + model + statement dispositions
+  render(model: Device, ctx: Context): RenderResult  // text + field dispositions
+  tools(): readonly Tool[]                           // extra platform-only actions (Junos: display set)
+}
 ```
+
+Plugins take and return strings and plain objects: no file system, DOM or
+Node APIs. That keeps them runnable unchanged in the CLI (Node), the desktop
+app (WebView2) and the offline browser build. File access lives in the shells.
 
 - **ParseResult** holds:
   - the syntax tree (statement nodes with ids and display-only line spans);
@@ -536,9 +583,9 @@ class PlatformPlugin(Protocol):
   It doesn't trust the plugin's own count.
 - **Capabilities** let the GUI warn before converting ("NX-OS renderer: BGP
   partial, ACL none") and drive the feature matrix in the docs.
-- **Fixtures** ship with each plugin: `fixtures/<area>/<case>.cfg` +
-  `<case>.model.json` (+ `<case>.rendered.cfg`). The core provides a pytest
-  conformance kit that runs every plugin's fixtures through four checks:
+- **Fixtures** ship with each plugin, under its `tests/fixtures/<area>/`:
+  `<case>.cfg` + `<case>.model.json` (+ `<case>.rendered.cfg`). A dev-only
+  package, `@dialect/conformance`, provides a Vitest conformance kit that runs every plugin's fixtures through four checks:
   - parse → model matches the expected model;
   - render → text matches the expected text;
   - render → reparse → the same model (round-trip stability);
@@ -557,9 +604,13 @@ class PlatformPlugin(Protocol):
 
 ### Versioning the shared model
 
-- The model is its own package (`juniper-model`) with semver. A plugin
-  declares the range it supports (`model_api`), and the core refuses to load a
-  plugin outside that range with a clear message.
+- The model lives in `@dialect/core` but has its own semver, `MODEL_VERSION`,
+  separate from the package version. A plugin declares the range it supports
+  (`modelApi`), and the core's registry refuses to load a plugin outside that
+  range with a clear message (range check with
+  [semver](https://www.npmjs.com/package/semver), ISC). While every plugin is
+  built in this is a unit-tested invariant; it matters most once plugins can
+  be loaded at runtime.
 - **Minor = additive only:** new optional fields and new object types. An
   old renderer never assigns a disposition to a field it doesn't know, so
   the ledger's per-field check reports any populated new field as unrendered.
@@ -567,7 +618,7 @@ class PlatformPlugin(Protocol):
 - **Major = breaking.** These should be rare: renames, changed meanings.
   Migrate all first-party plugins in the same release.
 - Every serialised model (fixtures, and saved sessions if we add them) carries
-  `model_version`, so fixtures can be upgraded by script.
+  `modelVersion`, so fixtures can be upgraded by script.
 
 ### Display set: Junos plugin feature or separate tool?
 
@@ -580,33 +631,211 @@ plugins.
 
 ### Finding and loading plugins
 
-- **First-party plugins are separate packages in the same repo**
-  (monorepo, one `pyproject.toml` each). They are registered through the
-  standard [entry points](https://packaging.python.org/en/latest/specifications/entry-points/)
-  group `juniper.platforms` and bundled into the installer.
-- In the frozen app, PyInstaller doesn't collect package metadata by default.
-  Use its hook helpers `copy_metadata` / `collect_entry_point`
-  ([docs](https://pyinstaller.org/en/stable/hooks.html)). Also keep an explicit
-  built-in registry as a fallback, so discovery can't fail silently.
-- **Third-party / drop-in plugins: not in v1.** It's technically easy
-  (a `plugins\` folder next to the exe, loaded with `importlib`; find it via
-  `sys.executable`, not the temp extraction folder, see
-  [PyInstaller runtime info](https://pyinstaller.org/en/stable/runtime-information.html)).
-  But:
+- **Built in at first.** First-party plugins are workspace packages in the
+  same repo (`packages/platform-*`). A static registry in `@dialect/core`'s
+  consumers (one `plugins.ts` per shell, or a shared `@dialect/plugins`
+  package) imports each one and hands the list to the core:
+
+  ```ts
+  import junos from '@dialect/platform-junos'
+  import iosxe from '@dialect/platform-iosxe'
+  export const BUILT_IN: readonly PlatformPlugin[] = [junos, iosxe]
+  ```
+
+  The bundler (Vite) compiles them into the CLI, the desktop app and the web
+  build. No discovery runs, so discovery can't fail silently, and the core
+  checks each plugin's `modelApi` at registration.
+- **Loading at runtime: later, not in v1.** Each plugin builds to a single
+  ES module whose default export is the plugin object, so the same file could
+  later be loaded with a dynamic `import()`. In the desktop app that means
+  reading it from a `plugins` folder under the app's data folder (through
+  Tauri's fs plugin) and importing it from a `blob:` URL, which the content
+  security policy then has to allow. In the web build the user would pick the
+  file. Leave it out of v1 because:
   - a plugin is arbitrary code running with the user's rights, next to
     configs that hold secrets;
-  - a dropped-in plugin can only import libraries already frozen into the app;
+  - the CSP has to be loosened to run it;
   - we'd be committing to a stable public API early.
+
   Revisit once the model has reached 1.x and stayed stable.
+- Not to be confused with **Tauri plugins**, which are compile-time Rust
+  crates for the shell ([docs](https://v2.tauri.app/develop/plugins/)). We use
+  a few of Tauri's own (dialog, fs); our platform plugins are plain TypeScript.
 
 ---
 
 ## Desktop app stack
 
-Versions and dates were checked on PyPI, npm, NuGet and the vendors' docs on
-2026-10-14.
+**Decided: TypeScript (strict) + Tauri 2.** Versions and licenses below were
+checked on npm and the Tauri docs on 2026-10-14.
 
-| | **Python + PySide6** (recommended) | **Tauri 2** (Rust + TS web UI) / Electron | **.NET 10 + Avalonia/WPF** |
+Why this replaced the original Python + PySide6 recommendation (kept as
+history in [Original comparison (superseded)](#original-comparison-superseded)):
+- **Portability:** one TypeScript core runs in Node (CLI), in the desktop app's
+  webview and in any browser.
+- **An offline browser build** that runs on locked-down work laptops with
+  nothing installed: a single HTML file opened from disk.
+- **One language** for the core, the plugins and the UI. The only Rust is
+  Tauri's thin, mostly generated shell (`src-tauri`); no conversion logic
+  lives there.
+- **No Qt LGPL issue:** PySide6 is LGPL-3.0, which the MIT-only decision rules
+  out.
+
+### Monorepo layout
+
+npm workspaces (npm 11, as Hive uses; no extra tool), one `package.json` per
+package, all under the `@dialect/` scope:
+
+```
+packages/
+  core/             @dialect/core           shared model (+ MODEL_VERSION), coverage ledger, plugin interface,
+                                            registry. No UI, no Node or DOM APIs.
+  conformance/      @dialect/conformance    dev-only: Vitest conformance kit + negative tests for plugins
+  platform-junos/   @dialect/platform-junos tree parser, display set tool, map/render (one package per platform)
+  platform-iosxe/   @dialect/platform-iosxe
+  platform-nxos/    @dialect/platform-nxos   (later)
+  platform-iosxr/   @dialect/platform-iosxr  (later)
+  cli/              @dialect/cli            Node CLI: display-set and convert, files and stdin/stdout
+  ui/               @dialect/ui             React UI shared by both shells: editors, warnings panel, modes
+apps/
+  desktop/          Tauri 2 shell: src-tauri (Rust, generated), dialogs and file access, installer
+  web/              offline build: the ui as one self-contained HTML file
+docs/  scripts/  tests/   repo-wide docs, scripts (licenses, icons) and tests (line endings, notices)
+```
+
+Package names describe the platform they read and write (`platform-junos`);
+the product name and branding stay vendor-free, as decided.
+
+### How each piece is built and shipped
+
+| Piece | Build | Ships as |
+|---|---|---|
+| `core`, `platform-*` | Source packages, compiled by whichever shell bundles them. Typechecked with `tsc --noEmit` per package | Inside the three products below |
+| `cli` | Vite library build into one ES module, run by Node 24 | `dialect` command (npm package or a zip with a `.cmd` launcher; a Node single-executable build can come later) |
+| `ui` + `apps/web` | Vite + [vite-plugin-singlefile](https://www.npmjs.com/package/vite-plugin-singlefile) (2.3.3, MIT), which inlines all JS and CSS into one HTML file | `dialect.html`: open from disk (`file://`), no server, no install. Open via a file picker or drag and drop, save as a download |
+| `ui` + `apps/desktop` | Vite for the frontend, `tauri build` for the shell ([@tauri-apps/cli](https://www.npmjs.com/package/@tauri-apps/cli) 2.12.2, MIT OR Apache-2.0) | NSIS `-setup.exe` and/or MSI ([Windows installer docs](https://v2.tauri.app/distribute/windows-installer/)), code-signed |
+
+The conversion runs **in the webview**, from the same bundled TypeScript as the
+web build, so desktop and browser behave the same. The Rust side only opens
+windows and file dialogs and reads and writes the files the user chose, through
+[@tauri-apps/plugin-dialog](https://www.npmjs.com/package/@tauri-apps/plugin-dialog)
+(2.8.2) and [@tauri-apps/plugin-fs](https://www.npmjs.com/package/@tauri-apps/plugin-fs)
+(2.7.0), both MIT OR Apache-2.0. Tauri 2's capability files limit those to
+what the app needs, and a strict content security policy blocks remote content.
+
+**WebView2.** Tauri uses the system WebView2 on Windows. Per the
+[Tauri docs](https://v2.tauri.app/distribute/windows-installer/), it is part of
+the OS on Windows 10 (April 2018 and later) and Windows 11. The installer's
+`webviewInstallMode` decides what happens when it's missing: the default
+`downloadBootstrapper` (0 MB, needs internet only then), `embedBootstrapper`
+(~1.8 MB), `offlineInstaller` (~127 MB, no internet needed) or `fixedVersion`
+(~180 MB). Use the default; the web build covers machines where installing
+isn't allowed.
+
+**Parser approach:** hand-written tokenizers and tree builders, no parser
+library (see [Parser approach](#parser-approach)).
+
+**Frontend libraries (from Hive):** React 19, zustand 5 and Monaco 0.57, all
+MIT. They are plain browser libraries, so they carry over to Tauri unchanged:
+WebView2 is Chromium-based like Electron's renderer. Notes:
+- **Monaco's diff editor** suits views where both sides are the same language,
+  such as our display set against a device's own `display set`, or one render
+  against another. The main Convert view isn't a diff (Junos on one side, IOS-XE
+  on the other), so it uses two plain editors linked through the ledger's line
+  spans.
+- **Monaco in the single-file web build** needs its web workers inlined (Vite's
+  `?worker&inline`) and makes the HTML file several MB. That's **untested**; the
+  UI card checks it. If it doesn't work out, [CodeMirror 6](https://codemirror.net/)
+  (MIT, with [@codemirror/merge](https://www.npmjs.com/package/@codemirror/merge)
+  6.12.2 for diffs) is the fallback.
+
+**Testing the shells:** Playwright (Apache-2.0) drives the web build. For the
+desktop app, the [Tauri docs](https://v2.tauri.app/develop/tests/webdriver/)
+recommend WebdriverIO with [@wdio/tauri-service](https://www.npmjs.com/package/@wdio/tauri-service)
+(1.5.0, MIT), which works on Windows. Keep desktop end-to-end tests to a smoke
+test: the logic is the same code the web build tests.
+
+**Build machine:** Node 24 and npm 11 for everything; Rust (stable) and the
+MSVC build tools only for `tauri build`.
+
+### Conventions adopted from Hive
+
+Hive (`D:\Development\HIVE\hive`) is the user's own TypeScript app (MIT, same
+copyright holder), so its code can be reused freely. It's the quality bar.
+Read on 2026-10-14; nothing there was changed.
+
+**Adopt:**
+- **TypeScript settings:** `strict`, target and lib `ES2023`, `module: ESNext`,
+  `moduleResolution: bundler`, `isolatedModules`, `noEmit` (bundlers emit).
+  TypeScript 7 (7.0.2 on npm, Apache-2.0).
+- **Lint with [oxlint](https://www.npmjs.com/package/oxlint)** (1.88.0, MIT),
+  `oxlint --deny-warnings`, with a `.oxlintrc.json` (correctness = error,
+  suspicious = warn). Not ESLint: typescript-eslint doesn't support
+  TypeScript 7.
+- **No Prettier.** Match the surrounding formatting by hand; typecheck and lint
+  are the checks.
+- **Vitest unit tests**, with fixtures under `tests/fixtures` (per package
+  here). **Tests wait for conditions, never for time** (`vi.waitFor`,
+  `expect.poll`, each with a named bound). Tests make temp folders with a
+  `tempDir()` helper by their long real path, never under `os.tmpdir()` (CI's
+  temp folder is an 8.3 short path).
+- **CI** (`.github/workflows/ci.yml`): `windows-latest`, Node 24, `npm ci`,
+  then typecheck, lint and tests; a newer push cancels the older run;
+  `permissions: contents: read`.
+- **Generated `THIRD_PARTY_NOTICES.md`:** copy `scripts/licenses.mjs`,
+  `scripts/thirdPartyNotices.mjs` and `scripts/licenseText.mjs`, with
+  `npm run licenses` to write it, `--check` to check it, and a unit test that
+  fails when the committed file is stale. Adapt it in three ways:
+  - list what ships from each product: the packages bundled into the UI and
+    CLI (Hive's `RENDERER` list becomes one list per product);
+  - add the Tauri shell's **Rust crates**, e.g. from `cargo about` (build-only
+    tool, Apache-2.0), and the NSIS components Tauri's installer ships, kept
+    in `scripts/notices` as Hive does for electron-builder's;
+  - keep a hand-written section for material that isn't a package, such as
+    the jcc fixtures entry card #3 added.
+  Plus a license allowlist: the check fails on any shipped package that isn't
+  MIT, Apache-2.0, BSD or ISC.
+- **Line-endings unit test** (`tests/lineEndings.test.ts`): no text file mixes
+  endings or has a lone CR. Our `.gitattributes` already forces LF (card #3),
+  which this test backs up.
+- **Icon pipeline** (`scripts/build-icons.mjs`: an SVG master rendered to PNG
+  and ICO with [sharp](https://www.npmjs.com/package/sharp), Apache-2.0, and
+  [png-to-ico](https://www.npmjs.com/package/png-to-ico), MIT). For the Tauri
+  bundle, `tauri icon` also takes an SVG master and writes every size the
+  bundler needs. Card #5 reuses this.
+- **Agent and decision docs:** `AGENTS.md` as the single agent guide, with
+  `CLAUDE.md` containing only `@AGENTS.md`. `docs/SPEC.md` is the source of
+  truth for product decisions (it takes over the workspace note's decisions)
+  and `docs/ARCHITECTURE.md` explains how the code fits together.
+- **`CHANGELOG.md`** with an **Unreleased** section on top, merged with
+  `merge=union` in `.gitattributes` (for that file only), and semver 0.x
+  until the model and plugin API are stable.
+- **npm 11 install scripts** are blocked by default; approve the few that need
+  one in `package.json` (`allowScripts`), as Hive does for esbuild.
+
+**Doesn't carry over (Electron-only):**
+- **electron-builder** → `tauri build` makes the installers.
+- **electron-updater** → Tauri's updater plugin (MIT OR Apache-2.0, with its
+  own signing key). Not in v1.
+- **The asar / `original-fs` rule** and its lint override → Tauri has no asar.
+- `ELECTRON_RUN_AS_NODE`, the Electron stub for unit tests, and Playwright's
+  `_electron` driver → nothing; the web build is driven by plain Playwright.
+- Hive's typed IPC contract (`src/shared/api.ts`) is a good idea, but Dialect
+  needs very few Rust commands, because conversion runs in the webview.
+
+### Original comparison (superseded)
+
+> **Superseded on 2026-10-14 by the user's decision: TypeScript + Tauri 2.**
+> Reasons: portability, an offline browser build for locked-down laptops,
+> one language for the core, plugins and UI, and no Qt LGPL issue (the
+> project is MIT only). Kept as the record of what was compared. The
+> Python + PySide6 option, and the packaging advice that went with it, no
+> longer apply.
+
+Versions and dates as checked on PyPI, npm, NuGet and the vendors' docs on
+2026-10-14:
+
+| | **Python + PySide6** (was recommended) | **Tauri 2** (Rust + TS web UI) / Electron | **.NET 10 + Avalonia/WPF** |
 |---|---|---|---|
 | Current | [PySide6](https://pypi.org/project/PySide6/) 6.12.0 (2026-10-08, Python 3.10–3.15) | Tauri 2.12.x; Electron 44.x | .NET 10 LTS (to 2028-11). **.NET 8 and 9 both end support on 2026-11-10** ([policy](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core)). Avalonia 12.1.4 |
 | Windows packaging | PyInstaller 6.22 or Nuitka via Qt's [`pyside6-deploy`](https://doc.qt.io/qtforpython-6/deployment/deployment-pyside6-deploy.html), then an installer. [Briefcase](https://briefcase.beeware.org/en/stable/reference/platforms/windows/index.html) builds an MSI. **Use onedir, not onefile:** onefile unpacks to a temp folder on every launch, so it starts slower ([PyInstaller docs](https://pyinstaller.org/en/stable/operating-mode.html)) | MSI or NSIS; WebView2 already ships with Windows 11 ([docs](https://v2.tauri.app/distribute/windows-installer/)). Electron via Forge (Squirrel/WiX/MSIX) | `PublishSingleFile` + self-contained ([docs](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)) |
@@ -616,30 +845,16 @@ Versions and dates were checked on PyPI, npm, NuGet and the vendors' docs on
 | Main risks | Antivirus false positives on PyInstaller exes, which [PyInstaller says it can't fix](https://github.com/pyinstaller/pyinstaller/blob/develop/.github/ISSUE_TEMPLATE/antivirus.md). Qt's [LGPL obligations](https://www.qt.io/licensing/open-source-lgpl-obligations), where onedir keeps the DLLs replaceable. Bundle size (the PySide6-Essentials wheel alone is 82 MB, so expect a large install; trim unused Qt modules) | Two runtimes. The parser rewrite loses Python reuse | Parsers in C#, or the pythonnet pain |
 | Effort | Lowest | Highest | Medium if the developer knows C# |
 
-**Recommendation: Python 3.13+ (3.14 is installed here) + PySide6, onedir build with an installer,
-code-signed.**
-- It is one language, and the parsing ecosystem we'd lean on (our own Junos
-  parser, Lark if needed) is Python.
-- It has a plain plugin story that works when frozen.
-- The core package stays Qt-free, so it also ships as a CLI and is tested
-  without a GUI.
-- Windows 11 first is fine. Qt also keeps macOS and Linux open later at no
-  extra cost.
-
-When to choose otherwise:
-- **Tauri:** only if a web-tech UI is a hard requirement.
-- **.NET 10 + Avalonia:** only if the work will be done in C# and rewriting the
-  parsers in C# is acceptable.
-- Python web-UI wrappers (pywebview 6.2, NiceGUI 3.18, Flet 1.0) keep Python
-  but have weaker desktop widgets for a large side-by-side editor with gutters.
-
-Libraries to avoid depending on: [ciscoconfparse2](https://pypi.org/project/ciscoconfparse2/)
-is GPL-3.0, which would force the app to be GPL. Useful as a reference only.
+That comparison recommended Python 3.13+ + PySide6 in a code-signed onedir
+build: one language with the Python parsing ecosystem, entry-point plugins,
+and a Qt-free core. Tauri was only to be chosen if a web UI was a hard
+requirement. The decisions changed the requirements: a browser build and MIT
+only.
 
 ### UI sketch
 
 ```
-┌ Juniper Config Tools ───────────────────────────────────────────────────────────┐
+┌ Dialect ────────────────────────────────────────────────────────────────────────┐
 │ Mode: (•) Display set   ( ) Convert         [Open…] [Paste] [Save output] [Copy]│
 │ Source: [Junos      ▾] (auto: Junos 0.97)  →  Target: [Cisco IOS-XE ▾]  [Convert]│
 ├───────────────────────────────────────┬─────────────────────────────────────────┤
@@ -648,7 +863,7 @@ is GPL-3.0, which would force the app to be GPL. Useful as a reference only.
 │  2     ge-0/0/0 {                     │  2 !                                    │
 │  3         description uplink;        │  3 interface GigabitEthernet0/0/0       │
 │  4         unit 0 {                   │  4  description uplink                  │
-│  5             family inet {          │  5  ip address 10.0.0.1 255.255.255.0   │
+│  5             family inet {          │  5  ip address 192.0.2.1 255.255.255.0  │
 │▌ 6                 filter input F;    │  6 !                                    │
 │  …  (unmapped lines marked ▌)         │  (click a line ↔ highlights its source) │
 ├───────────────────────────────────────┴─────────────────────────────────────────┤
@@ -659,9 +874,70 @@ is GPL-3.0, which would force the app to be GPL. Useful as a reference only.
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The editors are Qt `QPlainTextEdit` with line numbers and a gutter, plus a
-syntax highlighter per platform. Each plugin can supply its own highlighting
-rules.
+The editors are Monaco instances with line numbers, gutter markers and
+decorations, plus a syntax highlighter (a Monarch tokenizer) per platform. Each
+plugin can supply its own highlighting rules. The same UI runs in the desktop
+app and the web build; only the file open and save calls differ.
+
+---
+
+## License check
+
+The whole project is MIT. Allowed: MIT, Apache-2.0, BSD and ISC (Apache-2.0
+also needs its NOTICE text kept). Not allowed: GPL, LGPL, AGPL or no license.
+"Use" says what we'd do with it. Licenses were checked on 2026-10-14 against
+GitHub's license detection, the npm registry, or the files themselves where
+those disagreed.
+
+| Library or project | License | Verdict | Use |
+|---|---|---|---|
+| saidvandeklundert/juniper-config-converter (jcc) | MIT | OK | Fixtures as test data, attributed in `THIRD_PARTY_NOTICES.md` |
+| dg-i/junoscfg | MIT | OK | Ideas; optional test oracle outside the app (Python) |
+| codeout/junoser | MIT | OK | Reference (Ruby) |
+| ckishimo/juniper_display_set | Apache-2.0 | OK | Reference only |
+| as2518/junos_config_converter | MIT | OK | Reference only |
+| aledwmorris/juniper-display-set | BSD-3-Clause | OK | Reference only |
+| mkomon/junos_to_set, khornem/jnp-dset-converter | none | **Not allowed** | Don't copy anything |
+| Batfish | Apache-2.0 | OK | Design reference (flattener, model); port with attribution if any code is used |
+| Juniper/yang | Apache-2.0 | OK | Schema source for the reverse; attribute it if derived data ships |
+| OpenConfig models (openconfig/public) | Apache-2.0 | OK | Model structure and names |
+| YangModels/yang (Cisco and others) | per directory (IETF, Eclipse, vendor terms) | **Check per file first** | Reference only |
+| netcanon | MIT | OK, **ideas only (decided)** | No dependency, fork or wrapper; optional benchmark |
+| Ansible resource modules (cisco.ios etc.; Juniper's in ansible-junos-stdlib) | GPL-3.0 (Juniper's repo is Apache-2.0 overall, but its resource modules' headers say GPL-3.0) | **Not allowed** | At most an outside test oracle |
+| ciscoconfparse / ciscoconfparse2 | GPL-3.0 | **Not allowed** | None |
+| NAPALM | Apache-2.0 | OK | Not needed (live devices) |
+| napalm-yang (archived), yangify | Apache-2.0 | OK | Past attempts, reference only |
+| Capirca, Aerleon | Apache-2.0 | OK | ACL model reference |
+| TTP | MIT | OK | Not needed |
+| Genie parsers | Apache-2.0 | OK | Not needed |
+| ntc-templates | Apache-2.0 (from its LICENSE file; GitHub doesn't detect it) | OK | Not needed |
+| nimaster/JUNOS_TO_CISCO_HYBRID_ACL_CONVERSION | Apache-2.0 | OK | Reference only |
+| Lark (Python) | MIT | OK | Not usable from TypeScript |
+| **Stack: TypeScript** | Apache-2.0 | OK | Build tool |
+| **Tauri 2** (`@tauri-apps/cli`, `@tauri-apps/api`, plugin-dialog, plugin-fs, plugin-updater) | MIT OR Apache-2.0 | OK (take MIT) | Desktop shell |
+| Vite | MIT | OK | Bundler |
+| vite-plugin-singlefile | MIT | OK | Offline web build |
+| Vitest | MIT | OK | Unit tests |
+| oxlint | MIT | OK | Lint |
+| React, react-dom, zustand | MIT | OK | UI |
+| Monaco editor | MIT | OK | Editors |
+| CodeMirror 6, @codemirror/merge | MIT | OK | Fallback editor |
+| Peggy, Ohm | MIT | OK | Only if a grammar library is needed |
+| Chevrotain | Apache-2.0 | OK | Only if a grammar library is needed |
+| semver | ISC | OK | `modelApi` range checks |
+| Playwright | Apache-2.0 | OK | Web build tests |
+| WebdriverIO, @wdio/tauri-service | MIT | OK | Desktop smoke test |
+| sharp | Apache-2.0 | OK | Icon build (not shipped) |
+| png-to-ico | MIT | OK | Icon build (not shipped) |
+| cargo-about | Apache-2.0 per GitHub | OK | Rust crate notices (build only) |
+| Electron | MIT | OK | Not used (alternative, history) |
+| *History only:* PySide6 / Qt | LGPL-3.0 (or GPL / commercial) | **Not allowed** | Superseded stack |
+| *History only:* PyInstaller | GPL-2.0 with a bootloader exception | **Not allowed** as a dependency | Superseded packaging |
+| *History only:* Nuitka | AGPL-3.0 per GitHub | **Not allowed** | Superseded packaging |
+| *History only:* Briefcase, pywebview | BSD-3-Clause | OK | Superseded |
+| *History only:* NiceGUI, pythonnet, Avalonia | MIT | OK | Superseded |
+| *History only:* Flet | Apache-2.0 | OK | Superseded |
+| *History only:* Extism | BSD-3-Clause | OK | Superseded |
 
 ---
 
@@ -670,83 +946,201 @@ rules.
 1. **Semantic correctness.** Output that parses but behaves differently is
    worse than no output. To mitigate: semantic warnings, conservative
    defaults, and fixtures reviewed against real devices or labs.
-2. **Test data.** Good fixtures need real, sanitised configs from each platform
-   and version. Without them the estimates above slip.
+2. **Test data.** Good fixtures need real, cleaned-up configs from each
+   platform and version (see the README's contributing rules). Without them
+   the estimates above slip.
 3. **Version drift.** Junos and Cisco syntax changes across releases. Pin
    supported ranges per plugin and say so in the UI.
 4. **Secrets.** Configs hold password hashes and keys. Keep the app fully
-   offline with no telemetry, and never write secrets to logs.
-5. **Packaging friction.** PyInstaller exes get antivirus false positives.
-   Plan to code-sign and to submit false positives to the AV vendors.
-6. **Scope creep across platforms.** Each new platform is a whole plugin with
+   offline with no telemetry, and never write secrets to logs. The content
+   security policy blocks remote requests in both shells.
+5. **WebView2.** The desktop app needs the WebView2 runtime. It is part of
+   Windows 10 (April 2018+) and 11, but an organisation can manage or
+   restrict it (**UNVERIFIED** for any specific site). Mitigation: the default
+   bootstrapper installs it if missing, `offlineInstaller` for offline
+   installs, and the web build as the fallback.
+6. **Code signing.** Unsigned installers downloaded through a browser get a
+   SmartScreen warning. Per the [Tauri signing docs](https://v2.tauri.app/distribute/sign/windows/),
+   signing isn't needed to run the app, and since 2024 an EV certificate no
+   longer gives instant SmartScreen reputation. Options: an OV certificate, or
+   Azure Artifact Signing (formerly Trusted Signing) through Tauri's
+   `signCommand`. Cost and who owns the certificate are for the user to decide.
+7. **Antivirus.** New, unsigned or rarely seen executables and NSIS installers
+   can be flagged by antivirus heuristics. Signing helps but doesn't prevent
+   it. Plan to submit false positives to the vendors, and keep the web build
+   (a plain HTML file) as the way round it.
+8. **Offline web build on locked-down laptops.** Policies can block `file://`
+   pages, downloads or local file pickers. That's **UNVERIFIED** until it's
+   tried on a target laptop. Test it early (the web build card).
+9. **Scope creep across platforms.** Each new platform is a whole plugin with
    fixtures. Ship one pair end to end before starting a second.
-7. **LGPL (Qt).** Use the onedir layout, which keeps Qt DLLs replaceable, and
-   ship the license notices. If the app is ever distributed commercially,
-   confirm the licensing (not legal advice).
+
+## Recorded decisions
+
+Decided by the user on 2026-10-14 (workspace note `juniper-decisions.md`).
+These were open questions in the first version of this report.
+
+1. **Stack:** TypeScript (strict) for the core, the plugins and the UI. Desktop
+   app via Tauri 2, plus an offline browser build and a CLI from the same core.
+2. **License:** the whole project is MIT. No GPL, LGPL, AGPL or unlicensed code
+   or dependencies. MIT and Apache-2.0 are fine with attribution, and
+   Apache-2.0 also needs its NOTICE text.
+3. **netcanon:** ideas only. We write our own converter: we don't depend on it,
+   fork it or wrap it. It may be used as an optional benchmark.
+4. **Platforms as plugins:** each platform is its own plugin.
+5. **Configs:** only cleaned-up configs go into the repo.
+6. **Trademarks:** "Juniper", "Junos" and "Cisco" stay out of the product name
+   and branding. The app says it isn't affiliated with either vendor.
+7. **Build plan:** borrow conventions and code from Hive (see
+   [Conventions adopted from Hive](#conventions-adopted-from-hive)).
 
 ## Open questions for the user
 
-1. **Build our own Tool 2, or build on netcanon?**
-   [netcanon](https://github.com/netcanon/netcanon) (MIT, Python, five months
-   old) already does Junos ⇄ IOS-XE/NX-OS/XR for interfaces, VLANs, static
-   routes, VRFs and SNMP, but by design doesn't render routing protocols,
-   policy or ACLs/filters. The options:
-   - (a) build our own as this report describes, using netcanon as a benchmark;
-   - (b) contribute phases 2–3 upstream;
-   - (c) fork it.
-
-   Recommendation: evaluate it hands-on first (follow-up card 0), then decide.
-   Our design differs on purpose: a core-enforced "no silent drops" check, and
-   a desktop app first rather than a web app.
-2. **Direction and first platform for Tool 2:** Junos → Cisco or Cisco →
+1. **Direction and first platform for Tool 2:** Junos → Cisco or Cisco →
    Junos first, and which Cisco platform (IOS-XE suggested)?
-3. **Sample configs:** can you provide sanitised real configs (Junos and the
+2. **Sample configs:** can you provide cleaned-up real configs (Junos and the
    chosen Cisco platform) for fixtures? This is the biggest factor in quality.
-4. **Junos families in scope:** MX/EX/QFX (routing and ELS switching)? Are SRX
+3. **Junos families in scope:** MX/EX/QFX (routing and ELS switching)? Are SRX
    security zones, policies and NAT out of scope?
-5. **Reverse display set (set → hierarchical):** needed? If so, wrap
-   junoscfg's reverse (**S–M**, adds a young third-party dependency) or build
-   our own schema loader (**M**)?
-6. **Annotations:** should display set output include `/* comments */`
+4. **Reverse display set (set → hierarchical):** needed? If so, it's our own
+   schema loader (**M**).
+5. **Annotations:** should display set output include `/* comments */`
    (Junos has an `annotate` command), or drop them with a warning as the
    prototype does? A device capture would show what Junos itself prints.
-7. **Who gets the app:** just you, or a team or customers? That decides code
-   signing, an installer vs a zip, and how much the LGPL/onefile question
-   matters.
-8. **Third-party plugins:** OK to leave out of v1 as recommended?
-9. **Open source or private?** This affects licensing choices: ciscoconfparse2
-   and the Ansible collections are GPL-3.0, so we'd avoid depending on them
-   unless the app is GPL.
+6. **Who gets the app:** just you, or a team or customers? That decides code
+   signing (and who pays for the certificate), installer vs web build first,
+   and whether the CLI is published.
+7. **Third-party plugins:** OK to leave out of v1 as recommended?
 
 ## Suggested follow-up build cards
 
-Not created on the board; the user decides what gets built.
+Not created on the board; the user picks what gets built. Numbered B1… so they
+aren't confused with board cards. Sizes as above: **S** ≈ 1–2 weeks, **M** ≈
+3–6 weeks, **L** ≈ 2–3 months (judgement, not measurement). Card #5 (icons) is
+already on the board and reuses Hive's icon pipeline.
 
-0. **Evaluate netcanon hands-on** (1–2 days). Run it on the same sample
-   configs, check its warnings and silent drops, and report build vs extend
-   (open question 1). Note: installing it on Windows hit path-length limits
-   in a deep folder. **S**
-1. **Repo skeleton**: monorepo with `juniper-core` (model, plugin API, coverage
-   checks, CLI), `juniper-gui` (PySide6) and `juniper-platform-junos`; pytest
-   and the plugin conformance kit; CI on Windows. **S**
-2. **Junos tree parser + display set**: productionise the spike parser, with
-   jcc's fixtures (MIT, attributed; fix the `deactivate` order in config_8, 15
-   and 16 to Juniper's documented order) and our edge cases. **S**
-3. **GUI shell**: source/output panes, open/paste/save/copy, warnings panel,
-   display-set mode. **S–M**
-4. **Packaging**: PyInstaller onedir + installer + signing + LGPL notices;
-   smoke test on clean Windows 11. **S**
-5. **Shared model v0 + coverage ledger** (per-statement and per-field
-   dispositions, the two counterexample negative tests, display-only spans,
-   warnings). **M**
-6. **Junos plugin: map tree → model, phase 1 areas**, including apply-groups
-   expansion. **M**
-7. **First Cisco plugin (IOS-XE suggested): parse and render, phase 1 areas.**
-   **M**
-8. **Interface-name mapping UI + Convert mode end to end.** **S**
-9. Phase 2 areas (VLANs, OSPF, BGP basics) for both plugins. **M**
-10. Phase 3 areas (policy, filters ↔ ACLs). **M–L**
-11. Second and third Cisco plugins (NX-OS, IOS-XR), each its own card. **M**,
-    **M–L**
-12. (If wanted) set → hierarchical: wrap junoscfg's reverse (**S–M**) or our
-    own schema loader (**M**).
+**Core interfaces stable** means B2 is merged and the plugin interface, the
+model's v0 shape and the ledger API haven't changed for a card or two. Cards
+marked ◆ need that first. Cards in different groups that touch different
+packages can run in parallel in separate worktrees once it holds. Cards that
+add to the model (B9's interface map, B10, B11) also touch `packages/core`, so
+they don't run alongside each other or alongside other core changes.
+
+### Group A: repo and core (in order, one at a time)
+
+**B1. Monorepo scaffold, with Hive's conventions.** **S**
+- *Files:* root `package.json` (npm workspaces), `tsconfig*.json`,
+  `.oxlintrc.json`, `vitest.config.ts`, `.github/workflows/ci.yml`,
+  `scripts/licenses.mjs` + `thirdPartyNotices.mjs` + `licenseText.mjs`,
+  `tests/lineEndings.test.ts`, `tests/licenses.test.ts`, `tests/tempDir.ts`,
+  `AGENTS.md`, `CLAUDE.md`, `docs/SPEC.md`, `docs/ARCHITECTURE.md`,
+  `CHANGELOG.md`, `.gitattributes` (adds `CHANGELOG.md merge=union`), and an
+  empty package stub per workspace in the layout above.
+- *Scope:* Hive's TypeScript settings, oxlint with `--deny-warnings`, no
+  Prettier, Vitest, Windows CI (typecheck, lint, tests). The generated notices
+  keep the hand-written jcc entry and enforce the license allowlist. SPEC.md
+  takes over the recorded decisions.
+- *Done when:* `npm ci`, `npm run typecheck`, `npm run lint` and `npm test`
+  pass locally and in CI on an empty skeleton, and the notices and
+  line-endings tests fail on a deliberately broken input.
+
+**B2. Core v0: shared model, coverage ledger, plugin interface, conformance
+kit.** **M**
+- *Files:* `packages/core`, `packages/conformance`.
+- *Scope:* `PlatformPlugin`, `ParseResult`/`RenderResult`, the dispositions,
+  `MODEL_VERSION` and the `modelApi` check in the registry, the phase 1 model
+  types, the ledger's two completeness checks, warnings and needs-input items,
+  and display-only spans. The conformance kit includes the two counterexample
+  negative tests.
+- *Done when:* the negative tests catch both deliberately incomplete stubs,
+  and a stub plugin passes the kit. After this the core interfaces are frozen
+  for v0.
+
+### Group B: Junos (`packages/platform-junos`)
+
+**B3. Junos tree parser + display set, ported from the prototype.** **S**
+- *Scope:* port the tokenizer, tree and flattener of
+  `spike/display_set/junos_set.py` to TypeScript; expose display set through
+  `tools()`. Tests: the prototype's 12 self-test cases, plus jcc's 22 fixtures
+  (cleaned up first, attributed) with config_8, 15 and 16 corrected to
+  Juniper's documented `deactivate` order. Delete `spike/` once the port
+  passes.
+- *Needs:* B1. The parser and display set don't need the model; wiring into
+  `tools()` needs B2's interface (a few lines, can follow B2).
+- *Done when:* all fixtures and self-test cases pass, and errors come with
+  line and column.
+
+◆ **B4. Junos plugin: map tree → model, phase 1 areas**, including
+apply-groups expansion. **M**
+- *Needs:* B2, B3. *Done when:* phase 1 fixtures pass the conformance kit.
+
+### Group C: shells (`packages/cli`, `packages/ui`, `apps/web`, `apps/desktop`)
+
+**B5. CLI: display set.** **S**
+- *Files:* `packages/cli`. *Needs:* B3.
+- *Scope:* `dialect display-set FILE|-`, with errors to stderr and exit codes;
+  `convert` added in B8.
+- *Done when:* tested on the fixtures through the CLI.
+
+**B6. UI + offline web build: display set mode.** **S–M**
+- *Files:* `packages/ui`, `apps/web`. *Needs:* B3.
+- *Scope:* React + zustand + Monaco; source and output panes;
+  open/paste/save/copy; warnings panel; a single-file build with
+  vite-plugin-singlefile (Monaco workers inlined, or the CodeMirror fallback);
+  Playwright tests against the built file.
+- *Done when:* `dialect.html` opened from disk with no network converts a
+  fixture, on Windows 11 and, if possible, on a locked-down work laptop
+  (risk 8).
+
+**B7. Desktop app: Tauri 2 shell.** **S**
+- *Files:* `apps/desktop` (incl. `src-tauri`). *Needs:* B6, card #5's icons.
+- *Scope:* Tauri 2 wrapping `packages/ui`; open and save dialogs through
+  Tauri's dialog and fs plugins with narrow capabilities; a strict CSP; an
+  NSIS installer with the default WebView2 mode; a `signCommand` hook (signing
+  itself waits for the user's certificate decision); the notices cover Rust
+  crates and NSIS components; a WebdriverIO smoke test.
+- *Done when:* the installer installs and runs on a clean Windows 11 VM, and
+  display set works in it.
+
+### Group D: conversion (needs the core interfaces stable)
+
+◆ **B8. First Cisco plugin (IOS-XE suggested): parse and render, phase 1
+areas.** **M**
+- *Files:* `packages/platform-iosxe`. *Needs:* B2. Can run in parallel with
+  B4 and the shells.
+- *Done when:* phase 1 fixtures pass the conformance kit, including
+  round-trip.
+
+◆ **B9. Convert mode end to end + interface-name mapping UI.** **S**
+- *Files:* `packages/ui`, `packages/cli` (`convert`), plus small additions to
+  `packages/core` (the interface map type). *Needs:* B4, B6, B8.
+- *Done when:* a Junos phase 1 fixture converts to IOS-XE in the CLI, the web
+  build and the desktop app, with the warnings panel and source↔output
+  highlighting.
+
+◆ **B10. Phase 2 areas (VLANs, OSPF, BGP basics) for both plugins.** **M**
+- *Files:* `packages/core` (model fields), `platform-junos`, `platform-iosxe`.
+  Touches core, so not in parallel with other core changes.
+
+◆ **B11. Phase 3 areas (policy, firewall filters ↔ ACLs).** **M–L**
+- *Files:* as B10. After B10.
+
+◆ **B12. NX-OS plugin** (**M**) and **B13. IOS-XR plugin** (**M–L**,
+including the RPL tokenizer).
+- *Files:* `packages/platform-nxos`, `packages/platform-iosxr`. Each is its own
+  card. They can run in parallel with each other once the model areas they
+  render exist.
+
+**Optional / later**
+- **B14. Reverse display set (set → hierarchical):** our own schema loader from
+  Juniper/yang (**M**). `packages/platform-junos`. Only if open question 4
+  says yes.
+- **B15. Benchmark against netcanon (optional):** run netcanon outside the repo
+  on the phase 1 fixtures, and compare what it drops or flags with our
+  ledger. A report, not a dependency. **S**
+
+**What can run in parallel:** B1 → B2 run one at a time. After B2: B3 → B4
+(Junos), B8 (IOS-XE) and B5, B6 → B7 (shells, which need only B3) can run in
+separate worktrees. B9 joins them, and B10 and B11 run in order because they
+touch the core. B12 and B13 run in parallel with each other once the areas they
+need are in the model.
