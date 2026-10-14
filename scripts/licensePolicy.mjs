@@ -1,12 +1,13 @@
 // The license rule (docs/SPEC.md, License), as code: what may ship and what may only be used to build. scripts/licenses.mjs
 // applies it to every installed package, and tests/licenses.test.ts checks it in `npm test` and CI.
 //
-// Two categories:
-// - **Shipped** (bundled into the desktop app, the web build or the CLI, or copied into the repo): MIT or equally
-//   permissive, from SHIPPED_ALLOWED. MPL-2.0 is pre-approved only while the package is used unmodified: never patch one.
+// Two categories for packages:
+// - **Shipped** (bundled into the desktop app, the web build or the CLI): MIT or equally permissive, from
+//   SHIPPED_ALLOWED. MPL-2.0 is pre-approved only while the package is used unmodified: never patch one.
 // - **Build-only** (never ships: compilers, linters, test runners, the icon pipeline): any open-source license, GPL and
 //   LGPL included (OPEN_SOURCE). They are listed in docs/BUILD_ONLY_PACKAGES.md, not just allowed silently.
-// Anything else fails unless EXCEPTIONS records the package, its license, why, and who decided.
+// Anything else fails unless EXCEPTIONS records the package, its license, why, and who decided. Material copied into the
+// repo that doesn't ship (fixtures/) is held to SHIPPED_ALLOWED too, by fixtureLicenses.mjs.
 
 /** Licenses a shipped package may have (SPDX ids). */
 export const SHIPPED_ALLOWED = new Set([

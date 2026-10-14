@@ -20,6 +20,7 @@
     "lint": "oxlint --deny-warnings packages apps tests scripts vitest.config.ts",
     "test": "vitest run",
     "licenses": "node scripts/licenses.mjs",
+    "fixtures": "node fixtures/verify.mjs --coverage",
     "icons": "node scripts/build-icons.mjs",
     "contrast": "node scripts/check-contrast.mjs"
   },
