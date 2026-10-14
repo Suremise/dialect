@@ -340,6 +340,12 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     leaves out the VRF's interface addresses and routes in that family before it
     (`unsupported`: what the device keeps of them isn't guessed). `no vrf definition V` / `no ip vrf V` removes the VRF,
     everything in it, its `ip route vrf V` routes, and its interfaces' membership and addresses, as the device does.
+  - **A VRF only routes name (#53):** `ip route vrf V …` with no `vrf definition V` or `ip vrf V` in the text keeps V
+    for its routes (type `vrf`, nothing else: no route distinguisher or targets is invented), with a parse warning,
+    `iosxe.vrf-created`, whose `field` names the instance and whose message names no VRF (it can share its name with a
+    secret). The warning is the parse's: only it can tell the source had no definition, which a model from another
+    platform can't say. A render writes `vrf definition V` with the address families its routes need, as for any VRF.
+    When a later `no ip route` removes its last route, nothing names it, and it goes too.
 - **Render (`render.ts`):** gives every leaf of model 0.3 a disposition (DNS as one `ip name-server` line per server)
   and leaves a later version's fields without one, so the ledger reports them. Each VRF is a `vrf definition` before
   the interfaces, with its `rd` and its route targets VRF-wide (the model's are the VRF's), and the address families
