@@ -1,4 +1,5 @@
 // Platform-neutral: no Node or DOM types, so the code runs unchanged in Node, the desktop app's webview and a browser.
+// The tests have their own tsconfig (tests/tsconfig.json), with Node's types.
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
@@ -8,7 +9,6 @@
     "types": []
   },
   "include": [
-    "src/**/*",
-    "tests/**/*"
+    "src/**/*"
   ]
 }

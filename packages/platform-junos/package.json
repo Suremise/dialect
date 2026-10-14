@@ -9,6 +9,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p . && tsc -p tests"
+  },
+  "dependencies": {
+    "@dialect/core": "0.0.0"
   }
 }

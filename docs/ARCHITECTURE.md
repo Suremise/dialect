@@ -216,6 +216,106 @@ each workspace's `typecheck` script.
 `--check` writes nothing and fails on a stale file or a broken rule; `tests/licenses.test.ts` checks the same, and
 `tests/fixtures.test.ts` the fixtures.
 
+## The Junos plugin (`packages/platform-junos`)
+
+B3's parser and display set, ported from the spike prototype (B4 adds the mapping to and from the model).
+
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.1.0 <1.0.0'`, no
+  capabilities yet). Its `tools()` has one tool, `displaySetTool`: id `display-set`, name "Display set". `run(text)`
+  returns the set lines as text, one per line, each ended by a newline (none on an error). It also returns the parse
+  error or the warnings as diagnostics: `category: 'syntax'`, codes `junos.syntax`, `junos.annotation`,
+  `junos.unknown-tag`, `junos.stray-annotation`, `junos.empty-list`, and a point span at their line and column. The
+  core's `Tool` has no field for what a tool reads and writes, so `JunosTool` adds `input: 'junos-hierarchical'` and
+  `output: 'junos-set'`.
+
+- `tokenizer.ts`: words (quoted strings kept as written, escapes included), braces, brackets, `;` and
+  `/* annotations */`; `#` comments to the end of the line. Each token has a 1-based line and column.
+- `tree.ts`: `parseConfig()` builds a generic syntax tree from the curly-brace syntax alone, without the Junos schema.
+  A `ConfigNode` is its words, then children (a container), a `[ ]` list (a leaf with values) or neither (a leaf), the
+  `inactive:`/`protect:`/`replace:` tags and the annotation before it. A syntax error throws `JunosParseError` with
+  its line and column; unknown `word:` tags, annotations with no statement after them and empty lists are warnings.
+  Messages never quote the config's words, values or annotations (they reach stderr, logs and the UI, and a value can
+  be a secret): only punctuation and tag names, with positions to say where.
+- `displaySet.ts`: `flatten()` turns the tree into `set` lines, each with the source line it comes from (for the UI's
+  source and output highlighting). A statement's `deactivate` and `protect` lines come after the `set` lines of its
+  subtree, Juniper's documented order. `displaySet()` wraps both: the lines and warnings, or the first error.
+- Tests: the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
+  cleaned up by `tests/cleanFixtures.ts` into `tests/fixtures/display-set/` (`tests/displaySetFixtures.test.ts`). The
+  plugin in the core's registry, and display set through `registry.tools()` on the same pairs (`tests/plugin.test.ts`).
+  The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
+
+## The command line (`packages/cli`)
+
+- `src/cli.ts`: `run(argv, io, version)` parses the arguments, reads the input through `io`, runs display set through
+  the core's registry (`createRegistry([junos]).tools()`, the Junos plugin's `display-set` tool) and returns the exit
+  code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input). Diagnostics print as
+  `name:line:column: severity: message`. It never touches `process`, so it can be called directly.
+- `src/bin.ts`: the entry. It wires `run()` to Node's file system, stdin, stdout and stderr, sets `process.exitCode`,
+  and ignores a closed stdout pipe.
+- `vite.config.ts`: `npm run build -w @dialect/cli` bundles `bin.ts` and the workspace packages it imports into one ES
+  module, `dist/dialect.mjs`, for Node 24, with a `#!/usr/bin/env node` line. Only Node's own modules stay imports.
+  Vite is build-only.
+- `tests/cli.test.ts` builds into a temp folder with Vite's API and runs the built file with Node: the 22 display set
+  fixtures, stdin, invalid input, warnings, unreadable files and usage errors.
+
+## The UI (`packages/ui`)
+
+The React UI both shells share: `<App platform={…} />`, where `Platform` (`src/platform.ts`) is the shell's file and
+clipboard access (open, open a dropped file, save, read and write the clipboard). The UI never touches files itself:
+even a dropped file is read by the shell, from the drop event's data.
+
+- `src/store.ts`: one zustand store, with the source text and its name, the display set result, the problems (the
+  syntax error or the warnings), the theme choice, and requests to reveal a place in an editor. It calls the Junos
+  plugin's `displaySet()` directly rather than the registry's tool: the linked lines need each set line's source line,
+  which the core's `ToolResult` doesn't carry yet (card #23). Display set runs
+  synchronously on every change (config_22, 316 KB, parses in tens of milliseconds).
+- `src/App.tsx`: the title bar and its actions (Open, Paste, Copy output, Save output, the theme), the source and output
+  panes, the problems panel and the status bar. A file dropped anywhere opens, even on an editor: the drop is handled
+  in the capture phase, so CodeMirror doesn't insert it, and `platform.openDropped()` reads it. Moving the cursor in one pane marks the matching lines in the other, through
+  each set line's `sourceLine`.
+- `src/editor/`: the CodeMirror 6 editor component, and Junos colouring as a stream language (colouring only: the
+  parser does the real work).
+- `src/styles/app.css`: Hive's surface and text colours, and the violet accent from `branding/theme-tokens.css`.
+  `[data-theme]` on `<html>` picks light or dark; the app follows the system unless the user picks one (kept in
+  `localStorage` when the browser allows it).
+
+### Editor: CodeMirror 6, not Monaco
+
+The spike planned Monaco, with CodeMirror 6 as the fallback if Monaco didn't work in the single-file build. Both were
+built single-file with vite-plugin-singlefile and opened from `file://` in Edge under the web build's CSP (2026-10-14,
+Monaco 0.57.0 and CodeMirror 6.43, in a scratch probe):
+
+| | Monaco (editor core only, its worker inlined) | CodeMirror 6 |
+|---|---|---|
+| Single-file size, editor alone | 3.1 MB | 274 KB |
+| Under a hash-only CSP | **Breaks**: it injects `<style>` elements and starts its worker from a `blob:` URL, so it needs `style-src 'unsafe-inline'` and `worker-src blob:` | **Works**, mounted in a shadow root |
+| Workers | One, inlined | None |
+
+So the editors are **CodeMirror 6**. Its style-mod injects styles at runtime too: into a `<style>` element in a
+document, but into a constructed stylesheet (`adoptedStyleSheets`) in a shadow root, which CSP doesn't govern. Each
+editor is therefore mounted in its own shadow root (`Editor.tsx`), and the CSP stays hash-only. The theme's custom
+properties inherit into the shadow roots, so the editors follow light and dark without being reconfigured. A diff view,
+when one is needed, is `@codemirror/merge`.
+
+## The web build (`apps/web`)
+
+`npm run build -w @dialect/web` writes one file, `apps/web/dist/dialect.html` (about 570 KB), that runs from `file://`
+with no server and no network.
+
+- `src/main.tsx` renders the UI with `src/webPlatform.ts`: a file picker, downloads (a `blob:` link), and the clipboard
+  API with the copy command as its fallback.
+- `vite.config.ts`: the React plugin, then vite-plugin-singlefile, which inlines the script and the styles, then
+  `dialect-csp`, which fills in the page's Content Security Policy from their SHA-256 hashes: `default-src 'none'`,
+  `script-src` and `style-src` only those hashes, `img-src data:` (the icon), and `base-uri`, `form-action` and
+  `object-src` `'none'`. No `unsafe-inline`, no `blob:` or remote sources, no `connect-src`. The build fails if the page
+  still loads a file. It renames the page to `dialect.html` and adds the icon as a `data:` URL.
+- `tests/web.test.ts` builds into a temp folder, then drives Microsoft Edge with playwright-core (Edge comes with
+  Windows and GitHub's Windows runners, so no browser is downloaded). The page is opened from `file://` in an offline
+  context that aborts and records every request but the page's own. It checks the CSP, opening fixtures with the
+  picker and saving their display set, the output pane, drag and drop, a syntax error and warnings in the problems
+  panel, paste and copy, the themes and the linked lines. Every test also fails on a console error or warning, a page
+  error, a CSP violation or a blocked request. `DIALECT_SCREENSHOTS=<folder>` also writes light and dark screenshots.
+
 ## Branding
 
 `branding/` holds the SVG icon masters, the rendered icons in `branding/out/` and the theme tokens
