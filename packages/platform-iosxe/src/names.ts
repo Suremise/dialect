@@ -46,6 +46,12 @@ export function interfaceType(name: string): InterfaceType | undefined {
   return undefined
 }
 
+/** What an IOS interface name says, for another platform's suggested name (the core's PortName): `Port-channel10` is aggregate 10. */
+export function describeInterface(name: string): PortName | undefined {
+  const m = /^po(?:rt-channel)?(\d+)$/i.exec(name)
+  return m ? { type: 'aggregate', numbers: [Number(m[1])] } : undefined
+}
+
 /** IOS's Ethernet names by speed in Mb/s. */
 const ETHERNET_NAMES: Readonly<Record<number, string>> = {
   10: 'Ethernet',
@@ -74,7 +80,8 @@ export function nameInterface(port: PortName): string | undefined {
     return n.length === 4 ? `${base}${n.slice(0, 3).join('/')}:${n[3]}` : `${base}${n.join('/')}`
   }
   if (n.length !== 1) return undefined
-  if (port.type === 'aggregate') return n[0] >= 1 ? `Port-channel${n[0]}` : undefined
+  // Every plugin describes an aggregate counted from 1, as Cisco does: Junos's `ae0` is aggregate 1, `Port-channel1`.
+  if (port.type === 'aggregate') return Number.isInteger(n[0]) && n[0] >= 1 ? `Port-channel${n[0]}` : undefined
   if (port.type === 'loopback') return `Loopback${n[0]}`
   if (port.type === 'tunnel') return `Tunnel${n[0]}`
   // A routed VLAN interface is described by its VLAN's ID: Junos `irb.100` for VLAN 100 is `Vlan100`.

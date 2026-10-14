@@ -422,16 +422,14 @@ describe('the feature lines phase 2 needs', () => {
 })
 
 describe('aggregate names suggested for convert', () => {
-  it('Junos aeN is port-channel(N+1); IOS-XE Port-channelN and IOS-XR Bundle-EtherN keep N; an unknown source gets none', () => {
+  it('an aggregate, counted from 1 as every plugin describes it, keeps its number; aggregate 0 and other ports get none', () => {
     const aggregate = (n: number) => ({ type: 'aggregate' as const, numbers: [n] })
-    const name = plugin.nameInterface as (port: Parameters<NonNullable<typeof plugin.nameInterface>>[0], source?: string) => string | undefined
-    expect(name(aggregate(0), 'junos')).toBe('port-channel1')
-    expect(name(aggregate(4), 'junos')).toBe('port-channel5')
-    expect(name(aggregate(5), 'iosxe')).toBe('port-channel5')
-    expect(name(aggregate(3), 'iosxr')).toBe('port-channel3')
-    expect(name(aggregate(0), 'iosxe')).toBeUndefined()
-    expect(name(aggregate(1))).toBeUndefined()
-    expect(name({ type: 'ethernet', speed: 1000, numbers: [0, 0, 1] }, 'junos')).toBeUndefined()
+    expect(plugin.nameInterface?.(aggregate(1))).toBe('port-channel1')
+    expect(plugin.nameInterface?.(aggregate(4096))).toBe('port-channel4096')
+    expect(plugin.nameInterface?.(aggregate(0))).toBeUndefined()
+    expect(plugin.nameInterface?.(aggregate(4097))).toBeUndefined()
+    expect(plugin.nameInterface?.({ type: 'aggregate', numbers: [1, 2] })).toBeUndefined()
+    expect(plugin.nameInterface?.({ type: 'ethernet', speed: 1000, numbers: [0, 0, 1] })).toBeUndefined()
     expect(plugin.describeInterface?.('port-channel10')).toEqual(aggregate(10))
     expect(plugin.describeInterface?.('Ethernet1/1')).toBeUndefined()
   })

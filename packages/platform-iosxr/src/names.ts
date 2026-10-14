@@ -33,12 +33,11 @@ export function describeInterface(name: string): PortName | undefined {
 
 /**
  * IOS-XR's name for a port another platform described, as a suggestion the user confirms: an aggregate is
- * `Bundle-Ether` and its number, counted from 1 as Cisco does. Junos counts its `ae` interfaces from 0, so `ae0` is
- * `Bundle-Ether1`; IOS-XE's and NX-OS's port-channels keep their number. `source` is the id of the plugin that described
- * the port: without it the numbering isn't known, and nothing is suggested.
+ * `Bundle-Ether` and its number. Every plugin describes an aggregate counted from 1, as Cisco does (Junos's `ae0` is 1),
+ * so IOS-XE's and NX-OS's port-channels keep their number, and Junos's `ae0` is `Bundle-Ether1`.
  */
-export function nameInterface(port: PortName, source?: string): string | undefined {
+export function nameInterface(port: PortName): string | undefined {
   if (port.type !== 'aggregate' || port.numbers.length !== 1) return undefined
-  const n = source === 'junos' ? port.numbers[0] + 1 : source === 'iosxe' || source === 'nxos' || source === 'iosxr' ? port.numbers[0] : undefined
-  return n !== undefined && n >= 1 && n <= 65535 ? `Bundle-Ether${n}` : undefined
+  const n = port.numbers[0]
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? `Bundle-Ether${n}` : undefined
 }

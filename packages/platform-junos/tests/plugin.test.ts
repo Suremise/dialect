@@ -91,8 +91,9 @@ describe('what an interface name says (convert mode suggestions)', () => {
     expect(junos.describeInterface?.('mge-0/0/1')).toEqual({ type: 'ethernet', numbers: [0, 0, 1] })
   })
 
-  it('describes aggregates, loopbacks and management ports by number, and not the rest', () => {
-    expect(junos.describeInterface?.('ae1')).toEqual({ type: 'aggregate', numbers: [1] })
+  it('describes aggregates (counted from 1, as Cisco does), loopbacks and management ports by number, and not the rest', () => {
+    expect(junos.describeInterface?.('ae0')).toEqual({ type: 'aggregate', numbers: [1] })
+    expect(junos.describeInterface?.('ae1')).toEqual({ type: 'aggregate', numbers: [2] })
     expect(junos.describeInterface?.('lo0')).toEqual({ type: 'loopback', numbers: [0] })
     expect(junos.describeInterface?.('fxp0')).toEqual({ type: 'management', numbers: [0] })
     expect(junos.describeInterface?.('em1')).toEqual({ type: 'management', numbers: [1] })

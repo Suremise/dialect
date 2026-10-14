@@ -33,11 +33,11 @@
   import and export policies by name), with the router ID and AS number, in the global table and in VRFs. Keys are
   never carried over: Dialect asks for each one. Converting into Junos warns where its defaults differ from the
   source's: OSPF enabled by `network` statements becomes per interface, and an eBGP peer without a policy accepts its
-  routes on Junos where IOS-XR rejects them. Policy bodies aren't converted yet, with a warning. Converting to Junos
-  suggests `ae0` for a Cisco `Port-channel1` or `Bundle-Ether1`.
-  asks for them. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route,
-  where an IOS-XR source exchanged none (RFC 8212), and OSPF enabled with `network` statements is enabled per
-  interface.
+  routes on Junos where IOS-XR rejects them. Policy bodies aren't converted yet, with a warning.
+- **Aggregated interfaces get a suggested name on every target:** Junos `ae0` is suggested as IOS `Port-channel1`,
+  NX-OS `port-channel1` or IOS-XR `Bundle-Ether1` (Cisco counts from 1, Junos from 0), and back again; between Cisco
+  platforms the number is kept (`Port-channel5` → `Bundle-Ether5`). As with every suggestion, it's used only once you
+  take it.
 - **Cisco IOS-XR OSPF and BGP convert:** OSPF processes with their areas (stub, NSSA, authentication) and interfaces
   (cost, network type, passive, timers), taking IOS-XR's inheritance from the area and the process into each interface,
   and BGP (neighbors, neighbor groups, eBGP multihop, address families, route policies by name only), in the global
