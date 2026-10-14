@@ -472,12 +472,13 @@ when one is needed, is `@codemirror/merge`.
 
 ## The web build (`apps/web`)
 
-`npm run build -w @dialect/web` writes one file, `apps/web/dist/dialect.html` (about 570 KB), that runs from `file://`
+`npm run build -w @dialect/web` writes one file, `apps/web/dist/dialect.html` (about 1.1 MB), that runs from `file://`
 with no server and no network.
 
 - `src/main.tsx` renders the UI with `src/webPlatform.ts`: a file picker, downloads (a `blob:` link), and the clipboard
   API with the copy command as its fallback.
-- `vite.config.ts`: the React plugin, then vite-plugin-singlefile, which inlines the script and the styles, then
+- `vite.config.ts`: the React plugin, then `dialect-inline`, which inlines the script and the styles (the build makes
+  one of each: no code splitting, no preload helper, assets as `data:` URLs) and fails on any other file, then
   `dialect-csp`, which fills in the page's Content Security Policy from their SHA-256 hashes: `default-src 'none'`,
   `script-src` and `style-src` only those hashes, `img-src data:` (the icon), and `base-uri`, `form-action` and
   `object-src` `'none'`. No `unsafe-inline`, no `blob:` or remote sources, no `connect-src`. The build fails if the page
