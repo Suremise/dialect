@@ -104,7 +104,7 @@ A platform package's default export is a `PlatformPlugin`:
 | `detect?(text)` | 0..1, for auto-detect |
 | `parse?(text, context)` | → `ParseResult`: the syntax tree, the model, a `StatementDisposition` per statement id, diagnostics, needs-input items |
 | `render?(model, context)` | → `RenderResult`: the text, a `FieldDisposition` per populated field path, diagnostics, needs-input items |
-| `tools?()` | platform-only `Tool`s that don't go through the model, such as Junos display set: `run(input) → { text, diagnostics }` |
+| `tools?()` | platform-only `Tool`s that don't go through the model, such as Junos display set: `run(input) → { text, diagnostics, sourceLines? }`, where `sourceLines` is the 1-based source line of each line of `text`, for linking output to source |
 
 `parse`, `render`, `detect` and `tools` are optional, so a plugin can ship its tools before its mapping (B3 before
 B4). Plugins take and return strings and plain objects only.
@@ -287,8 +287,9 @@ B3's parser and display set, ported from the spike prototype (B4 adds the mappin
 
 - `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.1.0 <1.0.0'`, no
   capabilities yet). Its `tools()` has one tool, `displaySetTool`: id `display-set`, name "Display set". `run(text)`
-  returns the set lines as text, one per line, each ended by a newline (none on an error). It also returns the parse
-  error or the warnings as diagnostics: `category: 'syntax'`, codes `junos.syntax`, `junos.annotation`,
+  returns the set lines as text, one per line, each ended by a newline (none on an error), and `sourceLines`, the
+  statement's source line for each output line (a quoted value with line breaks makes one set line several output
+  lines, each with its statement's line). It also returns the parse error or the warnings as diagnostics: `category: 'syntax'`, codes `junos.syntax`, `junos.annotation`,
   `junos.unknown-tag`, `junos.stray-annotation`, `junos.empty-list`, and a point span at their line and column. The
   core's `Tool` has no field for what a tool reads and writes, so `JunosTool` adds `input: 'junos-hierarchical'` and
   `output: 'junos-set'`.
@@ -329,15 +330,16 @@ The React UI both shells share: `<App platform={…} />`, where `Platform` (`src
 clipboard access (open, open a dropped file, save, read and write the clipboard). The UI never touches files itself:
 even a dropped file is read by the shell, from the drop event's data.
 
-- `src/store.ts`: one zustand store, with the source text and its name, the display set result, the problems (the
-  syntax error or the warnings), the theme choice, and requests to reveal a place in an editor. It calls the Junos
-  plugin's `displaySet()` directly rather than the registry's tool: the linked lines need each set line's source line,
-  which the core's `ToolResult` doesn't carry yet (card #23). Display set runs
-  synchronously on every change (config_22, 316 KB, parses in tens of milliseconds).
+- `src/store.ts`: one zustand store, with the source text and its name, the display set output and each output line's
+  source line, the problems (the syntax error or the warnings), the theme choice, and requests to reveal a place in an
+  editor. It runs display set as the Junos plugin's tool, found through the core's registry
+  (`createRegistry([junos]).tools()`), as the CLI does: the problems come from the result's diagnostics and the linked
+  lines from its `sourceLines`. Display set runs synchronously on every change (config_22, 316 KB, parses in tens of
+  milliseconds).
 - `src/App.tsx`: the title bar and its actions (Open, Paste, Copy output, Save output, the theme), the source and output
   panes, the problems panel and the status bar. A file dropped anywhere opens, even on an editor: the drop is handled
   in the capture phase, so CodeMirror doesn't insert it, and `platform.openDropped()` reads it. Moving the cursor in one pane marks the matching lines in the other, through
-  each set line's `sourceLine`.
+  the tool's `sourceLines`.
 - `src/editor/`: the CodeMirror 6 editor component, and Junos colouring as a stream language (colouring only: the
   parser does the real work).
 - `src/styles/app.css`: Hive's surface and text colours, and the violet accent from `branding/theme-tokens.css`.

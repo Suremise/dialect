@@ -25,7 +25,7 @@ function useSystemDark(): boolean {
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
 export function App({ platform }: { platform: Platform }) {
-  const { source, sourceName, result, output, problems, theme, reveal, notice } = useStore()
+  const { source, sourceName, output, sourceLines, problems, theme, reveal, notice } = useStore()
   const { setSource, setTheme, revealAt, notify, dismissNotice } = useStore.getState()
   const systemDark = useSystemDark()
   const dark = theme === 'system' ? systemDark : theme === 'dark'
@@ -49,7 +49,6 @@ export function App({ platform }: { platform: Platform }) {
     return () => clearTimeout(timer)
   }, [notice])
 
-  const lines = result.ok ? result.lines : []
   const error = problems.find((p) => p.severity === 'error')
   const warnings = problems.filter((p) => p.severity === 'warning')
 
@@ -61,22 +60,22 @@ export function App({ platform }: { platform: Platform }) {
 
   const onOutputCursor = useCallback(
     (line: number) => {
-      const target = lines[line - 1]?.sourceLine
+      const target = sourceLines[line - 1]
       setLinkedOutput([])
       setLinkedSource(target ?? null)
       if (target) revealAt('source', target, 1, false)
     },
-    [lines]
+    [sourceLines]
   )
 
   const onSourceCursor = useCallback(
     (line: number) => {
-      const targets = lines.flatMap((l, i) => (l.sourceLine === line ? [i + 1] : []))
+      const targets = sourceLines.flatMap((l, i) => (l === line ? [i + 1] : []))
       setLinkedSource(null)
       setLinkedOutput(targets)
       if (targets.length > 0) revealAt('output', targets[0], 1, false)
     },
-    [lines]
+    [sourceLines]
   )
 
   const open = useCallback(async () => {
@@ -111,11 +110,11 @@ export function App({ platform }: { platform: Platform }) {
     if (!output) return
     try {
       await platform.writeClipboard(output + '\n')
-      notify('info', `Copied ${plural(lines.length, 'set line', 'set lines')}.`)
+      notify('info', `Copied ${plural(sourceLines.length, 'set line', 'set lines')}.`)
     } catch (e) {
       notify('error', `Couldn't copy the output: ${(e as Error).message}`)
     }
-  }, [platform, output, lines.length])
+  }, [platform, output, sourceLines.length])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -152,7 +151,7 @@ export function App({ platform }: { platform: Platform }) {
     )
   }
 
-  const outputSummary = error ? 'No output: the config has a syntax error' : source.trim() === '' ? '' : plural(lines.length, 'set line', 'set lines')
+  const outputSummary = error ? 'No output: the config has a syntax error' : source.trim() === '' ? '' : plural(sourceLines.length, 'set line', 'set lines')
 
   return (
     <div className="app" onDragOverCapture={onDragOver} onDragLeave={(e) => e.relatedTarget === null && setDragging(false)} onDropCapture={onDrop}>

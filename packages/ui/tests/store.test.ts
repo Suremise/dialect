@@ -1,4 +1,5 @@
-// The UI store's logic without a browser: the output and problems it derives from the source, and the save name.
+// The UI store's logic without a browser: the output, source lines and problems it derives from the source (through
+// the registry's display set tool), and the save name.
 import { beforeEach, describe, expect, it } from 'vitest'
 import { outputName, useStore } from '../src/store'
 
@@ -13,6 +14,13 @@ describe('the store', () => {
     expect(output).toBe('set system host-name r1\nset system services ssh\ndeactivate system services')
     expect(problems).toEqual([])
     expect(sourceName).toBe('r1.conf')
+  })
+
+  it("gives each output line its statement's source line, from the tool's result", () => {
+    useStore.getState().setSource('system {\n    host-name r1;\n    inactive: services { ssh; }\n}\n')
+    expect(useStore.getState().sourceLines).toEqual([2, 3, 3])
+    useStore.getState().setSource('system {\n    host-name r1\n}\n')
+    expect(useStore.getState().sourceLines).toEqual([])
   })
 
   it('keeps the name while the source is edited, and drops it for pasted text', () => {
