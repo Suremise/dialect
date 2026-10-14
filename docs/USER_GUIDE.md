@@ -319,7 +319,8 @@ too, with its route targets: a Cisco map filters what the route targets bring in
 `vrf-import` or `vrf-export` replaces them, so converting one from Junos warns.
 
 Cisco IOS / IOS-XE and NX-OS also convert access lists (IPv4 and IPv6, named, and on IOS numbered and standard) and the
-interfaces that apply them, each entry with its remarks kept as its description. An address with a wildcard is
+interfaces that apply them, each entry with its remarks kept as its description (Junos keeps none per term, so
+converting to Junos lists a remark as not written, with the entry converted). An address with a wildcard is
 converted only when the wildcard is a plain prefix: an entry with any other wildcard is listed as not converted, never
 approximated, and so is the whole list, with the interfaces applying it: leaving the entry out would have the list
 decide other packets. Every Cisco access list denies what no entry

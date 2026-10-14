@@ -244,7 +244,10 @@ export function termProblems(parsed: ParseResult, rendered?: RenderResult, model
     if (!terms) continue
     const unsafe: string[] = []
     for (const key of Object.keys(terms)) {
-      const kinds = populatedLeaves(terms[key], [...at, 'terms', key]).map((l) => kind(l.path))
+      // A filter term's description (a Cisco remark, model 0.5.3) says nothing about what it decides: a target that
+      // keeps none leaves it out without converting the term in part.
+      const decides = (path: string) => !(what === 'filter' && path === fieldPath(...at, 'terms', key, 'description'))
+      const kinds = populatedLeaves(terms[key], [...at, 'terms', key]).filter((l) => decides(l.path)).map((l) => kind(l.path))
       const term = fieldPath(...at, 'terms', key)
       if (!kinds.includes('unsupported')) continue
       if (kinds.some((k) => k !== 'unsupported')) out.push(`render converted part of a term: some of ${term}'s fields are unsupported and some aren't`)
