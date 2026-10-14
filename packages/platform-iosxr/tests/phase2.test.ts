@@ -186,6 +186,17 @@ describe('RFC 8212: an eBGP neighbor with no policy exchanges no routes on IOS-X
     const result = parse(lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', '  address-family ipv4 unicast', '   route-policy IN in', '!'))
     expect(result.model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toEqual({ export: 'reject' })
     expect(at(result, 1)).toEqual({ kind: 'mapped', fields: ['networkInstances.default.bgp.localAs', 'networkInstances.default.bgp.ebgpDefaultPolicy.export'] })
+    // Each family it carries counts on its own: a policy on IPv4 doesn't cover IPv6, the neighbor's or its group's.
+    const policy = (...l: string[]) => parse(lines('router bgp 65000', ...l, '!')).model.networkInstances?.default.bgp?.ebgpDefaultPolicy
+    const v4 = ['  address-family ipv4 unicast', '   route-policy IN in', '   route-policy OUT out', '  !']
+    expect(policy(' neighbor 192.0.2.2', '  remote-as 65001', ...v4, '  address-family ipv6 unicast', '  !', ' !')).toEqual({ import: 'reject', export: 'reject' })
+    expect(policy(' neighbor-group G', '  remote-as 65001', ...v4, ' !', ' neighbor 192.0.2.2', '  use neighbor-group G', '  address-family ipv6 unicast', '  !', ' !')).toEqual({ import: 'reject', export: 'reject' })
+    expect(policy(' neighbor 192.0.2.2', '  remote-as 65001', ...v4, '  address-family ipv6 unicast', '   route-policy IN6 in', '  !', ' !')).toEqual({ export: 'reject' })
+    expect(policy(' neighbor 192.0.2.2', '  remote-as 65001', ...v4, ' !')).toBeUndefined()
+    // The neighbor's own family settings win over its group's: the group's IPv6 policies cover what the neighbor leaves.
+    expect(policy(' neighbor-group G', '  remote-as 65001', '  address-family ipv6 unicast', '   route-policy G-IN in', '   route-policy G-OUT out', '  !', ' !', ' neighbor 192.0.2.2', '  use neighbor-group G', ...v4, '  address-family ipv6 unicast', '   route-policy OWN in', '  !', ' !')).toBeUndefined()
+    // With no family at all, as before: nothing carries a policy, both ways.
+    expect(policy(' neighbor 192.0.2.2', '  remote-as 65001', ' !')).toEqual({ import: 'reject', export: 'reject' })
     // An iBGP neighbor says nothing of it.
     expect(parse(lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65000', '!')).model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toBeUndefined()
   })

@@ -7,7 +7,7 @@
 // Later statements act on earlier ones as on the device: a second setting supersedes the first, and `no …` forms and
 // `vrf V` on an interface clear what they remove. No reason or diagnostic repeats a word of the configuration
 // (AGENTS.md, No secrets in diagnostics): they give line numbers and word positions instead.
-import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Diagnostic, type Bgp, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Diagnostic, type Bgp, type BgpAddressFamilyName, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { interfaceType, isInterfaceName, splitSubinterface } from './names'
 import { parseTree, unquote, type XrNode } from './tree'
@@ -1609,9 +1609,13 @@ export function parse(text: string, _context: Context): ParseResult {
         const group = neighbor.group !== undefined && bgp.groups && Object.hasOwn(bgp.groups, neighbor.group) ? bgp.groups[neighbor.group] : undefined
         const peerAs = neighbor.peerAs ?? group?.peerAs
         if (peerAs === undefined || peerAs === bgp.localAs) continue
+        // Each family it carries (its own or its group's) by its effective policy each way: the family's own, else the
+        // neighbor's, else the group's family's, else the group's. With no family, the neighbor's or the group's.
+        const families = [...new Set([...Object.keys(neighbor.addressFamilies ?? {}), ...Object.keys(group?.addressFamilies ?? {})])] as BgpAddressFamilyName[]
         for (const [field, side] of [['importPolicies', 'import'], ['exportPolicies', 'export']] as const) {
-          const has = [neighbor, group].some((p) => !!p && (!!p[field]?.length || Object.values(p.addressFamilies ?? {}).some((af) => !!af?.[field]?.length)))
-          if (!has) sides.add(side)
+          const effective = (f?: BgpAddressFamilyName) => (f ? neighbor.addressFamilies?.[f]?.[field] : undefined) ?? neighbor[field] ?? (f ? group?.addressFamilies?.[f]?.[field] : undefined) ?? group?.[field]
+          const missing = families.length ? families.some((f) => !effective(f)?.length) : !effective()?.length
+          if (missing) sides.add(side)
         }
       }
       const fields = [...sides].map((side) => model.set([...bgpPath(instance), 'ebgpDefaultPolicy', side], 'reject'))

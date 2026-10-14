@@ -705,9 +705,11 @@ policy), with `detect`, `parse`, `render`, and `describeInterface` and `nameInte
     it and `no router bgp ASN` remove what they name. Once every statement is read, BGP in a VRF the text doesn't
     define, an update source that names no interface and a group a neighbor's VRF doesn't have are `unsupported`.
   - **RFC 8212 (model 0.4.1):** IOS-XR drops an eBGP peer's routes, both ways, with no policy. For each network
-    instance with an eBGP neighbor (its peer AS, or its group's, isn't the local AS) that has no policy one way (its
-    own or its group's, for the peer or a family), the parse sets `ebgpDefaultPolicy` to `reject` that way, mapped by
-    `router bgp` or the VRF's `vrf V`: the platform's default, not configuration.
+    instance with an eBGP neighbor (its peer AS, or its group's, isn't the local AS) that has no policy one way in a
+    family it carries (its own families and its group's, each by its effective policy: the family's own, else the
+    neighbor's, else the group's family's, else the group's; with no family, the neighbor's or the group's), the parse
+    sets `ebgpDefaultPolicy` to `reject` that way, mapped by `router bgp` or the VRF's `vrf V`: the platform's default,
+    not configuration. A policy on IPv4 doesn't cover IPv6.
   - **A VRF's deletion** (`no vrf X`) leaves its OSPF and BGP so far, and its route distinguisher, out as `unsupported`:
     what the device keeps of them isn't certain.
   - **SNMP communities:** one with any statement not converted, anywhere (an access list in any form, `IPv4 ACL`,
