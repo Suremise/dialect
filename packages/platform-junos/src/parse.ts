@@ -10,7 +10,7 @@
 //
 // Reasons and diagnostics never quote the configuration: a value can be a secret (an SNMP community, a key), so they
 // name what a statement is and where.
-import type { Context, Device, ParseResult, StatementDisposition, SyntaxNode, SyslogSeverity } from '@dialect/core'
+import { fieldPath, type Context, type Device, type ParseResult, type StatementDisposition, type SyntaxNode, type SyslogSeverity } from '@dialect/core'
 import { addressKey, isIpv4, isIpv6, parsePrefix, prefixKey } from './addresses'
 import { expand, type Expanded } from './expand'
 import { ModelBuilder, type Segments } from './model'
@@ -19,7 +19,8 @@ import { readConfig, startsWith } from './statements'
 
 type Mutable = { kind: 'mapped'; fields: string[] } | Exclude<StatementDisposition, { kind: 'mapped' }>
 
-const mapped = (fields: string[]): Mutable => ({ kind: 'mapped', fields })
+/** Mapped, with the fields it filled; a null is a setting a higher-ranked statement kept (`put`). */
+const mapped = (fields: readonly (string | null)[]): Mutable => ({ kind: 'mapped', fields: fields.filter((f): f is string => f !== null) })
 const ignored = (reason: string): Mutable => ({ kind: 'ignored-by-design', reason })
 const unsupported = (reason?: string): Mutable => (reason ? { kind: 'unsupported', reason } : { kind: 'unsupported' })
 
@@ -75,21 +76,33 @@ export function parse(text: string, _context: Context): ParseResult {
    * in): a statement left with only these, once its own setting is superseded, is superseded.
    */
   const incidental = new Set<string>()
-  /** Which statement last set each single-valued setting: a later one supersedes it, as on the device. */
+  /**
+   * Which statement owns each single-valued setting: the one of highest rank (expand.ts), the later of equal ones, as
+   * loading the commands in order would. A statement it supersedes keeps only its other fields.
+   */
   const owners = new Map<string, number>()
-  const claim = (key: string, index: number) => {
+  /** Statements that lost a setting to a higher-ranked one before they were mapped: the winner's line. */
+  const lost = new Map<number, number>()
+  /** Takes `key` for statement `index`; false when a statement of higher rank already has it. */
+  const claim = (key: string, index: number): boolean => {
     const previous = owners.get(key)
+    if (previous !== undefined && previous !== index && statements[previous].rank > statements[index].rank) {
+      lost.set(index, statements[previous].line)
+      return false
+    }
     owners.set(key, index)
-    if (previous === undefined || previous === index) return
+    if (previous === undefined || previous === index) return true
     const result = results[previous]
-    if (result?.kind !== 'mapped') return
+    if (result?.kind !== 'mapped') return true
     result.fields = result.fields.filter((f) => f !== key)
     if (result.fields.every((f) => incidental.has(f))) results[previous] = ignored(`superseded by line ${statements[index].line}`)
+    return true
   }
-  /** Sets a single-valued leaf for statement `index`, superseding whatever set it before. */
-  const put = (index: number, segments: Segments, value: unknown): string => {
-    const path = model.set(segments, value)
-    claim(path, index)
+  /** Sets a single-valued leaf for statement `index` unless a higher-ranked statement has it: its path, or null. */
+  const put = (index: number, segments: Segments, value: unknown): string | null => {
+    const path = fieldPath(...segments)
+    if (!claim(path, index)) return null
+    model.set(segments, value)
     return path
   }
 
@@ -167,7 +180,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (name === undefined || NOT_INTERFACES.has(name)) return unsupported()
     const iface = ['interfaces', name]
     const r = w.slice(2)
-    const withIface = (fields: string[]) => mapped([...ensureInterface(name), ...fields])
+    const withIface = (fields: (string | null)[]) => mapped([...ensureInterface(name), ...fields])
     if (!r.length) return withIface([])
     if (r[0] === 'description' && r.length === 2) return withIface([put(i, [...iface, 'description'], r[1])])
     if (r[0] === 'disable' && r.length === 1) return withIface([put(i, [...iface, 'enabled'], false)])
@@ -177,7 +190,7 @@ export function parse(text: string, _context: Context): ParseResult {
 
     const sub = [...iface, 'subinterfaces', String(Number(r[1]))]
     const u = r.slice(2)
-    const withSub = (fields: string[]) => mapped([...ensureInterface(name), container(sub), ...fields])
+    const withSub = (fields: (string | null)[]) => mapped([...ensureInterface(name), container(sub), ...fields])
     if (!u.length) return withSub([])
     if (u[0] === 'description' && u.length === 2) return withSub([put(i, [...sub, 'description'], u[1])])
     if (u[0] === 'disable' && u.length === 1) return withSub([put(i, [...sub, 'enabled'], false)])
@@ -254,7 +267,7 @@ export function parse(text: string, _context: Context): ParseResult {
       const valid = !q.length || (q.length === 2 && ((['preference', 'metric', 'tag'].includes(setting) && isInteger(q[1])) || (setting === 'interface' && isAddress(target) && isInterfaceName(q[1]))))
       if (!valid) return unsupported()
       const [index, created] = hop(`qualified-next-hop ${target}`)
-      const fields = created ? [model.set([...hopAt(index), isAddress(target) ? 'address' : 'interface'], isAddress(target) ? addressKey(target) : target)] : []
+      const fields: (string | null)[] = created ? [model.set([...hopAt(index), isAddress(target) ? 'address' : 'interface'], isAddress(target) ? addressKey(target) : target)] : []
       if (!q.length) return created ? mapped(fields) : ignored('already a next hop of the route')
       const own = state.own.get(index) ?? new Set()
       state.own.set(index, own)
@@ -264,8 +277,7 @@ export function parse(text: string, _context: Context): ParseResult {
     }
     if (o.length === 2 && ['preference', 'metric', 'tag'].includes(o[0]) && isInteger(o[1])) {
       // Applied to every hop without its own value once all the route's statements are read: a placeholder until then.
-      claim(`${routeKey}\u0000${o[0]}`, i)
-      state.level.set(o[0], { index: i, value: Number(o[1]) })
+      if (claim(`${routeKey}\u0000${o[0]}`, i)) state.level.set(o[0], { index: i, value: Number(o[1]) })
       return mapped([])
     }
     return unsupported()
@@ -330,7 +342,10 @@ export function parse(text: string, _context: Context): ParseResult {
   }
 
   statements.forEach((s, i) => {
-    results[i] = mapStatement(s, i)
+    const result = mapStatement(s, i)
+    // A statement whose setting a higher-ranked one kept, with nothing else of its own, is superseded by it.
+    const winner = lost.get(i)
+    results[i] = winner !== undefined && result.kind === 'mapped' && result.fields.every((f) => incidental.has(f)) ? ignored(`superseded by line ${winner}`) : result
   })
 
   // Route-wide settings, now every hop of each route is known.

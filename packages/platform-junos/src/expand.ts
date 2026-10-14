@@ -17,6 +17,11 @@ import { startsWith, type Statement } from './statements'
 export interface Expanded extends Statement {
   /** How it got here, for reasons: `group` (inherited) or `range` (from an interface range). */
   readonly from?: 'group' | 'range'
+  /**
+   * Its priority where two statements set the same value: the higher wins, whatever their order. Statements come in
+   * priority order, except inside a group, where the first entry wins (the mapper compares ranks, not positions).
+   */
+  readonly rank: number
 }
 
 export interface Expansion {
@@ -112,7 +117,9 @@ export function expand(statements: readonly Statement[]): Expansion {
   for (const site of [...applies, ...excepts]) {
     const known = groups.has(site.group)
     const apply = applies.includes(site)
-    note(site.statement.node, known ? ignored(apply ? "applies a group: the group's statements are mapped where they apply" : 'keeps a group from applying under its level') : unsupported('no group of that name is defined'))
+    // Junos refuses apply-groups-except at the top level, so there is no meaning to convert.
+    if (!apply && !site.path.length) note(site.statement.node, unsupported('apply-groups-except at the top level, which Junos refuses'))
+    else note(site.statement.node, known ? ignored(apply ? "applies a group: the group's statements are mapped where they apply" : 'keeps a group from applying under its level') : unsupported('no group of that name is defined'))
   }
 
   // ---- interface ranges: their members first, so wildcards can match the interfaces a range configures
@@ -160,11 +167,12 @@ export function expand(statements: readonly Statement[]): Expansion {
     return byRange.flatMap((s) => {
       const own = members.get(s.words[2]) ?? []
       if (!own.length) unused[s.node] ??= unsupported('an interface range with no members this converter can expand')
-      return own.map((m): Expanded => ({ node: s.node, line: s.line, words: ['interfaces', m, ...s.words.slice(3)], from: s.from ?? 'range' }))
+      return own.map((m): Expanded => ({ node: s.node, line: s.line, words: ['interfaces', m, ...s.words.slice(3)], from: s.from ?? 'range', rank: s.rank }))
     })
   }
 
-  const localRanges = classify(local)
+  // The configuration's own statements rank above anything inherited; their final ranks come with their order below.
+  const localRanges = classify(local.map((s) => ({ ...s, rank: 0 })))
 
   // The names the configuration has under each path, in order, for wildcards to match: what it configures, and the
   // interfaces its ranges name, settings or not (a range's members are interfaces).
@@ -183,61 +191,38 @@ export function expand(statements: readonly Statement[]): Expansion {
   for (const s of [...localRanges.rest, ...expandRanges(localRanges.config)]) addNames(s.words)
   addMembers()
 
-  /**
-   * Per group, the wildcards at each place in its statements (by the words before them), in the group's order: an
-   * object two of them match takes the first one's statements only, as Junos does.
-   */
-  const patterns = new Map<string, Map<string, string[]>>()
-  for (const [name, list] of groups) {
-    const at = new Map<string, string[]>()
-    for (const { body } of list) {
-      body.forEach((word, j) => {
-        if (!isWildcard(word)) return
-        const k = key(body.slice(0, j))
-        const seen = at.get(k) ?? []
-        if (!seen.includes(word)) seen.push(word)
-        at.set(k, seen)
-      })
-    }
-    patterns.set(name, at)
-  }
-  /** Whether `word`, at place `j` of `body`, is the first of the group's wildcards there to match `name`. */
-  const firstMatch = (group: string, body: readonly string[], j: number, name: string) => {
-    const word = body[j]
-    if (!isWildcard(word)) return word === name
-    return patterns.get(group)?.get(key(body.slice(0, j)))?.find((p) => matches(p, name)) === word
-  }
-
   /** The statements a group statement's words stand for under `path`: its wildcards resolved against the configuration. */
-  const resolve = (group: string, body: readonly string[], path: readonly string[]): string[][] => {
-    if (body.length < path.length || !path.every((w, i) => firstMatch(group, body, i, w))) return []
+  const resolve = (body: readonly string[], path: readonly string[]): string[][] => {
+    if (body.length < path.length || !path.every((w, i) => matches(body[i], w))) return []
     let resolved: string[][] = [[...path]]
-    for (let j = path.length; j < body.length; j++) {
-      const word = body[j]
+    for (const word of body.slice(path.length)) {
       if (!isWildcard(word)) {
         for (const r of resolved) r.push(word)
         continue
       }
-      resolved = resolved.flatMap((r) => (children.get(key(r)) ?? []).filter((name) => name !== APPLY && name !== EXCEPT && name !== 'interface-range' && firstMatch(group, body, j, name)).map((name) => [...r, name]))
+      resolved = resolved.flatMap((r) => (children.get(key(r)) ?? []).filter((name) => name !== APPLY && name !== EXCEPT && name !== 'interface-range' && matches(word, name)).map((name) => [...r, name]))
       if (!resolved.length) return []
     }
     return resolved
   }
 
-  // Lowest priority first: shallower levels, then later groups at a level; within a group, what its wildcards give
-  // before what it names outright.
-  const sites = [...applies].sort((a, b) => a.path.length - b.path.length || b.order - a.order)
+  // Every matching entry of a group applies, wildcard or not, and gives the values the others don't; where two set the
+  // same value, the first entry in the group wins (Juniper: "the first item encountered in the configuration that
+  // matches is used"). Between applications, lowest priority first: shallower levels, then later groups at a level.
+  // Ranks carry the order the mapper needs: each site's entries ranked first-highest, each site above the ones before.
+  const sites = [...applies].filter((a) => groups.has(a.group)).sort((a, b) => a.path.length - b.path.length || b.order - a.order)
   const inheritAll = (): Expanded[] => {
     const out: Expanded[] = []
+    let base = 0
     for (const site of sites) {
       const list = groups.get(site.group) ?? []
-      const ordered = [...list.filter((g) => g.body.some(isWildcard)), ...list.filter((g) => !g.body.some(isWildcard))]
-      for (const { statement, body } of ordered) {
-        for (const words of resolve(site.group, body, site.path)) {
-          if (excepts.some((e) => e.group === site.group && startsWith(words, e.path) && startsWith(e.path, site.path))) continue
-          out.push({ node: statement.node, line: statement.line, words, from: 'group' })
+      list.forEach(({ statement, body }, entry) => {
+        for (const words of resolve(body, site.path)) {
+          if (excepts.some((e) => e.path.length && e.group === site.group && startsWith(words, e.path) && startsWith(e.path, site.path))) continue
+          out.push({ node: statement.node, line: statement.line, words, from: 'group', rank: base + list.length - entry })
         }
-      }
+      })
+      base += list.length + 1
     }
     return out
   }
@@ -251,8 +236,12 @@ export function expand(statements: readonly Statement[]): Expansion {
   }
 
   const inheritedRanges = classify(inherited)
+  // The configuration's own: range settings (later ranges first, so the first range wins), then explicit statements, each
+  // ranked by that order, above every inherited one.
+  const top = inherited.reduce((max, s) => Math.max(max, s.rank), 0) + 1
+  const own = [...expandRanges(localRanges.config), ...localRanges.rest].map((s, i): Expanded => ({ ...s, rank: top + i }))
   return {
-    statements: [...expandRanges(inheritedRanges.config), ...inheritedRanges.rest, ...expandRanges(localRanges.config), ...localRanges.rest],
+    statements: [...expandRanges(inheritedRanges.config), ...inheritedRanges.rest, ...own],
     dispositions,
     unused
   }

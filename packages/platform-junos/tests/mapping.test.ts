@@ -1,6 +1,7 @@
 // The mapping to and from the model beyond what the conformance fixtures show: both forms of the same configuration
-// give the same model, detect(), groups and ranges in detail, keys that look like Object.prototype's, and secrets kept
-// out of every diagnostic and reason.
+// give the same model, detect(), nodes that stand for several statements, member ranges, keys that look like
+// Object.prototype's, and secrets kept out of every diagnostic and reason. Group and range inheritance rules are in
+// inheritance.test.ts.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -51,74 +52,6 @@ describe('detect', () => {
   })
 })
 
-describe('groups', () => {
-  const model = (text: string) => parse(text, context).model
-
-  it('match wildcards against what the configuration has, never creating it', () => {
-    const text = [
-      'set groups G interfaces "<[xe][et]-*>" mtu 9192',
-      'set groups G interfaces <*> unit <*> family inet mtu 9000',
-      'set apply-groups G',
-      'set interfaces xe-0/0/0 unit 0 family inet address 192.0.2.1/24',
-      'set interfaces et-0/0/1 unit 5 family inet address 192.0.2.5/30',
-      'set interfaces ge-0/0/2 unit 0 family inet address 192.0.2.9/30'
-    ].join('\n')
-    const interfaces = model(text).interfaces!
-    expect(Object.keys(interfaces)).toEqual(['xe-0/0/0', 'et-0/0/1', 'ge-0/0/2'])
-    expect([interfaces['xe-0/0/0'].mtu, interfaces['et-0/0/1'].mtu, interfaces['ge-0/0/2'].mtu]).toEqual([9192, 9192, undefined])
-    // An interface takes the first wildcard that matches it: xe- and et- the first's statements only, ge- the second's.
-    expect(interfaces['et-0/0/1'].subinterfaces!['5'].ipv4!.mtu).toBeUndefined()
-    expect(interfaces['ge-0/0/2'].subinterfaces!['0'].ipv4!.mtu).toBe(9000)
-  })
-
-  it('give way to the configuration, a deeper apply-groups, and the first group listed', () => {
-    const text = [
-      'set groups A system domain-name a.example',
-      'set groups B system domain-name b.example',
-      'set groups B interfaces ge-0/0/0 description "from B"',
-      'set groups C interfaces ge-0/0/0 description "from C"',
-      'set apply-groups [ A B ]',
-      'set interfaces ge-0/0/0 apply-groups C',
-      'set interfaces ge-0/0/0 unit 0'
-    ].join('\n')
-    const m = model(text)
-    expect(m.system!.domainName).toBe('a.example')
-    expect(m.interfaces!['ge-0/0/0'].description).toBe('from C')
-    expect(model(`${text}\nset interfaces ge-0/0/0 description local`).interfaces!['ge-0/0/0'].description).toBe('local')
-  })
-
-  it('stop below an apply-groups-except, and an unknown group is unsupported', () => {
-    const p = parse(['set groups G interfaces <*> mtu 9192', 'set apply-groups G', 'set apply-groups NOPE', 'set interfaces ge-0/0/0 unit 0', 'set interfaces ge-0/0/1 apply-groups-except G', 'set interfaces ge-0/0/1 unit 0'].join('\n'), context)
-    expect(p.model.interfaces!['ge-0/0/0'].mtu).toBe(9192)
-    expect(p.model.interfaces!['ge-0/0/1'].mtu).toBeUndefined()
-    expect(p.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'no group of that name is defined' })
-  })
-})
-
-/** A set-form text as hierarchical, through display set's inverse being out of scope: by hand for these small cases. */
-const both = (set: string, hierarchical: string) => [set, hierarchical] as const
-
-describe('precedence, as Juniper documents it', () => {
-  it('gives an object the first wildcard of a group that matches it, in either form', () => {
-    for (const text of both(
-      'set groups G interfaces <ge-*> mtu 1500\nset groups G interfaces <*> mtu 9000\nset apply-groups G\nset interfaces ge-0/0/0 unit 0\nset interfaces xe-0/0/0 unit 0\n',
-      'groups {\n    G {\n        interfaces {\n            <ge-*> {\n                mtu 1500;\n            }\n            <*> {\n                mtu 9000;\n            }\n        }\n    }\n}\napply-groups G;\ninterfaces {\n    ge-0/0/0 {\n        unit 0;\n    }\n    xe-0/0/0 {\n        unit 0;\n    }\n}\n'
-    )) {
-      const interfaces = parse(text, context).model.interfaces!
-      expect([interfaces['ge-0/0/0'].mtu, interfaces['xe-0/0/0'].mtu]).toEqual([1500, 9000])
-    }
-  })
-
-  it("gives an interface in two ranges the first range's settings, in either form", () => {
-    for (const text of both(
-      'set interfaces interface-range A member ge-0/0/0\nset interfaces interface-range A mtu 1500\nset interfaces interface-range B member ge-0/0/0\nset interfaces interface-range B mtu 9000\nset interfaces interface-range B description from-B\n',
-      'interfaces {\n    interface-range A {\n        member ge-0/0/0;\n        mtu 1500;\n    }\n    interface-range B {\n        member ge-0/0/0;\n        mtu 9000;\n        description from-B;\n    }\n}\n'
-    )) {
-      expect(parse(text, context).model.interfaces!['ge-0/0/0']).toMatchObject({ mtu: 1500, description: 'from-B' })
-    }
-  })
-})
-
 describe('a node that stands for several statements', () => {
   const kinds = (p: ParseResult, id: string) => p.dispositions[id].kind
 
@@ -146,24 +79,6 @@ describe('a node that stands for several statements', () => {
   it('is mapped when its values are mapped or superseded, and ignored when all are', () => {
     const p = parse('set system domain-search [ a.example b.example a.example ]\n', context)
     expect(p.dispositions.L1).toEqual({ kind: 'mapped', fields: ['system.dns.search'] })
-  })
-})
-
-describe('range members and wildcards', () => {
-  it('lets a wildcard group match the members of a range with no settings of its own', () => {
-    const p = parse('set interfaces interface-range R member ge-0/0/0\nset interfaces interface-range R member-range ge-0/0/1 to ge-0/0/2\nset groups G interfaces <*> mtu 9000\nset apply-groups G\n', context)
-    expect(p.model.interfaces).toEqual({ 'ge-0/0/0': { type: 'ethernet', mtu: 9000 }, 'ge-0/0/1': { type: 'ethernet', mtu: 9000 }, 'ge-0/0/2': { type: 'ethernet', mtu: 9000 } })
-  })
-
-  it('lets it match the members a group names, and stops below apply-groups-except', () => {
-    const text = [
-      'set groups RANGES interfaces interface-range R member ge-0/0/0',
-      'set groups RANGES interfaces interface-range R member ge-0/0/1',
-      'set groups G interfaces <*> mtu 9000',
-      'set apply-groups [ RANGES G ]',
-      'set interfaces ge-0/0/1 apply-groups-except G'
-    ].join('\n')
-    expect(parse(text, context).model.interfaces).toEqual({ 'ge-0/0/0': { type: 'ethernet', mtu: 9000 } })
   })
 })
 

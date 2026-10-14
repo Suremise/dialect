@@ -321,17 +321,20 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   every statement under its path (`ignored-by-design`, with the line that did it), as does `inactive:`; `protect` and
   `unprotect` change nothing. A set-form line that isn't a command (a stray `{`) is an error on that line only.
 - **Groups and ranges (`expand.ts`), before mapping:** `apply-groups G` at a level inherits group G's statements under
-  that level, and `apply-groups-except G` stops it below one. A wildcard word in a group (`<*>`, `<ge-*>`,
-  `<[xe][et]-*>`: `*`, `?` and `[…]` classes) matches the names the configuration has at that place, the members of
-  its interface ranges included, so it adds to what exists and never creates it. An object two of a group's wildcards
-  match at the same place takes the first one's statements only, and a group's literal names win over its wildcards
-  (Juniper's "first matching item"). The configuration wins over what it inherits, a deeper `apply-groups` over a
-  shallower one, the first group listed over later ones: inherited statements come first, in that order, and the
-  mapper's "later supersedes earlier" does the rest. `interfaces interface-range R` gives each member (`member X`,
-  `member-range A to B` differing in the last number) the range's settings; explicit interface settings win, and an
-  interface in two ranges takes the first range's where they differ (Juniper's inheritance priority). Ranges and
-  members a group defines count too. Member patterns (`"xe-0/0/[0,1]"`) aren't expanded yet (`unsupported`). A group
-  or range statement is mapped wherever it applies; one that applies nowhere is `ignored-by-design` with why; the
+  that level, and `apply-groups-except G` stops it below one (at the top level, where Junos refuses it, it is
+  `unsupported`). A wildcard word in a group (`<*>`, `<ge-*>`, `<[xe][et]-*>`: `*`, `?` and `[…]` classes) matches
+  the names the configuration has at that place, the members of its interface ranges included, so it adds to what
+  exists and never creates it. Every matching entry of a group applies, wildcard or literal, and gives the values the
+  others don't; where two set the same value, the first entry in the group wins ("the first item encountered … that
+  matches is used"). Then the configuration wins over what it inherits, a deeper `apply-groups` over a shallower one,
+  and the first group listed over later ones; sets add up. Each expanded statement carries a **rank** saying this, and
+  the mapper gives a single value to the highest-ranked statement that sets it (the later of equal ones), so
+  precedence doesn't depend on order. `interfaces interface-range R` gives each member (`member X`, `member-range A to
+  B` differing in the last number) the settings of every range it is in, the first range's where they differ;
+  explicit interface settings win over the range's, and a range's over a group's. Ranges and members a group defines
+  count too. Member patterns (`"xe-0/0/[0,1]"`) aren't expanded yet (`unsupported`), nor is `apply-groups` inside a
+  group. `tests/inheritance.test.ts` has a test per rule, each with the Juniper page that states it. A group or range
+  statement is mapped wherever it applies; one that applies nowhere is `ignored-by-design` with why; the
   `apply-groups` and `member` statements themselves are `ignored-by-design`, or `unsupported` (an unknown group, a
   member pattern). **A node that stands for several statements** (a `[ … ]` list, a group or range statement applied
   in several places) is `unsupported` when any of them is, "only partly converted", so a value that isn't converted
@@ -370,8 +373,9 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   (`tests/corpus.test.ts`), read by path: chosen files per area against expected models in `tests/corpus/`, and every
   Junos file through the kit's checks against its own parse, secrets included; the one that isn't a configuration (a
   terminal capture that cuts a quoted hash) must give a syntax error that quotes nothing. `tests/mapping.test.ts`:
-  both forms, `detect()`, groups, ranges, inactive statements, keys named like `Object.prototype`'s, secrets, SNMP
-  communities and render from another platform's model.
+  both forms, `detect()`, nodes standing for several statements, member ranges, inactive statements, keys named like
+  `Object.prototype`'s, secrets, SNMP communities and render from another platform's model.
+  `tests/inheritance.test.ts`: the group and range inheritance rules, one per test, each citing Juniper's page.
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)
