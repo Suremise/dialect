@@ -110,6 +110,35 @@ describe('configuration groups (GROUPS)', () => {
     })
   })
 
+  // https://www.juniper.net/documentation/us/en/software/junos/cli/topics/topic-map/modifying-configuration.html, "How to
+  // Modify the Configuration": `set` creates a statement or changes its existing value. R4's first-match is between
+  // different entries; two commands on the same entry are its history, and the later one is its value.
+  it('R11: within one entry of a group, a later command updates the value, ordinary or wildcard', () => {
+    expect(model(lines('set groups G system host-name first', 'set groups G system host-name second', 'set apply-groups G')).system!.hostname).toBe('second')
+    const wildcard = lines('set groups G interfaces <*> mtu 1500', 'set groups G interfaces <*> mtu 9000', 'set apply-groups G', 'set interfaces ge-0/0/0 unit 0')
+    const p = parse(wildcard, context)
+    expect(p.model.interfaces!['ge-0/0/0'].mtu).toBe(9000)
+    expect(p.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 2' })
+  })
+
+  // "How to Apply a Configuration Group": "The configuration specified in group re0 is applied only if the current
+  // Routing Engine is in slot 0" (re1 likewise); its conditions section: a group with `when` applies only when its
+  // chassis, Routing Engine, cluster node or time conditions hold. SRX clusters apply node0/node1 through
+  // `apply-groups "${node}"`. Which applies depends on the device, so none is converted, with a warning.
+  it("R12: groups that apply only on some devices (re0, re1, node0, node1, when) aren't converted, with a warning", () => {
+    const re = parse(lines('set groups re0 system host-name RE0', 'set groups re1 system host-name RE1', 'set apply-groups [ re0 re1 ]', 'set system domain-name example.net'), context)
+    expect(re.model).toEqual({ system: { domainName: 'example.net' } })
+    for (const id of ['L1', 'L2', 'L3']) expect(re.dispositions[id].kind).toBe('unsupported')
+    expect(re.diagnostics.map((d) => d.code)).toEqual(['junos.device-group', 'junos.device-group'])
+    for (const d of re.diagnostics) expect(d.message).not.toMatch(/RE0|RE1/)
+    const node = parse(lines('set groups node0 system host-name fw-a', 'set groups node1 system host-name fw-b', 'set apply-groups "${node}"'), context)
+    expect(node.model).toEqual({})
+    for (const id of ['L1', 'L2', 'L3']) expect(node.dispositions[id].kind).toBe('unsupported')
+    const when = parse(lines('set groups LAB when model mx480', 'set groups LAB system host-name lab', 'set apply-groups LAB'), context)
+    expect(when.model).toEqual({})
+    for (const id of ['L1', 'L2', 'L3']) expect(when.dispositions[id].kind).toBe('unsupported')
+  })
+
   // "Example: Use Wildcards with Configuration Groups": "Wildcard expressions match (and provide configuration data for)
   // existing statements in the configuration that match their expression only."
   it('R5: a wildcard matches what the configuration has, and creates nothing', () => {

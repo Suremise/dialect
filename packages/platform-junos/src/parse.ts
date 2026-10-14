@@ -372,7 +372,7 @@ export function parse(text: string, _context: Context): ParseResult {
     })
   }
 
-  return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: read.diagnostics }
+  return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics] }
 }
 
 /**

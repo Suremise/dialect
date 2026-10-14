@@ -10,7 +10,7 @@
 //   first, in that order, and the mapper lets a later statement supersede an earlier one.
 // - **Interface ranges:** `interfaces interface-range R` names its members (`member`, `member-range A to B`) and the
 //   settings each of them gets. Explicit interface settings win over the range's.
-import type { StatementDisposition } from '@dialect/core'
+import type { Diagnostic, StatementDisposition } from '@dialect/core'
 import { startsWith, type Statement } from './statements'
 
 /** A statement as the mapper sees it: a source statement, or one a group or an interface range stands for. */
@@ -30,7 +30,16 @@ export interface Expansion {
   readonly dispositions: Record<string, StatementDisposition>
   /** For a statement that gave no expanded statement at all, why (a group applied nowhere, a range with no members). */
   readonly unused: Record<string, StatementDisposition>
+  /** Warnings about groups whose settings depend on the device (conditional groups). */
+  readonly diagnostics: Diagnostic[]
 }
+
+/**
+ * Groups Junos applies only on some devices: `re0` and `re1` only on the Routing Engine in that slot (Juniper's "How to
+ * Apply a Configuration Group"), and `node0` and `node1`, an SRX chassis cluster's per-node groups, applied through
+ * `apply-groups "${node}"`. A group with a `when` condition (chassis, Routing Engine, cluster node, time) is one too.
+ */
+const DEVICE_GROUPS = new Set(['re0', 're1', 'node0', 'node1'])
 
 const ignored = (reason: string): StatementDisposition => ({ kind: 'ignored-by-design', reason })
 const unsupported = (reason?: string): StatementDisposition => (reason ? { kind: 'unsupported', reason } : { kind: 'unsupported' })
@@ -114,13 +123,23 @@ export function expand(statements: readonly Statement[]): Expansion {
     } else local.push(s)
   })
 
+  // Groups whose settings depend on the device the configuration runs on: converting them as if they always applied
+  // would guess the device, so neither they nor their applications are converted, and a warning says so.
+  const conditional = new Set([...groups].filter(([name, list]) => DEVICE_GROUPS.has(name) || list.some((g) => g.body[0] === 'when')).map(([name]) => name))
+  const deviceChosen = (group: string) => conditional.has(group) || group.includes('$')
+  const diagnostics: Diagnostic[] = []
+  const DEPENDS = "applies only on some devices (a Routing Engine's slot, a cluster node, or a condition), which the configuration doesn't say"
   for (const site of [...applies, ...excepts]) {
     const known = groups.has(site.group)
     const apply = applies.includes(site)
     // Junos refuses apply-groups-except at the top level, so there is no meaning to convert.
     if (!apply && !site.path.length) note(site.statement.node, unsupported('apply-groups-except at the top level, which Junos refuses'))
-    else note(site.statement.node, known ? ignored(apply ? "applies a group: the group's statements are mapped where they apply" : 'keeps a group from applying under its level') : unsupported('no group of that name is defined'))
+    else if (apply && deviceChosen(site.group)) {
+      note(site.statement.node, unsupported(`applies a group that ${DEPENDS}`))
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.device-group', message: `A group applied on line ${site.statement.line} depends on the device (a Routing Engine, a cluster node or a condition), so its settings aren't converted.`, span: { startLine: site.statement.line, startColumn: 1, endLine: site.statement.line, endColumn: 1 }, statement: site.statement.node })
+    } else note(site.statement.node, known ? ignored(apply ? "applies a group: the group's statements are mapped where they apply" : 'keeps a group from applying under its level') : unsupported('no group of that name is defined'))
   }
+  for (const name of conditional) for (const { statement } of groups.get(name) ?? []) note(statement.node, unsupported(`in a group that ${DEPENDS}`))
 
   // ---- interface ranges: their members first, so wildcards can match the interfaces a range configures
 
@@ -210,19 +229,30 @@ export function expand(statements: readonly Statement[]): Expansion {
   // same value, the first entry in the group wins (Juniper: "the first item encountered in the configuration that
   // matches is used"). Between applications, lowest priority first: shallower levels, then later groups at a level.
   // Ranks carry the order the mapper needs: each site's entries ranked first-highest, each site above the ones before.
-  const sites = [...applies].filter((a) => groups.has(a.group)).sort((a, b) => a.path.length - b.path.length || b.order - a.order)
+  // An entry is what a group's wildcards and names pick (`interfaces <ge-*>`, `interfaces <*> unit <*>`), its words up
+  // to its last wildcard; commands within one entry rank the same, so a later one updates it, as `set` does.
+  const sites = [...applies].filter((a) => groups.has(a.group) && !deviceChosen(a.group)).sort((a, b) => a.path.length - b.path.length || b.order - a.order)
+  const entryOf = (body: readonly string[]) => {
+    let last = -1
+    body.forEach((w, j) => {
+      if (isWildcard(w)) last = j
+    })
+    return key(body.slice(0, last + 1))
+  }
   const inheritAll = (): Expanded[] => {
     const out: Expanded[] = []
     let base = 0
     for (const site of sites) {
       const list = groups.get(site.group) ?? []
-      list.forEach(({ statement, body }, entry) => {
+      const entries = [...new Set(list.map(({ body }) => entryOf(body)))]
+      for (const { statement, body } of list) {
+        const rank = base + entries.length - entries.indexOf(entryOf(body))
         for (const words of resolve(body, site.path)) {
           if (excepts.some((e) => e.path.length && e.group === site.group && startsWith(words, e.path) && startsWith(e.path, site.path))) continue
-          out.push({ node: statement.node, line: statement.line, words, from: 'group', rank: base + list.length - entry })
+          out.push({ node: statement.node, line: statement.line, words, from: 'group', rank })
         }
-      })
-      base += list.length + 1
+      }
+      base += entries.length + 1
     }
     return out
   }
@@ -243,7 +273,8 @@ export function expand(statements: readonly Statement[]): Expansion {
   return {
     statements: [...expandRanges(inheritedRanges.config), ...inheritedRanges.rest, ...own],
     dispositions,
-    unused
+    unused,
+    diagnostics
   }
 }
 
