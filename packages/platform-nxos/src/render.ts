@@ -16,12 +16,29 @@ import { vlanEntries } from './vlans'
 
 type Segments = readonly (string | number)[]
 
-/** A member link's `channel-group` line, and whether it says its aggregate's LACP mode; or why it isn't written. */
-type ChannelGroupLine = { readonly line: string; readonly lacp: boolean } | { readonly why: string }
+/**
+ * A member link's `channel-group` line, whether it says its aggregate's LACP mode, and what the member takes from its
+ * port-channel to join it (a routed one's `no switchport`, its switch port settings and MTU, where the member has none
+ * of its own); or why it isn't written.
+ */
+type ChannelGroupLine = { readonly line: string; readonly lacp: boolean; readonly routed: boolean; readonly switching?: Switching; readonly mtu?: number } | { readonly why: string }
+
+/**
+ * Whether an interface has IP configuration (an address, a VRF, subinterfaces, OSPF), which makes it a routed port on
+ * NX-OS, as the render's `no switchport` says.
+ */
+function hasIpConfiguration(model: Device, name: string, iface: Interface): boolean {
+  const subs = Object.entries(iface.subinterfaces ?? {})
+  if (subs.some(([index, s]) => index !== '0' || s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined)) return true
+  return Object.values(model.networkInstances ?? {}).some((ni) => Object.values(ni.ospf?.areas ?? {}).some((a) => Object.hasOwn(a.interfaces ?? {}, name) || Object.hasOwn(a.interfaces ?? {}, `${name}.0`)))
+}
 
 /**
  * Each member link's channel group (model 0.5.4), by interface: NX-OS bundles a member into `port-channelN` by N, so the
  * aggregate must be named so, and gives the aggregate's LACP mode on each member (`on` for `static`; no mode for none).
+ * A port joins only when it matches its port-channel (Layer 2 or 3, switch port settings, MTU): a member with none of
+ * its own takes the port-channel's, as members show them in NX-OS's own running configuration, and one whose own
+ * differ, or that has IP configuration of its own, isn't written.
  */
 function planChannelGroups(model: Device): Map<string, ChannelGroupLine> {
   const out = new Map<string, ChannelGroupLine>()
@@ -38,7 +55,36 @@ function planChannelGroups(model: Device): Map<string, ChannelGroupLine> {
     else if (target?.type !== 'aggregate') out.set(name, { why: 'names an interface that isn\'t an aggregate' })
     else if (group === undefined) out.set(name, { why: `NX-OS bundles a member into the port-channel of its number, from 1 to ${MAX_CHANNEL_GROUP}, and this aggregate isn't named so` })
     else if (lacp !== undefined && !mode) out.set(name, { why: 'its aggregate\'s LACP mode isn\'t one NX-OS has' })
-    else out.set(name, { line: `  channel-group ${group}${mode}`, lacp: lacp !== undefined })
+    else if (hasIpConfiguration(model, name, iface)) out.set(name, { why: 'a member link with IP configuration of its own, which NX-OS refuses: its port-channel has it' })
+    else {
+      const routed = hasIpConfiguration(model, aggregate, target)
+      if (routed && iface.switching !== undefined) out.set(name, { why: 'a switch port, which NX-OS refuses in a routed port-channel' })
+      else if (!routed && iface.switching !== undefined && canonical(iface.switching) !== canonical(target.switching ?? {})) out.set(name, { why: 'its switch port settings differ from its port-channel\'s, which NX-OS refuses' })
+      else if (iface.mtu !== undefined && iface.mtu !== target.mtu) out.set(name, { why: 'its MTU differs from its port-channel\'s, which NX-OS refuses' })
+      else {
+        const switching = !routed && iface.switching === undefined ? target.switching : undefined
+        const mtu = iface.mtu === undefined ? target.mtu : undefined
+        out.set(name, { line: `  channel-group ${group}${mode}`, lacp: lacp !== undefined, routed, ...(switching ? { switching } : {}), ...(mtu !== undefined ? { mtu } : {}) })
+      }
+    }
+  }
+  return out
+}
+
+/** A switch port's lines, each with its field, or why the field can't be written. */
+function switchingLines(switching: Switching): ({ readonly field: string; readonly line: string; readonly why?: undefined } | { readonly field: string; readonly line?: undefined; readonly why: string })[] {
+  const out: ReturnType<typeof switchingLines> = []
+  if (switching.mode !== undefined) out.push({ field: 'mode', line: `  switchport mode ${switching.mode}` })
+  for (const [field, line] of [['accessVlan', 'switchport access vlan'], ['nativeVlan', 'switchport trunk native vlan']] as const) {
+    const id = switching[field]
+    if (id === undefined) continue
+    out.push(isVlanId(id) ? { field, line: `  ${line} ${id}` } : { field, why: 'not a VLAN ID from 1 to 4094' })
+  }
+  const allowed = switching.allowedVlans
+  if (allowed !== undefined) {
+    if (!allowed.length) out.push({ field: 'allowedVlans', line: '  switchport trunk allowed vlan none' })
+    else if (vlanEntries(allowed.join(','))?.join(',') === allowed.join(',')) out.push({ field: 'allowedVlans', line: `  switchport trunk allowed vlan ${allowed.join(',')}` })
+    else out.push({ field: 'allowedVlans', why: 'not a list of VLAN IDs and ranges from 1 to 4094' })
   }
   return out
 }
@@ -424,9 +470,14 @@ export function render(model: Device, context: Context): RenderResult {
     separator()
     emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []), ...(svi !== undefined && own !== undefined ? [[...at, 'subinterfaces', own, 'routedVlan']] : []))
     if (iface.description !== undefined) emit(`  description ${iface.description}`, [...at, 'description'])
-    if (isSwitchable(name)) emit(routed ? '  no switchport' : '  switchport')
+    // A member link takes from its port-channel what joining it needs (planChannelGroups), with no fields of its own.
+    const member = channelGroups.get(name)
+    const joins = iface.aggregate !== undefined && member !== undefined && 'line' in member ? member : undefined
+    if (isSwitchable(name)) emit(routed || joins?.routed ? '  no switchport' : '  switchport')
     if (iface.switching !== undefined) renderSwitching(name, iface.switching, routed)
+    else if (joins?.switching !== undefined && isSwitchable(name)) for (const l of switchingLines(joins.switching)) if (l.line !== undefined) emit(l.line)
     if (iface.mtu !== undefined) emit(`  mtu ${iface.mtu}`, [...at, 'mtu'])
+    else if (joins?.mtu !== undefined) emit(`  mtu ${joins.mtu}`)
     renderLag(name, iface, at)
     const isMgmt = /^mgmt0$/i.test(name)
     // mgmt0 is always in the management VRF: said, as NX-OS shows it, whether the model says so or not.
@@ -518,18 +569,9 @@ export function render(model: Device, context: Context): RenderResult {
       return
     }
     if (isEmpty(switching)) skip(at, 'not-applicable', 'a switch port with nothing set: written as switchport')
-    if (switching.mode !== undefined) emit(`  switchport mode ${switching.mode}`, [...at, 'mode'])
-    for (const [field, line] of [['accessVlan', 'switchport access vlan'], ['nativeVlan', 'switchport trunk native vlan']] as const) {
-      const id = switching[field]
-      if (id === undefined) continue
-      if (isVlanId(id)) emit(`  ${line} ${id}`, [...at, field])
-      else skip([...at, field], 'unsupported', 'not a VLAN ID from 1 to 4094')
-    }
-    const allowed = switching.allowedVlans
-    if (allowed !== undefined) {
-      if (!allowed.length) emit('  switchport trunk allowed vlan none', [...at, 'allowedVlans'])
-      else if (vlanEntries(allowed.join(','))?.join(',') === allowed.join(',')) emit(`  switchport trunk allowed vlan ${allowed.join(',')}`, [...at, 'allowedVlans'])
-      else skip([...at, 'allowedVlans'], 'unsupported', 'not a list of VLAN IDs and ranges from 1 to 4094')
+    for (const l of switchingLines(switching)) {
+      if (l.line !== undefined) emit(l.line, [...at, l.field])
+      else skip([...at, l.field], 'unsupported', l.why)
     }
   }
 

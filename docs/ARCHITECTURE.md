@@ -655,7 +655,10 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     subinterface or on anything but an Ethernet interface. A later `channel-group` supersedes an earlier one;
     `no channel-group [N …]` removes it (`ignored-by-design`, and so is the statement it removes). `port-channel
     min-links N` on a Port-channel is its `aggregation.minLinks` (1 to 16, `MAX_MIN_LINKS`), and `no port-channel
-    min-links` removes it.
+    min-links` removes it. A member's switch port settings and MTU that are its Port-channel's (IOS shows them on each
+    member) are the Port-channel's: the end of the parse takes them off the member, their statements
+    `ignored-by-design` (written back with it), so a config with members bare and one with them repeated give the
+    same model. A member's own that differ stay.
   - **OSPF (#63):** `router ospf P [vrf V]` is that instance's `ospf` (`processId` P; one a VRF, so a second process
     in a VRF is left out, as is one in a VRF the text doesn't define), with `router-id`, `area A stub|nssa` and
     `area A authentication [message-digest]` (an option the model can't hold, `no-summary`, leaves the statement
@@ -753,7 +756,9 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   none as no mode at all), marked rendered on its first member's line. A member of an aggregate named otherwise (a
   Junos `ae0` the interface map hasn't renamed), or one that isn't Ethernet, is `unsupported`, and so is an
   aggregate's `lacp` with no member written: IOS has nowhere else to say it. `minLinks` is ` port-channel min-links N`
-  in the aggregate's block, `unsupported` beyond 16.
+  in the aggregate's block, `unsupported` beyond 16. A port joins only when it matches its Port-channel: a member with
+  no switch port settings or MTU of its own is written with the Port-channel's (no fields: they are the
+  Port-channel's), and one whose own differ is `unsupported`, as IOS wouldn't bundle it.
   OSPF follows the interfaces, one `router ospf` an instance (an interface routing in another VRF than the instance
   is `unsupported`) (the global table's first; the model's process number
   where it is one and free, else the lowest free one), with the area types and authentication, then the network
@@ -938,7 +943,9 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
     bundle, says nothing and agrees with `on`), and members that don't are `unsupported` with an error,
     `nxos.channel-group-modes`, by lines. `force` only makes the port take the port-channel's settings as it joins,
     which the model has no need of. `lacp min-links N` (1 to 32) on a port-channel is its `minLinks`; `no
-    channel-group` and `no lacp min-links` remove theirs.
+    channel-group` and `no lacp min-links` remove theirs. A member's switch port settings and MTU that are its
+    port-channel's are taken off it, as on IOS-XE, and a member's `no switchport` is `ignored-by-design` when its
+    port-channel is routed (its IP configuration says so; NX-OS refuses a switch port in a routed port-channel).
   - **SVIs:** `interface Vlan10` is an `irb-or-svi` interface routing for VLAN 10 on subinterface `0` when VLAN 10 is
     defined; without it, it stays an interface of type `vlan` with no routed VLAN, as before model 0.4.
   - **OSPF:** per interface, as NX-OS enables it: `ip router ospf TAG area A` (any area form, dotted in the model) puts
@@ -1016,7 +1023,11 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
   subinterfaces, a VRF or OSPF). A member link (model 0.5.4) is `  channel-group N[ mode M]` after its MTU, as IOS-XE's
   render writes it (`static` as `mode on`, no `lacp` as no mode), its aggregate named `port-channelN` (`PoN`); the
   members are planned before the features, so `feature lacp` is written exactly when a member's mode is active or
-  passive or an aggregate's `lacp min-links` (1 to 32) is written. What NX-OS can't say is `unsupported` as on IOS-XE. Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
+  passive or an aggregate's `lacp min-links` (1 to 32) is written. What NX-OS can't say is `unsupported` as on IOS-XE.
+  NX-OS checks a port against its port-channel as it joins (Layer 2 or 3, switch port settings, MTU), so the plan
+  gives a member what it lacks from its port-channel: `no switchport` when the port-channel is routed, and its switch
+  port settings and MTU, written without fields. A member with IP configuration of its own, a switch port in a
+  routed port-channel, and switch port settings or an MTU that differ from its port-channel's are `unsupported`. Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
   `address-family ipv4 unicast` and `ipv6 unicast` (the model's are the VRF's), with the VRF's own `import map` and
   `export map` (model 0.5.2, as IOS-XE's, with `nxos.vrf-policy-mode`, a map that can't be written taking its
   direction's route targets with it), after `feature bgp`, and before the

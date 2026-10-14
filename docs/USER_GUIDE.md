@@ -213,7 +213,10 @@ active|passive|on` (or no mode) puts it in `Port-channelN` (NX-OS `port-channelN
 Port-channel's minimum links (`port-channel min-links` on IOS / IOS-XE, `lacp min-links` on NX-OS) converts too. A
 member whose Port-channel the config doesn't configure brings it in, as the device does. Members of one bundle with
 different modes stop the conversion with an error, since no device runs that, and PAgP (`mode auto` or `desirable`) is
-listed as not converted. Converting to NX-OS writes `feature lacp` when the bundle uses LACP. A member is written only
+listed as not converted. Converting to NX-OS writes `feature lacp` when the bundle uses LACP. Each member is written
+to match its bundle, as the device needs to bundle it: with the bundle's switch port settings and MTU, and on NX-OS
+`no switchport` when the bundle routes. A member whose own settings differ, or that has an IP address of its own, is
+listed as not converted. A member is written only
 once its bundle has the target's name: take the suggested name for the aggregate (Junos `ae0` → `Port-channel1`) and
 its members follow; until then they are listed as not converted. A bundle without LACP is written with no mode
 (`channel-group 1`), which IOS routers and NX-OS take as a static bundle; Catalyst switches want `mode on`, so add it

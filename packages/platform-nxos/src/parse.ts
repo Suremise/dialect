@@ -25,6 +25,8 @@ export const SEVERITY_LEVELS: readonly SyslogSeverity[] = ['emergency', 'alert',
 export const SNMP_GROUPS = { 'read-only': 'network-operator', 'read-write': 'network-admin' } as const
 
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null
+/** A value as JSON with its objects' keys in order: two values that say the same are the same string. */
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v))
 /** A key's own value: never one inherited from Object.prototype (a community named `constructor`). */
 const ownValue = (o: Obj, key: string): unknown => (Object.hasOwn(o, key) ? o[key] : undefined)
 /**
@@ -2032,9 +2034,18 @@ export function parse(text: string, _context: Context): ParseResult {
     const subs = (model.get(['interfaces', name, 'subinterfaces']) as Obj | undefined) ?? {}
     return Object.values(subs).some((s) => isObject(s) && (s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined)) || Object.keys(subs).some((k) => k !== '0') || ospfOn.has(name)
   }
+  // A member link of a routed port-channel is routed with it (NX-OS refuses a switch port in one): its port-channel's IP
+  // configuration says so, and the render writes it back on each member (model 0.5.4).
+  const aggregateOf = (name: string) => {
+    const aggregate = model.get(['interfaces', name, 'aggregate'])
+    return typeof aggregate === 'string' ? aggregate : undefined
+  }
   for (const { node, ctx } of routedPorts) {
     if (owners.get(`switchport ${ctx.name}`) !== node) continue
-    set(node, isRouted(ctx.name) ? ignored('a routed port, as its IP configuration says: written back with it') : unsupported('a routed port with no IP configuration the model holds: the model can\'t say it'))
+    const aggregate = aggregateOf(ctx.name)
+    if (isRouted(ctx.name)) set(node, ignored('a routed port, as its IP configuration says: written back with it'))
+    else if (aggregate !== undefined && isRouted(aggregate)) set(node, ignored('a member of a routed port-channel, as the port-channel\'s IP configuration says: written back with it'))
+    else set(node, unsupported('a routed port with no IP configuration the model holds: the model can\'t say it'))
   }
 
   // `switchport` alone makes a switch port, which the render writes on every Ethernet and port-channel interface with
@@ -2122,6 +2133,26 @@ export function parse(text: string, _context: Context): ParseResult {
     if (a.why) set(a.node, unsupported(a.why))
     else if (model.get(['interfaces', a.path[1]]) === undefined) set(a.node, unsupported('on an interface the model doesn\'t have'))
     else set(a.node, mapped([model.set(a.path, a.name)]))
+  }
+
+  // A member link's switch port settings and MTU that are its port-channel's say nothing of its own: NX-OS gives a member its
+  // port-channel's (its running configuration shows them on each member), and the render writes them back on each member
+  // from the port-channel (model 0.5.4). Kept only where they differ, which the render leaves the membership out for.
+  const interfaces = (model.get(['interfaces']) as Obj | undefined) ?? {}
+  for (const [name, member] of Object.entries(interfaces)) {
+    const target = isObject(member) && typeof member.aggregate === 'string' && Object.hasOwn(interfaces, member.aggregate) ? interfaces[member.aggregate] : undefined
+    if (!isObject(member) || !isObject(target)) continue
+    for (const leaf of ['switching', 'mtu'] as const) {
+      if (member[leaf] === undefined || canonical(member[leaf]) !== canonical(target[leaf])) continue
+      const prefix = fieldPath('interfaces', name, leaf)
+      const under = (f: string) => f === prefix || f.startsWith(`${prefix}.`) || f.startsWith(`${prefix}[`)
+      for (const [id, d] of Object.entries(dispositions)) {
+        if (d.kind !== 'mapped' || !d.fields.some(under)) continue
+        const rest = d.fields.filter((f) => !under(f))
+        dispositions[id] = rest.length ? mapped(rest) : ignored(`its port-channel's ${leaf === 'mtu' ? 'MTU' : 'switch port settings'}, which each member takes: written back with it`)
+      }
+      model.remove(['interfaces', name, leaf])
+    }
   }
 
   return { tree: nodes, model: model.root as Device, dispositions, diagnostics }

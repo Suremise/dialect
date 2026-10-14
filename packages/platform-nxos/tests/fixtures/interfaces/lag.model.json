@@ -23,17 +23,11 @@
       "Ethernet1/1": {
         "type": "ethernet",
         "description": "Spine link A",
-        "switching": {
-          "mode": "trunk"
-        },
         "aggregate": "port-channel10"
       },
       "Ethernet1/2": {
         "type": "ethernet",
         "description": "Spine link B",
-        "switching": {
-          "mode": "trunk"
-        },
         "aggregate": "port-channel10"
       },
       "Ethernet1/3": {
@@ -52,6 +46,35 @@
       "Ethernet1/6": {
         "type": "ethernet",
         "description": "Left its bundle"
+      },
+      "port-channel40": {
+        "type": "aggregate",
+        "description": "Routed bundle to a firewall",
+        "mtu": 9216,
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "aggregation": {
+          "lacp": "active"
+        }
+      },
+      "Ethernet1/7": {
+        "type": "ethernet",
+        "description": "Firewall link A",
+        "aggregate": "port-channel40"
+      },
+      "Ethernet1/8": {
+        "type": "ethernet",
+        "description": "Firewall link B",
+        "aggregate": "port-channel40"
       },
       "port-channel30": {
         "type": "aggregate",

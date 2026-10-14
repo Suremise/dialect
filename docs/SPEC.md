@@ -193,7 +193,10 @@ product decisions.
   IOS / IOS-XE and NX-OS (#108) make a Port-channel the config doesn't configure, as the device does, and NX-OS writes
   `feature lacp` whenever LACP needs it. A member is bundled into its aggregate by number, so it is written only once
   the aggregate has the target's name (`ae0` → `Port-channel1`, from the interface map's suggestion); until then it is
-  listed as not converted. PAgP is not converted.
+  listed as not converted. PAgP is not converted. **A member matches its bundle:** a member's switch port settings and
+  MTU that are its bundle's belong to the bundle in the model, and a render writes them (and NX-OS's `no switchport`
+  for a routed bundle) on each member; a member whose own differ, or with IP configuration of its own, isn't
+  written in the bundle.
 
 ## 5. Configs and test data
 

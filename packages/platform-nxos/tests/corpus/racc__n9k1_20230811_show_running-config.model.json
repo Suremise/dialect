@@ -230,22 +230,10 @@
       },
       "Ethernet1/1": {
         "type": "ethernet",
-        "switching": {
-          "mode": "trunk",
-          "allowedVlans": [
-            "100-110"
-          ]
-        },
         "aggregate": "port-channel11"
       },
       "Ethernet1/2": {
         "type": "ethernet",
-        "switching": {
-          "mode": "trunk",
-          "allowedVlans": [
-            "100-110"
-          ]
-        },
         "aggregate": "port-channel11"
       },
       "Ethernet1/3": {

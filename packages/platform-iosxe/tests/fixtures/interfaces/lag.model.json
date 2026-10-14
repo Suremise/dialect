@@ -26,17 +26,11 @@
       "GigabitEthernet1/0/1": {
         "type": "ethernet",
         "description": "Core link A",
-        "switching": {
-          "mode": "trunk"
-        },
         "aggregate": "Port-channel1"
       },
       "GigabitEthernet1/0/2": {
         "type": "ethernet",
         "description": "Core link B",
-        "switching": {
-          "mode": "trunk"
-        },
         "aggregate": "Port-channel1"
       },
       "GigabitEthernet1/0/3": {

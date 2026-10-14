@@ -3,7 +3,7 @@
 // Junos aggregate converts to a port-channel with its members and mode. The fixture (tests/fixtures/interfaces/lag.cfg)
 // round-trips through the kit, and plugin.test.ts's feature guard checks every render has `feature lacp` when it needs it.
 import { describe, expect, it } from 'vitest'
-import { convert, interfaceInputs, MODEL_VERSION, statementsOf, type Device, type PlatformPlugin, type PortName, type StatementDisposition } from '@dialect/core'
+import { convert, interfaceInputs, MODEL_VERSION, populatedLeaves, statementsOf, type Device, type Interface, type PlatformPlugin, type PortName, type StatementDisposition } from '@dialect/core'
 import plugin from '../src'
 
 const context = { modelVersion: MODEL_VERSION }
@@ -144,48 +144,94 @@ describe('link aggregation: render', () => {
 })
 
 // A Junos aggregate as the Junos plugin's parse gives it (model 0.5.4): `ae0` with LACP active and minimum links 2, and
-// two members (`ether-options 802.3ad ae0`). Its describeInterface counts aggregates from 1, as the Junos plugin's does.
-const junos: PlatformPlugin = {
-  id: 'junos-shaped',
-  name: 'Junos (as its parse gives a LAG)',
-  modelApi: '>=0.5.4 <1.0.0',
-  capabilities: {},
-  parse: () => ({
-    tree: [{ id: 'ge0', label: 'interfaces ge-0/0/0' }, { id: 'ge1', label: 'interfaces ge-0/0/1' }, { id: 'ae0', label: 'interfaces ae0' }],
-    model: {
-      interfaces: {
-        'ge-0/0/0': { type: 'ethernet', aggregate: 'ae0' },
-        'ge-0/0/1': { type: 'ethernet', aggregate: 'ae0' },
-        ae0: { type: 'aggregate', aggregation: { lacp: 'active', minLinks: 2 } }
-      }
-    },
-    dispositions: {
-      ge0: { kind: 'mapped', fields: ['interfaces["ge-0/0/0"].type', 'interfaces["ge-0/0/0"].aggregate'] },
-      ge1: { kind: 'mapped', fields: ['interfaces["ge-0/0/1"].type', 'interfaces["ge-0/0/1"].aggregate'] },
-      ae0: { kind: 'mapped', fields: ['interfaces.ae0.type', 'interfaces.ae0.aggregation.lacp', 'interfaces.ae0.aggregation.minLinks'] }
-    },
-    diagnostics: []
-  }),
-  describeInterface: (name: string): PortName | undefined => {
-    const ae = /^ae(\d+)$/.exec(name)
-    if (ae) return { type: 'aggregate', numbers: [Number(ae[1]) + 1] }
-    const ge = /^ge-(\d+)\/(\d+)\/(\d+)$/.exec(name)
-    return ge ? { type: 'ethernet', speed: 1000, numbers: [Number(ge[1]), Number(ge[2]), Number(ge[3])] } : undefined
+// two members (`ether-options 802.3ad ae0`), with what `ae0` itself has (an address on its unit 0, a trunk). Each
+// interface is one statement mapping its leaves. Its describeInterface counts aggregates from 1, as the Junos plugin's.
+const junosShaped = (ae0: Interface = {}, vlans?: Device['vlans']): PlatformPlugin => {
+  const model: Device = {
+    ...(vlans ? { vlans } : {}),
+    interfaces: {
+      'ge-0/0/0': { type: 'ethernet', aggregate: 'ae0' },
+      'ge-0/0/1': { type: 'ethernet', aggregate: 'ae0' },
+      ae0: { type: 'aggregate', ...ae0, aggregation: { lacp: 'active', minLinks: 2 } }
+    }
+  }
+  const names = Object.keys(model.interfaces!)
+  return {
+    id: 'junos-shaped',
+    name: 'Junos (as its parse gives a LAG)',
+    modelApi: '>=0.5.4 <1.0.0',
+    capabilities: {},
+    parse: () => ({
+      tree: [...names.map((name) => ({ id: name, label: `interfaces ${name}` })), ...(vlans ? [{ id: 'vlans', label: 'vlans' }] : [])],
+      model,
+      dispositions: Object.fromEntries([...names.map((name) => [name, { kind: 'mapped', fields: populatedLeaves(model.interfaces![name], ['interfaces', name]).map((l) => l.path) }]), ...(vlans ? [['vlans', { kind: 'mapped', fields: populatedLeaves(vlans, ['vlans']).map((l) => l.path) }]] : [])]),
+      diagnostics: []
+    }),
+    describeInterface: (name: string): PortName | undefined => {
+      const ae = /^ae(\d+)$/.exec(name)
+      if (ae) return { type: 'aggregate', numbers: [Number(ae[1]) + 1] }
+      const ge = /^ge-(\d+)\/(\d+)\/(\d+)$/.exec(name)
+      return ge ? { type: 'ethernet', speed: 1000, numbers: [Number(ge[1]), Number(ge[2]), Number(ge[3])] } : undefined
+    }
   }
 }
+// NX-OS suggests no Ethernet names: the user gives them.
+const names = interfaceInputs({ 'ge-0/0/0': 'Ethernet1/1', 'ge-0/0/1': 'Ethernet1/2', ae0: 'port-channel1' })
 
 describe('link aggregation: Junos → NX-OS through convert', () => {
   it('ae0 with two members becomes port-channel1 with both in the bundle, the mode kept and feature lacp written', () => {
-    const before = convert(junos, plugin, '', context)
+    const before = convert(junosShaped(), plugin, '', context)
     expect(before.interfaces.find((i) => i.source === 'ae0')?.suggestion).toBe('port-channel1')
     expect(before.render?.text).not.toContain('channel-group')
 
-    // NX-OS suggests no Ethernet names: the user gives them.
-    const map = { 'ge-0/0/0': 'Ethernet1/1', 'ge-0/0/1': 'Ethernet1/2', ae0: 'port-channel1' }
-    const after = convert(junos, plugin, '', { ...context, inputs: interfaceInputs(map) })
+    const after = convert(junosShaped(), plugin, '', { ...context, inputs: names })
     expect(after.render?.text).toBe(lines('feature lacp', '', 'interface Ethernet1/1', '  switchport', '  channel-group 1 mode active', '', 'interface Ethernet1/2', '  switchport', '  channel-group 1 mode active', '', 'interface port-channel1', '  switchport', '  lacp min-links 2', ''))
     expect(after.issues).toEqual([])
     expect(after.unanswered).toEqual([])
     expect(parse(after.render!.text).model).toEqual(after.model)
+  })
+
+  it('a routed ae0 makes routed members, as NX-OS needs them to join', () => {
+    const after = convert(junosShaped({ subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 30 } } } } } }), plugin, '', { ...context, inputs: names })
+    expect(after.render?.text).toBe(lines('feature lacp', '', 'interface Ethernet1/1', '  no switchport', '  channel-group 1 mode active', '', 'interface Ethernet1/2', '  no switchport', '  channel-group 1 mode active', '', 'interface port-channel1', '  no switchport', '  lacp min-links 2', '  ip address 192.0.2.1/30', ''))
+    expect(after.issues).toEqual([])
+    expect(parse(after.render!.text).model).toEqual(after.model)
+  })
+
+  it('a trunk ae0 with an MTU gives its members the same, as NX-OS needs them to join', () => {
+    const after = convert(junosShaped({ mtu: 9216, switching: { mode: 'trunk', allowedVlans: ['10'] } }, { '10': { name: 'USERS' } }), plugin, '', { ...context, inputs: names })
+    const member = (n: string) => lines(`interface ${n}`, '  switchport', '  switchport mode trunk', '  switchport trunk allowed vlan 10', '  mtu 9216', '  channel-group 1 mode active')
+    expect(after.render?.text).toContain(`${member('Ethernet1/1')}\n\n${member('Ethernet1/2')}\n`)
+    expect(after.issues).toEqual([])
+    // Read back, the members' settings are their port-channel's again: the same model.
+    expect(parse(after.render!.text).model).toEqual(after.model)
+  })
+})
+
+describe('link aggregation: a member matches its port-channel', () => {
+  it('a routed port-channel\'s members\' no switchport is written back with it; a member\'s settings that are its port-channel\'s are the port-channel\'s', () => {
+    const routed = parse(lines('interface port-channel1', '  no switchport', '  ip address 192.0.2.1/30', 'interface Ethernet1/1', '  no switchport', '  channel-group 1 mode active'))
+    expect(routed.dispositions.L5).toEqual({ kind: 'ignored-by-design', reason: 'a member of a routed port-channel, as the port-channel\'s IP configuration says: written back with it' })
+    expect(render(routed.model).text).toContain(lines('interface Ethernet1/1', '  no switchport', '  channel-group 1 mode active'))
+    const trunk = parse(lines('interface port-channel1', '  switchport mode trunk', '  mtu 9216', 'interface Ethernet1/1', '  switchport mode trunk', '  mtu 9216', '  channel-group 1'))
+    expect(trunk.model.interfaces?.['Ethernet1/1']).toEqual({ type: 'ethernet', aggregate: 'port-channel1' })
+    expect(trunk.dispositions.L5).toEqual({ kind: 'ignored-by-design', reason: 'its port-channel\'s switch port settings, which each member takes: written back with it' })
+    expect(trunk.dispositions.L6).toEqual({ kind: 'ignored-by-design', reason: 'its port-channel\'s MTU, which each member takes: written back with it' })
+  })
+
+  it('a member that doesn\'t match its port-channel isn\'t written in it, with why', () => {
+    const pc = (extra: Interface = {}): Interface => ({ type: 'aggregate', ...extra })
+    const cases: [Interface, Interface, string][] = [
+      [pc(), { subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.5': { prefixLength: 30 } } } } } }, 'a member link with IP configuration of its own, which NX-OS refuses: its port-channel has it'],
+      [pc({ subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 30 } } } } } }), { switching: { mode: 'access' } }, 'a switch port, which NX-OS refuses in a routed port-channel'],
+      [pc({ switching: { mode: 'trunk' } }), { switching: { mode: 'access', accessVlan: 10 } }, 'its switch port settings differ from its port-channel\'s, which NX-OS refuses'],
+      [pc({ mtu: 9216 }), { mtu: 1500 }, 'its MTU differs from its port-channel\'s, which NX-OS refuses']
+    ]
+    for (const [aggregate, member, why] of cases) {
+      const out = render({ interfaces: { 'port-channel1': { ...aggregate, aggregation: { lacp: 'active' } }, 'Ethernet1/1': { type: 'ethernet', ...member, aggregate: 'port-channel1' } } })
+      expect(out.text, why).not.toContain('channel-group')
+      expect(out.text, why).not.toContain('feature lacp')
+      expect(out.dispositions['interfaces["Ethernet1/1"].aggregate'], why).toEqual({ kind: 'unsupported', reason: why })
+    }
   })
 })

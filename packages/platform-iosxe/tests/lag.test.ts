@@ -130,6 +130,30 @@ describe('link aggregation: render', () => {
   })
 })
 
+describe('link aggregation: a member matches its Port-channel', () => {
+  it('a member with no switch port settings or MTU of its own takes its Port-channel\'s; read back, they are the Port-channel\'s', () => {
+    const model: Device = { vlans: { '10': {} }, interfaces: { 'Port-channel1': { type: 'aggregate', mtu: 9216, switching: { mode: 'trunk', allowedVlans: ['10'] } }, Gi1: { type: 'ethernet', aggregate: 'Port-channel1' } } }
+    const out = render(model)
+    expect(out.text).toContain(lines('interface Gi1', ' mtu 9216', ' switchport', ' switchport trunk allowed vlan 10', ' switchport mode trunk', ' channel-group 1', '!'))
+    expect(parse(out.text).model).toEqual(model)
+    const read = parse(out.text)
+    expect(at(read, 'interface Gi1 switchport mode trunk')).toEqual({ kind: 'ignored-by-design', reason: 'its Port-channel\'s switch port settings, which each member takes: written back with it' })
+    expect(at(read, 'interface Gi1 mtu 9216')).toEqual({ kind: 'ignored-by-design', reason: 'its Port-channel\'s MTU, which each member takes: written back with it' })
+  })
+
+  it('a member whose own differ isn\'t written in it, with why', () => {
+    const cases: [Device['interfaces'], string][] = [
+      [{ 'Port-channel1': { type: 'aggregate', switching: { mode: 'trunk' } }, Gi1: { type: 'ethernet', switching: { mode: 'access' }, aggregate: 'Port-channel1' } }, 'its switch port settings differ from its Port-channel\'s, which IOS refuses'],
+      [{ 'Port-channel1': { type: 'aggregate', mtu: 9216 }, Gi1: { type: 'ethernet', mtu: 1500, aggregate: 'Port-channel1' } }, 'its MTU differs from its Port-channel\'s, which IOS refuses']
+    ]
+    for (const [interfaces, why] of cases) {
+      const out = render({ interfaces })
+      expect(out.text, why).not.toContain('channel-group')
+      expect(out.dispositions['interfaces.Gi1.aggregate'], why).toEqual({ kind: 'unsupported', reason: why })
+    }
+  })
+})
+
 // A Junos aggregate as the Junos plugin's parse gives it (model 0.5.4): `ae0` with LACP active and minimum links 2, and
 // two members (`ether-options 802.3ad ae0`). Its describeInterface counts aggregates from 1, as the Junos plugin's does.
 const junosModel: Device = {

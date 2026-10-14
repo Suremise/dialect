@@ -6,7 +6,7 @@
 // interface's `vrf forwarding` comes before its addresses, which it would otherwise clear. Routing protocols follow the
 // interfaces, whose blocks carry their own OSPF lines. Secrets (OSPF keys, BGP passwords) are never in the model: each
 // is a needs-input item, written only once answered.
-import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type RenderResult, type BgpPeer, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type RenderResult, type BgpPeer, type RouteTargets, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
 import { isIpv4, lengthMask } from './addresses'
 import { interfaceType } from './names'
 import { channelGroupNumber, MAX_CHANNEL_GROUP, MAX_MIN_LINKS, SEVERITIES } from './parse'
@@ -37,6 +37,22 @@ export const bgpPasswordInputId = (instance: string, kind: 'groups' | 'neighbors
 
 /** A word IOS reads back as one: quoted when it has a space in it. */
 const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
+
+/** A switch port's lines after ` switchport`, in `show running-config`'s order (the VLANs, then the mode), each with its field or why it can't be written. */
+function switchingLines(s: Switching): ({ readonly field: string; readonly line: string; readonly why?: undefined } | { readonly field: string; readonly line?: undefined; readonly why: string })[] {
+  const out: ReturnType<typeof switchingLines> = []
+  for (const [field, line] of [['accessVlan', ' switchport access vlan'], ['nativeVlan', ' switchport trunk native vlan']] as const) {
+    const value = s[field]
+    if (value !== undefined) out.push(isVlanId(value) ? { field, line: `${line} ${value}` } : { field, why: 'not a VLAN ID from 1 to 4094' })
+  }
+  if (s.allowedVlans !== undefined)
+    out.push(s.allowedVlans.every(isVlanRange) ? { field: 'allowedVlans', line: ` switchport trunk allowed vlan ${s.allowedVlans.length ? s.allowedVlans.join(',') : 'none'}` } : { field: 'allowedVlans', why: 'not a list of VLAN IDs and ranges from 1 to 4094' })
+  if (s.mode !== undefined) out.push(s.mode === 'access' || s.mode === 'trunk' ? { field: 'mode', line: ` switchport mode ${s.mode}` } : { field: 'mode', why: 'not a switch port mode IOS has' })
+  return out
+}
+
+/** A value as JSON with its objects' keys in order: two values that say the same are the same string. */
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v))
 
 export function render(model: Device, context: Context): RenderResult {
   const lines: string[] = []
@@ -451,6 +467,16 @@ export function render(model: Device, context: Context): RenderResult {
     const lacp = target.aggregation?.lacp
     const mode = lacp === 'active' || lacp === 'passive' ? ` mode ${lacp}` : lacp === 'static' ? ' mode on' : ''
     if (lacp !== undefined && !mode) return skip(field, 'unsupported', 'its aggregate\'s LACP mode isn\'t one IOS has')
+    // A port joins only when it matches its Port-channel: one with no switch port settings or MTU of its own takes the
+    // Port-channel's, as members show them in IOS's own running configuration (no fields of its own); one whose own
+    // differ isn't written.
+    if (iface.switching !== undefined && target.switching !== undefined && canonical(iface.switching) !== canonical(target.switching)) return skip(field, 'unsupported', 'its switch port settings differ from its Port-channel\'s, which IOS refuses')
+    if (iface.mtu !== undefined && target.mtu !== undefined && iface.mtu !== target.mtu) return skip(field, 'unsupported', 'its MTU differs from its Port-channel\'s, which IOS refuses')
+    if (iface.mtu === undefined && target.mtu !== undefined) emit(` mtu ${target.mtu}`)
+    if (iface.switching === undefined && target.switching !== undefined && iface.type !== 'irb-or-svi') {
+      emit(' switchport')
+      for (const l of switchingLines(target.switching)) if (l.line !== undefined) emit(l.line)
+    }
     const first = lacp !== undefined && !lacpWritten.has(aggregate)
     lacpWritten.add(aggregate)
     emit(` channel-group ${group}${mode}`, field, ...(first ? [['interfaces', aggregate, 'aggregation', 'lacp']] : []))
@@ -484,20 +510,9 @@ export function render(model: Device, context: Context): RenderResult {
       return
     }
     emit(' switchport', ...(isEmpty(s) ? [sw] : []))
-    const vlan = (value: number | undefined, leaf: string, line: string) => {
-      if (value === undefined) return
-      if (isVlanId(value)) emit(`${line} ${value}`, [...sw, leaf])
-      else skip([...sw, leaf], 'unsupported', 'not a VLAN ID from 1 to 4094')
-    }
-    vlan(s.accessVlan, 'accessVlan', ' switchport access vlan')
-    vlan(s.nativeVlan, 'nativeVlan', ' switchport trunk native vlan')
-    if (s.allowedVlans !== undefined) {
-      if (s.allowedVlans.every(isVlanRange)) emit(` switchport trunk allowed vlan ${s.allowedVlans.length ? s.allowedVlans.join(',') : 'none'}`, [...sw, 'allowedVlans'])
-      else skip([...sw, 'allowedVlans'], 'unsupported', 'not a list of VLAN IDs and ranges from 1 to 4094')
-    }
-    if (s.mode !== undefined) {
-      if (s.mode === 'access' || s.mode === 'trunk') emit(` switchport mode ${s.mode}`, [...sw, 'mode'])
-      else skip([...sw, 'mode'], 'unsupported', 'not a switch port mode IOS has')
+    for (const l of switchingLines(s)) {
+      if (l.line !== undefined) emit(l.line, [...sw, l.field])
+      else skip([...sw, l.field], 'unsupported', l.why)
     }
   }
 
