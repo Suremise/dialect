@@ -1,10 +1,10 @@
 // The probes' own tests (src/probes.ts): the careful probe stub passes every probe, a stub with each bug class fails
-// the probe for it, a probe or case a plugin can't run is reported not applicable with why, a model 0.4.0 case an older
-// adapter leaves out isn't run but listed, and describeConformance() runs the probes from an adapter (or shows them
-// skipped without one).
+// the probe for it, a probe or case a plugin can't run is reported not applicable with why, a model 0.4.0 or 0.5.0 case
+// an older adapter leaves out isn't run but listed, and describeConformance() runs the probes from an adapter (or shows
+// them skipped without one).
 import { describe, expect, it } from 'vitest'
 import { fieldPath, type PlatformPlugin } from '@dialect/core'
-import { describeConformance, PROBE_COMMUNITY, probesNotGiven, runProbes, type ProbeAdapter, type ProbeName, type ProbeResult } from '../src'
+import { describeConformance, PROBE_COMMUNITY, probesNotGiven, probesNotGivenByModel, runProbes, type ProbeAdapter, type ProbeName, type ProbeResult } from '../src'
 import { PROBE_STUB_ADAPTER, probeStub, type ProbeBug } from './probeStub'
 
 const failed = (results: readonly ProbeResult[]) => results.filter((r) => r.status === 'failed')
@@ -28,17 +28,26 @@ describe('runProbes', () => {
       'negation: community',
       'negation: bgp-neighbor',
       'negation: ospf-interface',
+      'negation: policy-term',
+      'negation: prefix-list-entry',
       'malformed: ipv4-address',
       'malformed: ipv6-address',
       'malformed: mask',
       'malformed: next-hop',
       'malformed: as-number',
       'malformed: vlan-id',
+      'malformed: prefix',
+      'malformed: prefix-length',
       'vrf-scoping: delete',
       'vrf-scoping: dns',
       'vrf-scoping: static-route',
       'vrf-scoping: ospf',
-      'vrf-scoping: bgp'
+      'vrf-scoping: bgp',
+      'unknown-reference: prefix-list',
+      'unknown-reference: community-set',
+      'unknown-reference: as-path-set',
+      'unknown-reference: policy',
+      'regex: all'
     ])
     expect(probesNotGiven(PROBE_STUB_ADAPTER)).toEqual([])
   })
@@ -56,7 +65,16 @@ describe('runProbes', () => {
     ['negation', 'negation', 'parse: networkInstances.default.ospf.areas.0.0.0.0.interfaces.e1 is still in the model after it was cleared'],
     ['malformed', 'malformed', 'parse: the malformed value is in the model'],
     ['vrf-scope', 'vrf-scoping', 'a change in VRF A changed networkInstances.default.ospf.areas.0.0.0.0.interfaces.e1, outside it'],
-    ['vrf-scope', 'vrf-scoping', 'a change in VRF A changed networkInstances.B.bgp.neighbors.192.0.2.2.peerAs, outside it']
+    ['vrf-scope', 'vrf-scoping', 'a change in VRF A changed networkInstances.B.bgp.neighbors.192.0.2.2.peerAs, outside it'],
+    // Model 0.5.0's: negation of a term and an entry, references to nothing, regexes of another dialect.
+    ['negation', 'negation', 'parse: routingPolicy.policies.P.terms.10 is still in the model after it was cleared'],
+    ['negation', 'negation', 'parse: routingPolicy.prefixLists.ipv4.L.entries.10 is still in the model after it was cleared'],
+    ['reference', 'unknown-reference', 'parse made an invalid model: A policy term names a prefix list the model doesn\'t have. (routingPolicy.policies.P.terms["10"].matches.prefixLists.ipv4)'],
+    ['reference', 'unknown-reference', 'parse made an invalid model: A policy term names an AS-path set the model doesn\'t have. (routingPolicy.policies.P.terms["10"].matches.asPathSets)'],
+    ['reference', 'unknown-reference', 'parse made an invalid model: A BGP peer names a policy the model doesn\'t have. (networkInstances.default.bgp.neighbors["192.0.2.2"].importPolicies)'],
+    ['reference', 'unknown-reference', 'parse: the malformed value is in the model'],
+    ['regex', 'regex', 'render of a junos regex: routingPolicy.asPathSets["PROBE-AS-PATH"].entries["1"].regex is rendered with no semantic warning, as if it were written in the plugin\'s own dialect'],
+    ['regex', 'regex', 'render of a junos regex: routingPolicy.communitySets["PROBE-COMMUNITY-SET"].entries["1"].regexes is rendered with no semantic warning, as if it were written in the plugin\'s own dialect']
   ]
   for (const [bug, probe, problem] of cases) {
     it(`fails a stub with the ${bug} bug on the ${probe} probe: ${problem}`, () => {
@@ -68,7 +86,9 @@ describe('runProbes', () => {
 
   it('fails each case of a probe on its own: the mask, a dot past the end', () => {
     const results = runProbes(probeStub(['malformed']), PROBE_STUB_ADAPTER)
-    expect(failed(results).filter((r) => r.probe === 'malformed').map((r) => r.case)).toEqual(['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id'])
+    expect(failed(results).filter((r) => r.probe === 'malformed').map((r) => r.case)).toEqual(['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length'])
+    // A prefix length out of range, taken as one: found in the model as a number.
+    expect(results.find((r) => r.case === 'prefix-length')?.problems).toContain('parse: the malformed value is in the model')
     // An AS number out of range, taken as a number: found in the model by its decimal form.
     expect(results.find((r) => r.case === 'as-number')?.problems).toContain('parse: the malformed value is in the model')
     // The mask's address is in the model, so the statement mapping it is what gives it away.
@@ -220,14 +240,23 @@ describe('runProbes', () => {
     expect(failed(results)).toEqual([])
   })
 
-  it('runs an adapter written before model 0.4.0 as before, and lists the 0.4.0 cases it leaves out', () => {
-    // As an adapter for 0.3 is: no VLAN or BGP group use, no BGP, OSPF, AS or VLAN cases.
-    const { 'bgp-neighbor': _n, 'ospf-interface': _o, ...negation } = PROBE_STUB_ADAPTER.negation
-    const { 'as-number': _a, 'vlan-id': _v, ...malformed } = PROBE_STUB_ADAPTER.malformed
+  /** The stub's adapter as one written for model 0.4 is: no routing policy cases. */
+  const adapter04 = (): ProbeAdapter => {
+    const { 'policy-term': _t, 'prefix-list-entry': _e, ...negation } = PROBE_STUB_ADAPTER.negation
+    const { prefix: _p, 'prefix-length': _l, ...malformed } = PROBE_STUB_ADAPTER.malformed
+    const { unknownReference: _r, regex: _x, ...adapter } = PROBE_STUB_ADAPTER
+    return { ...adapter, negation, malformed }
+  }
+  const NOT_GIVEN_05 = ['negation: policy-term', 'negation: prefix-list-entry', 'malformed: prefix', 'malformed: prefix-length', 'unknown-reference: prefix-list', 'unknown-reference: community-set', 'unknown-reference: as-path-set', 'unknown-reference: policy', 'regex']
+
+  it('runs an adapter written before model 0.4.0 as before, and lists the 0.4.0 and 0.5.0 cases it leaves out', () => {
+    // As an adapter for 0.3 is: no VLAN or BGP group use, no BGP, OSPF, AS or VLAN cases, and no routing policy.
+    const { 'bgp-neighbor': _n, 'ospf-interface': _o, ...negation } = adapter04().negation
+    const { 'as-number': _a, 'vlan-id': _v, ...malformed } = adapter04().malformed
     const { ospf: _os, bgp: _b, ...vrfScoping } = PROBE_STUB_ADAPTER.vrfScoping
     const proto = PROBE_STUB_ADAPTER.prototypeKeys as Exclude<ProbeAdapter['prototypeKeys'], { notApplicable: string }>
     const adapter: ProbeAdapter = {
-      ...PROBE_STUB_ADAPTER,
+      ...adapter04(),
       prototypeKeys: { source: proto.source, uses: { interface: true, vrf: true, community: true, dns: true } },
       negation,
       malformed,
@@ -236,20 +265,58 @@ describe('runProbes', () => {
     const results = runProbes(probeStub(), adapter)
     expect(results).toHaveLength(17)
     expect(results.filter((r) => r.status !== 'passed')).toEqual([])
-    expect(probesNotGiven(adapter)).toEqual([
-      'prototype-keys: as a VLAN name',
-      'prototype-keys: as a BGP group',
-      'negation: bgp-neighbor',
-      'negation: ospf-interface',
-      'malformed: as-number',
-      'malformed: vlan-id',
-      'vrf-scoping: ospf',
-      'vrf-scoping: bgp'
+    const notGiven04 = ['prototype-keys: as a VLAN name', 'prototype-keys: as a BGP group', 'negation: bgp-neighbor', 'negation: ospf-interface', 'malformed: as-number', 'malformed: vlan-id', 'vrf-scoping: ospf', 'vrf-scoping: bgp']
+    expect(probesNotGiven(adapter).sort()).toEqual([...notGiven04, ...NOT_GIVEN_05].sort())
+    // The suite shows them as one skipped test per model version.
+    expect(probesNotGivenByModel(adapter)).toEqual([
+      ['0.4.0', ['prototype-keys: as a VLAN name', 'prototype-keys: as a BGP group', 'negation: bgp-neighbor', 'negation: ospf-interface', 'malformed: as-number', 'malformed: vlan-id', 'vrf-scoping: ospf', 'vrf-scoping: bgp']],
+      ['0.5.0', ['negation: policy-term', 'negation: prefix-list-entry', 'malformed: prefix', 'malformed: prefix-length', 'unknown-reference: prefix-list', 'unknown-reference: community-set', 'unknown-reference: as-path-set', 'unknown-reference: policy', 'regex']]
     ])
     // Declared not applicable, a 0.4.0 case is reported as such, and isn't "not given".
     const declared: ProbeAdapter = { ...adapter, negation: { ...negation, 'bgp-neighbor': { notApplicable: 'no BGP yet' } } }
     expect(runProbes(probeStub(), declared).filter((r) => r.status === 'not-applicable').map((r) => `${r.probe}: ${r.case}: ${r.problems.join('')}`)).toEqual(['negation: bgp-neighbor: no BGP yet'])
     expect(probesNotGiven(declared)).not.toContain('negation: bgp-neighbor')
+  })
+
+  it('runs an adapter written for model 0.4 as before, and lists the 0.5.0 cases it leaves out', () => {
+    const results = runProbes(probeStub(), adapter04())
+    expect(results).toHaveLength(23)
+    expect(results.filter((r) => r.status !== 'passed')).toEqual([])
+    expect(probesNotGivenByModel(adapter04())).toEqual([['0.5.0', NOT_GIVEN_05]])
+    // Declared not applicable, they are reported as such, and aren't "not given".
+    const declared: ProbeAdapter = { ...adapter04(), unknownReference: { 'prefix-list': { notApplicable: 'no policy yet' }, 'community-set': { notApplicable: 'no policy yet' }, 'as-path-set': { notApplicable: 'no policy yet' }, policy: { notApplicable: 'no policy yet' } }, regex: { notApplicable: 'no policy yet' } }
+    expect(runProbes(probeStub(), declared).filter((r) => r.status === 'not-applicable').map((r) => `${r.probe}: ${r.case}`)).toEqual(['unknown-reference: prefix-list', 'unknown-reference: community-set', 'unknown-reference: as-path-set', 'unknown-reference: policy', 'regex: all'])
+    expect(probesNotGiven(declared)).toEqual(['negation: policy-term', 'negation: prefix-list-entry', 'malformed: prefix', 'malformed: prefix-length'])
+  })
+
+  it('passes a render that translates another dialect\'s regex and says so; fails one that leaves it out as not applicable', () => {
+    /** The stub, writing another dialect's regexes with `kind` and, when `warn`, a semantic warning on each set. */
+    const translating = (kind: 'rendered' | 'not-applicable', warn: boolean): PlatformPlugin => ({
+      ...probeStub(),
+      render: (model, context) => {
+        const r = probeStub().render!(model, context)
+        const dispositions = { ...r.dispositions }
+        const diagnostics = [...r.diagnostics]
+        for (const [path, d] of Object.entries(r.dispositions))
+          if (d.kind === 'unsupported' && /\.regexe?s?$/.test(path)) {
+            dispositions[path] = kind === 'rendered' ? { kind, span: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 } } : { kind, reason: 'left out' }
+            if (warn) diagnostics.push({ severity: 'warning', category: 'semantic', message: 'A regex was translated from another dialect.', field: path })
+          }
+        return { ...r, dispositions, diagnostics }
+      }
+    })
+    const regex = (plugin: PlatformPlugin) => probe(plugin, 'regex').flatMap((r) => r.problems).filter((p) => p.startsWith('render of'))
+    expect(regex(translating('rendered', true))).toEqual([])
+    expect(regex(translating('rendered', false))).toHaveLength(2)
+    expect(regex(translating('not-applicable', true))).toContain('render of a junos regex: routingPolicy.asPathSets["PROBE-AS-PATH"].entries["1"].regex is not-applicable, but a regex left out is unsupported')
+    expect(regex(probeStub())).toEqual([])
+  })
+
+  it('fails a regex the parse rewrites, or keeps without a dialect', () => {
+    const rewriting = wrapped((r) => JSON.parse(JSON.stringify(r).replaceAll('_65000_', '^65000$')) as typeof r)
+    expect(probe(rewriting, 'regex').flatMap((r) => r.problems)).toContain('parse: the case\'s regex 1 isn\'t in the model as written')
+    const undialected = wrapped((r) => JSON.parse(JSON.stringify(r).replaceAll('"regexDialect":"cisco"', '"regexDialect":null')) as typeof r)
+    expect(probe(undialected, 'regex').flatMap((r) => r.problems)).toContain('parse: the source\'s regexes are said to be in 0 dialects, not its one')
   })
 
   it('fails a case that tests nothing: a negation with nothing to clear, a VRF change that changes nothing', () => {
@@ -264,7 +331,7 @@ describe('runProbes', () => {
 
   it('fails every probe for a plugin with no parse or render', () => {
     const { parse: _parse, ...noParse } = probeStub()
-    expect(runProbes(noParse, PROBE_STUB_ADAPTER).map((r) => [r.probe, r.status])).toEqual(['prototype-keys', 'snmp-access', 'negation', 'malformed', 'vrf-scoping'].map((p) => [p, 'failed']))
+    expect(runProbes(noParse, PROBE_STUB_ADAPTER).map((r) => [r.probe, r.status])).toEqual(['prototype-keys', 'snmp-access', 'negation', 'malformed', 'vrf-scoping', 'unknown-reference', 'regex'].map((p) => [p, 'failed']))
   })
 })
 

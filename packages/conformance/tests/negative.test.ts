@@ -1,8 +1,8 @@
 // The kit's negative tests: deliberately careless mappers and renderers that the checks must catch (the build plan's
 // two counterexamples, B2). A check that let them through would let a real plugin drop config silently.
 import { describe, expect, it } from 'vitest'
-import { buildLedger, createRegistry, fieldPath, ledgerProblems, modelProblems, type Device, type PlatformPlugin } from '@dialect/core'
-import { checkFixture, type Fixture } from '../src'
+import { buildLedger, createRegistry, fieldPath, ledgerProblems, modelProblems, populatedLeaves, type Device, type FieldDisposition, type ParseResult, type PlatformPlugin, type RenderResult, type StatementDisposition, type SyntaxNode } from '@dialect/core'
+import { checkFixture, termProblems, type Fixture } from '../src'
 import { stubPlugin } from './stubPlatform'
 
 const byCheck = (results: ReturnType<typeof checkFixture>) => Object.fromEntries(results.map((r) => [r.check, r]))
@@ -192,8 +192,8 @@ describe('a renderer built for model 0.3 meeting a 0.4 model, area by area', () 
 
   it.each(areas)('%s: loads, and the ledger reports each new field as unrendered, not dropped', (_area, model, added) => {
     expect(() => createRegistry([old], { modelVersion: '0.4.0' })).not.toThrow()
-    // A valid 0.4 model: what a careful 0.4 source plugin would give.
-    expect(modelProblems(model)).toEqual([])
+    // A valid 0.4 model: what a careful 0.4 source plugin would give, its BGP policies by name only.
+    expect(modelProblems(model, { policyReferences: false })).toEqual([])
     const rendered = old.render!(model, { modelVersion: '0.4.0' })
     const ledger = buildLedger(old.parse!('', { modelVersion: '0.4.0' }), rendered, model)
     expect(ledger.complete).toBe(false)
@@ -215,6 +215,178 @@ describe('a renderer built for model 0.4.0 meeting 0.4.1\'s eBGP default policy'
     const ledger = buildLedger(old.parse!('', { modelVersion: '0.4.1' }), rendered, model)
     expect(ledger.complete).toBe(false)
     expect(ledger.target?.unrendered.map((f) => f.path).sort()).toEqual([...added].sort())
+  })
+})
+
+describe('a renderer built for model 0.4.1 meeting 0.5.0\'s routing policy', () => {
+  // The stub has never heard of prefix lists, community and AS-path sets or policies, which a 0.5 parser puts in the
+  // model, with the BGP policy names resolving to them.
+  const old = stubPlugin({ modelApi: '>=0.4.1 <1.0.0' })
+  const model: Device = {
+    networkInstances: { default: { bgp: { neighbors: { '10.0.0.2': { peerAs: 65001, importPolicies: ['IN'] } } } } },
+    routingPolicy: {
+      prefixLists: { ipv4: { L: { entries: { '5': { action: 'permit', prefix: '10.0.0.0/8', minLength: 8, maxLength: 24, form: 'le' } } } }, ipv6: { L6: {} } },
+      communitySets: { C: { type: 'standard', regexDialect: 'cisco', entries: { '1': { action: 'permit', members: ['65000:1'], regexes: ['_65000:9_'] } } } },
+      asPathSets: { A: { regexDialect: 'junos', entries: { '1': { action: 'deny', regex: '65001 .*' } } } },
+      policies: {
+        IN: {
+          fallThrough: 'next-policy',
+          terms: {
+            '1': { name: 't1', matches: { prefixLists: { ipv4: ['L'], ipv6: ['L6'] }, prefixListMatch: 'orlonger', routeFilters: { '1': { prefix: '192.0.2.0/24', minLength: 24, maxLength: 32, form: 'orlonger' } }, communitySets: ['C'], asPathSets: ['A'], protocols: ['bgp'], neighbors: ['10.0.0.2'], tags: [1], family: 'ipv4' }, actions: { flow: 'accept', localPreference: 200, med: 10, communityAdd: { values: ['65000:2'], sets: ['C'] }, communitySet: { values: ['65000:3'] }, communityDelete: { sets: ['C'] }, asPathPrepend: [65000], nextHop: '192.0.2.1', nextHopSelf: true, tag: 2 } }
+          }
+        }
+      }
+    }
+  }
+
+  it('loads, and the ledger reports every routing policy field as unrendered, not dropped', () => {
+    expect(() => createRegistry([old], { modelVersion: '0.5.0' })).not.toThrow()
+    expect(modelProblems(model)).toEqual([])
+    const rendered = old.render!(model, { modelVersion: '0.5.0' })
+    const ledger = buildLedger(old.parse!('', { modelVersion: '0.5.0' }), rendered, model)
+    const added = populatedLeaves(model.routingPolicy, ['routingPolicy']).map((l) => l.path)
+    // Every leaf of every new type, the empty IPv6 list among them.
+    expect(added).toHaveLength(40)
+    expect(added).toContain(fieldPath('routingPolicy', 'prefixLists', 'ipv6', 'L6'))
+    expect(added).toContain(fieldPath('routingPolicy', 'policies', 'IN', 'fallThrough'))
+    // The BGP neighbor's import policy is a 0.4 field this stub doesn't render either.
+    expect(ledger.target?.unrendered.map((f) => f.path).sort()).toEqual([...added, fieldPath('networkInstances', 'default', 'bgp', 'neighbors', '10.0.0.2', 'importPolicies')].sort())
+  })
+})
+
+describe('the per-term rule: a term whole or not at all, and the whole policy when leaving a term out isn\'t safe', () => {
+  /** Two policies: SAFE's first term decides nothing and changes nothing later terms see; UNSAFE's first rejects. */
+  const model: Device = {
+    routingPolicy: {
+      prefixLists: { ipv4: { L: { entries: { '1': { action: 'permit', prefix: '10.0.0.0/8', minLength: 8, maxLength: 8 } } } } },
+      communitySets: { C: { entries: { '1': { action: 'permit', members: ['65000:1'] } } } },
+      policies: {
+        SAFE: { fallThrough: 'reject', terms: { '10': { actions: { localPreference: 200, flow: 'next-term' } }, '20': { matches: { prefixLists: { ipv4: ['L'] } }, actions: { flow: 'accept' } } } },
+        UNSAFE: { fallThrough: 'reject', terms: { '10': { matches: { communitySets: ['C'] }, actions: { flow: 'reject' } }, '20': { actions: { flow: 'accept' } } } }
+      }
+    }
+  }
+  const parsed: ParseResult = { tree: [], model, dispositions: {}, diagnostics: [] }
+  const under = (...path: string[]) => fieldPath('routingPolicy', 'policies', ...path)
+  /** A render of `model` whose dispositions are rendered, except `unsupported` (by a test on the path) and the fall-throughs, not applicable. */
+  const render = (unsupported: (path: string) => boolean): RenderResult => ({
+    text: '',
+    diagnostics: [],
+    dispositions: Object.fromEntries(
+      populatedLeaves(model).map((l): [string, FieldDisposition] => [l.path, unsupported(l.path) ? { kind: 'unsupported', reason: 'can\'t' } : l.path.endsWith('.fallThrough') ? { kind: 'not-applicable', reason: 'the same' } : { kind: 'rendered' }])
+    )
+  })
+
+  it('passes a render that converts every term', () => {
+    expect(termProblems(parsed, render(() => false))).toEqual([])
+  })
+
+  it('fails a term converted in part: one of its fields unsupported, another rendered', () => {
+    expect(termProblems(parsed, render((p) => p === under('SAFE', 'terms', '10', 'actions', 'localPreference')))).toEqual([`render converted part of a term: some of ${under('SAFE', 'terms', '10')}'s fields are unsupported and some aren't`])
+  })
+
+  it('passes a term left out whole when later terms still see the same routes, the rest of its policy converted', () => {
+    expect(termProblems(parsed, render((p) => p.startsWith(under('SAFE', 'terms', '10'))))).toEqual([])
+  })
+
+  it('fails a term left out whole that decides routes, when the rest of its policy is still converted', () => {
+    const problems = termProblems(parsed, render((p) => p.startsWith(under('UNSAFE', 'terms', '10'))))
+    expect(problems).toEqual([`render left out ${under('UNSAFE', 'terms', '10')}, which later terms would see routes differently without, but converted the rest of the policy: the whole policy is unsupported instead (${under('UNSAFE', 'terms', '20', 'actions', 'flow')})`])
+  })
+
+  it('passes the whole policy left out instead, its fall-through unsupported or not applicable', () => {
+    expect(termProblems(parsed, render((p) => p.startsWith(under('UNSAFE', 'terms'))))).toEqual([])
+    expect(termProblems(parsed, render((p) => p.startsWith(under('UNSAFE'))))).toEqual([])
+  })
+
+  it('fails the kit\'s ledger check through checkFixture, though every field has a disposition', () => {
+    const plugin: PlatformPlugin = { ...stubPlugin(), parse: () => parsed, render: () => render((p) => p.startsWith(under('UNSAFE', 'terms', '10'))) }
+    const r = byCheck(checkFixture(plugin, { name: 'policy/unsafe-skip', source: '', expectedModel: model }))
+    expect(r.parse.status).toBe('passed')
+    expect(r.ledger.problems).toHaveLength(1)
+    expect(r.ledger.problems[0]).toMatch(/^render left out /)
+  })
+
+  describe('on the parse side: the statements a term is made of', () => {
+    // policy-options { policy-statement P { term a { from community C; from color 5; then accept; } term b { then reject; } } }
+    const node = (id: string, children?: SyntaxNode[]): SyntaxNode => ({ id, label: id, ...(children ? { children } : {}) })
+    const tree = [node('policy-options', [node('P', [node('a', [node('a from community'), node('a from color'), node('a then')]), node('b', [node('b then'), node('b color')])])])]
+    const term = (key: string, ...leaf: string[]) => under('P', 'terms', key, ...leaf)
+    const policyModel: Device = { routingPolicy: { communitySets: { C: {} }, policies: { P: { fallThrough: 'next-policy', terms: { '1': { name: 'a', matches: { communitySets: ['C'] }, actions: { flow: 'accept' } }, '2': { name: 'b', actions: { flow: 'reject' } } } } } } }
+    const mapped = (...fields: string[]): StatementDisposition => ({ kind: 'mapped', fields })
+    const unsupported: StatementDisposition = { kind: 'unsupported', reason: 'no color' }
+    const base: Record<string, StatementDisposition> = {
+      'policy-options': mapped(),
+      P: mapped(under('P', 'fallThrough')),
+      a: mapped(term('1', 'name')),
+      'a from community': mapped(term('1', 'matches', 'communitySets')),
+      'a from color': unsupported,
+      'a then': mapped(term('1', 'actions', 'flow')),
+      b: mapped(term('2', 'name')),
+      'b then': mapped(term('2', 'actions', 'flow')),
+      'b color': { kind: 'ignored-by-design', reason: 'a comment' }
+    }
+    const problems = (dispositions: Record<string, StatementDisposition>) => termProblems({ tree, model: policyModel, dispositions, diagnostics: [] })
+
+    it('fails a term whose statements are partly unsupported, the rest mapped', () => {
+      expect(problems(base)).toEqual([`parse converted part of a term: a from color is unsupported, but the term's other statements are mapped (${term('1')})`])
+    })
+
+    it('finds it even when only the term\'s action is mapped, through the term\'s own container', () => {
+      expect(problems({ ...base, a: mapped(), 'a from community': unsupported })).toEqual([
+        `parse converted part of a term: a from community is unsupported, but the term's other statements are mapped (${term('1')})`,
+        `parse converted part of a term: a from color is unsupported, but the term's other statements are mapped (${term('1')})`
+      ])
+    })
+
+    it('passes a term left out whole, every statement unsupported, and blames no other term', () => {
+      const whole = { ...base, a: unsupported, 'a from community': unsupported, 'a then': unsupported }
+      expect(problems(whole)).toEqual([])
+      expect(problems({ ...base, 'a from color': mapped(term('1', 'matches', 'tags')) })).toEqual([])
+    })
+  })
+})
+
+describe('a BGP policy name that resolves to nothing: checked for a plugin that parses routing policy', () => {
+  const model: Device = { networkInstances: { default: { bgp: { neighbors: { '10.0.0.2': { peerAs: 65001, importPolicies: ['IN'] } } } } } }
+  const giving = (capabilities: PlatformPlugin['capabilities']): PlatformPlugin => ({ ...stubPlugin(), capabilities, parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }) })
+
+  it('passes a plugin that doesn\'t parse routing policy, which keeps the names alone as phase 2 did', () => {
+    expect(byCheck(checkFixture(giving({ bgp: { parse: 'partial', render: 'partial' } }), { name: 'bgp/names', source: '', expectedModel: model })).parse.status).toBe('passed')
+    expect(byCheck(checkFixture(giving({ 'routing-policy': { parse: 'none', render: 'partial' } }), { name: 'bgp/names', source: '', expectedModel: model })).parse.status).toBe('passed')
+  })
+
+  it('fails one that does, saying where and quoting nothing', () => {
+    const r = byCheck(checkFixture(giving({ 'routing-policy': { parse: 'partial', render: 'none' } }), { name: 'bgp/names', source: '', expectedModel: model }))
+    expect(r.parse.problems).toEqual([`parse made an invalid model: A BGP peer names a policy the model doesn't have. (${fieldPath('networkInstances', 'default', 'bgp', 'neighbors', '10.0.0.2', 'importPolicies')})`])
+  })
+})
+
+describe('a parse that doesn\'t say what its policy does with a route no term decides', () => {
+  // Junos goes on to the next policy, Cisco rejects: a policy without its fall-through has lost what decides that.
+  const policy = (fallThrough: unknown): Device => ({ routingPolicy: { policies: { P: { ...(fallThrough === undefined ? {} : { fallThrough }), terms: { '1': { actions: { flow: 'next-term' } } } } as never } } })
+  const giving = (model: Device): PlatformPlugin => ({
+    ...stubPlugin(),
+    capabilities: { 'routing-policy': { parse: 'partial', render: 'partial' } },
+    parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }),
+    render: () => ({ text: '', diagnostics: [], dispositions: Object.fromEntries(populatedLeaves(model).map((l): [string, FieldDisposition] => [l.path, { kind: 'rendered' }])) })
+  })
+  const field = fieldPath('routingPolicy', 'policies', 'P', 'fallThrough')
+
+  it.each([
+    ['leaves it out', undefined],
+    ['gives one the model doesn\'t have', 'accept']
+  ])('fails the parse check when it %s, saying where', (_what, fallThrough) => {
+    const model = policy(fallThrough)
+    const r = byCheck(checkFixture(giving(model), { name: 'policy/fall-through', source: '', expectedModel: model }))
+    expect(r.parse.problems).toEqual([`parse made an invalid model: A policy doesn't say what happens to a route no term decides (next-policy or reject). (${field})`])
+  })
+
+  it('passes it with next-policy or reject', () => {
+    for (const fallThrough of ['next-policy', 'reject']) {
+      const model = policy(fallThrough)
+      expect(byCheck(checkFixture(giving(model), { name: 'policy/fall-through', source: '', expectedModel: model })).parse.status, fallThrough).toBe('passed')
+    }
   })
 })
 

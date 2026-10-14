@@ -11,11 +11,12 @@
 //    left to a secret needs-input item: a key the model flags but never carries, which the render asks the user for
 //    rather than make up (the check lists each one it leaves out);
 // 4. the coverage ledger is complete: every statement of the parse and every populated field of the render has a
-//    disposition (core's ledger.ts, which doesn't trust the plugin's own count);
+//    disposition (core's ledger.ts, which doesn't trust the plugin's own count), and policy terms keep the per-term rule
+//    (termProblems(): a term whole or not at all, and the whole policy when leaving a term out isn't safe);
 // 5. no secret: none of the fixture's secret values is in a diagnostic, needs-input item, ledger reason, tool
 //    diagnostic, tool report (a tool's text, unless it is a config tool's) or thrown error, on the fixture or on broken copies of it (secrets.ts). Skipped for a fixture with none.
 // An error a step reports fails its check even when its output matches: a plugin that says it failed isn't conformant.
-import { buildLedger, fieldPath, ledgerProblems, MODEL_VERSION, modelProblems, populatedLeaves, type Context, type Device, type PlatformPlugin, type RenderResult } from '@dialect/core'
+import { buildLedger, fieldPath, ledgerProblems, MODEL_VERSION, modelProblems, pathSegments, populatedLeaves, termSkipSafe, type Context, type Device, type ParseResult, type PlatformPlugin, type RenderResult, type SyntaxNode } from '@dialect/core'
 import type { SecretAllowance } from './allowances'
 import { checkSecrets, describeLeak, findSecrets, type SecretsOptions } from './secrets'
 
@@ -129,6 +130,114 @@ function withoutEmptied(model: unknown, emptied: ReadonlySet<string>, at: readon
   return out
 }
 
+/** A term's identity, from a field path under it (`routingPolicy.policies.P.terms.T…`), or null for any other path. */
+function termOf(path: string): string | null {
+  let s: ReturnType<typeof pathSegments>
+  try {
+    s = pathSegments(path)
+  } catch {
+    return null
+  }
+  return s.length >= 5 && s[0] === 'routingPolicy' && s[1] === 'policies' && s[3] === 'terms' ? JSON.stringify([s[2], s[4]]) : null
+}
+
+/**
+ * The per-term rule (model 0.5.0; docs/ARCHITECTURE.md): a policy term is converted whole or not at all, and one left
+ * out leaves the rest of its policy converted only when termSkipSafe() says later terms still see the same routes.
+ * - Parse: the statements that make up a term (the smallest subtree holding every statement that maps into it, widened
+ *   while its parent maps nothing outside that term) are mapped or ignored by design, none unsupported, when anything
+ *   of the term reaches the model. A term the parse leaves out whole isn't in the model, so its safety is the parser's
+ *   to judge (it knows the term's actions): it can't be checked here.
+ * - Render: a term's leaves are all `unsupported` or none is; a term left out whose skip isn't safe leaves every leaf of
+ *   its policy `unsupported` (its `fallThrough` aside, which may also be `not-applicable`).
+ */
+export function termProblems(parsed: ParseResult, rendered?: RenderResult, model: Device = parsed.model): string[] {
+  const out: string[] = []
+  const show = (term: string) => {
+    const [policy, key] = JSON.parse(term) as [string, string]
+    return fieldPath('routingPolicy', 'policies', policy, 'terms', key)
+  }
+
+  // ---- parse: statements, by the terms their mapped fields are in
+  const parent = new Map<SyntaxNode, SyntaxNode | undefined>()
+  /** Per node, the terms its own mapped fields are in, and whether it maps any field outside a term. */
+  const mapping = new Map<SyntaxNode, { terms: Set<string>; other: boolean }>()
+  const index = (nodes: readonly SyntaxNode[], up: SyntaxNode | undefined) => {
+    for (const n of nodes) {
+      parent.set(n, up)
+      const d = Object.hasOwn(parsed.dispositions, n.id) ? parsed.dispositions[n.id] : undefined
+      const terms = new Set<string>()
+      let other = false
+      for (const f of d?.kind === 'mapped' ? d.fields : []) {
+        const t = termOf(f)
+        if (t === null) other = true
+        else terms.add(t)
+      }
+      mapping.set(n, { terms, other })
+      index(n.children ?? [], n)
+    }
+  }
+  index(parsed.tree, undefined)
+  /** What a subtree maps: its terms, and whether anything outside them. */
+  const subtree = new Map<SyntaxNode, { terms: Set<string>; other: boolean }>()
+  const sum = (n: SyntaxNode): { terms: Set<string>; other: boolean } => {
+    const o = mapping.get(n)!
+    const s = { terms: new Set(o.terms), other: o.other }
+    for (const c of n.children ?? []) {
+      const cs = sum(c)
+      for (const t of cs.terms) s.terms.add(t)
+      s.other ||= cs.other
+    }
+    subtree.set(n, s)
+    return s
+  }
+  for (const n of parsed.tree) sum(n)
+  const ancestors = (n: SyntaxNode) => {
+    const chain: SyntaxNode[] = []
+    for (let a: SyntaxNode | undefined = n; a; a = parent.get(a)) chain.unshift(a)
+    return chain
+  }
+  const unsupportedIn = (n: SyntaxNode): SyntaxNode[] => [...(Object.hasOwn(parsed.dispositions, n.id) && parsed.dispositions[n.id].kind === 'unsupported' ? [n] : []), ...(n.children ?? []).flatMap(unsupportedIn)]
+  const byTerm = new Map<string, SyntaxNode[]>()
+  for (const [n, o] of mapping) for (const t of o.terms) byTerm.set(t, [...(byTerm.get(t) ?? []), n])
+  for (const [term, nodes] of byTerm) {
+    // The deepest node every statement mapping into the term is under (or is).
+    const chains = nodes.map(ancestors)
+    let depth = 0
+    while (chains.every((c) => depth < c.length && c[depth] === chains[0][depth])) depth++
+    const roots: SyntaxNode[] = depth ? [chains[0][depth - 1]] : [...new Set(chains.map((c) => c[0]))]
+    if (roots.length === 1) {
+      // Widened while the parent maps nothing but this term: a term's container with its `from` and `then`.
+      for (let up = parent.get(roots[0]); up; up = parent.get(up)) {
+        const s = subtree.get(up)!
+        if (s.other || [...s.terms].some((t) => t !== term)) break
+        roots[0] = up
+      }
+    }
+    for (const n of roots.flatMap(unsupportedIn)) out.push(`parse converted part of a term: ${n.id} is unsupported, but the term's other statements are mapped (${show(term)})`)
+  }
+
+  // ---- render: fields, term by term
+  if (!rendered) return out
+  const kind = (path: string) => (Object.hasOwn(rendered.dispositions, path) ? rendered.dispositions[path].kind : undefined)
+  for (const [name, policy] of Object.entries(model.routingPolicy?.policies ?? {})) {
+    if (!policy?.terms) continue
+    const unsafe: string[] = []
+    for (const key of Object.keys(policy.terms)) {
+      const kinds = populatedLeaves(policy.terms[key], ['routingPolicy', 'policies', name, 'terms', key]).map((l) => kind(l.path))
+      const term = fieldPath('routingPolicy', 'policies', name, 'terms', key)
+      if (!kinds.includes('unsupported')) continue
+      if (kinds.some((k) => k !== 'unsupported')) out.push(`render converted part of a term: some of ${term}'s fields are unsupported and some aren't`)
+      if (!termSkipSafe(policy, key)) unsafe.push(term)
+    }
+    if (!unsafe.length) continue
+    const fallThrough = fieldPath('routingPolicy', 'policies', name, 'fallThrough')
+    const converted = populatedLeaves(policy, ['routingPolicy', 'policies', name]).filter((l) => kind(l.path) === 'rendered' || (kind(l.path) === 'not-applicable' && l.path !== fallThrough))
+    if (converted.length) out.push(`render left out ${unsafe.join(', ')}, which later terms would see routes differently without, but converted the rest of the policy: the whole policy is unsupported instead (${converted.map((l) => l.path).join(', ')})`)
+  }
+  return out
+}
+
 /** The secrets check on `fixture`: its own secrets, or those its source has by pattern. */
 function secretsCheck(plugin: PlatformPlugin, fixture: Fixture, modelVersion: string, options: SecretsOptions): CheckResult {
   const secrets = fixture.secrets ?? findSecrets(fixture.source)
@@ -156,7 +265,10 @@ export function checkFixture(plugin: PlatformPlugin, fixture: Fixture, { modelVe
   const errors = (step: string, r: { diagnostics: readonly { severity: string; message: string }[] }) => r.diagnostics.filter((d) => d.severity === 'error').map((d) => `${step} error: ${d.message}`)
 
   // What core's modelProblems() finds in a model a step made: a VRF that isn't declared, a malformed route distinguisher.
-  const invalid = (step: string, model: Device) => modelProblems(model).map((d) => `${step} made an invalid model: ${d.message} (${d.field})`)
+  // A BGP policy name resolves to a policy only for a plugin that parses routing policy (model 0.5.0): one that doesn't
+  // keeps the names alone, as phase 2 did.
+  const policyReferences = (plugin.capabilities['routing-policy']?.parse ?? 'none') !== 'none'
+  const invalid = (step: string, model: Device) => modelProblems(model, { policyReferences }).map((d) => `${step} made an invalid model: ${d.message} (${d.field})`)
 
   const parsed = plugin.parse(fixture.source, context)
   const checks: CheckResult[] = [result('parse', [...errors('parse', parsed), ...invalid('parse', parsed.model), ...modelDifferences(fixture.expectedModel, parsed.model)])]
@@ -180,7 +292,7 @@ export function checkFixture(plugin: PlatformPlugin, fixture: Fixture, { modelVe
   const roundTrip = result('round-trip', [...errors('reparse', reparsed), ...invalid('reparse', reparsed.model), ...modelDifferences(expected, withoutEmptied(reparsed.model, emptied)).map((d) => `render → reparse changed the model: ${d}`)])
   checks.push(deferred.length ? { ...roundTrip, deferred } : roundTrip)
 
-  checks.push(result('ledger', ledgerProblems(buildLedger(parsed, rendered))))
+  checks.push(result('ledger', [...ledgerProblems(buildLedger(parsed, rendered)), ...termProblems(parsed, rendered)]))
   checks.push(secretsCheck(plugin, fixture, modelVersion, options))
   return checks
 }
