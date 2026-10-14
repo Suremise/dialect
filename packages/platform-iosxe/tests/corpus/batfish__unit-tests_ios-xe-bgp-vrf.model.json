@@ -1,0 +1,49 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "ios-xe-bgp-vrf"
+    },
+    "networkInstances": {
+      "vrf-A": {
+        "type": "vrf",
+        "routeDistinguisher": "45000:1",
+        "bgp": {
+          "localAs": 45000
+        },
+        "routeTargets": {
+          "import": [
+            "45000:100"
+          ],
+          "export": [
+            "45000:100"
+          ]
+        }
+      },
+      "default": {
+        "bgp": {
+          "localAs": 45000
+        }
+      }
+    },
+    "interfaces": {
+      "FastEthernet1/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "vrf-A",
+            "ipv4": {
+              "addresses": {
+                "10.4.8.149": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      }
+    }
+  }
+}
+
