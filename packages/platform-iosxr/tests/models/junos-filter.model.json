@@ -48,14 +48,19 @@
               }
             },
             "3": {
-              "name": "unreachable",
+              "name": "syn-drop",
               "matches": {
-                "sourcePrefixes": [
-                  "10.0.0.0/8"
-                ]
+                "protocols": [
+                  6
+                ],
+                "tcpFlags": {
+                  "set": [
+                    "syn"
+                  ]
+                }
               },
               "actions": {
-                "action": "reject"
+                "action": "discard"
               }
             }
           }

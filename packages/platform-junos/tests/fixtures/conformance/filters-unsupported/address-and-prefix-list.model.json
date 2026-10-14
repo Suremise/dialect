@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.5.2",
+  "modelVersion": "0.5.4",
   "device": {
     "routingPolicy": {
       "prefixLists": {
@@ -16,14 +16,6 @@
           }
         }
       }
-    },
-    "filters": {
-      "ipv4": {
-        "F": {
-          "implicitAction": "discard"
-        }
-      }
     }
   }
 }
-

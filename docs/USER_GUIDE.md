@@ -275,7 +275,10 @@ the target. On the command line, give them in an answers file (see [convert](#co
 Junos also converts routing policy: prefix lists, communities, AS paths and AS-path groups and policy-statements,
 with the policies BGP and VRFs import and export, and firewall filters (inet and inet6) with the units they're applied
 on. A policy or a filter converts term by term: a term Dialect can't convert in full is listed as not converted,
-whole, and when leaving it out would change what a later term does, the whole policy is. Regular expressions are kept
+whole, and when leaving it out would change what a later term does, the whole policy is. A filter's term is left out
+alone only when that changes nothing the filter decides: a term that only counts or logs, or the last term when it
+discards, as the filter's end does. Any other takes the whole filter with it, and the units applying it, so no filter
+lets through or drops other packets than the source's. Regular expressions are kept
 as written and never translated to another platform's.
 
 Cisco IOS-XR also converts routing policy in RPL's simple forms: prefix sets, community sets (communities and
@@ -295,10 +298,10 @@ entry with no number gets 10 more than the highest, a remark's included), with `
 wildcards, protocols, ports (`eq`, `gt`, `lt`, `range`, by number or name), ICMP types, `established`, `fragments`,
 `dscp`, `log` and `counter`, and the interfaces' `ipv4|ipv6 access-group … ingress|egress`. Remarks are comments and
 aren't carried. An entry Dialect can't convert (a non-contiguous wildcard, which is never approximated, an object
-group, `neq`, ABF and other options) is listed, alone when it is the last entry, and otherwise with its whole access
-list, as the entries after it would see other packets; an interface applying a list that isn't converted is listed
-too. An IOS-XR access list denies what no entry decides: converting to IOS-XR warns when the source discards instead
-(Junos), or when a list relies on it.
+group, `neq`, ABF and other options) is listed, alone when it is the last entry and denies, as the list's end does,
+and otherwise with its whole access list, as the list would decide other packets without it; an interface applying a
+list that isn't converted is listed too. An IOS-XR access list denies what no entry decides: converting to IOS-XR warns when the source discards instead
+(Junos), or when a list relies on it, an entry left out included.
 
 Cisco IOS / IOS-XE also converts routing policy: prefix lists, community lists (standard, expanded and numbered),
 AS-path access lists and route maps (matching prefix lists, communities, AS paths and tags; setting the local
@@ -318,7 +321,8 @@ too, with its route targets: a Cisco map filters what the route targets bring in
 Cisco IOS / IOS-XE and NX-OS also convert access lists (IPv4 and IPv6, named, and on IOS numbered and standard) and the
 interfaces that apply them, each entry with its remarks kept as its description. An address with a wildcard is
 converted only when the wildcard is a plain prefix: an entry with any other wildcard is listed as not converted, never
-approximated, and so is the whole list unless that entry is the last. Every Cisco access list denies what no entry
+approximated, and so is the whole list, with the interfaces applying it: leaving the entry out would have the list
+decide other packets. Every Cisco access list denies what no entry
 decides: converting a Junos filter, which drops such packets silently, says so with a warning. An IPv6 access list with no final entry deciding every packet warns too: some Cisco
 platforms let neighbor discovery through before the implicit deny, and others don't.
 

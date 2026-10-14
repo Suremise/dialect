@@ -218,7 +218,8 @@ ideas from Capirca and Aerleon's term model (ideas only).
   interface's `ip unreachables` says). A renderer gives it `not-applicable` and raises a semantic warning when its
   platform's differs, or when the filter relies on it (`filterReliesOnImplicitAction()`: no term matching every packet
   accepts, discards or rejects it), even when the defaults agree; a filter of its own default that decides every
-  packet gets none.
+  packet gets none. A renderer asks it of the terms it writes, not the model's (#103): a catch-all left out (a last
+  discard it can't write, which the per-term rule lets go) leaves the end deciding what it did.
 - A term's `matches` all hold for a packet to match (within a list, any entry): `sourcePrefixes`,
   `destinationPrefixes` and `prefixes` (either; Junos `address`), in CIDR form of the filter's family (a Cisco `host`
   is a /32 or /128); `sourcePrefixLists`, `destinationPrefixLists` and `prefixLists` (either), naming
@@ -240,9 +241,13 @@ decides nothing (no `flow`, or `next-term`) and changes nothing a later term mat
 community-set match, the AS path for an AS-path match, the tag for a tag match). The last term always is. Anything it
 doesn't know (a later version's action, or a later term's match) counts against it. When leaving a term out isn't
 safe, the **whole policy** is `unsupported` instead. A filter keeps the same rule (since 0.5.1), with
-`filterTermSkipSafe(filter, key)`: leaving a filter's term out is safe when it is the last, or decides nothing
-(`next-term`: it only counts or logs); otherwise the **whole filter** is `unsupported`, and a subinterface applying it
-can't apply it either. The conformance kit checks the rule (below).
+`filterTermSkipSafe(filter, key)`: leaving a filter's term out is safe when it decides nothing (`next-term`: it only
+counts or logs), or **when it is the last and does what the filter's implicit action does** (#103): a `discard`, under
+either implicit action (Junos's `discard` and a Cisco `deny` both drop). A last `accept` or `reject` (which answers where
+the end doesn't), or an action or implicit action the helper doesn't know, can't be left out alone: its packets would
+reach the end and be decided otherwise, and an only term would leave a filter that decides everything by its end.
+Otherwise the **whole filter** is `unsupported`, and a subinterface applying it can't apply it either. The
+conformance kit checks the rule (below), the attachments included.
 
 ### Validation (`validate.ts`)
 
@@ -449,7 +454,10 @@ Each fixture goes through five checks (`checkFixture()`):
    that maps into it, widened while its parent maps nothing outside the term) are none of them `unsupported` once
    any maps into the model; on the render, a term's fields are all `unsupported` or none is, and a term left out whose
    skip isn't safe (`termSkipSafe()`, `filterTermSkipSafe()`) leaves every field of its policy or filter `unsupported`
-   (its `fallThrough` or `implicitAction` may be `not-applicable`). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
+   (its `fallThrough` or `implicitAction` may be `not-applicable`). A filter left out whole, whatever its terms, has
+   every leaf `unsupported`, its `implicitAction` included (a filter written, even with no terms left, has that
+   `not-applicable`), and no subinterface's attachment naming it, nor one naming a filter whose unsafe skip left it out,
+   may be `rendered` (#103). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
    judge, from the term's actions, and its own tests show it; so is a partial term in a flat syntax with no
    containers (one statement per line), whose statements the kit can't group;
 5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
@@ -743,7 +751,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     entries); one after the last entry describes nothing. `no N` removes an entry (with its remarks), `no ip
     access-list …` / `no access-list N` the list; anything else in a list (an object group, `log-input`, a time range,
     `no permit …`, a reused sequence number) is `unsupported`. **The per-term rule:** an entry left out is left out
-    whole, and the whole list with it unless it is the last (`filterTermSkipSafe()`), as is a list with no entries
+    whole, and the whole list with it (`filterTermSkipSafe()`, #103: only a last deny could go alone, and the parser
+    takes an entry it leaves out to permit), as is a list with no entries
     (IOS lets every packet through it). An interface's `ip access-group NAME in|out` and `ipv6 traffic-filter NAME
     in|out` (a later one each way replaces the earlier, and the `no` forms take it off) are its subinterface's
     `filters`, resolved once the text is read: one naming a list that isn't converted, or the text doesn't define
@@ -1242,8 +1251,9 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     each (`eq`, `gt`, `lt`, `range`, by number or name, for TCP, UDP and SCTP, as port ranges), an ICMP type and code
     (by number, or by name per family), and `established`, `fragments` (non-initial), `dscp`, `log`, `counter NAME`.
     Anything else (`neq`, an object or net group, ABF `nexthop`, `ttl`, `log-input`, `capture` …) leaves the entry
-    `unsupported`. **The per-term rule:** an entry left out must be one `filterTermSkipSafe()` allows (only the last:
-    every entry permits or denies), else every statement of the list is `unsupported`. `ipv4|ipv6 access-group NAME
+    `unsupported`. **The per-term rule:** an entry left out must be one `filterTermSkipSafe()` allows (only the last,
+    and only a `deny`, as the list's end denies too; #103), else every statement of the list is `unsupported`, and so
+    is every `access-group` applying it. `ipv4|ipv6 access-group NAME
     ingress|egress` on an interface (subinterface `0` for the main one) is the subinterface's `filters` by family and
     direction, once NAME converted in that family (else `unsupported`: the interface applies nothing that way); a
     later one that way replaces it, and its `no` form removes it.
@@ -1327,7 +1337,7 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     isn't a sequence number) is `unsupported` whole, and the whole filter when leaving it out isn't safe
     (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. `implicitAction`
     is `not-applicable` (IOS-XR denies), with the warning `iosxr.filter-implicit-action` on the field when the
-    source's differs (Junos `discard`) or the filter relies on it (`filterReliesOnImplicitAction()`). An interface's
+    source's differs (Junos `discard`) or the entries written rely on it (`filterReliesOnImplicitAction()`). An interface's
     `access-group` is written for a list that is written, else `unsupported`.
   - **Routing policy (#79, `renderPolicy.ts`):** planned first (BGP and VRFs name a policy only when it is written) and
     written before OSPF and BGP: `prefix-set` (a name's IPv4 and IPv6 lists in one set, entries by position; lengths as
@@ -1659,9 +1669,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   **The per-term rule:** a term with anything else (a policer, `routing-instance`, `next-ip`, a nested `filter`, an
   `-except` match, `address … except`, a `to` condition) or naming a prefix list that isn't converted is `unsupported`
   whole; so is one with addresses and prefix lists of one direction, which Junos takes as one list where the model
-  needs both. Leaving it out must be what core's `filterTermSkipSafe()` allows (the last term, or one whose action is
-  `next term` with nothing unknown in it: a term with no action accepts, and an unknown action may decide), else every
-  statement of the filter is `unsupported`. A filter-level setting is `unsupported` with the filter, except
+  needs both. Leaving it out must be what core's `filterTermSkipSafe()` allows (one whose action is `next term`, or
+  the last term when it discards, as the filter's end does (#103), each with nothing unknown in it: a term with no
+  action accepts, and an unknown action may decide), else every statement of the filter is `unsupported`, and so is
+  every unit applying it. A filter-level setting is `unsupported` with the filter, except
   `interface-specific` (counters and policers per interface), which leaves which packets the filter decides alone, so
   only its own statement is `unsupported`. Other families (`ethernet-switching`, `any`…), policers and interface sets
   come later. `interfaces X unit N family inet|inet6 filter input|output F` is the subinterface's `filters`, by
@@ -1751,7 +1762,7 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `unsupported`, and when `filterTermSkipSafe()` doesn't allow leaving it out, so is the filter. `implicitAction` is
   `not-applicable`, and raises `junos.filter-implicit-action` on the filter's `implicitAction` field (a path, never in
   the message) naming its line when the source's is `deny` (a Cisco ACL, which may send an ICMP unreachable) or the
-  filter relies on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {
+  terms written rely on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {
   filter { input F; output G; } }`, beside the family's own settings or alone, each only when the firewall writes that
   filter (else `unsupported`: Junos commits a unit's filter only when it has it).
 - `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's

@@ -65,7 +65,10 @@ export function planFilters(filters: Filters | undefined, skip: (field: Segments
       const implicit = [...at, 'implicitAction']
       if (filter.implicitAction !== undefined) skip(implicit, 'not-applicable', 'the source platform\'s semantics, not configuration: an IOS-XR access list denies a packet no entry decides')
       const differs = filter.implicitAction !== 'deny'
-      if (differs || filterReliesOnImplicitAction(filter)) {
+      // Whether the list relies on its end, by the entries written: one left out (a last discard) can leave the end
+      // deciding what it did (#103).
+      const kept = { ...filter, terms: Object.fromEntries(planned.flatMap((t) => (typeof t.plan === 'string' ? [] : [[t.key, t.term]]))) }
+      if (differs || filterReliesOnImplicitAction(kept)) {
         out[0] = {
           ...out[0],
           warning: {

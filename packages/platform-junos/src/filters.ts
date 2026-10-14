@@ -6,9 +6,9 @@
 //
 // A filter's terms are converted whole or not at all (the per-term rule): a term with a condition or action the model
 // has no word for (a policer, `routing-instance`, `next-ip`, an `-except` match, `address … except`, a mask that isn't a
-// prefix length) is `unsupported`, and when leaving it out could change what a later term sees (core's
-// filterTermSkipSafe(): it isn't the last, and decides the packet), the whole filter is, and a unit applying it applies
-// nothing. Junos reads some words another way than the model: a term's addresses and prefix lists of one direction are
+// prefix length) is `unsupported`, and when leaving it out could change what the filter decides (core's
+// filterTermSkipSafe(): it decides packets, and isn't the last, or is but doesn't discard as the filter's end would),
+// the whole filter is, and a unit applying it applies nothing. Junos reads some words another way than the model: a term's addresses and prefix lists of one direction are
 // one list to it (where the model would need both to match), so such a term isn't converted. A term with no `then`
 // accepts, as Junos does; a filter's end is Junos's implicit `discard`. Reasons never quote the configuration.
 import { fieldPath, filterTermSkipSafe, type Filter, type FilterAction, type FilterTerm, type TcpFlag } from '@dialect/core'
@@ -344,11 +344,12 @@ export function filterMapper(ctx: FilterContext) {
         continue
       }
       const built = terms.map((t) => ({ state: t, result: termOf(t, filter.family, lists) }))
-      // The per-term rule: a term left out must be the last, or one that decides nothing (core's filterTermSkipSafe()):
-      // its known action `next term`, and nothing it says that the model has no word for. A term with no action accepts.
+      // The per-term rule: a term left out must decide nothing (its known action `next term`), or be the last and
+      // discard as the filter's end does (core's filterTermSkipSafe()), with nothing it says that the model has no word
+      // for deciding otherwise. A term with no action accepts.
       const skipped = (t: TermState): FilterAction => {
         const action = t.singles.get('actions.action')
-        return !t.decides && action?.kind === 'single' && action.value === 'next-term' ? 'next-term' : 'accept'
+        return !t.decides && action?.kind === 'single' && (action.value === 'next-term' || action.value === 'discard') ? action.value : 'accept'
       }
       const probe: Filter = { implicitAction: 'discard', terms: Object.fromEntries(built.map((b, n) => [String(n + 1), typeof b.result === 'string' ? { actions: { action: skipped(b.state) } } : b.result.term])) }
       if (built.some((b, n) => typeof b.result === 'string' && !filterTermSkipSafe(probe, String(n + 1)))) {

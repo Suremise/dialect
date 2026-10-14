@@ -29,6 +29,9 @@
   keyboard focus shows.
 
 ### Convert
+- **A filter whose last entry can't be converted is no longer turned into one that drops everything:** an entry left
+  out goes alone only when that changes nothing (it only counts, or it is the last and denies, as the filter's end
+  does). Otherwise the whole filter is listed as not converted, and so is every interface that applies it.
 - **Cisco IOS / IOS-XE and NX-OS bundles (port-channels) convert:** each member's `channel-group` with its LACP mode
   (active, passive or on), the Port-channel's minimum links, and on NX-OS the `feature lacp` LACP needs. Converting a
   Junos `ae0` with its members gives `Port-channel1` (`port-channel1` on NX-OS) with the same members and mode, once
