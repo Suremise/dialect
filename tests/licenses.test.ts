@@ -72,12 +72,11 @@ afterEach(() => {
 const fixture = (shipped: string[], packages: Pkg[], options: Options = {}) => {
   const root = checkout(shipped, packages, options)
   made.push(root)
-  // Supplements' texts go in a notices folder of the fixture's own, beside a copy of the hand-written entries.
+  // Supplements' texts go in a notices folder of the fixture's own.
   let noticesDir = notices
   if (options.texts) {
     noticesDir = join(root, 'notices')
     mkdirSync(join(noticesDir, 'texts'), { recursive: true })
-    writeFileSync(join(noticesDir, 'jcc.md'), readFileSync(join(notices, 'jcc.md')))
     for (const [file, text] of Object.entries(options.texts)) writeFileSync(join(noticesDir, 'texts', file), text)
   }
   return generateLicenses(root, { products: { desktop: 'apps/app' }, noticesDir, exceptions: [], supplements: options.supplements ?? {} })
@@ -98,14 +97,24 @@ describe('the repository', () => {
   })
 
   it('every link in the committed THIRD_PARTY_NOTICES.md starts with https://', () => {
+    // None yet while nothing ships; the generated notices below are checked with links.
     const found = links(readFileSync(join(repo, 'THIRD_PARTY_NOTICES.md'), 'utf8'))
-    expect(found.length).toBeGreaterThan(0)
     expect(found.filter((l) => !l.startsWith('https://'))).toEqual([])
   })
 
-  it('keeps the hand-written jcc entry', () => {
-    expect(now.notices.text).toContain('## juniper-config-converter ("jcc") test fixtures')
-    expect(now.notices.text).toContain('https://github.com/saidvandeklundert/juniper-config-converter')
+  it('lists no copied fixtures: they don\'t ship, and fixtures/LICENSES/ is their attribution', () => {
+    for (const repoName of ['juniper-config-converter', 'batfish', 'cml-community']) expect(now.notices.text).not.toContain(repoName)
+    expect(now.notices.text).toContain('# Other material\n\nNot npm packages: material Dialect includes or adapts, such as copied code.\n\nNo other third-party material ships in Dialect yet.')
+  })
+
+  it('adds each hand-written entry for other material as written', () => {
+    const root = checkout([], [])
+    made.push(root)
+    mkdirSync(join(root, 'notices'))
+    writeFileSync(join(root, 'notices', 'lib.md'), '- **Project:** copied-lib\r\n- **License:** MIT\r\n')
+    const r = generateLicenses(root, { products: { desktop: 'apps/app' }, noticesDir: join(root, 'notices'), exceptions: [], supplements: {}, other: [{ title: 'copied-lib', file: 'lib.md' }] })
+    expect(r.notices.text).toContain('# Other material\n\nNot npm packages: material Dialect includes or adapts, such as copied code.\n\n## copied-lib\n\n- **Project:** copied-lib\n- **License:** MIT\n')
+    expect(r.notices.text).not.toContain('No other third-party material')
   })
 })
 
