@@ -31,6 +31,8 @@
 - **Keys and passwords are left for you to add:** an OSPF key or a BGP password is never carried over, nor written as a
   placeholder. Dialect can't take them as answers yet: the converted config leaves them out, and `dialect convert`
   gives each one's line (`needs input`) and exits 3 unless `--allow-incomplete`.
+- **IOS-XE messages no longer quote the config:** a statement that isn't converted says which word, by its position, or
+  which line, never the word itself, so a password or community reused there doesn't show up in a warning or log.
 - **A VRF's BGP neighbor can inherit a global template on NX-OS and IOS-XR:** `inherit peer T` and `use
   neighbor-group G` in a VRF now convert with the template's settings, where they were listed as not converted.
   Converting to NX-OS or IOS-XR writes a VRF's group once as the global template when it is the same as the global one

@@ -649,7 +649,7 @@ export function parse(text: string, _context: Context): ParseResult {
         if (/^null0$/i.test(n.name)) hop.drop = 'discard'
         else hop.interface = n.name
         i += n.used
-      } else return { reason: `"${word}" isn't converted yet` }
+      } else return { reason: `word ${i + 1} isn't converted yet` }
     }
     return { instance, prefix, hop, ...(name !== undefined ? { name } : {}) }
   }
@@ -681,7 +681,10 @@ export function parse(text: string, _context: Context): ParseResult {
 
     const routeAt = ['networkInstances', instance, 'staticRoutes', prefix]
     const existing = model.get([...routeAt, 'description'])
-    if (name !== undefined && existing !== undefined && existing !== name) return unsupported(`a second name for ${prefix}`)
+    if (name !== undefined && existing !== undefined && existing !== name) {
+      const named = routeHops.get(`${instance}|${prefix}`)?.hops.find((h) => h.name !== undefined)
+      return unsupported(named ? `a second name for the route named on line ${line(named.node)}` : 'a second name for the route')
+    }
 
     if (instance !== 'default') routeStatements.set(instance, [...(routeStatements.get(instance) ?? []), { node, prefix, family: v6 ? 'ipv6' : 'ipv4' }])
     const key = `${instance}|${prefix}`
@@ -918,13 +921,14 @@ export function parse(text: string, _context: Context): ParseResult {
     }
     const addresses = w.slice(i)
     if (!addresses.length) return unsupported()
-    const bad = addresses.find((a) => !isIpv4(a) && !isIpv6(a))
-    if (bad !== undefined) return unsupported(`"${bad}" isn't converted yet`)
+    const bad = addresses.findIndex((a) => !isIpv4(a) && !isIpv6(a))
+    if (bad >= 0) return unsupported(`word ${i + bad + 1} isn't an address`)
     const keys = addresses.map((a) => (isIpv6(a) ? a.toLowerCase() : a))
     // The model keys servers by address alone: the same server in another VRF has nowhere to go.
     for (const key of keys) {
       const existing = model.get(['system', 'dns', 'servers', key])
-      if (existing !== undefined && (existing as Obj).networkInstance !== vrf) return unsupported(`${key} is already a name server in another VRF`)
+      const earlier = nameServerStatements.get(key)?.[0]
+      if (existing !== undefined && (existing as Obj).networkInstance !== vrf) return unsupported(`a server of ${earlier ? `line ${line(earlier)}` : 'another line'} in another VRF: the model keys name servers by address alone`)
     }
     const fields = keys.map((key) => (vrf === undefined ? model.set(['system', 'dns', 'servers', key], model.get(['system', 'dns', 'servers', key]) ?? {}) : model.set(['system', 'dns', 'servers', key, 'networkInstance'], vrf)))
     for (const key of keys) nameServerStatements.set(key, [...(nameServerStatements.get(key) ?? []), node])
@@ -1004,7 +1008,7 @@ export function parse(text: string, _context: Context): ParseResult {
       } else if (lw[i] === 'version' && /^[1-4]$/.test(w[i + 1] ?? '') && server.version === undefined) {
         server.version = Number(w[i + 1])
         i += 2
-      } else return unsupported(`"${w[i]}" isn't converted yet`)
+      } else return unsupported(`word ${i + 1} isn't converted yet`)
     }
     const key = isIpv6(address) ? address.toLowerCase() : address
     const at = ['system', 'ntp', 'servers', key]
@@ -1056,7 +1060,7 @@ export function parse(text: string, _context: Context): ParseResult {
         i += 2
       }
     }
-    if (i < w.length) return unsupported(`"${w.slice(i).join(' ')}" isn't converted yet`)
+    if (i < w.length) return unsupported(`word ${i + 1} isn't converted yet`)
     const at = ['system', 'logging', 'remoteServers', address]
     claim(fieldPath(...at), node, () => model.remove(at))
     if (!Object.keys(server).length) return mapped([model.set(at, {})])
@@ -1554,7 +1558,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (node.kind === 'comment') return set(node, ignored('a comment'))
     const lines = node.span.endLine - node.span.startLine + 1
     if (node.kind === 'banner') return set(node, unsupported(`a ${BANNER_TYPES.has(node.words[1]?.toLowerCase()) ? node.words[1].toLowerCase() : 'motd'} banner, ${lines} line${lines === 1 ? '' : 's'}, kept verbatim`))
-    if (node.kind === 'certificate-chain') return set(node, unsupported(`certificate chain ${node.words[4] ?? ''}, ${lines} lines, kept verbatim`))
+    if (node.kind === 'certificate-chain') return set(node, unsupported(`a certificate chain, ${lines} lines, kept verbatim`))
 
     if (policy.top(node) || acl.top(node)) return
     const w = node.words
