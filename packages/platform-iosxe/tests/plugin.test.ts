@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { checkFixture, checkSecrets } from '@dialect/conformance'
-import { buildLedger, createRegistry, fieldPath, ledgerProblems, MODEL_VERSION, populatedLeaves, statementsOf, type Device } from '@dialect/core'
+import { buildLedger, createRegistry, deserializeModel, fieldPath, ledgerProblems, MODEL_VERSION, populatedLeaves, statementsOf, type Device } from '@dialect/core'
 import plugin from '../src'
 import { isIpv6, lengthMask, maskLength } from '../src/addresses'
 import type { IosNode } from '../src/tree'
@@ -19,10 +19,10 @@ const roundTrips = (text: string) => checkFixture(plugin, { name: text, source: 
 
 describe('nothing is dropped silently', () => {
   it('unknown statements, and everything inside them, are unsupported with their text kept', () => {
-    const text = ['hostname r1', 'router ospf 1', ' network 192.0.2.0 0.0.0.255 area 0', 'interface Gi1', ' speed 1000', ' service-policy input P', '  nested thing', 'frobnicate now'].join('\n')
+    const text = ['hostname r1', 'router eigrp 1', ' network 192.0.2.0 0.0.0.255', 'interface Gi1', ' speed 1000', ' service-policy input P', '  nested thing', 'frobnicate now'].join('\n')
     const result = parse(text)
     const byText = new Map(statementsOf(result.tree).map((n) => [(n as IosNode).text, result.dispositions[n.id]]))
-    for (const t of ['router ospf 1', 'network 192.0.2.0 0.0.0.255 area 0', 'speed 1000', 'service-policy input P', 'nested thing', 'frobnicate now']) {
+    for (const t of ['router eigrp 1', 'network 192.0.2.0 0.0.0.255', 'speed 1000', 'service-policy input P', 'nested thing', 'frobnicate now']) {
       expect(byText.get(t), t).toMatchObject({ kind: 'unsupported' })
     }
     expect(buildLedger(result).complete).toBe(true)
@@ -820,6 +820,286 @@ describe('VLANs, switch ports and VLAN interfaces (model 0.4.0)', () => {
     expect(rendered.text).toContain('interface Vlan100\n ip address 192.0.2.1 255.255.255.0\n')
     expect(rendered.text).toContain('interface ge-0/0/1\n switchport\n switchport trunk native vlan 100\n switchport trunk allowed vlan 100,200-300\n switchport mode trunk\n')
     expect(rendered.text).not.toMatch(/^vlan 1$/m)
+  })
+})
+
+describe('OSPF (model 0.4.0)', () => {
+  const at = (result: ReturnType<typeof parse>, text: string) => result.dispositions[statementsOf(result.tree).find((n) => (n as IosNode).text === text)!.id]
+  const ospf = (result: ReturnType<typeof parse>, instance = 'default') => result.model.networkInstances?.[instance]?.ospf
+  const gi1 = ['interface Gi1', ' ip address 192.0.2.1 255.255.255.0']
+
+  it('puts an interface in the area of the most specific network statement, unless it says its own', () => {
+    const result = parse([...gi1, 'interface Gi2', ' ip address 192.0.2.129 255.255.255.128', ' ip ospf 1 area 5', 'router ospf 1', ' network 192.0.0.0 0.0.255.255 area 1', ' network 192.0.2.0 0.0.0.255 area 2', ' network 10.0.0.0 0.255.255.255 area 3'].join('\n'))
+    expect(ospf(result)?.areas).toEqual({ '0.0.0.2': { interfaces: { Gi1: { enabledBy: 'network' } } }, '0.0.0.5': { interfaces: { Gi2: { enabledBy: 'interface' } } } })
+    expect(at(result, 'network 192.0.0.0 0.0.255.255 area 1')).toMatchObject({ kind: 'unsupported' })
+    expect(at(result, 'network 10.0.0.0 0.255.255.255 area 3')).toMatchObject({ kind: 'unsupported' })
+  })
+
+  it('makes the process "ip ospf P area" names when there is no "router ospf P", and refuses one in another VRF', () => {
+    expect(ospf(parse([...gi1, ' ip ospf 7 area 0'].join('\n')))).toEqual({ processId: '7', areas: { '0.0.0.0': { interfaces: { Gi1: { enabledBy: 'interface' } } } } })
+    const other = parse(['vrf definition A', ' address-family ipv4', 'router ospf 1 vrf A', ...gi1, ' ip ospf 1 area 0'].join('\n'))
+    expect(at(other, 'ip ospf 1 area 0')).toEqual({ kind: 'unsupported', reason: 'the interface is in another VRF than the OSPF process' })
+  })
+
+  it('takes a process number from 1 to 65535, as router ospf does, and reads 01 as 1', () => {
+    for (const bad of ['0', '65536']) {
+      const result = parse([...gi1, ` ip ospf ${bad} area 0`].join('\n'))
+      expect(at(result, `ip ospf ${bad} area 0`), bad).toEqual({ kind: 'unsupported', reason: 'not an OSPF process number from 1 to 65535' })
+      expect(result.model.networkInstances, bad).toBeUndefined()
+    }
+    const padded = parse([...gi1, ' ip ospf 01 area 0', 'router ospf 1', ' router-id 192.0.2.1'].join('\n'))
+    expect(ospf(padded)).toEqual({ processId: '1', routerId: '192.0.2.1', areas: { '0.0.0.0': { interfaces: { Gi1: { enabledBy: 'interface' } } } } })
+    expect(ospf(parse([...gi1, ' ip ospf 1 area 0', ' no ip ospf 01 area 0'].join('\n')))).toBeUndefined()
+  })
+
+  it('renders an OSPF interface only in its own VRF\'s process', () => {
+    const vrfA = { A: { type: 'vrf' as const } }
+    const inA: Device = { interfaces: { Gi1: { subinterfaces: { '0': { networkInstance: 'A', ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } } }, networkInstances: { ...vrfA, default: { ospf: { processId: '1', areas: { '0.0.0.0': { interfaces: { Gi1: { enabledBy: 'interface', cost: 10 } } } } } } } }
+    const global: Device = { interfaces: { Gi1: { subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } } }, networkInstances: { A: { type: 'vrf', ospf: { processId: '2', areas: { '0.0.0.0': { interfaces: { Gi1: { enabledBy: 'network' } } } } } } } }
+    for (const [model, instance] of [[inA, 'default'], [global, 'A']] as const) {
+      const rendered = render(model)
+      const entry = `networkInstances.${instance}.ospf.areas["0.0.0.0"].interfaces.Gi1`
+      for (const [path, d] of Object.entries(rendered.dispositions)) if (path.startsWith(entry)) expect(d, path).toEqual({ kind: 'unsupported', reason: 'on an interface in another VRF than this OSPF instance' })
+      expect(rendered.text).not.toMatch(/ip ospf \d+ area|ip ospf cost|network 192\.0\.2\.1/)
+    }
+    expect(render({ ...inA, networkInstances: { ...vrfA, A: { type: 'vrf', ospf: inA.networkInstances!.default.ospf } } }).text).toContain(' ip ospf 1 area 0\n ip ospf cost 10\n')
+  })
+
+  it('leaves out a second process in a VRF, and one in a VRF the text doesn\'t define', () => {
+    const second = parse([...gi1, 'router ospf 1', ' network 192.0.2.0 0.0.0.255 area 0', 'router ospf 2', ' router-id 192.0.2.9'].join('\n'))
+    expect(ospf(second)?.processId).toBe('1')
+    expect(at(second, 'router ospf 2')).toEqual({ kind: 'unsupported', reason: 'a second OSPF process in its VRF: the model has one OSPF a VRF' })
+    expect(at(second, 'router-id 192.0.2.9')).toMatchObject({ kind: 'unsupported' })
+    const undefinedVrf = parse('router ospf 1 vrf NOPE\n router-id 192.0.2.1')
+    expect(undefinedVrf.model.networkInstances).toBeUndefined()
+    expect(at(undefinedVrf, 'router ospf 1 vrf NOPE')).toEqual({ kind: 'unsupported', reason: 'names a VRF the configuration doesn\'t define' })
+  })
+
+  it('ignores interface settings where OSPF doesn\'t run, and never carries a key', () => {
+    const result = parse([...gi1, ' ip ospf cost 5', ' ip ospf message-digest-key 1 md5 PLACEHOLDER-KEY', 'interface Gi2', ' ip address 198.51.100.1 255.255.255.0', ' ip ospf cost 7', ' ip ospf authentication message-digest', 'router ospf 1', ' network 198.51.100.0 0.0.0.255 area 0'].join('\n'))
+    expect(at(result, 'ip ospf cost 5')).toEqual({ kind: 'ignored-by-design', reason: 'OSPF doesn\'t run on the interface: nothing to convert' })
+    expect(at(result, 'ip ospf message-digest-key 1 md5 PLACEHOLDER-KEY')).toEqual({ kind: 'ignored-by-design', reason: 'an OSPF key: never carried, so a target asks for it' })
+    expect(ospf(result)?.areas?.['0.0.0.0']?.interfaces?.Gi2).toEqual({ enabledBy: 'network', cost: 7, authentication: 'md5' })
+    // The tree keeps the source's text; the model and every message don't have the key.
+    expect(JSON.stringify([result.model, result.diagnostics, result.dispositions])).not.toContain('PLACEHOLDER-KEY')
+  })
+
+  it('"no router ospf" takes the process and its interfaces\' "ip ospf P area" with it', () => {
+    const result = parse([...gi1, ' ip ospf 1 area 0', 'router ospf 1', ' router-id 192.0.2.1', 'no router ospf 1'].join('\n'))
+    expect(result.model.networkInstances).toBeUndefined()
+    expect(at(result, 'ip ospf 1 area 0')).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 6' })
+    expect(buildLedger(result).complete).toBe(true)
+  })
+
+  it('passive-interface default makes every interface passive but those it names "no passive-interface"', () => {
+    const result = parse([...gi1, 'interface Gi2', ' ip address 192.0.2.129 255.255.255.128', 'router ospf 1', ' passive-interface default', ' no passive-interface Gi2', ' network 192.0.2.0 0.0.0.255 area 0'].join('\n'))
+    expect(ospf(result)?.areas?.['0.0.0.0']?.interfaces).toEqual({ Gi1: { enabledBy: 'network', passive: true }, Gi2: { enabledBy: 'network' } })
+  })
+})
+
+describe('BGP (model 0.4.0)', () => {
+  const at = (result: ReturnType<typeof parse>, text: string) => result.dispositions[statementsOf(result.tree).find((n) => (n as IosNode).text === text)!.id]
+  const bgp = (result: ReturnType<typeof parse>, instance = 'default') => result.model.networkInstances?.[instance]?.bgp
+
+  it('activates a neighbor in IPv4 by IOS\'s default, unless "no bgp default ipv4-unicast" or "no neighbor activate" says otherwise', () => {
+    expect(bgp(parse('router bgp 65000\n neighbor 192.0.2.2 remote-as 65001'))?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001, addressFamilies: { 'ipv4-unicast': {} } })
+    expect(bgp(parse('router bgp 65000\n no bgp default ipv4-unicast\n neighbor 192.0.2.2 remote-as 65001'))?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    expect(bgp(parse('router bgp 65000\n neighbor 192.0.2.2 remote-as 65001\n address-family ipv4\n  no neighbor 192.0.2.2 activate'))?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+  })
+
+  it('a route map activates no family: one where the neighbor isn\'t active is left out, in either order', () => {
+    const v4 = (...af: string[]) => parse(['router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', ...af].join('\n'))
+    const inactive = v4('  no neighbor 192.0.2.2 activate', '  neighbor 192.0.2.2 route-map FILTER in')
+    expect(bgp(inactive)?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    expect(at(inactive, 'neighbor 192.0.2.2 route-map FILTER in')).toEqual({ kind: 'unsupported', reason: 'a route map in an address family the neighbor doesn\'t carry: the model keeps policies only with a family it carries' })
+    expect(render(inactive.model).text).not.toContain('activate')
+    // Taken out after the route map: the route map goes with it, as on the device.
+    const after = v4('  neighbor 192.0.2.2 route-map FILTER in', '  no neighbor 192.0.2.2 activate')
+    expect(bgp(after)?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    expect(at(after, 'neighbor 192.0.2.2 route-map FILTER in')).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 5, which takes the neighbor out of the address family' })
+    // IPv6, never activated.
+    const v6 = parse(['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv6', '  neighbor 192.0.2.2 route-map V6 in'].join('\n'))
+    expect(bgp(v6)?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    // Activated then taken out: no empty family left behind.
+    const standalone = ['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  neighbor 192.0.2.2 activate', '  no neighbor 192.0.2.2 activate'].join('\n')
+    expect(bgp(parse(standalone))?.neighbors?.['192.0.2.2']).toEqual({ peerAs: 65001 })
+    for (const text of [standalone, ['router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  no neighbor 192.0.2.2 activate', '  neighbor 192.0.2.2 activate', '  neighbor 192.0.2.2 route-map FILTER in'].join('\n')]) expect(roundTrips(text), text).toEqual([])
+  })
+
+  it('keeps a member\'s own route map in a family it carries through its peer group, IPv4 and IPv6', () => {
+    for (const [family, name, v6] of [['ipv4', 'ipv4-unicast', false], ['ipv6', 'ipv6-unicast', true]] as const) {
+      const member = v6 ? '2001:db8::2' : '192.0.2.2'
+      const text = ['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor G peer-group', ' neighbor G remote-as 65001', ` neighbor ${member} peer-group G`, ` address-family ${family}`, '  neighbor G activate', '  neighbor G route-map GROUP-OUT out', `  neighbor ${member} route-map FILTER in`].join('\n')
+      const result = parse(text)
+      expect(bgp(result)?.groups?.G?.addressFamilies, family).toEqual({ [name]: { exportPolicies: ['GROUP-OUT'] } })
+      expect(bgp(result)?.neighbors?.[member]?.addressFamilies, family).toEqual({ [name]: { importPolicies: ['FILTER'] } })
+      expect(result.diagnostics.map((d) => d.code), family).toEqual(['iosxe.route-map-name-only', 'iosxe.route-map-name-only'])
+      expect(render(result.model).text, family).toContain(`  neighbor ${member} route-map FILTER in\n`)
+      expect(roundTrips(text), family).toEqual([])
+    }
+    // A member in a group that doesn't carry the family still carries nothing there.
+    const inactive = parse(['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor G peer-group', ' neighbor G remote-as 65001', ' neighbor 192.0.2.2 peer-group G', ' address-family ipv4', '  neighbor 192.0.2.2 route-map FILTER in'].join('\n'))
+    expect(bgp(inactive)?.neighbors?.['192.0.2.2']?.addressFamilies).toBeUndefined()
+  })
+
+  it('leaves out a VRF\'s neighbor taken out of its family, and takes it back once activated again, IPv4 and IPv6', () => {
+    for (const [family, member] of [['ipv4', '192.0.2.2'], ['ipv6', '2001:db8::2']] as const) {
+      const vrf = ['vrf definition A', ` address-family ${family}`, 'router bgp 65000', ` address-family ${family} vrf A`, `  neighbor ${member} remote-as 65001`]
+      for (const deactivate of [[`  no neighbor ${member} activate`], [`  neighbor ${member} activate`, `  no neighbor ${member} activate`]]) {
+        const text = [...vrf, ...deactivate].join('\n')
+        const result = parse(text)
+        expect(result.model.networkInstances?.A?.bgp, text).toEqual({ localAs: 65000 })
+        expect(render(result.model).text, text).not.toContain(member)
+        expect(roundTrips(text), text).toEqual([])
+      }
+      const again = [...vrf, `  no neighbor ${member} activate`, `  neighbor ${member} activate`].join('\n')
+      expect(parse(again).model.networkInstances?.A?.bgp?.neighbors?.[member]?.peerAs, family).toBe(65001)
+      expect(roundTrips(again), family).toEqual([])
+    }
+    // Rendered from another platform: a VRF neighbor with no family isn't written.
+    const foreign = render({ networkInstances: { A: { type: 'vrf', bgp: { localAs: 65000, neighbors: { '192.0.2.2': { peerAs: 65001 } } } } } })
+    expect(foreign.dispositions['networkInstances.A.bgp.neighbors["192.0.2.2"].peerAs']).toMatchObject({ kind: 'unsupported' })
+    expect(foreign.text).not.toContain('192.0.2.2')
+  })
+
+  it('activates only an IPv4 neighbor in IPv4 by default, as IOS has since 12.2(33)SRE4, keeping an explicit one', () => {
+    const v6 = parse(['router bgp 65000', ' neighbor 2001:db8::2 remote-as 65001', ' address-family ipv6', '  neighbor 2001:db8::2 activate'].join('\n'))
+    expect(bgp(v6)?.neighbors?.['2001:db8::2']?.addressFamilies).toEqual({ 'ipv6-unicast': {} })
+    const explicit = parse(['router bgp 65000', ' neighbor 2001:db8::2 remote-as 65001', ' address-family ipv4', '  neighbor 2001:db8::2 activate'].join('\n'))
+    expect(bgp(explicit)?.neighbors?.['2001:db8::2']?.addressFamilies).toEqual({ 'ipv4-unicast': {} })
+  })
+
+  it('refuses a second AS, a malformed AS and a peer group it doesn\'t define', () => {
+    const result = parse(['router bgp 65000', ' neighbor 192.0.2.2 remote-as 4294967296', ' neighbor 192.0.2.3 peer-group NOPE', ' neighbor 192.0.2.4 remote-as 1.10', 'router bgp 65001', ' neighbor 192.0.2.5 remote-as 65001'].join('\n'))
+    expect(at(result, 'neighbor 192.0.2.2 remote-as 4294967296')).toEqual({ kind: 'unsupported', reason: 'not an AS number from 1 to 4294967295' })
+    expect(at(result, 'neighbor 192.0.2.3 peer-group NOPE')).toEqual({ kind: 'unsupported', reason: 'names a peer group the configuration doesn\'t define' })
+    // asdot: 1.10 is 65546.
+    expect(bgp(result)?.neighbors?.['192.0.2.4']?.peerAs).toBe(65546)
+    expect(at(result, 'router bgp 65001')).toEqual({ kind: 'unsupported' })
+    expect(bgp(result)?.localAs).toBe(65000)
+  })
+
+  it('removes a peer group with its members, and a neighbor with "no neighbor X remote-as"', () => {
+    const result = parse(['router bgp 65000', ' neighbor G peer-group', ' neighbor G remote-as 65000', ' neighbor 192.0.2.2 peer-group G', ' neighbor 192.0.2.3 remote-as 65001', ' no neighbor G peer-group', ' no neighbor 192.0.2.3 remote-as 65001'].join('\n'))
+    expect(bgp(result)).toEqual({ localAs: 65000 })
+    expect(at(result, 'neighbor 192.0.2.2 peer-group G')).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 6' })
+  })
+
+  it('leaves out an update source the model doesn\'t have, and flags a password without carrying it', () => {
+    const result = parse(['interface Loopback0', ' ip address 192.0.2.1 255.255.255.255', 'router bgp 65000', ' neighbor 192.0.2.2 remote-as 65000', ' neighbor 192.0.2.2 update-source Loopback9', ' neighbor 192.0.2.3 remote-as 65000', ' neighbor 192.0.2.3 update-source Loopback0', ' neighbor 192.0.2.3 password 7 PLACEHOLDER-PASSWORD'].join('\n'))
+    expect(at(result, 'neighbor 192.0.2.2 update-source Loopback9')).toEqual({ kind: 'unsupported', reason: 'names an interface the configuration doesn\'t have' })
+    expect(bgp(result)?.neighbors?.['192.0.2.3']).toMatchObject({ updateSource: 'Loopback0', authentication: true })
+    // The tree keeps the source's text; the model and every message don't have the key.
+    expect(JSON.stringify([result.model, result.diagnostics, result.dispositions])).not.toContain('PLACEHOLDER-PASSWORD')
+  })
+
+  it('keeps a route map by name, with a warning that names no value', () => {
+    const result = parse(['router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  neighbor 192.0.2.2 route-map OLD in', '  neighbor 192.0.2.2 route-map NEW in'].join('\n'))
+    expect(bgp(result)?.neighbors?.['192.0.2.2']?.addressFamilies).toEqual({ 'ipv4-unicast': { importPolicies: ['NEW'] } })
+    expect(at(result, 'neighbor 192.0.2.2 route-map OLD in')).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 5' })
+    expect(result.diagnostics).toEqual([{ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A route map is kept by name only: its body isn\'t converted, so a target needs a policy of that name.', field: 'networkInstances.default.bgp.neighbors["192.0.2.2"].addressFamilies["ipv4-unicast"].importPolicies', statement: 'L5' }])
+  })
+
+  it('needs the VRF of an address family defined, and "no router bgp" removes BGP everywhere', () => {
+    expect(parse('router bgp 65000\n address-family ipv4 vrf NOPE\n  neighbor 192.0.2.2 remote-as 65001').model.networkInstances?.NOPE).toBeUndefined()
+    const removed = parse(['vrf definition A', ' rd 65000:1', ' address-family ipv4', 'router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4 vrf A', '  neighbor 192.0.2.3 remote-as 65002', 'no router bgp 65000'].join('\n'))
+    expect(removed.model.networkInstances).toEqual({ A: { type: 'vrf', routeDistinguisher: '65000:1' } })
+    expect(buildLedger(removed).complete).toBe(true)
+  })
+})
+
+describe('rendering OSPF and BGP from another platform', () => {
+  // Junos-shaped: unit references (`.0`), no OSPF process number, a group typed internal with no peer AS, a local
+  // address, peer-level policies, a key chain and a password.
+  const model: Device = {
+    interfaces: { 'Gi0/0/0': { type: 'ethernet', subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } }, Loopback0: { type: 'loopback', subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.9': { prefixLength: 32 } } } } } } },
+    networkInstances: {
+      default: {
+        ospf: { routerId: '192.0.2.9', areas: { '0.0.0.0': { interfaces: { 'Gi0/0/0.0': { enabledBy: 'interface', authentication: 'key-chain', passive: false }, 'Loopback0.0': { enabledBy: 'network', passive: true } } } } },
+        bgp: {
+          localAs: 65000,
+          groups: { INTERNAL: { type: 'internal', localAddress: '192.0.2.9', updateSource: 'Loopback0.0', importPolicies: ['A', 'B'], exportPolicies: ['OUT'], addressFamilies: { 'ipv4-unicast': {}, 'ipv6-unicast': {} } } },
+          neighbors: { '192.0.2.2': { group: 'INTERNAL', authentication: true }, '198.51.100.2': { peerAs: 65001, importPolicies: ['IN'] } }
+        }
+      }
+    }
+  }
+  const result = render(model)
+
+  it('accounts for every populated field', () => {
+    const ledger = buildLedger({ tree: [], model, dispositions: {}, diagnostics: [] }, result)
+    expect(ledgerProblems(ledger)).toEqual([])
+    expect(ledger.target?.strayPaths).toEqual([])
+  })
+
+  it('says what it can\'t write, asks for the secrets, and warns where it chose', () => {
+    const skipped = Object.entries(result.dispositions).filter(([, d]) => d.kind !== 'rendered').map(([path, d]) => `${d.kind} ${path}`)
+    expect(skipped.sort()).toEqual([
+      'not-applicable interfaces.Loopback0.type',
+      'not-applicable interfaces["Gi0/0/0"].type',
+      'not-applicable networkInstances.default.ospf.areas["0.0.0.0"].interfaces["Gi0/0/0.0"].passive',
+      'unsupported networkInstances.default.bgp.groups.INTERNAL.importPolicies',
+      'unsupported networkInstances.default.bgp.groups.INTERNAL.localAddress',
+      'unsupported networkInstances.default.bgp.neighbors["192.0.2.2"].authentication',
+      'unsupported networkInstances.default.bgp.neighbors["198.51.100.2"].importPolicies',
+      'unsupported networkInstances.default.ospf.areas["0.0.0.0"].interfaces["Gi0/0/0.0"].authentication'
+    ])
+    expect(result.needsInput?.map((n) => [n.id, n.kind])).toEqual([
+      ['ospf-key:default:Gi0/0/0.0', 'secret'],
+      ['bgp-password:default:neighbors:192.0.2.2', 'secret']
+    ])
+    expect(result.diagnostics.map((d) => d.code)).toEqual(['iosxe.ospf-network-exact', 'iosxe.route-map-name-only'])
+    expect(result.text).toContain('interface Gi0/0/0\n ip address 192.0.2.1 255.255.255.0\n ip ospf 1 area 0\n')
+    expect(result.text).toContain('router ospf 1\n router-id 192.0.2.9\n network 192.0.2.9 0.0.0.0 area 0\n passive-interface Loopback0\n')
+    expect(result.text).toContain(' neighbor INTERNAL peer-group\n neighbor INTERNAL remote-as 65000\n neighbor INTERNAL update-source Loopback0\n')
+    expect(result.text).toContain(' address-family ipv4\n  neighbor INTERNAL activate\n  neighbor INTERNAL route-map OUT out\n exit-address-family\n !\n address-family ipv6\n  neighbor INTERNAL activate\n  neighbor INTERNAL route-map OUT out\n')
+  })
+
+  it('writes the secrets once they are given', () => {
+    const answered = plugin.render!(model, { modelVersion: MODEL_VERSION, inputs: { 'ospf-key:default:Gi0/0/0.0': 'CHAIN-1', 'bgp-password:default:neighbors:192.0.2.2': 'PLACEHOLDER-PASSWORD' } })
+    expect(answered.text).toContain(' ip ospf authentication key-chain CHAIN-1\n')
+    expect(answered.text).toContain(' neighbor 192.0.2.2 password PLACEHOLDER-PASSWORD\n')
+    expect(answered.needsInput).toBeUndefined()
+  })
+
+  it('leaves out a VRF\'s BGP in another AS: IOS runs one', () => {
+    const two: Device = { networkInstances: { default: { bgp: { localAs: 65000 } }, A: { type: 'vrf', bgp: { localAs: 65001, routerId: '192.0.2.1' } } } }
+    const rendered = render(two)
+    expect(rendered.dispositions['networkInstances.A.bgp.localAs']).toMatchObject({ kind: 'unsupported' })
+    expect(rendered.text).not.toContain('vrf A\n  bgp')
+  })
+})
+
+describe('the semantic warnings a render from another platform raises, each from a saved model (tests/models)', () => {
+  const models = new URL('./models/', import.meta.url)
+  const cases = readdirSync(models).filter((f) => f.endsWith('.model.json')).map((f) => f.replace(/\.model\.json$/, ''))
+
+  it('are there', () => {
+    expect(cases).toContain('iosxr-ebgp-reject')
+  })
+  for (const name of cases) {
+    it(`models/${name}: renders as expected, with its warnings and every field accounted for`, () => {
+      const model = deserializeModel(readFileSync(new URL(`${name}.model.json`, models), 'utf8')).device
+      const result = render(model)
+      expect(result.text).toBe(readFileSync(new URL(`${name}.rendered.cfg`, models), 'utf8'))
+      expect(result.diagnostics.map((d) => d.code)).toEqual(JSON.parse(readFileSync(new URL(`${name}.warnings.json`, models), 'utf8')))
+      const ledger = buildLedger({ tree: [], model, dispositions: {}, diagnostics: [] }, result)
+      expect(ledgerProblems(ledger)).toEqual([])
+      expect(ledger.target?.strayPaths).toEqual([])
+    })
+  }
+
+  it('warns of an RFC 8212 source by field and by the router bgp line, never by a peer\'s address', () => {
+    const warning = render(deserializeModel(readFileSync(new URL('iosxr-ebgp-reject.model.json', models), 'utf8')).device).diagnostics[0]
+    expect(warning).toMatchObject({ severity: 'warning', category: 'semantic', field: 'networkInstances.default.bgp.ebgpDefaultPolicy', span: { startLine: 4 } })
+    expect(warning.message).not.toMatch(/198\.51\.100\.2|65001/)
+  })
+
+  it('raises none for a source that accepts by default, as IOS-XE does', () => {
+    const accepts: Device = { networkInstances: { default: { bgp: { localAs: 65000, neighbors: { '198.51.100.2': { peerAs: 65001, addressFamilies: { 'ipv4-unicast': {} } } }, ebgpDefaultPolicy: { import: 'accept', export: 'accept' } } } } }
+    const result = render(accepts)
+    expect(result.diagnostics).toEqual([])
+    expect(result.dispositions['networkInstances.default.bgp.ebgpDefaultPolicy.import']).toMatchObject({ kind: 'not-applicable' })
   })
 })
 

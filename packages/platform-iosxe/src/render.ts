@@ -1,11 +1,13 @@
-// The shared model → IOS / IOS-XE text, for the phase 1 areas and model 0.4's VLANs, switch ports and VLAN interfaces.
-// Every populated leaf of those areas gets a disposition: `rendered` with the line it went to, `unsupported` with why
-// (IOS can't say it, or this renderer can't yet), or `not-applicable` (IOS implies it). Fields of areas it doesn't
-// render yet (OSPF, BGP) or of a later model version are left without one, so the ledger reports them as unrendered
-// rather than this renderer claiming them. VLANs come first, then VRFs; VRFs are defined (`vrf definition`) before the interfaces in
-// them, and an interface's `vrf forwarding` comes before its addresses, which it would otherwise clear.
-import { fieldPath, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
-import { lengthMask } from './addresses'
+// The shared model → IOS / IOS-XE text, for the phase 1 areas and model 0.4's VLANs, switch ports, VLAN interfaces,
+// OSPF and BGP. Every populated leaf of those areas gets a disposition: `rendered` with the line it went to,
+// `unsupported` with why (IOS can't say it, or this renderer can't yet), or `not-applicable` (IOS implies it). Fields of
+// a later model version are left without one, so the ledger reports them as unrendered rather than this renderer
+// claiming them. VLANs come first, then VRFs; VRFs are defined (`vrf definition`) before the interfaces in them, and an
+// interface's `vrf forwarding` comes before its addresses, which it would otherwise clear. Routing protocols follow the
+// interfaces, whose blocks carry their own OSPF lines. Secrets (OSPF keys, BGP passwords) are never in the model: each
+// is a needs-input item, written only once answered.
+import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type RenderResult, type BgpPeer, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
+import { isIpv4, lengthMask } from './addresses'
 import { SEVERITIES } from './parse'
 
 type Segments = readonly (string | number)[]
@@ -25,10 +27,15 @@ const isVlanRange = (entry: string) => {
   return m !== null && isVlanId(Number(m[1])) && (m[2] === undefined || (isVlanId(Number(m[2])) && Number(m[1]) < Number(m[2])))
 }
 
+/** The needs-input id for an OSPF interface's key (or key chain's name), which no source carries. */
+export const ospfKeyInputId = (instance: string, reference: string) => `ospf-key:${instance}:${reference}`
+/** The needs-input id for a BGP peer's password, which no source carries. */
+export const bgpPasswordInputId = (instance: string, kind: 'groups' | 'neighbors', key: string) => `bgp-password:${instance}:${kind}:${key}`
+
 /** A word IOS reads back as one: quoted when it has a space in it. */
 const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
 
-export function render(model: Device, _context: Context): RenderResult {
+export function render(model: Device, context: Context): RenderResult {
   const lines: string[] = []
   const dispositions: Record<string, FieldDisposition> = {}
   const diagnostics: Diagnostic[] = []
@@ -151,10 +158,159 @@ export function render(model: Device, _context: Context): RenderResult {
     }
   }
 
+  // ---- OSPF, planned before the interfaces: its interface lines go in their blocks, the rest in `router ospf`
+
+  /** A line still to write, with the fields it renders, and in `router ospf` its group (as IOS orders them). */
+  type Line = { readonly text: string; readonly fields: Segments[]; readonly group?: number }
+  /** OSPF's lines for each interface block, by `name|subinterface`. */
+  const ospfLines = new Map<string, Line[]>()
+  /** Each instance's `router ospf` block: its process number and lines. */
+  const ospfBlocks: { readonly instance: string; readonly process: string; readonly lines: Line[]; readonly at: Segments }[] = []
+  const needsInput: NeedsInput[] = []
+  const inputs = context.inputs ?? {}
+  const answer = (id: string) => (Object.hasOwn(inputs, id) && inputs[id].trim() !== '' ? inputs[id].trim() : undefined)
+  planOspf()
+
+  /** An interface reference (`Gi1`, `Gi1.10`, `Gi1.0`) as the model's interface and subinterface, when it has them. */
+  function resolve(reference: string): { name: string; sub: string; subinterface: Subinterface | undefined } | undefined {
+    const interfaces = model.interfaces ?? {}
+    if (Object.hasOwn(interfaces, reference)) return { name: reference, sub: '0', subinterface: interfaces[reference].subinterfaces?.['0'] }
+    const m = /^(.+)\.(\d+)$/.exec(reference)
+    if (!m || !Object.hasOwn(interfaces, m[1])) return undefined
+    const subs = interfaces[m[1]].subinterfaces
+    if (m[2] !== '0' && !(subs && Object.hasOwn(subs, m[2]))) return undefined
+    return { name: m[1], sub: m[2], subinterface: subs?.[m[2]] }
+  }
+
+  /** An address's primary IPv4 address, as renderFamily writes it: the one marked primary, or the first. */
+  function primaryOf(sub: Subinterface | undefined) {
+    const addresses = Object.entries(sub?.ipv4?.addresses ?? {})
+    return (addresses.find(([, a]) => a.primary) ?? addresses[0])?.[0]
+  }
+
+  function planOspf() {
+    // The global table's process first, as IOS shows them.
+    const withOspf = Object.entries(model.networkInstances ?? {}).filter(([, ni]) => ni.ospf !== undefined).sort(([a], [b]) => Number(b === 'default') - Number(a === 'default'))
+    // IOS numbers its processes, one a VRF here: the model's number where it is one and free, else the lowest free one.
+    const given = new Set(withOspf.map(([, ni]) => ni.ospf!.processId).filter((p) => p !== undefined && /^[1-9]\d*$/.test(p) && Number(p) <= 65535))
+    const used = new Set<string>()
+    let next = 1
+    for (const [instance, ni] of withOspf) {
+      const ospf = ni.ospf!
+      const at = ['networkInstances', instance, 'ospf']
+      emptyContainer(ospf, at)
+      let process = ospf.processId
+      if (process === undefined || !given.has(process) || used.has(process)) {
+        while (given.has(String(next)) || used.has(String(next))) next++
+        if (ospf.processId !== undefined) skip([...at, 'processId'], 'unsupported', 'not an IOS process number from 1 to 65535 of its own: another is used')
+        process = String(next)
+      }
+      used.add(process)
+      const block: Line[] = []
+      ospfBlocks.push({ instance, process, lines: block, at })
+      if (ospf.routerId !== undefined) {
+        if (isIpv4(ospf.routerId)) block.push({ text: ` router-id ${ospf.routerId}`, fields: [[...at, 'routerId']] })
+        else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
+      }
+      let networkEnabled = false
+      emptyContainer(ospf.areas, [...at, 'areas'])
+      for (const [area, a] of Object.entries(ospf.areas ?? {})) {
+        const areaAt = [...at, 'areas', area]
+        if (!isIpv4(area)) {
+          skipAll(a, areaAt, 'not an OSPF area in dotted form')
+          continue
+        }
+        // As IOS shows it: `area 0`, `area 10`.
+        const id = String(area.split('.').reduce((n, o) => n * 256 + Number(o), 0))
+        emptyContainer(a, areaAt)
+        emptyContainer(a.interfaces, [...areaAt, 'interfaces'])
+        if (a.type === 'stub' || a.type === 'nssa') block.push({ text: ` area ${id} ${a.type}`, fields: [[...areaAt, 'type']], group: 1 })
+        else if (a.type !== undefined) skip([...areaAt, 'type'], 'not-applicable', 'a normal area, IOS\'s default')
+        if (a.authentication === 'simple' || a.authentication === 'md5') block.push({ text: ` area ${id} authentication${a.authentication === 'md5' ? ' message-digest' : ''}`, fields: [[...areaAt, 'authentication']], group: 1 })
+        else if (a.authentication !== undefined) skip([...areaAt, 'authentication'], 'unsupported', 'IOS uses a key chain per interface, not per area')
+        for (const [reference, i] of Object.entries(a.interfaces ?? {})) {
+          const iAt = [...areaAt, 'interfaces', reference]
+          const target = resolve(reference)
+          if (!target) {
+            skipAll(i, iAt, 'names an interface the model doesn\'t have')
+            continue
+          }
+          // IOS runs a process in one VRF: an interface routing in another can't be in it.
+          if ((target.subinterface?.networkInstance ?? 'default') !== instance) {
+            skipAll(i, iAt, 'on an interface in another VRF than this OSPF instance')
+            continue
+          }
+          const ifLines = ospfLines.get(`${target.name}|${target.sub}`) ?? []
+          ospfLines.set(`${target.name}|${target.sub}`, ifLines)
+          const written = target.sub === '0' ? target.name : `${target.name}.${target.sub}`
+          const entry: Segments[] = isEmpty(i) ? [iAt] : []
+          const primary = primaryOf(target.subinterface)
+          if (i.enabledBy === 'network' && primary !== undefined) {
+            // The source's range isn't in the model: an exact network statement takes in this interface alone.
+            networkEnabled = true
+            block.push({ text: ` network ${primary} 0.0.0.0 area ${id}`, fields: [[...iAt, 'enabledBy']], group: 2 })
+          } else {
+            if (i.enabledBy === 'network') skip([...iAt, 'enabledBy'], 'unsupported', 'enabled by a network statement, which needs an IPv4 address: written on the interface instead')
+            ifLines.push({ text: ` ip ospf ${process} area ${id}`, fields: [...entry, ...(i.enabledBy === 'interface' ? [[...iAt, 'enabledBy']] : [])] })
+          }
+          if (i.passive === true) block.push({ text: ` passive-interface ${written}`, fields: [[...iAt, 'passive']], group: 3 })
+          else if (i.passive === false) skip([...iAt, 'passive'], 'not-applicable', 'active, as IOS has an interface unless passive')
+          const number = (leaf: 'cost' | 'helloInterval' | 'deadInterval', keyword: string) => {
+            const value = i[leaf]
+            if (value === undefined) return
+            if (Number.isInteger(value) && value >= 1 && value <= 65535) ifLines.push({ text: ` ip ospf ${keyword} ${value}`, fields: [[...iAt, leaf]] })
+            else skip([...iAt, leaf], 'unsupported', 'not a value from 1 to 65535')
+          }
+          number('cost', 'cost')
+          if (i.networkType !== undefined) ifLines.push({ text: ` ip ospf network ${i.networkType}`, fields: [[...iAt, 'networkType']] })
+          number('helloInterval', 'hello-interval')
+          number('deadInterval', 'dead-interval')
+          // A key is never carried: the user gives it (a needs-input item), and it is written only then.
+          const authentication = i.authentication ?? (a.authentication === 'simple' || a.authentication === 'md5' ? a.authentication : undefined)
+          if (i.authentication !== undefined) {
+            const chain = i.authentication === 'key-chain' ? answer(ospfKeyInputId(instance, reference)) : undefined
+            if (i.authentication !== 'key-chain' || chain !== undefined) ifLines.push({ text: ` ip ospf authentication${i.authentication === 'md5' ? ' message-digest' : i.authentication === 'key-chain' ? ` key-chain ${chain}` : ''}`, fields: [[...iAt, 'authentication']] })
+            else skip([...iAt, 'authentication'], 'unsupported', 'needs the name of its key chain, which the source never carries: a needs-input item asks for it')
+          }
+          if (authentication !== undefined) {
+            const inputId = ospfKeyInputId(instance, reference)
+            const key = answer(inputId)
+            // A secret item names the flag it is for (the interface's, or the area's it inherits), so the kit's round trip
+            // excuses a key-chain flag that waits for it.
+            const flag = i.authentication !== undefined ? [...iAt, 'authentication'] : [...areaAt, 'authentication']
+            if (key === undefined) needsInput.push({ id: inputId, kind: 'secret', message: authentication === 'key-chain' ? 'This OSPF interface authenticates with a key chain: give the name of the key chain that holds its keys.' : 'This OSPF interface authenticates: give its key, which the source never carries.', field: fieldPath(...flag) })
+            else if (authentication === 'simple') ifLines.push({ text: ` ip ospf authentication-key ${key}`, fields: [] })
+            else if (authentication === 'md5') ifLines.push({ text: ` ip ospf message-digest-key 1 md5 ${key}`, fields: [] })
+          }
+        }
+      }
+      if (networkEnabled) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.ospf-network-exact', message: 'OSPF was enabled by network statements: each interface is written with an exact one (wildcard 0.0.0.0), so interfaces added later in the source\'s range aren\'t taken in.', field: fieldPath(...at) })
+    }
+  }
+
+  /** Writes an interface block's OSPF lines. */
+  const emitOspf = (name: string, sub: string) => {
+    for (const l of ospfLines.get(`${name}|${sub}`) ?? []) emit(l.text, ...l.fields)
+    ospfLines.delete(`${name}|${sub}`)
+  }
+
   // ---- interfaces
 
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
   emptyContainer(model.interfaces, ['interfaces'])
+  // An OSPF interface whose block wasn't written (none should be): its fields say so.
+  for (const left of ospfLines.values()) for (const l of left) for (const f of l.fields) skip(f, 'unsupported', 'on an interface IOS doesn\'t write')
+
+  // ---- routing protocols, after the interfaces they name
+
+  for (const block of ospfBlocks) {
+    separator()
+    const ospf = model.networkInstances![block.instance].ospf!
+    emit(`router ospf ${block.process}${block.instance === 'default' ? '' : ` vrf ${block.instance}`}`, ...(ospf.processId === block.process ? [[...block.at, 'processId']] : []))
+    // router-id, then the areas, the network statements and the passive interfaces (a stable sort keeps each in order).
+    for (const l of [...block.lines].sort((a, b) => (a.group ?? 0) - (b.group ?? 0))) emit(l.text, ...l.fields)
+  }
+  renderBgp()
 
   function renderInterface(name: string, iface: Interface) {
     const at = ['interfaces', name]
@@ -170,7 +326,7 @@ export function render(model: Device, _context: Context): RenderResult {
     const named = routed !== undefined && iface.type === 'irb-or-svi' && isVlanId(routed) && new RegExp(`^(?:Vlan|Vl)0*${routed}$`, 'i').test(name)
     if (routed !== undefined && !named) skip(routedField, 'unsupported', 'IOS routes a VLAN on the interface named for it (VlanN for VLAN N), and this one isn\'t')
 
-    const hasOwn = iface.description !== undefined || iface.enabled !== undefined || iface.mtu !== undefined || iface.switching !== undefined || main !== undefined
+    const hasOwn = iface.description !== undefined || iface.enabled !== undefined || iface.mtu !== undefined || iface.switching !== undefined || main !== undefined || ospfLines.has(`${name}|0`)
     if (hasOwn || !subs.some(([index]) => index !== '0')) {
       separator()
       emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []), ...(named ? [routedField] : []))
@@ -185,6 +341,7 @@ export function render(model: Device, _context: Context): RenderResult {
         if (main.vlanId !== undefined) skip([...sub, 'vlanId'], 'unsupported', 'IOS has no subinterface 0 to tag')
         if (renderMembership(main, sub)) renderAddresses(main, sub)
       }
+      emitOspf(name, '0')
       if (iface.enabled !== undefined) emit(iface.enabled ? ' no shutdown' : ' shutdown', [...at, 'enabled'])
     }
 
@@ -197,6 +354,7 @@ export function render(model: Device, _context: Context): RenderResult {
       if (sub.description !== undefined) emit(` description ${sub.description}`, [...subAt, 'description'])
       if (sub.vlanId !== undefined) emit(` encapsulation dot1Q ${sub.vlanId}`, [...subAt, 'vlanId'])
       if (renderMembership(sub, subAt)) renderAddresses(sub, subAt)
+      emitOspf(name, index)
       if (sub.enabled !== undefined) emit(sub.enabled ? ' no shutdown' : ' shutdown', [...subAt, 'enabled'])
     }
   }
@@ -458,5 +616,159 @@ export function render(model: Device, _context: Context): RenderResult {
 
   separator()
   lines.push('end')
-  return { text: `${lines.join('\n')}\n`, dispositions, diagnostics }
+  return { text: `${lines.join('\n')}\n`, dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }
+
+  /**
+   * One `router bgp ASN` for every instance's BGP, as IOS runs one AS: the global table's peers, then each address
+   * family's activations and route maps, then each VRF's `address-family ipv4|ipv6 vrf V` with its peers. Neighbors
+   * carry IPv4 only where an `activate` says so (`no bgp default ipv4-unicast`), as the model lists each one's families.
+   */
+  function renderBgp() {
+    // The global table first: its peers and families, then each VRF's address families.
+    const withBgp = Object.entries(model.networkInstances ?? {}).filter(([, ni]) => ni.bgp !== undefined).sort(([a], [b]) => Number(b === 'default') - Number(a === 'default'))
+    if (!withBgp.length) return
+    const as = model.networkInstances?.default?.bgp?.localAs ?? withBgp.map(([, ni]) => ni.bgp!.localAs).find((x) => x !== undefined)
+    if (as === undefined || !isAsNumber(as)) {
+      for (const [instance, ni] of withBgp) skipAll(ni.bgp, ['networkInstances', instance, 'bgp'], 'IOS needs the local AS number, from 1 to 4294967295, to run BGP')
+      return
+    }
+    separator()
+    const globalAs = model.networkInstances?.default?.bgp?.localAs
+    emit(`router bgp ${as}`, ...(globalAs !== undefined ? [['networkInstances', 'default', 'bgp', 'localAs']] : []))
+    const bgpLine = lines.length
+    /** A peer's settings (groups first, as IOS needs a peer group defined before a neighbor joins it). */
+    const peerLines = (instance: string, bgp: Bgp, kind: 'groups' | 'neighbors', key: string, peer: BgpPeer & { type?: string; group?: string }, indent: string) => {
+      const at = ['networkInstances', instance, 'bgp', kind, key]
+      const n = `${indent}neighbor ${key}`
+      if (kind === 'groups') emit(`${n} peer-group`, ...(isEmpty(peer) ? [at] : []))
+      if (peer.peerAs !== undefined) {
+        if (isAsNumber(peer.peerAs)) emit(`${n} remote-as ${peer.peerAs}`, [...at, 'peerAs'], ...(peer.type !== undefined ? [[...at, 'type']] : []))
+        else skip([...at, 'peerAs'], 'unsupported', 'not an AS number from 1 to 4294967295')
+      } else if (peer.type === 'internal' && bgp.localAs !== undefined) emit(`${n} remote-as ${as}`, [...at, 'type'])
+      if (peer.type !== undefined && dispositions[fieldPath(...at, 'type')] === undefined) skip([...at, 'type'], 'not-applicable', 'IOS tells iBGP from eBGP by the remote AS')
+      if (kind === 'neighbors' && peer.group !== undefined) {
+        if (bgp.groups && Object.hasOwn(bgp.groups, peer.group)) emit(`${n} peer-group ${peer.group}`, [...at, 'group'])
+        else skip([...at, 'group'], 'unsupported', 'names a peer group the model doesn\'t have')
+      }
+      if (peer.description !== undefined) emit(`${n} description ${peer.description}`, [...at, 'description'])
+      if (peer.updateSource !== undefined) emit(`${n} update-source ${ref(peer.updateSource)}`, [...at, 'updateSource'])
+      if (peer.localAddress !== undefined) skip([...at, 'localAddress'], 'unsupported', 'IOS sources a session from an interface (update-source), not an address')
+      if (peer.multihop !== undefined) {
+        const ttl = peer.multihop.ttl
+        if (ttl === undefined) emit(`${n} ebgp-multihop`, ...(isEmpty(peer.multihop) ? [[...at, 'multihop']] : []))
+        else if (Number.isInteger(ttl) && ttl >= 1 && ttl <= 255) emit(`${n} ebgp-multihop ${ttl}`, [...at, 'multihop', 'ttl'])
+        else skip([...at, 'multihop', 'ttl'], 'unsupported', 'not a hop count from 1 to 255')
+      }
+      if (peer.authentication === true) {
+        // The password is never carried: written only once the user gives it.
+        const id = bgpPasswordInputId(instance, kind, key)
+        const password = answer(id)
+        if (password !== undefined) emit(`${n} password ${password}`, [...at, 'authentication'])
+        else {
+          skip([...at, 'authentication'], 'unsupported', 'needs its password, which the source never carries: a needs-input item asks for it')
+          needsInput.push({ id, kind: 'secret', message: `This BGP ${kind === 'groups' ? 'peer group' : 'neighbor'} has a password: give it, as the source never carries it.`, field: fieldPath(...at, 'authentication') })
+        }
+      } else if (peer.authentication === false) skip([...at, 'authentication'], 'not-applicable', 'no password, IOS\'s default')
+    }
+    /** A peer's lines in an address family: `activate`, and its route maps (its own, or the peer's for every family). */
+    const familyLines = (instance: string, kind: 'groups' | 'neighbors', key: string, peer: BgpPeer, family: BgpAddressFamilyName, indent: string) => {
+      const at = ['networkInstances', instance, 'bgp', kind, key]
+      const af = peer.addressFamilies?.[family]
+      if (af === undefined) return
+      const afAt = [...at, 'addressFamilies', family]
+      emit(`${indent}neighbor ${key} activate`, ...(isEmpty(af) ? [afAt] : []))
+      for (const [direction, leaf] of [['in', 'importPolicies'], ['out', 'exportPolicies']] as const) {
+        const own = af[leaf]
+        const policies = own ?? peer[leaf]
+        const field = own !== undefined ? [...afAt, leaf] : [...at, leaf]
+        if (policies === undefined) continue
+        if (policies.length !== 1) {
+          skip(field, 'unsupported', 'IOS applies one route map a direction')
+          continue
+        }
+        // The peer's own policies go in each family it carries: rendered on the first.
+        emit(`${indent}neighbor ${key} route-map ${policies[0]} ${direction}`, ...(own !== undefined || dispositions[fieldPath(...field)] === undefined ? [field] : []))
+        if (own !== undefined || !policyWarned.has(fieldPath(...field))) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A policy is written by name only, as a route map: its body isn\'t converted, so a route map of that name is needed.', field: fieldPath(...field) })
+        policyWarned.add(fieldPath(...field))
+      }
+    }
+    const policyWarned = new Set<string>()
+    const familiesOfPeers = (bgp: Bgp) => (['ipv4-unicast', 'ipv6-unicast'] as const).filter((f) => [...Object.values(bgp.groups ?? {}), ...Object.values(bgp.neighbors ?? {})].some((p) => p.addressFamilies?.[f] !== undefined))
+    /** Peer-level policies on a peer carrying no family: IOS applies route maps in an address family. */
+    const unplaced = (instance: string, bgp: Bgp) => {
+      for (const kind of ['groups', 'neighbors'] as const)
+        for (const [key, peer] of Object.entries(bgp[kind] ?? {}))
+          for (const leaf of ['importPolicies', 'exportPolicies'] as const) {
+            const field = fieldPath('networkInstances', instance, 'bgp', kind, key, leaf)
+            if (peer[leaf] !== undefined && dispositions[field] === undefined) skip(['networkInstances', instance, 'bgp', kind, key, leaf], 'unsupported', 'IOS applies a route map in an address family, and the peer carries none')
+          }
+    }
+    const peersOf = (bgp: Bgp) => [...Object.entries(bgp.groups ?? {}).map(([k, p]) => ['groups', k, p] as const), ...Object.entries(bgp.neighbors ?? {}).map(([k, p]) => ['neighbors', k, p] as const)]
+
+    for (const [instance, ni] of withBgp) {
+      const bgp = ni.bgp!
+      const at = ['networkInstances', instance, 'bgp']
+      emptyContainer(bgp, at)
+      emptyContainer(bgp.groups, [...at, 'groups'])
+      emptyContainer(bgp.neighbors, [...at, 'neighbors'])
+      if (bgp.localAs !== undefined && bgp.localAs !== as) {
+        skipAll(bgp, at, 'IOS runs one BGP AS for the global table and every VRF, and this one differs')
+        continue
+      }
+      // The source's default for an eBGP peer with no policy, not configuration (model 0.4.1). IOS-XE accepts the
+      // routes both ways: a source that drops them (IOS-XR, RFC 8212) gets a warning, by field and line, never by peer.
+      const defaults = bgp.ebgpDefaultPolicy
+      if (defaults !== undefined) {
+        emptyContainer(defaults, [...at, 'ebgpDefaultPolicy'])
+        for (const side of ['import', 'export'] as const) if (defaults[side] !== undefined) skip([...at, 'ebgpDefaultPolicy', side], 'not-applicable', 'the source\'s default for an eBGP peer with no policy, not configuration: IOS-XE accepts the routes')
+        const rejects = (['import', 'export'] as const).filter((side) => defaults[side] === 'reject')
+        if (rejects.length) {
+          const n = bgpLine
+          diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.ebgp-default-accept', message: `The source drops an eBGP peer's routes ${rejects.length === 2 ? 'both ways' : rejects[0] === 'import' ? 'received' : 'sent'} when no policy applies (RFC 8212); IOS-XE ${rejects.length === 2 ? 'exchanges' : rejects[0] === 'import' ? 'accepts' : 'advertises'} them: give such peers a route map to keep the source's behaviour.`, field: fieldPath(...at, 'ebgpDefaultPolicy'), span: { startLine: n, startColumn: 1, endLine: n, endColumn: lines[n - 1].length + 1 } })
+        }
+      }
+      if (instance === 'default') {
+        if (bgp.routerId !== undefined) {
+          if (isIpv4(bgp.routerId)) emit(` bgp router-id ${bgp.routerId}`, [...at, 'routerId'])
+          else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
+        }
+        const peers = peersOf(bgp)
+        if (peers.length) emit(' no bgp default ipv4-unicast')
+        for (const [kind, key, peer] of peers) peerLines(instance, bgp, kind, key, peer, ' ')
+        for (const family of familiesOfPeers(bgp)) {
+          emit(' !')
+          emit(` address-family ${family === 'ipv4-unicast' ? 'ipv4' : 'ipv6'}`)
+          for (const [kind, key, peer] of peers) familyLines(instance, kind, key, peer, family, '  ')
+          emit(' exit-address-family')
+        }
+        unplaced(instance, bgp)
+        continue
+      }
+      // A VRF's BGP: its peers in an address family of the VRF, the first they carry (IPv4 by default). A neighbor there
+      // is activated by being defined, so one that carries no family (its own or its group's) is left out.
+      const carries = (peer: BgpPeer & { group?: string }) => Object.keys(peer.addressFamilies ?? {}).length > 0 || (peer.group !== undefined && Object.keys(bgp.groups?.[peer.group]?.addressFamilies ?? {}).length > 0)
+      const families = familiesOfPeers(bgp)
+      const peers = peersOf(bgp).filter(([kind, key, peer]) => {
+        if (kind === 'groups' || carries(peer)) return true
+        skipAll(peer, [...at, kind, key], 'a VRF\'s neighbor that carries no address family: IOS defines it in a family, which would activate it')
+        return false
+      })
+      for (const [index, family] of (families.length ? families : (['ipv4-unicast'] as const)).entries()) {
+        emit(' !')
+        emit(` address-family ${family === 'ipv4-unicast' ? 'ipv4' : 'ipv6'} vrf ${instance}`, ...(index === 0 && bgp.localAs !== undefined ? [[...at, 'localAs']] : []))
+        if (index === 0 && bgp.routerId !== undefined) {
+          if (isIpv4(bgp.routerId)) emit(`  bgp router-id ${bgp.routerId}`, [...at, 'routerId'])
+          else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
+        }
+        for (const [kind, key, peer] of peers) {
+          const group = kind === 'neighbors' && (peer as { group?: string }).group !== undefined ? bgp.groups?.[(peer as { group?: string }).group!] : undefined
+          const first = (['ipv4-unicast', 'ipv6-unicast'] as const).find((f) => peer.addressFamilies?.[f] !== undefined) ?? (['ipv4-unicast', 'ipv6-unicast'] as const).find((f) => group?.addressFamilies?.[f] !== undefined) ?? 'ipv4-unicast'
+          if (first === family) peerLines(instance, bgp, kind, key, peer, '  ')
+          familyLines(instance, kind, key, peer, family, '  ')
+        }
+        emit(' exit-address-family')
+      }
+      unplaced(instance, bgp)
+    }
+  }
 }
