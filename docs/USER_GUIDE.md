@@ -122,7 +122,8 @@ A syntax error prints no set commands at all. `convert` comes later.
 - **Release Notes**: what changed in each version.
 - **License**: Dialect's MIT License.
 - **Third-Party Notices**: the open-source software Dialect includes, each package and Rust crate with its version,
-  license and full license text, and the installer's components.
+  license and full license text, and the installer's components. Where one is offered under a choice of licenses, its
+  entry says which one Dialect uses: MIT where it is offered, otherwise the first one Dialect may ship under.
 
 The Docs view takes the place of the source and output panes; **← Display set** or Esc goes back, and opening a file
 does too. A link to another of these documents opens it there. A web link opens in your browser (the desktop app's

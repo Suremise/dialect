@@ -90,7 +90,11 @@ product decisions.
   proc-macros and build scripts that run on the build machine are build-only. A crate that publishes no license file
   needs a reviewed supplement, as a package does. The installer's components (NSIS, its `nsis_tauri_utils` plug-in)
   and the Microsoft WebView2 loader linked into the app are hand-written entries. A license text that is the same as
-  one given earlier is given once and referred to. So `npm run licenses` needs Rust (cargo). **Every link Dialect gives
+  one given earlier is given once and referred to. So `npm run licenses` needs Rust (cargo). **A package or crate
+  offered under a choice of licenses** (an SPDX `OR`) is used under MIT where it is offered, otherwise under the first
+  choice the shipped rule allows, decided at each `OR` (`(MIT OR Apache-2.0) AND Unicode-3.0` is used under
+  `MIT AND Unicode-3.0`). This is worked out, never listed by hand, and each entry says so: "MIT OR Apache-2.0, used
+  under MIT" (decided 2026-10-14). **Every link Dialect gives
   is a working `https://` URL, or there is none**; quoted license texts keep their own words, addresses included. `npm run licenses -- --check` and a unit test fail when either generated file is stale or the rule
   is broken.
 - **netcanon:** use it **for ideas only**. We write our own converter: don't depend on it, fork it or wrap it. It may be

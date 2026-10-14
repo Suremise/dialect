@@ -31,3 +31,5 @@
   `docs/BUILD_ONLY_PACKAGES.md`, must be open source.
 - **The notices cover the desktop app's Rust crates**, the installer's components and the WebView2 loader: only crates
   compiled into the app ship; proc-macros and build scripts are listed as build-only.
+- **The notices say which license Dialect uses** for each package and crate offered under a choice of licenses: MIT
+  where it is offered, otherwise the first allowed one (e.g. "MIT OR Apache-2.0, used under MIT").
