@@ -423,6 +423,31 @@ describe('the per-term rule on filters: a term whole or not at all, and the whol
   })
 })
 
+describe('a renderer built for model 0.5.1 meeting 0.5.2\'s VRF policies', () => {
+  const old = stubPlugin({ modelApi: '>=0.5.1 <1.0.0' })
+  const model: Device = {
+    routingPolicy: { policies: { IN: { fallThrough: 'reject' }, OUT: { fallThrough: 'reject' } } },
+    networkInstances: { blue: { type: 'vrf', routeDistinguisher: '65000:1', importPolicies: ['IN'], exportPolicies: ['OUT'], vrfPolicyMode: 'replaces-route-targets' } }
+  }
+
+  it('loads, and the ledger reports the policies and their mode as unrendered, not dropped', () => {
+    expect(() => createRegistry([old], { modelVersion: '0.5.2' })).not.toThrow()
+    expect(modelProblems(model)).toEqual([])
+    const rendered = old.render!(model, { modelVersion: '0.5.2' })
+    const unrendered = buildLedger(old.parse!('', { modelVersion: '0.5.2' }), rendered, model).target?.unrendered.map((f) => f.path) ?? []
+    for (const leaf of ['importPolicies', 'exportPolicies', 'vrfPolicyMode']) expect(unrendered).toContain(fieldPath('networkInstances', 'blue', leaf))
+  })
+
+  it('fails the parse check for a VRF policy that resolves to nothing, for a plugin that parses routing policy only', () => {
+    const vrf: Device = { networkInstances: { blue: { type: 'vrf', importPolicies: ['IN'], vrfPolicyMode: 'after-route-targets' } } }
+    const giving = (capabilities: PlatformPlugin['capabilities']): PlatformPlugin => ({ ...stubPlugin(), capabilities, parse: () => ({ tree: [], model: vrf, dispositions: {}, diagnostics: [] }) })
+    expect(byCheck(checkFixture(giving({}), { name: 'vrf/names', source: '', expectedModel: vrf })).parse.status).toBe('passed')
+    expect(byCheck(checkFixture(giving({ 'routing-policy': { parse: 'partial', render: 'none' } }), { name: 'vrf/names', source: '', expectedModel: vrf })).parse.problems).toEqual([
+      `parse made an invalid model: A network instance names a policy the model doesn't have. (${fieldPath('networkInstances', 'blue', 'importPolicies')})`
+    ])
+  })
+})
+
 describe('a BGP policy name that resolves to nothing: checked for a plugin that parses routing policy', () => {
   const model: Device = { networkInstances: { default: { bgp: { neighbors: { '10.0.0.2': { peerAs: 65001, importPolicies: ['IN'] } } } } } }
   const giving = (capabilities: PlatformPlugin['capabilities']): PlatformPlugin => ({ ...stubPlugin(), capabilities, parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }) })
