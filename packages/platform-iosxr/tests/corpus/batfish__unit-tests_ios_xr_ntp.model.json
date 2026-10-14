@@ -1,0 +1,16 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "ios_xr_ntp",
+      "ntp": {
+        "servers": {
+          "1.2.3.4": {
+            "prefer": true
+          }
+        },
+        "sourceInterface": "Loopback0"
+      }
+    }
+  }
+}

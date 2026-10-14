@@ -2,7 +2,7 @@
 
 How the code fits together. Product decisions are in [SPEC.md](SPEC.md); the reasoning behind the design is in the
 spike report ([spike-desktop-app.md](spike-desktop-app.md)). This describes the repo as built so far: B1's scaffold, B2's core contracts,
-B3 and B4's Junos plugin, B8's IOS / IOS-XE plugin and B9's convert mode.
+B3 and B4's Junos plugin, B8's IOS / IOS-XE plugin, B9's convert mode, and B12 and B13's NX-OS and IOS-XR plugins.
 Each card that adds code updates the part it changes.
 
 ## Packages
@@ -400,6 +400,87 @@ VRF membership, route distinguishers and route targets), with `detect`, `parse` 
   (`tests/fixtures/<area>`, with expected models and renders), chosen corpus files against expected models in
   `tests/corpus/`, and every file of `fixtures/public/nxos` through the kit's checks. `plugin.test.ts` also checks
   every render of the fixtures and the corpus for a missing `feature` line, with its own table of what needs one.
+
+## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
+
+The third Cisco platform, built like the NX-OS plugin (its code copied, not imported). Its default export is the
+`PlatformPlugin` (`id: 'iosxr'`, `modelApi: '>=0.3.0 <1.0.0'`, for model 0.3's VRF membership and route targets), with
+`detect`, `parse` and `render`.
+
+- **The tree (`tree.ts`):** as NX-OS's, nested by IOS-XR's one-space indents; `!` lines are separators and `!!`
+  headers comments. Three bodies are delimited, not indented, and each is kept whole, verbatim, as one atomic statement
+  with no children, never split: a **route policy** (`route-policy NAME` … `end-policy`, its `if … then … elseif …
+  else … endif` blocks and `#` comments inside, whether its body is indented or not), a **set** (any `*-set …`:
+  `prefix-set`, `community-set`, `as-path-set`, `rd-set`, `extcommunity-set rt`, `large-community-set`, `tag-set` …
+  `end-set`) and a **banner** (any delimiter, `^C` as one). A policy or set opens only at the top level: `route-policy
+  P in` inside `router bgp` is a reference. An unterminated one is an error diagnostic (`iosxr.unterminated-policy`,
+  `-set`, `-banner`) and takes the rest of the text.
+- **Parse (`parse.ts`):** `hostname`; `domain name`, `domain [vrf V] name-server A` (one server a statement),
+  `domain list`; interfaces (`GigabitEthernet0/0/0/0`, `TenGigE…`, `Bundle-Ether1`, `Loopback0`, `MgmtEth0/RP0/CPU0/0`;
+  type from the name), subinterfaces with `encapsulation dot1q`, `ipv4 address A M|A/L [secondary]` (one primary, a
+  second replaces it) and `ipv6 address A/L` (all alike: IPv6 has no primary on IOS-XR), `vrf V`, `shutdown`,
+  `description`, `mtu`; `vrf X` with its route targets; `router static` with `address-family ipv4|ipv6 unicast` and
+  `vrf V` inside, routes with an interface, next hop, distance, `tag` and `description`, `Null0` as discard; the `ntp`
+  block (`server [vrf V] A [prefer] [version N]`, `source IF`, also on one line after `ntp`); `logging A [vrf V]
+  [severity S] [port P]` and `logging source-interface IF`; `snmp-server community [clear] NAME [RO|RW]`, `contact`
+  and `location`. As in the other Cisco plugins, a statement with an option the model can't hold (`key`, `track`,
+  `bfd`, `route-tag`, `link-local`, a next hop in another VRF) is `unsupported` as a whole, and so is every statement
+  the plugin doesn't know with everything inside it. `interface X.N l2transport` is Layer 2, unsupported whole, and so
+  is a later `interface X.N` for it.
+  - **Later statements act on earlier ones, as on the device**, as in the NX-OS plugin: a second setting supersedes the
+    first, the same route next hop again is an edit, and the `no` forms of every setting it maps remove it
+    (`no hostname`, `no domain name|list|[vrf V] name-server` (that VRF only), `no description|mtu|encapsulation
+    dot1q|ipv4 address [A M]|ipv6 address A/L|vrf`, `no server|source` in `ntp`, `no logging A [vrf V]|source-interface`,
+    `no snmp-server community|contact|location`, `no vrf X` with its routes), and so do the scopes of `router static`:
+    `no router static`, and inside it `no vrf V` and `no address-family ipv4|ipv6 unicast` (in a VRF's too) remove
+    every route in that scope and no other. A route line is matched by prefix and next hop alone, so `no P hop …`
+    removes a line that wasn't converted (`… track 2`) too.
+  - **An edit that isn't converted still replaces what it edits.** IOS-XR keys NTP servers and syslog hosts by address
+    and VRF: a later statement for the same server, converted or not, replaces the earlier one, so `server A key 1`
+    after `server A` leaves the server out rather than mapped without its key; a second VRF for the same address is a
+    server the address-keyed model can't hold, and `unsupported`; `no server [vrf V] A` and `no logging A [vrf V]`
+    remove it only in the VRF they name (no VRF and `default` alike). An address edited to add a `route-tag` replaces
+    the primary (or the same IPv4 secondary or IPv6 address) the same way.
+  - **Numbers in IOS-XR's ranges only:** a VLAN ID from 1 to 4094, an MTU from 64 to 65535, a route tag up to
+    4294967295, a port up to 65535; anything else (or a number too long to be exact) is `unsupported`, never mapped
+    rounded, and the render checks a model's the same way.
+  - **VRF membership:** `vrf V` on an interface is the subinterface's `networkInstance` (subinterface `0` for a main
+    interface), and clears the addresses before it, as on the device; `no vrf` returns it to the global table. A VRF
+    the text never defines (`vrf X` at the top), or removes, would name a network instance the model doesn't have: the
+    membership and the interface's addresses are then `unsupported` rather than put in the global table.
+  - **Route targets:** IOS-XR sets them per address family, one per line (`import route-target V`) or listed in a
+    block (`import route-target` with a value a line). As NX-OS, they map only when every unicast family's agree, as
+    sets in each direction, and are all `unsupported` when one isn't converted (`stitching`, an asdot AS `1.10:12`).
+    Other families (`ipv4 multicast`, `flowspec`) and a VRF's import and export route policies are `unsupported`.
+  - **Route distinguishers** are BGP's on IOS-XR (`router bgp N` → `vrf X` → `rd`), so they stay `unsupported` with the
+    rest of `router bgp`, and the render can't write one (it would need the AS, which the model doesn't hold).
+  - **SNMP communities:** one with any statement not converted, anywhere (an access list in any form, `IPv4 ACL`,
+    `IPv6 ACL` or a bare ACL; `SystemOwner` or `SDROwner`; `no snmp-server community X …` removing part of it), is left
+    out whole. An `encrypted` community doesn't carry over and is `unsupported`.
+  - **No secrets in reasons**, value-free as in the NX-OS plugin; route policies and sets are never named, and nor is a
+    banner's type, which could be a secret's value reused.
+    Keys come from the configuration, so the model is built with own properties only, and bookkeeping uses `Map`s.
+- **Render (`render.ts`):** `show running-config`'s shape, one-space indents and `!` closing each block. Every leaf of
+  model 0.3 gets a disposition; a later version's fields get none. VRFs come first (`vrf X` with its route targets in
+  the block form under both `address-family ipv4 unicast` and `ipv6 unicast`), then interfaces (`vrf V` before the
+  addresses, IPv4 with a dotted mask), `router static` (the global table, then each VRF), the `ntp` block, `logging`
+  hosts (each with its VRF, `vrf default` for the global table) and SNMP. A network instance with only routes isn't
+  written as `vrf X`: its routes say it. What IOS-XR can't write is `unsupported` with why: a route distinguisher, a
+  `virtual-router`, a membership in a VRF the model doesn't have (with the interface's addresses), subinterface 0's
+  own description or shutdown, an address family's MTU, a syslog facility per host, an NTP version outside 1–4, a
+  `reject` route, a route's metric, and an SNMP community limited to some clients (left out whole, with a warning that
+  doesn't name it). With several IPv4 addresses and no primary, the first becomes primary, with a warning.
+- **Detect (`detect.ts`):** counts IOS-XR's own signs (RANCID's `cisco-xr`, `!! IOS XR Configuration`, `ipv4
+  address`, four-part interface names, `Bundle-Ether`, `MgmtEth`, `router static`, `end-policy`, `end-set`, `domain …`,
+  `logging A vrf V`, `import|export route-target`) and discounts IOS's (`ip address`, `ip access-list`, `ip route`,
+  `vrf definition`), NX-OS's and Junos's. Over the corpus, wherever any of the three Cisco plugins is sure (0.4 or
+  more), the right one scores highest.
+- **Tests:** as the other Cisco plugins': hand-written fixtures per area through the kit (`tests/fixtures/<area>`,
+  `policy` among them), chosen corpus files against expected models in `tests/corpus/`, and every file of
+  `fixtures/public/iosxr` through the kit's checks.
+- **For BGP (B10), not yet:** IOS-XR applies RFC 8212 to eBGP, so a neighbor with no route policy in a direction sends
+  and accepts nothing. A converted eBGP neighbor will need an explicit `route-policy … in` and `out` (a pass-all policy
+  where the source had none), or it comes up and exchanges no routes.
 
 ## TypeScript
 

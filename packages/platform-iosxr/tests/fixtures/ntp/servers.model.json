@@ -1,0 +1,21 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "ntp": {
+        "servers": {
+          "192.0.2.123": {
+            "prefer": true
+          },
+          "192.0.2.124": {
+            "version": 3
+          },
+          "198.51.100.123": {
+            "networkInstance": "MGMT"
+          }
+        },
+        "sourceInterface": "Loopback0"
+      }
+    }
+  }
+}

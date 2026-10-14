@@ -1,0 +1,16 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "xr-logging",
+      "logging": {
+        "remoteServers": {
+          "1.2.3.4": {
+            "severity": "warning",
+            "networkInstance": "mgmt"
+          }
+        }
+      }
+    }
+  }
+}

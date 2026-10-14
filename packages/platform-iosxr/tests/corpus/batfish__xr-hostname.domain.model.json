@@ -1,0 +1,8 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "xr-hostname.domain"
+    }
+  }
+}
