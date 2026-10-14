@@ -31,6 +31,8 @@ const CASES: readonly (readonly [area: string, path: string])[] = [
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
+/** Display set's text is config, which the kit's secrets check leaves alone. */
+const OPTIONS = { configTools: ['display-set'] }
 
 describe('corpus files with an expected model', () => {
   it('cover every phase 1 area', () => {
@@ -40,7 +42,7 @@ describe('corpus files with an expected model', () => {
     describe(`${area}: ${path}`, () => {
       const name = basename(path, extname(path))
       const fixture = { name, source: read(path), expectedModel: deserializeModel(readFileSync(join(expected, `${name}.model.json`), 'utf8')).device }
-      for (const r of checkFixture(plugin, fixture)) {
+      for (const r of checkFixture(plugin, fixture, OPTIONS)) {
         it.skipIf(r.status === 'skipped')(r.check, () => {
           expect(r.problems, r.problems.join('\n')).toEqual([])
         })
@@ -77,7 +79,7 @@ describe('every Junos file in the corpus', () => {
   }
   for (const path of all.filter((p) => !Object.hasOwn(NOT_CONFIGS, p))) {
     it(path, () => {
-      const results = checkFixture(plugin, { name: path, source: read(path), expectedModel: plugin.parse!(read(path), { modelVersion: MODEL_VERSION }).model })
+      const results = checkFixture(plugin, { name: path, source: read(path), expectedModel: plugin.parse!(read(path), { modelVersion: MODEL_VERSION }).model }, OPTIONS)
       const failed = results.filter((r) => r.status === 'failed').flatMap((r) => r.problems.map((p) => `${r.check}: ${p}`))
       expect(failed).toEqual([])
     })

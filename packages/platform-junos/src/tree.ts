@@ -1,6 +1,6 @@
 // The generic Junos syntax tree, ported from the spike prototype. It knows the curly-brace syntax, not the Junos
 // schema: a statement is its words, then `;` (a leaf), `[ … ];` (a leaf with a list) or `{ … }` (a container).
-// Display set (displaySet.ts) flattens it; the model mapper (B4) will walk it.
+// Display set (displaySet.ts) flattens it; statements.ts reads it into statements for the model mapper.
 import { JunosParseError, tokenize, type Token } from './tokenizer'
 
 /** The tags Junos prints before a statement. `active:`, `deleted:` and other `word:` tags are kept as words, with a warning. */

@@ -1,8 +1,8 @@
 # Dialect: architecture
 
 How the code fits together. Product decisions are in [SPEC.md](SPEC.md); the reasoning behind the design is in the
-spike report ([spike-desktop-app.md](spike-desktop-app.md)). This describes the repo as built so far: B1's scaffold, B2's core contracts and
-B8's IOS / IOS-XE plugin.
+spike report ([spike-desktop-app.md](spike-desktop-app.md)). This describes the repo as built so far: B1's scaffold, B2's core contracts,
+B3 and B4's Junos plugin and B8's IOS / IOS-XE plugin.
 Each card that adds code updates the part it changes.
 
 ## Packages
@@ -21,7 +21,7 @@ apps/
 docs/  scripts/  tests/  branding/
 ```
 
-`core` and `conformance` hold B2's contracts (below), and `platform-iosxe` is the first plugin built on them (below); the
+`core` and `conformance` hold B2's contracts (below), and `platform-iosxe` and `platform-junos` are the plugins built on them (below); the
 other packages are stubs for now. Packages are **source packages**: their `exports` point at
 TypeScript, and whichever shell bundles them compiles them (Vite, from group C). Nothing is emitted by `tsc`, which
 only checks.
@@ -283,31 +283,89 @@ each workspace's `typecheck` script.
 
 ## The Junos plugin (`packages/platform-junos`)
 
-B3's parser and display set, ported from the spike prototype (B4 adds the mapping to and from the model).
+B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
+areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.1.0 <1.0.0'`, no
-  capabilities yet). Its `tools()` has one tool, `displaySetTool`: id `display-set`, name "Display set". `run(text)`
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.2.0 <1.0.0'`, for model
+  0.2's DNS), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
+  `displaySetTool`: id `display-set`, name "Display set". `run(text)`
   returns the set lines as text, one per line, each ended by a newline (none on an error), and `sourceLines`, the
   statement's source line for each output line (a quoted value with line breaks makes one set line several output
   lines, each with its statement's line). It also returns the parse error or the warnings as diagnostics: `category: 'syntax'`, codes `junos.syntax`, `junos.annotation`,
   `junos.unknown-tag`, `junos.stray-annotation`, `junos.empty-list`, and a point span at their line and column. The
   core's `Tool` has no field for what a tool reads and writes, so `JunosTool` adds `input: 'junos-hierarchical'` and
-  `output: 'junos-set'`.
+  `output: 'junos-set'`. Its text is config, so the conformance kit's secrets check is told so (`configTools`).
 
 - `tokenizer.ts`: words (quoted strings kept as written, escapes included), braces, brackets, `;` and
   `/* annotations */`; `#` comments to the end of the line. Each token has a 1-based line and column.
 - `tree.ts`: `parseConfig()` builds a generic syntax tree from the curly-brace syntax alone, without the Junos schema.
   A `ConfigNode` is its words, then children (a container), a `[ ]` list (a leaf with values) or neither (a leaf), the
   `inactive:`/`protect:`/`replace:` tags and the annotation before it. A syntax error throws `JunosParseError` with
-  its line and column; unknown `word:` tags, annotations with no statement after them and empty lists are warnings.
+  its line and column; unknown `word:` tags, annotations with no statement after them (also one ended by `;`, as
+  Batfish's tests write it) and empty lists are warnings. A bare `;` is an error.
   Messages never quote the config's words, values or annotations (they reach stderr, logs and the UI, and a value can
   be a secret): only punctuation and tag names, with positions to say where.
 - `displaySet.ts`: `flatten()` turns the tree into `set` lines, each with the source line it comes from (for the UI's
   source and output highlighting). A statement's `deactivate` and `protect` lines come after the `set` lines of its
   subtree, Juniper's documented order. `displaySet()` wraps both: the lines and warnings, or the first error.
-- Tests: the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
+
+### Parse: text → statements → model
+
+- **Statements (`statements.ts`):** the text is read as set form when commands (`set`, `deactivate`, `delete`…) start
+  its lines and none ends in `{` or `;`, else as hierarchical. Either way it becomes the core's syntax tree and a flat
+  list of statements: a statement is a full path of words, values included and quotes undone, as a `set` command says
+  it, so both forms map the same way (the 22 jcc pairs give the same model in both forms). Hierarchical: a syntax
+  node per statement, ids `L<line>:<column>`; a leaf gives one statement per value of its `[ ]` list, an empty
+  container one, and a container none of its own. Set form: a syntax node per command, ids `L<line>`; a quoted string
+  or an annotation can run over lines. `delete` removes the statements before it under its path and `deactivate`
+  every statement under its path (`ignored-by-design`, with the line that did it), as does `inactive:`; `protect` and
+  `unprotect` change nothing. A set-form line that isn't a command (a stray `{`) is an error on that line only.
+- **Groups and ranges (`expand.ts`), before mapping:** `apply-groups G` at a level inherits group G's statements under
+  that level, and `apply-groups-except G` stops it below one. A wildcard word in a group (`<*>`, `<ge-*>`,
+  `<[xe][et]-*>`: `*`, `?` and `[…]` classes) matches the names the configuration has at that place, so it adds to
+  what exists and never creates it. The configuration wins over what it inherits, a deeper `apply-groups` over a
+  shallower one, the first group listed over later ones: inherited statements come first, in that order, and the
+  mapper's "later supersedes earlier" does the rest. `interfaces interface-range R` gives each member (`member X`,
+  `member-range A to B` differing in the last number) the range's settings; explicit interface settings win. Member
+  patterns (`"xe-0/0/[0,1]"`) aren't expanded yet (`unsupported`). A group or range statement is mapped wherever it
+  applies; one that applies nowhere is `ignored-by-design` with why; the `apply-groups` and `member` statements
+  themselves are `ignored-by-design`.
+- **Mapping (`parse.ts`):** each statement on its own: `system host-name`, `domain-name`, `domain-search`,
+  `name-server A [routing-instance R]`, `ntp server A [version N] [prefer] [routing-instance R]`, `syslog host H` with
+  `any <severity>` (`info` is informational, `any` debug), `port`, `routing-instance` and `facility-override`;
+  interfaces with `description`, `disable`, `mtu`, `vlan-tagging`, units with `description`, `disable`, `vlan-id` and
+  `family inet`/`inet6` (`address A/L [primary]`, `mtu`); static routes in `routing-options static` and `rib
+  inet6.0 static`, and in routing instances (`instance-type vrf`, `rib R.inet6.0`): `next-hop` (an address or an
+  interface), `qualified-next-hop` with its own `preference`, `metric`, `tag` and `interface`, `discard`, `reject`,
+  and the route's `preference`, `metric` and `tag`, applied to each hop without its own; SNMP `location`, `contact`
+  and communities with `authorization` and `clients`. A statement is `mapped` only when everything it says went into
+  the model. A later single-valued setting supersedes an earlier one ("superseded by line N"): a statement left with
+  only the fields it filled in passing (the interface's type, its unit) is superseded too. Everything else is
+  `unsupported`, with a reason where one helps (`family ethernet-switching`, per-facility syslog severities, NTP
+  keys, `protocols`, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
+  can't carry (a `client-list-name`, `clients … restrict`, a `view`) makes all its statements unsupported and leaves it
+  out of the model, so it can't come out answering clients it shouldn't. The interface type comes from the name
+  (`ge-`, `xe-`, `et-` ethernet, `ae` aggregate, `lo` loopback, `irb` vlan, `fxp`/`em`/`me` management, `gr-`/`st`
+  tunnels). Reasons never quote the configuration.
+- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.2 with a disposition and a
+  later version's fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
+  `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
+  with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
+  `unsupported` with why: a route's description, NTP and syslog source interfaces (Junos uses addresses), a drop beside
+  other next hops (with a warning), a routing instance that isn't a VRF. **An SNMP community whose client list can't
+  be written (empty, or not prefixes) is left out whole**, with a warning that names no community.
+- `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's
+  (`hostname`, `!`, `interface GigabitEthernet…`).
+- **Tests:** the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
   cleaned up by `tests/cleanFixtures.ts` into `tests/fixtures/display-set/` (`tests/displaySetFixtures.test.ts`). The
   plugin in the core's registry, and display set through `registry.tools()` on the same pairs (`tests/plugin.test.ts`).
+  The conformance kit over hand-written fixtures, one folder per area plus groups, set form and an SRX config whose
+  security statements are `unsupported` (`tests/fixtures/conformance/`, `tests/conformance.test.ts`). The corpus
+  (`tests/corpus.test.ts`), read by path: chosen files per area against expected models in `tests/corpus/`, and every
+  Junos file through the kit's checks against its own parse, secrets included; the one that isn't a configuration (a
+  terminal capture that cuts a quoted hash) must give a syntax error that quotes nothing. `tests/mapping.test.ts`:
+  both forms, `detect()`, groups, ranges, inactive statements, keys named like `Object.prototype`'s, secrets, SNMP
+  communities and render from another platform's model.
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)
