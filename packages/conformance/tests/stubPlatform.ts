@@ -2,7 +2,8 @@
 // rule table and a renderer, each of which can be told to leave things out. It's how the kit proves it catches what a
 // careless plugin misses. Not a real platform, and nothing to do with the Junos plugin: just enough syntax for the
 // counterexamples in the build plan (B2).
-import { fieldPath, type Context, type Device, type FieldDisposition, type ParseResult, type PathSegment, type PlatformPlugin, type RenderResult, type Span, type StatementDisposition, type SyntaxNode } from '@dialect/core'
+import { fieldPath, type Context, type Device, type Diagnostic, type FieldDisposition, type NeedsInput, type ParseResult, type PathSegment, type PlatformPlugin, type RenderResult, type Span, type StatementDisposition, type SyntaxNode } from '@dialect/core'
+import type { LeakSite } from '../src'
 
 type Token = { text: string; line: number; column: number }
 
@@ -15,8 +16,11 @@ function tokenize(text: string): Token[] {
   return tokens
 }
 
-/** The tree: each `words…;` is a leaf statement, each `words… { … }` a container. Labels are full paths. */
-export function parseTree(text: string): SyntaxNode[] {
+/**
+ * The tree: each `words…;` is a leaf statement, each `words… { … }` a container. Labels are full paths. A syntax error
+ * names punctuation only, unless `quote` has it quote the words before it (a leak, for negative tests).
+ */
+export function parseTree(text: string, { quote = false }: { quote?: boolean } = {}): SyntaxNode[] {
   const tokens = tokenize(text)
   let at = 0
   const used = new Map<string, number>()
@@ -31,7 +35,7 @@ export function parseTree(text: string): SyntaxNode[] {
       const words: Token[] = []
       while (at < tokens.length && !['{', '}', ';'].includes(tokens[at].text)) words.push(tokens[at++])
       const end = tokens[at]
-      if (!end || end.text === '}' || !words.length) throw new SyntaxError(`stub: unexpected ${end ? `"${end.text}"` : 'end of text'}`)
+      if (!end || end.text === '}' || !words.length) throw new SyntaxError(`stub: unexpected ${end ? `"${end.text}"` : 'end of text'}${quote && words.length ? ` after "${words.map((w) => w.text).join(' ')}"` : ''}`)
       at++
       const label = [parent, ...words.map((w) => w.text)].filter(Boolean).join(' ')
       const start = words[0]
@@ -109,12 +113,15 @@ export interface StubOptions {
   readonly extraRenderDispositions?: Readonly<Record<string, FieldDisposition>>
   readonly id?: string
   readonly modelApi?: string
+  /** Where it quotes the config in what it says, for the secrets check's negative tests; nowhere when left out. */
+  readonly leaks?: readonly LeakSite[]
 }
 
 /** The stub plugin: careful by default, careless as `options` say. */
 export function stubPlugin(options: StubOptions = {}): PlatformPlugin {
   const known = options.mapRules ? RULES.filter((r) => options.mapRules?.includes(r.name)) : RULES
   const careful = !options.mapRules
+  const leaks = new Set(options.leaks)
   return {
     id: options.id ?? 'stub',
     name: 'Stub platform (tests only)',
@@ -124,10 +131,13 @@ export function stubPlugin(options: StubOptions = {}): PlatformPlugin {
     parse(text: string, _context: Context): ParseResult {
       let tree: SyntaxNode[]
       try {
-        tree = parseTree(text)
+        tree = parseTree(text, { quote: leaks.has('parse diagnostic') || leaks.has('thrown error') })
       } catch (e) {
+        if (leaks.has('thrown error')) throw e
         return { tree: [], model: {}, dispositions: {}, diagnostics: [{ severity: 'error', category: 'syntax', message: (e as Error).message }] }
       }
+      const diagnostics: Diagnostic[] = []
+      const needsInput: NeedsInput[] = []
       const model: Record<string, unknown> = Object.create(null)
       const dispositions: Record<string, StatementDisposition> = Object.create(null)
       const hops = new Map<string, number>()
@@ -143,16 +153,22 @@ export function stubPlugin(options: StubOptions = {}): PlatformPlugin {
             const sets = rule.set?.(node.label.match(rule.match) as RegExpMatchArray, nextIndex) ?? []
             for (const [path, value] of sets) assign(model, path, value)
             dispositions[node.id] = { kind: 'mapped', fields: sets.map(([path]) => fieldPath(...path)) }
-          } else if (careful) dispositions[node.id] = { kind: 'unsupported', reason: 'the stub platform has no rule for it' }
+          } else if (careful) {
+            dispositions[node.id] = { kind: 'unsupported', reason: leaks.has('statement reason') ? `no rule for "${node.label}"` : 'the stub platform has no rule for it' }
+            if (leaks.has('parse diagnostic')) diagnostics.push({ severity: 'warning', message: `"${node.label}" isn't converted`, statement: node.id })
+            if (leaks.has('parse needs-input')) needsInput.push({ id: `secret-${node.id}`, kind: 'secret', message: `a value for "${node.label}"`, statement: node.id })
+          }
           if (node.children) walk(node.children)
         }
       }
       walk(tree)
-      return { tree, model: model as Device, dispositions, diagnostics: [] }
+      return { tree, model: model as Device, dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }
     },
     render(model: Device, _context: Context): RenderResult {
       const lines: string[] = []
       const dispositions: Record<string, FieldDisposition> = { ...options.extraRenderDispositions }
+      const diagnostics: Diagnostic[] = []
+      const needsInput: NeedsInput[] = []
       const skip = options.renderSkips ?? (() => false)
       const indent = (depth: number) => '    '.repeat(depth)
       /** Writes a leaf statement for `path`, unless skipped; records where. */
@@ -169,7 +185,10 @@ export function stubPlugin(options: StubOptions = {}): PlatformPlugin {
       const servers = Object.entries(m.system?.ntp?.servers ?? {}).filter(([address, server]) => !skip(fieldPath('system', 'ntp', 'servers', address, ...(server.prefer === true ? ['prefer'] : []))))
       if (m.system && (m.system.hostname !== undefined || m.system.domainName !== undefined || servers.length)) {
         open(0, 'system')
-        if (m.system.hostname !== undefined) leaf(1, `host-name ${m.system.hostname}`, 'system', 'hostname')
+        if (m.system.hostname !== undefined && leaks.has('field reason')) dispositions[fieldPath('system', 'hostname')] = { kind: 'unsupported', reason: `host-name ${m.system.hostname} isn't rendered` }
+        else if (m.system.hostname !== undefined) leaf(1, `host-name ${m.system.hostname}`, 'system', 'hostname')
+        if (m.system.hostname !== undefined && leaks.has('render diagnostic')) diagnostics.push({ severity: 'info', message: `rendered host-name ${m.system.hostname}`, field: 'system.hostname' })
+        if (m.system.hostname !== undefined && leaks.has('render needs-input')) needsInput.push({ id: 'hostname', kind: 'other', message: 'a host name for the target', suggestions: [m.system.hostname] })
         if (m.system.domainName !== undefined) leaf(1, `domain-name ${m.system.domainName}`, 'system', 'domainName')
         if (servers.length) {
           open(1, 'ntp')
@@ -227,9 +246,34 @@ export function stubPlugin(options: StubOptions = {}): PlatformPlugin {
         close(1)
         close(0)
       }
-      return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics: [] }
-    }
+      return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }
+    },
+    // Two tools: echo gives its input back (config: STUB_CONFIG_TOOLS), with a warning for each line with a quote on
+    // it; report's text is a report on the input, not config.
+    tools: () => [
+      {
+        id: 'report',
+        name: 'Report',
+        run: (input: string) => {
+          const quoted = input.split('\n').filter((line) => line.includes('"'))
+          return { text: leaks.has('tool text') ? quoted.map((line) => `a quote in: ${line.trim()}\n`).join('') : `${quoted.length} line(s) with a quote\n`, diagnostics: [] }
+        }
+      },
+      {
+        id: 'echo',
+        name: 'Echo',
+        run: (input: string) => ({
+          text: input,
+          diagnostics: input
+            .split('\n')
+            .flatMap((line, i): Diagnostic[] => (line.includes('"') ? [{ severity: 'warning', code: 'stub.quote', message: leaks.has('tool diagnostic') ? `a quote in: ${line.trim()}` : 'a quote on this line', span: { startLine: i + 1, startColumn: 1, endLine: i + 1, endColumn: 1 } }] : []))
+        })
+      }
+    ]
   }
 }
+
+/** The stub's tools whose text is config, for the secrets check (`configTools`). */
+export const STUB_CONFIG_TOOLS: readonly string[] = ['echo']
 
 export default stubPlugin()
