@@ -1,0 +1,35 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_interface_ip_address"
+    },
+    "interfaces": {
+      "Ethernet1/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.0.1": {
+                  "prefixLength": 24,
+                  "primary": true
+                },
+                "10.0.0.2": {
+                  "prefixLength": 24
+                },
+                "10.50.0.2": {
+                  "prefixLength": 16
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet1/2": {
+        "type": "ethernet",
+        "enabled": true
+      }
+    }
+  }
+}

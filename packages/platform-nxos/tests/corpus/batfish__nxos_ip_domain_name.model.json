@@ -1,0 +1,9 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_ip_domain_name",
+      "domainName": "example.com"
+    }
+  }
+}

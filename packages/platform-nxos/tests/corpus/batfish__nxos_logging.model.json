@@ -1,0 +1,24 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_logging",
+      "logging": {
+        "remoteServers": {
+          "192.0.2.1": {
+            "severity": "notice",
+            "facility": "local7"
+          },
+          "192.0.2.2": {
+            "severity": "error",
+            "port": 2025,
+            "networkInstance": "management",
+            "facility": "kern"
+          },
+          "192.0.2.3": {}
+        },
+        "sourceInterface": "loopback0"
+      }
+    }
+  }
+}

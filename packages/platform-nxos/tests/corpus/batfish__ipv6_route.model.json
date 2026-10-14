@@ -1,0 +1,48 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "ipv6_route"
+    },
+    "networkInstances": {
+      "VRF": {
+        "type": "vrf",
+        "staticRoutes": {
+          "::1/128": {
+            "nextHops": {
+              "0": {
+                "address": "::2"
+              }
+            }
+          }
+        }
+      },
+      "default": {
+        "staticRoutes": {
+          "::1/128": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "::2/128": {
+            "nextHops": {
+              "0": {
+                "interface": "Ethernet1/2"
+              }
+            }
+          },
+          "::3/128": {
+            "nextHops": {
+              "0": {
+                "interface": "Ethernet1/2",
+                "address": "::100"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
