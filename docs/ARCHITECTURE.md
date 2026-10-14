@@ -44,7 +44,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.5.1)
+## Core contracts (`@dialect/core`, model 0.5.2)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -89,6 +89,14 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
     or an export policy; a **renderer** gives it a `not-applicable` disposition and raises a `category: 'semantic'`
     warning when its own default differs, naming the line, never a peer's address. Since 0.5.0 the policy names
     resolve to `routingPolicy.policies`;
+  - since 0.5.2, a VRF's own `importPolicies` and `exportPolicies` (Junos `vrf-import`/`vrf-export`, Cisco's VRF
+    `import map`/`export map`, IOS-XR's VRF `import`/`export route-policy`), by name in order, resolving to
+    `routingPolicy.policies`, and its **`vrfPolicyMode`**, given whenever it has either: the platform's semantics, kept
+    with the data as `fallThrough` is. On Junos (`replaces-route-targets`) `vrf-import` **replaces** the `vrf-target`
+    import, so the policy matches the route-target communities itself, and `vrf-export` replaces its export, so the
+    policy adds them; on Cisco (`after-route-targets`) the route targets import and export as configured and the map
+    then **filters** (or changes) those routes. A renderer whose platform does the other raises a semantic warning, or
+    leaves the policies `unsupported` where the meaning can't be kept;
 - `routingPolicy` (since 0.5.0, after OpenConfig `routing-policy` and `bgp-policy`, simplified; below): prefix lists
   per family, community sets, AS-path sets and policies with ordered terms;
 - `filters` (since 0.5.1, after OpenConfig `acl`, simplified; below): firewall filters and ACLs per family, with
@@ -130,11 +138,12 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 | 0.4.1 | `Bgp.ebgpDefaultPolicy` (`BgpDefaultPolicy`), the source's default for eBGP peers without a policy (#68) |
 | 0.5.0 | `Device.routingPolicy` (`RoutingPolicy`): prefix lists, community and AS-path sets, policies and their terms, and the `routing-policy` feature area (#72, phase 3) |
 | 0.5.1 | `Device.filters` (`Filters`): firewall filters and ACLs and their terms, `Subinterface.filters` (`FilterAttachments`), and the `filters` feature area (#73) |
+| 0.5.2 | `NetworkInstance.importPolicies`, `exportPolicies` and `vrfPolicyMode` (`VrfPolicyMode`): a VRF's own policies and how they stand with its route targets (#83) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
 renderer, a subinterface's `networkInstance` for a 0.2 one or any of 0.4's VLAN, switch port, routed VLAN, OSPF and BGP
-fields for a 0.3 one, any routing policy field for a 0.4 one or any filter field for a 0.5.0 one, shows in the ledger
-as unrendered rather than being dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
+fields for a 0.3 one, any routing policy field for a 0.4 one, any filter field for a 0.5.0 one or a VRF's policies
+for a 0.5.1 one, shows in the ledger as unrendered rather than being dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
 
 ### Routing policy (model 0.5.0)
 
@@ -249,7 +258,8 @@ From 0.5.0, routing policy (`routingPolicyProblems()`, which modelProblems() run
   or neighbor an IP address (`isIpAddress()`, `model.ip-address`);
 - references resolve: a term's prefix lists (in their family), community sets and AS-path sets, and an action's
   community sets (`model.unknown-prefix-list`, `model.unknown-community-set`, `model.unknown-as-path-set`), and a BGP
-  peer's or family's import and export policies (`model.unknown-policy`). The last is turned off by
+  peer's or family's import and export policies, and since 0.5.2 a VRF's (`model.unknown-policy`); a VRF with import or
+  export policies says its `vrfPolicyMode`, one of the model's (`model.vrf-policy-mode`). The policy names are turned off by
   `modelProblems(device, { policyReferences: false })`, which the kit uses for a plugin that doesn't parse routing
   policy: it keeps the names alone, as phase 2 did.
 
@@ -363,13 +373,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.5.1.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.5.2.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.5.1", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.5.2", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
@@ -514,7 +524,8 @@ checks catch careless plugins:
   term that rejects while converting the rest of its policy, fail the ledger check, and leaving out a term that changes
   nothing later terms see, or the whole policy, passes; parses with a term partly unsupported fail it, and one left out
   whole passes; a BGP policy name that resolves to nothing fails the parse check only for a plugin that parses
-  routing policy, and a policy without a fall-through, or with one the model doesn't have, fails it too;
+  routing policy (a VRF's, since 0.5.2, as a BGP peer's), and a policy without a fall-through, or with one the model
+  doesn't have, fails it too; a 0.5.1 renderer leaves a VRF's policies and their mode unrendered;
 - a 0.5.0 renderer leaves every filter and attachment field unrendered; the per-term rule holds for filters as for
   policies: a counting term left out whole passes, a discarding one left out while the rest of its filter is converted
   fails, and a filter term partly unsupported on the parse fails.
