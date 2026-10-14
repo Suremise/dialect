@@ -1,8 +1,9 @@
 // The fixture corpus (fixtures/): its licenses (scripts/fixtureLicenses.mjs) and the manifest against the files
-// (fixtures/verify.mjs, run as it is), on the repo itself and on small corpora made in a temp folder.
+// (fixtures/verify.mjs, run as it is, with the coverage table in fixtures/README.md), on the repo itself and on small
+// corpora made in a temp folder.
 import { spawnSync } from 'child_process'
 import { createHash } from 'crypto'
-import { copyFileSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { copyFileSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 // @ts-expect-error: a plain .mjs module without types
@@ -53,10 +54,19 @@ describe('the repository\'s fixtures', () => {
     expect(fixtureLicenseProblems(fixtures)).toEqual([])
   })
 
-  it('match their manifest (fixtures/verify.mjs)', () => {
-    const r = verify(fixtures)
-    expect(r.stderr).toMatch(/^ok: /)
-    expect(r.status).toBe(0)
+  // `npm run fixtures`: the manifest against the files, and every platform with a file in every phase 1 area.
+  const coverage = verify(fixtures, '--coverage')
+
+  it('match their manifest and cover phase 1 (fixtures/verify.mjs --coverage)', () => {
+    expect(coverage.stderr).toMatch(/^ok: /)
+    expect(coverage.status).toBe(0)
+  })
+
+  it('README.md\'s coverage table is the one verify.mjs prints', () => {
+    const readme = readFileSync(join(fixtures, 'README.md'), 'utf8').replace(/\r\n/g, '\n')
+    const table = readme.match(/^\| Area \| junos .*?^\| \*\*files\*\* .*?$/ms)?.[0]
+    expect(table, 'README.md has no coverage table').toBeDefined()
+    expect(table, 'fixtures/README.md is stale: paste the table `npm run fixtures` prints').toBe(coverage.stdout.replace(/\r\n/g, '\n').trim())
   })
 })
 
