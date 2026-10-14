@@ -18,6 +18,9 @@
   --bg-active: #37373d;
   --border: #4a4a4e;
   --border-subtle: #3a3a3d;
+  /* A control's edge (buttons, tabs, inputs, menus), so every control looks like one: 3.2:1 at worst on the dark
+     surfaces, 3:1 needed (tests/contrast.test.ts). */
+  --border-control: #858585;
   --fg: #cccccc;
   --fg-strong: #e8e8e8;
   --fg-muted: #b0b0b0;
@@ -57,6 +60,8 @@
   --bg-active: #e4e6f1;
   --border: #d4d4d4;
   --border-subtle: #e5e5e5;
+  /* 3.4:1 at worst on the light surfaces. */
+  --border-control: #7a7a7a;
   --fg: #3b3b3b;
   --fg-strong: #1f1f1f;
   --fg-muted: #555555;
@@ -144,18 +149,22 @@ body {
 }
 
 /* ---------- Layout ---------- */
+/* The menu bar, the tab strip, the current tab's page and the status bar. */
 .app {
   display: grid;
-  grid-template-rows: 40px minmax(0, 1fr) minmax(80px, 20%) 24px;
+  grid-template-rows: 32px 34px minmax(0, 1fr) 24px;
   height: 100%;
   position: relative;
+}
+[hidden] {
+  display: none !important;
 }
 
 .titlebar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 12px;
+  gap: 6px;
+  padding: 0 8px;
   background: var(--bg-title);
   border-bottom: 1px solid var(--border-subtle);
   min-width: 0;
@@ -163,52 +172,277 @@ body {
 .titlebar-logo {
   width: 18px;
   height: 18px;
+  flex-shrink: 0;
 }
-.titlebar-name {
-  font-weight: 600;
-  color: var(--fg-strong);
-}
-.mode-switch {
+
+/* ---------- Menu bar ---------- */
+.menubar {
   display: flex;
+  align-items: center;
   gap: 2px;
-  padding: 2px;
-  border-radius: 12px;
-  background: var(--bg-elevated);
+  min-width: 0;
 }
-.mode-button {
-  padding: 2px 10px;
-  border: none;
-  border-radius: 10px;
+.menubar-entry {
+  position: relative;
+}
+.menubar-item {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--fg);
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
 }
-.mode-button:hover {
-  color: var(--fg);
+.menubar-item:hover,
+.menubar-item.open {
+  background: var(--bg-active);
+  border-color: var(--border-control);
+  color: var(--fg-strong);
 }
-.mode-button.selected {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+.menubar-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
-.target-picker {
+.menu {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: 40;
+  min-width: 240px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.menu-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  color: var(--fg-muted);
+  text-align: left;
+  padding: 5px 10px 5px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.menu-item:hover:not([aria-disabled='true']),
+.menu-item:focus {
+  background: var(--accent-soft);
+  color: var(--fg-strong);
+  outline: none;
+}
+.menu-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+.menu-item[aria-disabled='true'] {
+  color: var(--fg-faint);
+  cursor: default;
+}
+.menu-check {
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--accent-ink);
+  flex-shrink: 0;
+}
+.menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.target-picker select {
-  height: 24px;
+.menu-key {
+  margin-left: 24px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border-subtle);
+}
+
+/* ---------- Tab strip ---------- */
+/* Each tab is a raised, bordered control on the strip; the current one joins its page, with the accent on top. */
+.tabstrip {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0 8px;
+  background: var(--bg-title);
+  border-bottom: 1px solid var(--border-control);
+  min-width: 0;
+}
+.tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 29px;
+  max-width: 240px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--border-control);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: var(--bg-elevated);
+  color: var(--fg-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+}
+.tab:hover {
+  background: var(--bg-active);
+  color: var(--fg-strong);
+}
+.tab.current {
+  background: var(--bg-title);
+  color: var(--fg-strong);
+  font-weight: 600;
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.tab-close,
+.tab-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.tab-close {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+}
+.tab-close .icon {
+  width: 12px;
+  height: 12px;
+}
+.tab-close:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-control);
+  color: var(--fg-strong);
+}
+.tab-new {
+  width: 28px;
+  height: 26px;
+  margin-bottom: 3px;
+  border-color: var(--border-control);
+  background: var(--bg-elevated);
+}
+.tab-new:hover {
+  background: var(--bg-active);
+  color: var(--fg-strong);
+}
+.tab-new:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ---------- Pages ---------- */
+/* Every open tab's page is there, the current one shown: the others are hidden, not unmounted. */
+.pages {
+  display: grid;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-panel);
+}
+.pages > * {
+  grid-area: 1 / 1;
+  min-height: 0;
+  min-width: 0;
+}
+.conversion {
+  display: flex;
+  flex-direction: column;
+}
+.tab-toolbar {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  background: var(--bg-title);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  min-width: 0;
+}
+.job-label {
+  font-weight: 600;
+  color: var(--fg-strong);
+  white-space: nowrap;
+}
+.target-select {
+  height: 26px;
   padding: 0 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 4px;
   background: var(--bg-input);
   color: var(--fg);
   font: inherit;
+  min-width: 0;
+}
+.reopen-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: var(--accent-soft);
+  color: var(--fg-strong);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.no-tabs {
+  padding: 48px 24px;
+  max-width: 560px;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+.no-tabs h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  color: var(--fg-strong);
+}
+.no-tabs p {
+  color: var(--fg-muted);
 }
 
 .toolbar {
@@ -217,14 +451,9 @@ body {
   align-items: center;
   gap: 4px;
 }
-.toolbar-sep {
-  width: 1px;
-  height: 18px;
-  margin: 0 4px;
-  background: var(--border-subtle);
-}
 
 .workbench {
+  flex: 1 1 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   min-height: 0;
@@ -273,10 +502,9 @@ body {
 }
 
 /* ---------- Problems, and in convert the interface table beside them ---------- */
-.app.converting {
-  grid-template-rows: 40px minmax(0, 1fr) minmax(120px, 30%) 24px;
-}
 .bottom {
+  flex: 0 0 20%;
+  min-height: 80px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
@@ -284,6 +512,8 @@ body {
   border-top: 1px solid var(--border);
 }
 .bottom.converting {
+  flex-basis: 30%;
+  min-height: 120px;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 .problems,
@@ -490,7 +720,7 @@ body {
   height: 28px;
   padding: 0 10px;
   border-radius: 4px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-control);
   background: var(--bg-elevated);
   color: var(--fg);
   font: inherit;
@@ -498,8 +728,12 @@ body {
   white-space: nowrap;
 }
 .btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border);
+  background: var(--bg-active);
+  color: var(--fg-strong);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 .btn:disabled {
   opacity: 0.5;
@@ -507,16 +741,17 @@ body {
 }
 .btn.primary {
   background: var(--accent-fill);
+  border-color: var(--accent-fill);
   color: var(--accent-fg);
   font-weight: 600;
 }
 .btn.primary:hover:not(:disabled) {
   background: var(--accent-fill-hover);
-  border-color: transparent;
+  border-color: var(--accent-fill-hover);
+  color: var(--accent-fg);
 }
 .btn.subtle {
   background: transparent;
-  border-color: var(--border);
 }
 .btn.small {
   height: 22px;
@@ -550,7 +785,7 @@ body {
   pointer-events: none;
 }
 
-/* Narrow windows: the panes stack, the button labels go. */
+/* Narrow windows: the panes stack, the button labels go, the tab strip scrolls sideways. */
 @media (max-width: 760px) {
   .workbench {
     grid-template-columns: minmax(0, 1fr);
@@ -567,14 +802,16 @@ body {
     padding: 0;
     justify-content: center;
   }
-  .target-picker > span {
-    display: none;
+  .tab-toolbar {
+    padding-left: 8px;
+  }
+  .tab {
+    max-width: 180px;
   }
   /* Convert: the problems above the interface table, each scrolling, so every control stays reachable. */
-  .app.converting {
-    grid-template-rows: 40px minmax(0, 1fr) minmax(200px, 50%) 24px;
-  }
   .bottom.converting {
+    flex-basis: 50%;
+    min-height: 200px;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
   }

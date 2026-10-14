@@ -3,15 +3,13 @@
 // suggestion, or loads a map. Maps load and save as `from,to` lines or JSON, the CLI's --map format.
 import { formatInterfaceMap, parseInterfaceMap } from '@dialect/core'
 import type { Platform } from '../platform'
-import { SOURCE_PLUGIN, targetPlugin, useStore } from '../store'
+import { activeConversion, SOURCE_PLUGIN, targetPlugin, useStore, type ConversionTab } from '../store'
 import { CheckIcon, OpenIcon, SaveIcon, WarningIcon } from './Icons'
 
-export function InterfaceTable({ platform }: { platform: Platform }) {
-  const interfaces = useStore((s) => s.interfaces)
-  const interfaceMap = useStore((s) => s.interfaceMap)
-  const targetId = useStore((s) => s.targetId)
+export function InterfaceTable({ tab, platform }: { tab: ConversionTab; platform: Platform }) {
+  const { interfaces, interfaceMap } = tab
   const { setInterfaceName, takeSuggestions, mergeInterfaceMap, revealAt, notify } = useStore.getState()
-  const target = targetPlugin(targetId)
+  const target = targetPlugin(tab.job.kind === 'convert' ? tab.job.target : '')
   const unnamed = interfaces.filter((i) => i.target === undefined)
   const suggestible = unnamed.filter((i) => i.suggestion)
 
@@ -22,7 +20,7 @@ export function InterfaceTable({ platform }: { platform: Platform }) {
       const { map, problems } = parseInterfaceMap(file.text)
       if (problems.length) return notify('error', `${file.name}: ${problems[0]}${problems.length > 1 ? ` (and ${problems.length - 1} more)` : ''}`)
       mergeInterfaceMap(map)
-      const known = new Set(useStore.getState().interfaces.map((i) => i.source))
+      const known = new Set((activeConversion(useStore.getState())?.interfaces ?? []).map((i) => i.source))
       const extra = Object.keys(map).filter((name) => !known.has(name)).length
       notify('info', `Loaded ${file.name}.${extra ? ` ${extra} of its interfaces aren't in this config.` : ''}`)
     } catch (e) {

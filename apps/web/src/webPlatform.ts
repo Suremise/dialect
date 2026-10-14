@@ -53,6 +53,8 @@ export const webPlatform: Platform = {
     link.remove()
     // The download has its own copy once it starts; let it start first.
     setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    // A download can't be written to again: the next Save output downloads again.
+    return {}
   },
   async readClipboard() {
     if (!navigator.clipboard?.readText) throw new Error('no clipboard API')

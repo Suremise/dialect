@@ -5,11 +5,16 @@ import iconUrl from '../../../../branding/icon-small.svg'
 import type { Platform } from '../platform'
 import { useStore } from '../store'
 import { NOTICE, TAGLINE } from './about'
+import type { DocId } from './docs'
 import { engineVersion, osVersion } from './engine'
 import { useHelp } from './state'
 
 export function AboutDialog({ platform }: { platform: Platform }) {
-  const { aboutOpen, setAboutOpen, showDocs } = useHelp()
+  const { aboutOpen, setAboutOpen } = useHelp()
+  const showDocs = (page: DocId): void => {
+    setAboutOpen(false)
+    useStore.getState().openDocs(page)
+  }
   const [engine, setEngine] = useState<string>('…')
   const [os, setOs] = useState<string | null>(null)
   const okRef = useRef<HTMLButtonElement>(null)

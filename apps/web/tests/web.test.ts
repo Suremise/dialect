@@ -8,7 +8,7 @@
 import { readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
+import { chromium, type Browser, type BrowserContext, type Locator, type Page } from 'playwright-core'
 import { build } from 'vite'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { tempDir } from '../../../tests/tempDir'
@@ -76,7 +76,7 @@ async function openPage(colorScheme: 'dark' | 'light' = 'dark'): Promise<void> {
   })
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`))
   await page.goto(pageUrl)
-  await page.locator('[data-pane=source] .cm-content').waitFor(UI_WAIT)
+  await tab().locator('[data-pane=source] .cm-content').waitFor(UI_WAIT)
 }
 
 afterEach(async () => {
@@ -101,14 +101,14 @@ const commands = (n: number): string => `${n} command${n === 1 ? '' : 's'}`
 
 async function openWithPicker(path: string): Promise<void> {
   const chooser = page.waitForEvent('filechooser', UI_WAIT)
-  await page.getByRole('button', { name: /^Open/ }).click()
+  await tab().getByRole('button', { name: /^Open/ }).click()
   await (await chooser).setFiles(path)
 }
 
 /** Saves the output and returns the downloaded file's name and text. */
 async function saveOutput(): Promise<{ name: string; text: string }> {
   const download = page.waitForEvent('download', UI_WAIT)
-  await page.getByRole('button', { name: 'Save output' }).click()
+  await tab().getByRole('button', { name: 'Save output' }).click()
   const file = await download
   const path = join(dir, `download-${++downloads}-${file.suggestedFilename()}`)
   await file.saveAs(path)
@@ -116,12 +116,45 @@ async function saveOutput(): Promise<{ name: string; text: string }> {
 }
 
 async function typeSource(text: string): Promise<void> {
-  await page.locator('[data-pane=source] .cm-content').click()
+  await tab().locator('[data-pane=source] .cm-content').click()
   await page.keyboard.press('Control+A')
   await page.keyboard.insertText(text)
 }
 
-const text = (testId: string): Promise<string> => page.getByTestId(testId).innerText()
+/** The page of the tab shown: every tab keeps its page, the others hidden. */
+const tab = (): Locator => page.locator('[role=tabpanel]:not([hidden])')
+
+/** A test id's text: the status bar's, or in the tab shown. */
+const text = (testId: string): Promise<string> => (testId.startsWith('status-') ? page : tab()).getByTestId(testId).innerText()
+
+/** The menu bar's menu `name`, while it's open. */
+const menuOf = (name: string): Locator => page.getByRole('menu', { name })
+/** One of its items, by its label as the menu shows it (a tab's has " •" while its output is unsaved). */
+const itemOf = (name: string, label: string): Locator => menuOf(name).locator('[role^=menuitem]').filter({ has: page.locator('.menu-label').getByText(label, { exact: true }) })
+
+/** Runs a menu item with the mouse: the menu, then the item. */
+async function menu(name: string, label: string): Promise<void> {
+  await page.getByRole('menubar').getByRole('menuitem', { name, exact: true }).click()
+  await itemOf(name, label).click()
+  await expect.poll(() => menuOf(name).count(), UI_WAIT).toBe(0)
+}
+
+const DISPLAY_SET_JOB = 'Display set (Junos)'
+const CONVERT_JOB = 'Convert: Junos → Cisco IOS / IOS-XE'
+
+/** File → New Tab, and the job picked in the picker. */
+async function newTab(job: string): Promise<void> {
+  await menu('File', 'New Tab…')
+  await page.getByRole('dialog', { name: 'New tab' }).getByRole('button', { name: job }).click()
+  await expect.poll(() => page.getByRole('dialog').count(), UI_WAIT).toBe(0)
+}
+
+/** The tab strip's tabs, by title, and the one shown. */
+const tabs = (): Promise<{ titles: string[]; current: string }> =>
+  page.getByRole('tablist').evaluate((list) => ({
+    titles: [...list.querySelectorAll('[role=tab] .tab-title')].map((t) => t.textContent ?? ''),
+    current: list.querySelector('[role=tab][aria-selected=true] .tab-title')?.textContent ?? ''
+  }))
 
 /** What the page shows about the source and its result, for one poll to compare whole. */
 async function summary(): Promise<{ name: string; output: string; problems: string; status: string; saveDisabled: boolean }> {
@@ -130,7 +163,7 @@ async function summary(): Promise<{ name: string; output: string; problems: stri
     output: await text('output-summary'),
     problems: await text('problem-count'),
     status: await text('status-result'),
-    saveDisabled: await page.getByRole('button', { name: 'Save output' }).isDisabled()
+    saveDisabled: await tab().getByRole('button', { name: 'Save output' }).isDisabled()
   }
 }
 
@@ -163,7 +196,7 @@ describe('the web build', () => {
   it('shows the display set in the output pane, deactivate after its subtree', async () => {
     await openPage()
     await openWithPicker(fixture('config_8.conf'))
-    const output = page.locator('[data-pane=output] .cm-line')
+    const output = tab().locator('[data-pane=output] .cm-line')
     await expect.poll(() => output.allInnerTexts(), UI_WAIT).toEqual(expectedOutput(8).trimEnd().split('\n'))
   })
 
@@ -175,7 +208,7 @@ describe('the web build', () => {
       transfer.items.add(new File([content], 'dropped.conf', { type: 'text/plain' }))
       return transfer
     }, conf)
-    const target = page.locator('[data-pane=source]')
+    const target = tab().locator('[data-pane=source]')
     await target.dispatchEvent('dragover', { dataTransfer: data })
     await target.dispatchEvent('drop', { dataTransfer: data })
     await expect.poll(() => text('source-name'), UI_WAIT).toBe('dropped.conf')
@@ -190,8 +223,8 @@ describe('the web build', () => {
     expect(await saveOutput()).toEqual({ name: 'display-set.set', text: 'set system host-name r1\n' })
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await page.evaluate(() => navigator.clipboard.writeText('﻿system {\n    host-name r2;\n}\n'))
-    await page.getByRole('button', { name: 'Paste' }).click()
-    await expect.poll(() => page.locator('[data-pane=output] .cm-line').allInnerTexts(), UI_WAIT).toEqual(['set system host-name r2'])
+    await tab().getByRole('button', { name: 'Paste' }).click()
+    await expect.poll(() => tab().locator('[data-pane=output] .cm-line').allInnerTexts(), UI_WAIT).toEqual(['set system host-name r2'])
     expect(await saveOutput()).toEqual({ name: 'display-set.set', text: 'set system host-name r2\n' })
   })
 
@@ -201,23 +234,23 @@ describe('the web build', () => {
     await expect
       .poll(summary, UI_WAIT)
       .toEqual({ name: 'Pasted text', output: 'No output: the config has a syntax error', problems: '1 error', status: 'Syntax error, line 3', saveDisabled: true })
-    await expect.poll(() => page.locator('.problem.error').innerText(), UI_WAIT).toBe("missing ';' after the statement at line 2, column 5\nline 3, column 1")
-    await expect.poll(() => page.locator('[data-pane=output] .cm-placeholder').innerText(), UI_WAIT).toBe('Fix the syntax error to see the display set.')
-    await expect.poll(() => page.locator('[data-pane=source] .cm-mark-error').innerText(), UI_WAIT).toBe('}')
+    await expect.poll(() => tab().locator('.problem.error').innerText(), UI_WAIT).toBe("missing ';' after the statement at line 2, column 5\nline 3, column 1")
+    await expect.poll(() => tab().locator('[data-pane=output] .cm-placeholder').innerText(), UI_WAIT).toBe('Fix the syntax error to see the display set.')
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-mark-error').innerText(), UI_WAIT).toBe('}')
     // Clicking the problem puts the cursor on it, in the source.
-    await page.locator('.problem.error').click()
-    await expect.poll(() => page.locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('}')
+    await tab().locator('.problem.error').click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('}')
     // Fixing it brings the output back.
     await typeSource('system {\n    host-name r1;\n}\n')
     await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: commands(1), problems: '0 warnings', status: commands(1), saveDisabled: false })
-    await expect.poll(() => page.locator('.problem').count(), UI_WAIT).toBe(0)
+    await expect.poll(() => tab().locator('.problem').count(), UI_WAIT).toBe(0)
   })
 
   it('lists warnings with their positions', async () => {
     await openPage()
     await typeSource('system {\n    /* lab */\n    host-name r1;\n    deleted: services;\n}\n')
     await expect
-      .poll(() => page.locator('.problem.warning').allInnerTexts(), UI_WAIT)
+      .poll(() => tab().locator('.problem.warning').allInnerTexts(), UI_WAIT)
       .toEqual(["annotation on this statement isn't shown in display set\nline 3, column 5", "unknown tag 'deleted:' kept as a word\nline 4, column 5"])
     await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: commands(2), problems: '2 warnings', status: commands(2), saveDisabled: false })
   })
@@ -226,11 +259,11 @@ describe('the web build', () => {
     await openPage()
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await page.evaluate((t) => navigator.clipboard.writeText(t), readFileSync(fixture('config_3.conf'), 'utf8'))
-    await page.getByRole('button', { name: 'Paste' }).click()
+    await tab().getByRole('button', { name: 'Paste' }).click()
     const lineCount = expectedOutput(3).split('\n').length - 1
     await expect.poll(summary, UI_WAIT).toEqual({ name: 'Pasted text', output: commands(lineCount), problems: '0 warnings', status: commands(lineCount), saveDisabled: false })
     await page.evaluate(() => navigator.clipboard.writeText(''))
-    await page.getByRole('button', { name: 'Copy output' }).click()
+    await tab().getByRole('button', { name: 'Copy output' }).click()
     // Windows' clipboard keeps text with CRLF line endings.
     await expect.poll(async () => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n'), UI_WAIT).toBe(expectedOutput(3))
     await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toBe(`Copied ${commands(lineCount)}.`)
@@ -238,25 +271,29 @@ describe('the web build', () => {
 
   it('asks for Ctrl+V when it may not read the clipboard', async () => {
     await openPage()
-    await page.getByRole('button', { name: 'Paste' }).click()
+    await tab().getByRole('button', { name: 'Paste' }).click()
     await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toContain('press Ctrl+V')
   })
 
-  it("follows the system's theme, and the theme button cycles light, dark and system", async () => {
+  it("follows the system's theme, and View sets light, dark or the system's, ticking the one chosen", async () => {
     await openPage('light')
-    const button = page.locator('.toolbar .icon-only')
-    const theme = async (): Promise<{ label: string | null; theme: string | undefined; background: string }> => ({
-      label: await button.getAttribute('aria-label'),
-      theme: await page.evaluate(() => document.documentElement.dataset.theme),
-      background: await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-    })
-    await expect.poll(theme, UI_WAIT).toEqual({ label: 'System theme', theme: 'light', background: 'rgb(255, 255, 255)' })
-    await button.click()
-    await expect.poll(theme, UI_WAIT).toEqual({ label: 'Light theme', theme: 'light', background: 'rgb(255, 255, 255)' })
-    await button.click()
-    await expect.poll(theme, UI_WAIT).toEqual({ label: 'Dark theme', theme: 'dark', background: 'rgb(30, 30, 30)' })
-    await button.click()
-    await expect.poll(theme, UI_WAIT).toEqual({ label: 'System theme', theme: 'light', background: 'rgb(255, 255, 255)' })
+    const theme = async (): Promise<{ ticked: string[]; theme: string | undefined; background: string }> => {
+      await page.getByRole('menubar').getByRole('menuitem', { name: 'View', exact: true }).click()
+      const ticked = await menuOf('View').locator('[role=menuitemradio][aria-checked=true] .menu-label').allInnerTexts()
+      await page.keyboard.press('Escape')
+      return {
+        ticked,
+        theme: await page.evaluate(() => document.documentElement.dataset.theme),
+        background: await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+      }
+    }
+    await expect.poll(theme, UI_WAIT).toEqual({ ticked: ['System Theme'], theme: 'light', background: 'rgb(255, 255, 255)' })
+    await menu('View', 'Dark Theme')
+    await expect.poll(theme, UI_WAIT).toEqual({ ticked: ['Dark Theme'], theme: 'dark', background: 'rgb(30, 30, 30)' })
+    await menu('View', 'Light Theme')
+    await expect.poll(theme, UI_WAIT).toEqual({ ticked: ['Light Theme'], theme: 'light', background: 'rgb(255, 255, 255)' })
+    await menu('View', 'System Theme')
+    await expect.poll(theme, UI_WAIT).toEqual({ ticked: ['System Theme'], theme: 'light', background: 'rgb(255, 255, 255)' })
   })
 
   it("counts a banner's lines as one command, deactivate and protect as commands, and links each line to its statement", async () => {
@@ -265,10 +302,10 @@ describe('the web build', () => {
     await typeSource('system {\n    protect: host-name r1;\n    inactive: login {\n        message "one\ntwo \\"x\\"\nthree";\n    }\n}\n')
     // set host-name, protect host-name, set login message (3 lines), deactivate login.
     await expect.poll(() => text('output-summary'), UI_WAIT).toBe('4 commands (6 lines)')
-    expect(await page.locator('[data-pane=output] .cm-line').count()).toBe(6)
-    await page.locator('[data-pane=output] .cm-line').nth(3).click()
-    await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('        message "one')
-    await page.getByRole('button', { name: 'Copy output' }).click()
+    expect(await tab().locator('[data-pane=output] .cm-line').count()).toBe(6)
+    await tab().locator('[data-pane=output] .cm-line').nth(3).click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('        message "one')
+    await tab().getByRole('button', { name: 'Copy output' }).click()
     await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toBe('Copied 4 commands (6 lines).')
   })
 
@@ -276,15 +313,14 @@ describe('the web build', () => {
     await openPage()
     await typeSource('system {\n    host-name r1;\n    inactive: services {\n        ssh;\n    }\n}\n')
     await expect.poll(() => text('output-summary'), UI_WAIT).toBe(commands(3))
-    await page.locator('[data-pane=output] .cm-line').nth(2).click()
-    await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('    inactive: services {')
+    await tab().locator('[data-pane=output] .cm-line').nth(2).click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('    inactive: services {')
   })
 
   it('shows About with the version, the build, the browser, the OS and the notice, and copies the version information', async () => {
     await openPage()
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-    await page.getByRole('button', { name: 'Help' }).click()
-    await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+    await menu('Help', 'About Dialect')
     const dialog = page.getByRole('dialog', { name: 'Dialect' })
     await expect
       .poll(() => dialog.getByTestId('about-info').innerText(), UI_WAIT)
@@ -301,48 +337,51 @@ describe('the web build', () => {
 
   it("opens the Docs pages from About's links and Release Notes", async () => {
     await openPage()
-    const page1 = (): Promise<string> => page.locator('.docs-page h1').first().innerText()
+    const page1 = (): Promise<string> => tab().locator('.docs-page h1').first().innerText()
     for (const [label, heading] of [['MIT License', 'License'], ['third-party software', 'Third-party notices'], ['Release Notes', 'Release Notes']]) {
-      await page.getByRole('button', { name: 'Help' }).click()
-      await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+      await menu('Help', 'About Dialect')
       await page.getByRole('dialog').getByRole('button', { name: label, exact: true }).click()
       await expect.poll(page1, UI_WAIT).toBe(heading)
       await expect.poll(() => page.getByRole('dialog').count(), UI_WAIT).toBe(0)
     }
   })
 
-  it('renders each Docs page, from Help and from About, and goes back to the display set', async () => {
+  it('opens each Docs page in its own tab, from Help, the Docs list, About and links, keeping the display set tab', async () => {
     await openPage()
-    const page1 = (): Promise<string> => page.locator('.docs-page h1').first().innerText()
-    await page.getByRole('button', { name: 'Help' }).click()
-    await page.getByRole('menuitem', { name: 'User Guide' }).click()
+    const page1 = (): Promise<string> => tab().locator('.docs-page h1').first().innerText()
+    await menu('Help', 'User Guide')
     await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
-    // The view takes the panes' and the problems panel's rows: the status bar keeps its height.
+    expect(await tabs()).toEqual({ titles: ['Untitled → Display set', 'User Guide'], current: 'User Guide' })
+    // The page takes the tab's whole area: the status bar keeps its height.
     expect((await page.locator('.statusbar').boundingBox())?.height).toBe(24)
     for (const [label, heading] of [['Release Notes', 'Release Notes'], ['License', 'License'], ['Third-Party Notices', 'Third-party notices']]) {
-      await page.getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: label }).click()
+      await tab().getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: label }).click()
       await expect.poll(page1, UI_WAIT).toBe(heading)
     }
-    // From About's links too.
-    await page.getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: 'About Dialect' }).click()
+    expect((await tabs()).titles).toEqual(['Untitled → Display set', 'User Guide', 'Release Notes', 'License', 'Third-Party Notices'])
+    // A page already open is shown again, not opened twice: from About's links, and from a link in a page.
+    await tab().getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: 'About Dialect' }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'MIT License' }).click()
     await expect.poll(page1, UI_WAIT).toBe('License')
-    expect(await page.locator('.docs-page pre').first().innerText()).toContain('MIT License')
-    // A link to another document opens it here.
-    await page.locator('.docs-page a', { hasText: 'third-party notices' }).click()
+    expect(await tab().locator('.docs-page pre').first().innerText()).toContain('MIT License')
+    await tab().locator('.docs-page a', { hasText: 'third-party notices' }).click()
     await expect.poll(page1, UI_WAIT).toBe('Third-party notices')
-    await page.keyboard.press('Escape')
-    await expect.poll(() => page.locator('[data-pane=source] .cm-content').count(), UI_WAIT).toBe(1)
-    // F1 opens the guide.
+    await menu('Help', 'User Guide')
+    await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
+    expect((await tabs()).titles).toHaveLength(5)
+    // The display set tab is still there, as it was.
+    await page.getByRole('tab', { name: 'Untitled → Display set' }).click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-content').isVisible(), UI_WAIT).toBe(true)
+    // F1 shows the guide.
     await page.keyboard.press('F1')
     await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
   })
 
-  it('keeps the editors and their undo history while the Docs show', async () => {
+  it("keeps each tab's editors and their undo history while another tab shows, and Edit undoes and redoes", async () => {
     await openPage()
     const first = 'system { host-name alpha; }'
     const both = `${first}\ninterfaces { }`
-    const sourceText = (): Promise<string> => page.locator('[data-pane=source] .cm-content').innerText()
+    const sourceText = (): Promise<string> => tab().locator('[data-pane=source] .cm-content').innerText()
     await typeSource(first)
     await page.keyboard.press('End')
     await page.keyboard.insertText('\ninterfaces { }')
@@ -353,28 +392,27 @@ describe('the web build', () => {
     const undone = await sourceText()
     await page.keyboard.press('Control+Y')
     await expect.poll(sourceText, UI_WAIT).toBe(both)
-    // To the Docs and back, by F1 and Esc, then by the menu and the back button.
+    // To a Docs tab and a convert tab, and back.
     await page.keyboard.press('F1')
-    await expect.poll(() => page.locator('[data-pane=source]').isVisible(), UI_WAIT).toBe(false)
-    await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: 'Help' }).click()
-    await page.getByRole('menuitem', { name: 'Release Notes' }).click()
-    await page.getByRole('button', { name: '← Display set' }).click()
-    await expect.poll(() => page.locator('[data-pane=source]').isVisible(), UI_WAIT).toBe(true)
-    expect(await sourceText()).toBe(both)
+    await newTab(CONVERT_JOB)
+    await expect.poll(() => tabs(), UI_WAIT).toEqual({ titles: ['Untitled → Display set', 'User Guide', 'Untitled → IOS-XE'], current: 'Untitled → IOS-XE' })
+    await page.getByRole('tab', { name: /^Untitled → Display set/ }).click()
+    await expect.poll(sourceText, UI_WAIT).toBe(both)
     expect(await text('output-summary')).toBe(commands(2))
-    await page.locator('[data-pane=source] .cm-content').click()
+    // Edit → Undo and Redo act on this tab's source.
+    await menu('Edit', 'Undo')
+    await expect.poll(sourceText, UI_WAIT).toBe(undone)
+    await menu('Edit', 'Redo')
+    await expect.poll(sourceText, UI_WAIT).toBe(both)
+    await tab().locator('[data-pane=source] .cm-content').click()
     await page.keyboard.press('Control+Z')
     await expect.poll(sourceText, UI_WAIT).toBe(undone)
-    await page.keyboard.press('Control+Y')
-    await expect.poll(sourceText, UI_WAIT).toBe(both)
   })
 
   it('lists a shipped package in the notices with its version, license and full license text, as committed', async () => {
     await openPage()
-    await page.getByRole('button', { name: 'Help' }).click()
-    await page.getByRole('menuitem', { name: 'Third-Party Notices' }).click()
-    const docs = page.locator('.docs-page')
+    await menu('Help', 'Third-Party Notices')
+    const docs = tab().locator('.docs-page')
     await expect.poll(() => docs.locator('h2', { hasText: /^zustand / }).count(), UI_WAIT).toBe(1)
     const committed = readFileSync(join(webRoot, '../../THIRD_PARTY_NOTICES.md'), 'utf8')
     const zustand = /^\| \[zustand\]\(([^)]+)\) \| ([\d.]+) \| MIT \| desktop app, web build \|$/m.exec(committed)
@@ -396,13 +434,13 @@ describe('the web build', () => {
 describe('convert mode in the web build', () => {
   const CONVERT = join(__dirname, '../../../packages/cli/tests/fixtures/convert')
   const expected = readFileSync(join(CONVERT, 'phase1.iosxe'), 'utf8')
-  const outputLines = (): Promise<string[]> => page.locator('[data-pane=output] .cm-line').allInnerTexts()
-  const interfaceInput = (name: string) => page.getByRole('textbox', { name: `${name} on Cisco IOS / IOS-XE` })
+  const outputLines = (): Promise<string[]> => tab().locator('[data-pane=output] .cm-line').allInnerTexts()
+  const interfaceInput = (name: string) => tab().getByRole('textbox', { name: `${name} on Cisco IOS / IOS-XE` })
 
   async function openPhase1(): Promise<void> {
     await openPage()
-    await page.getByRole('button', { name: 'Convert' }).click()
-    await expect.poll(() => page.getByRole('combobox', { name: 'Target platform' }).inputValue(), UI_WAIT).toBe('iosxe')
+    await newTab(CONVERT_JOB)
+    await expect.poll(() => tab().getByRole('combobox', { name: 'Target platform' }).inputValue(), UI_WAIT).toBe('iosxe')
     await openWithPicker(join(CONVERT, 'phase1.conf'))
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
   }
@@ -414,7 +452,7 @@ describe('convert mode in the web build', () => {
     await expect.poll(() => text('output-summary'), UI_WAIT).toBe(`${lines} lines, incomplete: 4 interfaces need a name`)
     expect(await outputLines()).toContain('interface ge-0/0/0')
     expect(await interfaceInput('ge-0/0/0').getAttribute('placeholder')).toBe('GigabitEthernet0/0/0 (suggested)')
-    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    await tab().getByRole('button', { name: 'Use suggestions' }).click()
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
     await expect.poll(() => text('output-summary'), UI_WAIT).toBe(`${lines} lines`)
     expect(await outputLines()).toEqual(expected.trimEnd().split('\n'))
@@ -428,16 +466,16 @@ describe('convert mode in the web build', () => {
     await expect.poll(outputLines, UI_WAIT).toContain('interface GigabitEthernet1')
     // The Junos unit 0 next hop is the main interface on IOS.
     expect(await outputLines()).toContain('ip route 198.51.100.64 255.255.255.192 GigabitEthernet1 192.0.2.2')
-    await page.getByRole('button', { name: 'Use Loopback0 for lo0' }).click()
+    await tab().getByRole('button', { name: 'Use Loopback0 for lo0' }).click()
     await expect.poll(outputLines, UI_WAIT).toContain('interface Loopback0')
     writeFileSync(join(dir, 'names.csv'), 'ge-0/0/1,GigabitEthernet2\nxe-0/1/0,TenGigabitEthernet9/9/9\n')
     const chooser = page.waitForEvent('filechooser', UI_WAIT)
-    await page.getByRole('button', { name: /^Load map/ }).click()
+    await tab().getByRole('button', { name: /^Load map/ }).click()
     await (await chooser).setFiles(join(dir, 'names.csv'))
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
     expect(await outputLines()).toEqual(expect.arrayContaining(['interface GigabitEthernet2.10', 'interface TenGigabitEthernet9/9/9']))
     const download = page.waitForEvent('download', UI_WAIT)
-    await page.getByRole('button', { name: 'Save map' }).click()
+    await tab().getByRole('button', { name: 'Save map' }).click()
     const file = await download
     const path = join(dir, `download-${++downloads}-${file.suggestedFilename()}`)
     await file.saveAs(path)
@@ -450,7 +488,7 @@ describe('convert mode in the web build', () => {
   it('shows what did not carry over in the warnings panel and the source gutter, and jumps to it', async () => {
     await openPhase1()
     await expect
-      .poll(() => page.locator('.problem.warning').allInnerTexts(), UI_WAIT)
+      .poll(() => tab().locator('.problem.warning').allInnerTexts(), UI_WAIT)
       .toEqual([
         'Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards\nline 66, column 9',
         'Not converted: routing protocols come later\nline 74, column 1',
@@ -458,37 +496,37 @@ describe('convert mode in the web build', () => {
         'Not converted: routing protocols come later\nline 76, column 9'
       ])
     expect(await text('problem-count')).toBe('4 warnings')
-    await page.locator('.problem.warning').first().click()
-    await expect.poll(() => page.locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('        route 192.0.2.192/26 reject;')
+    await tab().locator('.problem.warning').first().click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('        route 192.0.2.192/26 reject;')
     // The gutter marks the line, saying why on hover; the line itself is marked too.
-    const marker = page.locator('[data-pane=source] .cm-issue-warning[title^="Not written"]')
+    const marker = tab().locator('[data-pane=source] .cm-issue-warning[title^="Not written"]')
     await expect.poll(() => marker.getAttribute('title'), UI_WAIT).toBe('Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards')
-    expect(await page.locator('[data-pane=source] .cm-mark-warning', { hasText: 'reject' }).count()).toBe(1)
-    await page.locator('.problem.warning').last().click()
-    await expect.poll(() => page.locator('[data-pane=source] .cm-issue-warning[title^="Not converted"]').count(), UI_WAIT).toBe(3)
+    expect(await tab().locator('[data-pane=source] .cm-mark-warning', { hasText: 'reject' }).count()).toBe(1)
+    await tab().locator('.problem.warning').last().click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-issue-warning[title^="Not converted"]').count(), UI_WAIT).toBe(3)
   })
 
   it('links an output line to its source statement, and back', async () => {
     await openPhase1()
-    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    await tab().getByRole('button', { name: 'Use suggestions' }).click()
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
-    await page.locator('[data-pane=output] .cm-line', { hasText: 'ip address 192.0.2.1 255.255.255.252' }).click()
-    await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['                address 192.0.2.1/30;'])
+    await tab().locator('[data-pane=output] .cm-line', { hasText: 'ip address 192.0.2.1 255.255.255.252' }).click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['                address 192.0.2.1/30;'])
     // Back by the keyboard: the source pane has just scrolled to the address (on its next frame), so a click by position
     // could land on another line. Line 3 is `host-name edge-1;`.
-    await page.locator('[data-pane=source] .cm-content').focus()
+    await tab().locator('[data-pane=source] .cm-content').focus()
     await page.keyboard.press('Control+Home')
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowDown')
-    await expect.poll(() => page.locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('    host-name edge-1;')
-    await expect.poll(() => page.locator('[data-pane=output] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['hostname edge-1'])
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('    host-name edge-1;')
+    await expect.poll(() => tab().locator('[data-pane=output] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['hostname edge-1'])
   })
 
   it('refuses a loaded JSON map that names an interface twice, applying none of it', async () => {
     await openPhase1()
     writeFileSync(join(dir, 'twice.json'), '{"lo0":"Loopback1","lo0":"Loopback2","ge-0/0/0":"GigabitEthernet1"}')
     const chooser = page.waitForEvent('filechooser', UI_WAIT)
-    await page.getByRole('button', { name: /^Load map/ }).click()
+    await tab().getByRole('button', { name: /^Load map/ }).click()
     await (await chooser).setFiles(join(dir, 'twice.json'))
     await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toBe('twice.json: the JSON names an interface twice')
     expect(await text('interface-count')).toBe('4 of 4 need a name')
@@ -499,7 +537,7 @@ describe('convert mode in the web build', () => {
     await openPhase1()
     await interfaceInput('ge-0/0/0').fill('ge-0/0/1')
     await expect
-      .poll(() => page.locator('.problem.error').allInnerTexts(), UI_WAIT)
+      .poll(() => tab().locator('.problem.error').allInnerTexts(), UI_WAIT)
       .toEqual(['2 interfaces would have one name on Cisco IOS / IOS-XE (lines 21, 29): give each its own.\nline 21, column 5'])
     // Both interfaces are still in the output, under their own names.
     expect(await outputLines()).toEqual(expect.arrayContaining(['interface ge-0/0/0', 'interface ge-0/0/1.10']))
@@ -508,7 +546,7 @@ describe('convert mode in the web build', () => {
   it('keeps the interface table usable in a narrow window (the desktop app\'s smallest)', async () => {
     await openPhase1()
     await page.setViewportSize({ width: 720, height: 480 })
-    const table = page.locator('.interfaces')
+    const table = tab().locator('.interfaces')
     await expect.poll(() => table.isVisible(), UI_WAIT).toBe(true)
     const input = interfaceInput('xe-0/1/0')
     await input.scrollIntoViewIfNeeded()
@@ -519,19 +557,223 @@ describe('convert mode in the web build', () => {
     expect(box.y + box.height).toBeLessThanOrEqual(480)
     await input.fill('TenGigabitEthernet1/1/1')
     await expect.poll(outputLines, UI_WAIT).toContain('interface TenGigabitEthernet1/1/1')
-    for (const name of ['Use suggestions', 'Load map…', 'Save map']) expect(await page.getByRole('button', { name }).isVisible()).toBe(true)
-    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    for (const name of ['Use suggestions', 'Load map…', 'Save map']) expect(await tab().getByRole('button', { name }).isVisible()).toBe(true)
+    await tab().getByRole('button', { name: 'Use suggestions' }).click()
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
   })
 
-  it('keeps display set as it was, and Convert in the Docs back button', async () => {
+  it('keeps the display set tab as it was beside the convert tab', async () => {
     await openPhase1()
-    await page.keyboard.press('F1')
-    await expect.poll(() => page.getByRole('button', { name: '← Convert' }).count(), UI_WAIT).toBe(1)
-    await page.getByRole('button', { name: '← Convert' }).click()
-    await page.getByRole('button', { name: 'Display set' }).click()
-    await expect.poll(() => text('output-summary'), UI_WAIT).toMatch(/^\d+ commands$/)
-    expect(await page.locator('.interfaces').count()).toBe(0)
+    await page.getByRole('tab', { name: 'Untitled → Display set' }).click()
+    await expect.poll(() => tab().locator('[data-pane=output] .cm-placeholder').innerText(), UI_WAIT).toBe('The display set appears here.')
+    expect(await tab().locator('.interfaces').count()).toBe(0)
+    await page.getByRole('tab', { name: /^phase1\.conf → IOS-XE/ }).click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
+  })
+})
+
+describe('tabs and the menu bar in the web build', () => {
+  const PHASE1 = join(__dirname, '../../../packages/cli/tests/fixtures/convert/phase1.conf')
+  const firstOutputLine = (): Promise<string> => tab().locator('[data-pane=output] .cm-line').first().innerText()
+  /** The Window menu's ticked entry, read with the menu open and closed again. */
+  async function ticked(): Promise<string[]> {
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click()
+    const labels = await menuOf('Window').locator('[role=menuitemradio][aria-checked=true] .menu-label').allInnerTexts()
+    await page.keyboard.press('Escape')
+    await expect.poll(() => menuOf('Window').count(), UI_WAIT).toBe(0)
+    return labels
+  }
+  /** The focused element's label: a menu item's, or a menu bar button's. */
+  const focused = (): Promise<string> => page.evaluate(() => (document.activeElement?.querySelector('.menu-label') ?? document.activeElement)?.textContent?.trim() ?? '')
+
+  it('keeps each tab its own output, switching with the Window menu (the tick moves) and the keyboard', async () => {
+    await openPage()
+    await typeSource('system { host-name r1; }')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('set system host-name r1')
+    await newTab(CONVERT_JOB)
+    await typeSource('system { host-name r2; }')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('hostname r2')
+    expect(await tabs()).toEqual({ titles: ['Untitled → Display set', 'Untitled → IOS-XE'], current: 'Untitled → IOS-XE' })
+    // Both have unsaved output: the strip and the Window menu show a dot.
+    expect(await page.locator('.tab .tab-dot').count()).toBe(2)
+    expect(await ticked()).toEqual(['Untitled → IOS-XE •'])
+    await menu('Window', 'Untitled → Display set •')
+    await expect.poll(() => tabs().then((t) => t.current), UI_WAIT).toBe('Untitled → Display set')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('set system host-name r1')
+    expect(await ticked()).toEqual(['Untitled → Display set •'])
+    // The shortcuts: next and previous (Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown), a tab by its place (Ctrl+2, and
+    // the browser-safe Alt+1).
+    const current = async (): Promise<{ tab: string; line: string }> => ({ tab: (await tabs()).current, line: await firstOutputLine() })
+    await page.keyboard.press('Control+Tab')
+    await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → IOS-XE', line: 'hostname r2' })
+    await page.keyboard.press('Control+Shift+Tab')
+    await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → Display set', line: 'set system host-name r1' })
+    await page.keyboard.press('Control+2')
+    await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → IOS-XE', line: 'hostname r2' })
+    await page.keyboard.press('Alt+1')
+    await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → Display set', line: 'set system host-name r1' })
+    await page.keyboard.press('Control+PageDown')
+    await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → IOS-XE', line: 'hostname r2' })
+    expect(await ticked()).toEqual(['Untitled → IOS-XE •'])
+    // The tab strip by the keyboard: the arrow keys move along it.
+    await page.getByRole('tab', { selected: true }).focus()
+    await page.keyboard.press('ArrowLeft')
+    await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → Display set', line: 'set system host-name r1' })
+  })
+
+  it('asks before closing a tab with unsaved output, by Ctrl+W, middle-click or ×, and saves first when asked', async () => {
+    await openPage()
+    await typeSource('system { host-name r1; }')
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(commands(1))
+    const dialog = page.getByRole('dialog', { name: 'Close Untitled → Display set?' })
+    await page.keyboard.press('Control+W')
+    await expect.poll(() => dialog.isVisible(), UI_WAIT).toBe(true)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect.poll(() => dialog.count(), UI_WAIT).toBe(0)
+    expect((await tabs()).titles).toEqual(['Untitled → Display set'])
+    // Middle-click, then close without saving: no tab is left, and the page offers a new one.
+    await page.getByRole('tab', { name: /^Untitled → Display set/ }).click({ button: 'middle' })
+    await dialog.getByRole('button', { name: 'Close without saving' }).click()
+    await expect.poll(() => tabs(), UI_WAIT).toEqual({ titles: [], current: '' })
+    expect(await page.locator('.no-tabs h1').innerText()).toBe('No tabs open')
+    await page.locator('.no-tabs').getByRole('button', { name: DISPLAY_SET_JOB }).click()
+    await typeSource('system { host-name r2; }')
+    // ×, then save and close: the output downloads and the tab goes.
+    await page.getByRole('button', { name: /^Close Untitled → Display set/ }).click()
+    const download = page.waitForEvent('download', UI_WAIT)
+    await dialog.getByRole('button', { name: 'Save and close' }).click()
+    expect((await download).suggestedFilename()).toBe('display-set.set')
+    await expect.poll(() => tabs().then((t) => t.titles), UI_WAIT).toEqual([])
+    // A tab with nothing unsaved closes at once.
+    await newTab(CONVERT_JOB)
+    await page.keyboard.press('Control+W')
+    await expect.poll(() => tabs().then((t) => t.titles), UI_WAIT).toEqual([])
+    expect(await page.getByRole('dialog').count()).toBe(0)
+    // Saved output is saved: closing asks nothing.
+    await newTab(DISPLAY_SET_JOB)
+    await typeSource('system { host-name r3; }')
+    await expect.poll(() => page.locator('.tab .tab-dot').count(), UI_WAIT).toBe(1)
+    await saveOutput()
+    await expect.poll(() => page.locator('.tab .tab-dot').count(), UI_WAIT).toBe(0)
+    await menu('File', 'Close Tab')
+    await expect.poll(() => tabs().then((t) => t.titles), UI_WAIT).toEqual([])
+  })
+
+  it('brings the tabs back after a reload, with their file names and jobs but never their contents', async () => {
+    await openPage()
+    await openWithPicker(fixture('config_15.conf'))
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(commands(12))
+    await newTab(CONVERT_JOB)
+    await openWithPicker(PHASE1)
+    await tab().getByRole('button', { name: 'Use suggestions' }).click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+    await menu('Help', 'License')
+    // The page's storage holds the tabs' jobs and file names, and nothing else: no config, output or interface name.
+    const stored = await page.evaluate(async () => ({
+      local: Object.fromEntries(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)])),
+      session: sessionStorage.length,
+      databases: (await indexedDB.databases()).map((d) => d.name)
+    }))
+    expect(stored.session).toBe(0)
+    expect(stored.databases).toEqual([])
+    expect(Object.keys(stored.local)).toEqual(['dialect.session'])
+    expect(JSON.parse(stored.local['dialect.session']!)).toEqual({
+      tabs: [
+        { kind: 'conversion', job: { kind: 'tool', tool: 'junos.display-set' }, name: 'config_15.conf' },
+        { kind: 'conversion', job: { kind: 'convert', target: 'iosxe' }, name: 'phase1.conf' },
+        { kind: 'docs', page: 'license' }
+      ],
+      active: 2
+    })
+    const lines = [readFileSync(fixture('config_15.conf'), 'utf8'), readFileSync(PHASE1, 'utf8'), expectedOutput(15)].flatMap((c) => c.split('\n').map((l) => l.trim()).filter((l) => l.length > 3))
+    expect(lines.filter((l) => stored.local['dialect.session']!.includes(l))).toEqual([])
+
+    await page.reload()
+    await page.getByRole('tablist').waitFor(UI_WAIT)
+    await expect.poll(() => tabs(), UI_WAIT).toEqual({ titles: ['config_15.conf → Display set', 'phase1.conf → IOS-XE', 'License'], current: 'License' })
+    await expect.poll(() => tab().locator('.docs-page h1').first().innerText(), UI_WAIT).toBe('License')
+    // The convert tab is there without its config, offering to open it again.
+    await page.getByRole('tab', { name: /^phase1\.conf → IOS-XE/ }).click()
+    // An empty source: the editor shows its placeholder.
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-placeholder').count(), UI_WAIT).toBe(1)
+    expect(await text('interface-count')).toBe('none')
+    const reopen = tab().getByRole('button', { name: 'Reopen phase1.conf…' })
+    const chooser = page.waitForEvent('filechooser', UI_WAIT)
+    await reopen.click()
+    await (await chooser).setFiles(PHASE1)
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
+    expect(await reopen.count()).toBe(0)
+  })
+
+  it('works the menu bar with the keyboard: Alt or F10, the arrow keys, Home and End, Enter and Esc', async () => {
+    await openPage('dark')
+    await page.keyboard.press('Alt')
+    await expect.poll(focused, UI_WAIT).toBe('File')
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(focused, UI_WAIT).toBe('Edit')
+    // Down opens the menu at its first item; disabled items are passed over (Copy Output, with no output).
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(focused, UI_WAIT).toBe('Undo')
+    expect(await page.getByRole('menubar').getByRole('menuitem', { name: 'Edit', exact: true }).getAttribute('aria-expanded')).toBe('true')
+    expect(await itemOf('Edit', 'Copy Output').getAttribute('aria-disabled')).toBe('true')
+    await page.keyboard.press('End')
+    await expect.poll(focused, UI_WAIT).toBe('Paste')
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(focused, UI_WAIT).toBe('Undo')
+    // Right goes to the next menu, open; Enter runs the item and closes the menu.
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(focused, UI_WAIT).toBe('System Theme')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme), UI_WAIT).toBe('light')
+    expect(await page.getByRole('menu').count()).toBe(0)
+    // Esc closes the menu, then leaves the bar.
+    await page.keyboard.press('F10')
+    await expect.poll(focused, UI_WAIT).toBe('File')
+    await page.keyboard.press('Enter')
+    await expect.poll(focused, UI_WAIT).toBe('New Tab…')
+    await page.keyboard.press('Escape')
+    await expect.poll(() => page.getByRole('menu').count(), UI_WAIT).toBe(0)
+    await expect.poll(focused, UI_WAIT).toBe('File')
+    await page.keyboard.press('Escape')
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('[role=menubar]')), UI_WAIT).toBe(false)
+    // Home and End along the bar, Up opens a menu at its last item.
+    await page.keyboard.press('Alt')
+    await page.keyboard.press('End')
+    await expect.poll(focused, UI_WAIT).toBe('Help')
+    await page.keyboard.press('ArrowUp')
+    await expect.poll(focused, UI_WAIT).toBe('About Dialect')
+    await page.keyboard.press('Home')
+    await expect.poll(focused, UI_WAIT).toBe('User Guide')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => tabs().then((t) => t.current), UI_WAIT).toBe('User Guide')
+    // The web build has no Exit: a page can't close its browser tab.
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'File', exact: true }).click()
+    expect(await menuOf('File').locator('.menu-label').allInnerTexts()).toEqual(['New Tab…', 'Open…', 'Save Output', 'Save Output As…', 'Close Tab'])
+  })
+
+  it('keeps the menu bar and the tab strip usable in a narrow window, the strip scrolling', async () => {
+    await openPage()
+    await page.setViewportSize({ width: 720, height: 480 })
+    for (let i = 0; i < 6; i++) await newTab(i % 2 ? CONVERT_JOB : DISPLAY_SET_JOB)
+    const strip = await page.getByRole('tablist').evaluate((list) => ({ scroll: list.scrollWidth, width: list.clientWidth }))
+    expect(strip.scroll).toBeGreaterThan(strip.width)
+    // The current tab (the last) is scrolled into view, inside the window.
+    const current = (await page.getByRole('tab', { selected: true }).boundingBox())!
+    expect(current.x).toBeGreaterThanOrEqual(0)
+    expect(current.x + current.width).toBeLessThanOrEqual(720)
+    for (const name of ['File', 'Edit', 'View', 'Window', 'Help']) {
+      const box = (await page.getByRole('menubar').getByRole('menuitem', { name, exact: true }).boundingBox())!
+      expect(box.x + box.width).toBeLessThanOrEqual(720)
+    }
+    expect(await page.getByRole('button', { name: 'New tab' }).isVisible()).toBe(true)
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click()
+    const menuBox = (await menuOf('Window').boundingBox())!
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(720)
+    await itemOf('Window', 'Untitled → Display set').first().click()
+    await expect.poll(() => tabs().then((t) => t.current), UI_WAIT).toBe('Untitled → Display set')
+    const first = (await page.getByRole('tab', { selected: true }).boundingBox())!
+    expect(first.x).toBeGreaterThanOrEqual(0)
   })
 })
 
@@ -542,23 +784,30 @@ describe.runIf(Boolean(shots))('screenshots', () => {
     await openPage(scheme)
     await openWithPicker(fixture('config_15.conf'))
     await expect.poll(() => text('output-summary'), UI_WAIT).toBe(commands(12))
-    await page.locator('[data-pane=output] .cm-line').nth(6).click()
-    await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').count(), UI_WAIT).toBe(1)
+    await tab().locator('[data-pane=output] .cm-line').nth(6).click()
+    await expect.poll(() => tab().locator('[data-pane=source] .cm-mark-link').count(), UI_WAIT).toBe(1)
     await page.screenshot({ path: join(shots!, `dialect-${scheme}.png`) })
     await typeSource('system {\n    /* lab */\n    host-name r1\n}\n')
     await expect.poll(() => text('problem-count'), UI_WAIT).toBe('1 error')
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-error.png`) })
-    await page.getByRole('button', { name: 'Convert' }).click()
+    await newTab(CONVERT_JOB)
     await openWithPicker(join(__dirname, '../../../packages/cli/tests/fixtures/convert/phase1.conf'))
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
-    await page.getByRole('button', { name: 'Use GigabitEthernet0/0/0 for ge-0/0/0' }).click()
-    await page.locator('.problem.warning').first().click()
+    await tab().getByRole('button', { name: 'Use GigabitEthernet0/0/0 for ge-0/0/0' }).click()
+    await tab().locator('.problem.warning').first().click()
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('3 of 4 need a name')
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert.png`) })
     await page.setViewportSize({ width: 720, height: 480 })
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert-narrow.png`) })
-    await page.getByRole('button', { name: 'Help' }).click()
-    await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+    await page.setViewportSize({ width: 1280, height: 760 })
+    await menu('Help', 'User Guide')
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click()
+    await page.screenshot({ path: join(shots!, `dialect-${scheme}-tabs.png`) })
+    await page.keyboard.press('Escape')
+    await menu('File', 'New Tab…')
+    await page.screenshot({ path: join(shots!, `dialect-${scheme}-new-tab.png`) })
+    await page.keyboard.press('Escape')
+    await menu('Help', 'About Dialect')
     await expect.poll(() => page.getByTestId('about-info').innerText(), UI_WAIT).toContain('OS')
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-about.png`) })
     writeFileSync(join(shots!, 'size.txt'), `${readFileSync(join(dir, 'dist', 'dialect.html')).length}\n`)

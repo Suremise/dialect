@@ -476,25 +476,56 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 
 The React UI both shells share: `<App platform={…} />`, where `Platform` (`src/platform.ts`) is the shell's file and
 clipboard access (open, open a dropped file, save, read and write the clipboard), which build it is (`kind`, `version`)
-and how it opens a web link (`openLink`). Open and save take what the file holds (`FileKind`: a config, or an interface
+and how it opens a web link (`openLink`). Two parts are optional, for a shell that can do them: `saveTextTo` writes
+again to a path an earlier save returned (the desktop app; a download can't be written to again), and `exit` quits
+(File → Exit, the desktop app only). Open and save take what the file holds (`FileKind`: a config, or an interface
 map), so the shells offer the right file types. The UI never touches files itself: even a dropped file is read by the shell,
 from the drop event's data. Both shells take the version from the root `package.json` (a named JSON import, so only
 that field is bundled).
 
-- `src/store.ts`: one zustand store, with the mode (display set or convert), the convert target, the source text and
-  its name, the interface map, what the source gives in the mode (the output, the linked lines as source/output pairs,
-  the problems, and in convert the interface rows), the theme choice, and requests to reveal a place in an editor. Both
-  modes go through the core's registry (`createRegistry([junos, iosxe])`), as the CLI does: display set as the Junos
-  plugin's tool (its problems from the result's diagnostics, its links from `sourceLines`), convert as the core's
-  `convert()` from Junos to the target (its problems from the ledger's diagnostics and `issues`, its links from
-  `links` and the statements' spans, its rows from `interfaces`). Both run synchronously on every change (config_22,
-  316 KB, parses in tens of milliseconds). The interface map is kept while the source is edited and dropped when
-  another file opens or the target changes, so no name carries over to other ports unasked.
-- `src/App.tsx`: the title bar (the mode switch, convert's target, and the actions: Open, Paste, Copy output, Save
-  output, Help, the theme), the source and output panes, the problems panel (and in convert, the interface table beside
-  it) and the status bar. A file dropped anywhere opens, even on an editor: the drop is handled
-  in the capture phase, so CodeMirror doesn't insert it, and `platform.openDropped()` reads it. Moving the cursor in one pane marks the matching lines in the other, through
-  the store's links.
+The window is a menu bar, a tab strip and the current tab's page (juniper-decisions: UI shell), the same in both shells.
+
+- `src/store.ts`: one zustand store of **tabs**, each a conversion or a Docs page, and which is shown; the theme
+  choice, the notice, requests to reveal a place in a tab's editor, and the open dialogs (the new tab picker, closing a
+  tab or exiting with unsaved output). A conversion tab holds its **job** (`{ kind: 'tool', tool: 'junos.display-set' }`
+  or `{ kind: 'convert', target: 'iosxe' }`), its source and file name, its interface map, what the source gives with
+  the job (the output, the linked lines as source/output pairs, the problems, and in convert the interface rows), the
+  output as last saved (unsaved while the output differs) and where it was saved. Jobs come from the core's registry
+  (`createRegistry([junos, iosxe])`), as the CLI's do: `jobs()` lists every plugin's tools, then convert from Junos to
+  every target, so a new plugin or tool shows up in the new tab picker unasked. A tool runs generically (its problems
+  from the result's diagnostics, its links from `sourceLines`); convert is the core's `convert()` from Junos to the
+  target (its problems from the ledger's diagnostics and `issues`, its links from `links` and the statements' spans,
+  its rows from `interfaces`). Each runs synchronously on every change (config_22, 316 KB, parses in tens of
+  milliseconds). The store's actions act on the tab shown. The interface map is kept while the source is edited and
+  dropped when another file opens or the target changes, so no name carries over to other ports unasked.
+- `src/session.ts`: what the next start gets back, in `localStorage` (`dialect.session`): each tab's job and file name,
+  or its Docs page, and which was shown. **Never a config's contents**, the output or the interface names: configs
+  hold secrets, and browser storage is plain text in the user's profile. A restored conversion tab has no source and
+  offers to reopen its file (`reopen`). Nothing is kept in IndexedDB or sessionStorage; the web tests check all three.
+- `src/commands.ts`: every command the menus and the shortcuts run, with its keybinding, in one registry (Hive's
+  `commands.ts`): `createCommands(platform)` (Exit only with `platform.exit`), `matchKey()` for the window's keydown
+  handler (after the editors, so CodeMirror keeps Undo, Redo and its search keys), and `keysOf()`, which puts a
+  command's browser-safe keys (`webKeys`: Alt+T, Alt+W, Alt+1…9, Alt+PgDn) first in the web build, since a browser
+  keeps Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+1…9 for its own tabs.
+- `src/actions.ts`: what the commands and buttons do with the shell: open into the tab shown (a new display set tab
+  when a Docs tab shows), paste, copy and save its output (Save output writes to the earlier save's path where the
+  shell can, Save output as always asks), Exit, and Edit's Undo and Redo on the tab's editor last focused
+  (`editor/views.ts` keeps each tab's editors).
+- `src/App.tsx`: the menu bar, the tab strip, every tab's page (a conversion's or a Docs page's, all mounted, the others
+  hidden, so each tab's editors keep their text and undo history), the status bar for the tab shown and the dialogs. A
+  file dropped anywhere opens, even on an editor: the drop is handled in the capture phase, so CodeMirror doesn't
+  insert it, and `platform.openDropped()` reads it.
+- `src/components/MenuBar.tsx`: File, Edit, View, Window (each open tab, the current one ticked) and Help, every item a
+  command from the registry with its shortcut. WAI-ARIA's menubar pattern: `menubar`, `menu`, `menuitem` and
+  `menuitemradio` (the theme, the tabs) with `aria-checked`; Alt or F10 moves to the bar and back, the arrow keys,
+  Home and End move, Enter or Space runs, Esc closes a menu and then leaves the bar, handing the focus back.
+- `src/components/TabStrip.tsx`: a `tablist` of the tabs (title, an unsaved dot, ×, the path on hover), "+" for a new
+  tab, middle-click and Delete to close, the arrow keys, Home and End to move; it scrolls sideways in a narrow window
+  and keeps the current tab in view. `Dialogs.tsx`: the new tab picker (from `jobs()`) and the questions before closing
+  a tab or exiting with unsaved output. `ConversionView.tsx`: a conversion tab's page: its toolbar (the job, convert's
+  target, Open, Paste, Copy output, Save output, and a Reopen bar for a restored tab), the source and output panes and
+  the problems panel (and in convert, the interface table beside it). Moving the cursor in one pane marks the matching
+  lines in the other, through the tab's links.
 - `src/components/InterfaceTable.tsx`: convert's interface table: each interface with its name on the target, the
   suggestion as the input's placeholder and a Use button, Use suggestions, and Load map… / Save map in the CLI's map
   format (the core's `parseInterfaceMap()` and `formatInterfaceMap()`).
@@ -504,15 +535,19 @@ that field is bundled).
 - `src/help/` (B16, Hive's Docs view and About dialog): `docs.ts` bundles `docs/USER_GUIDE.md`, `CHANGELOG.md`,
   `LICENSE` and `THIRD_PARTY_NOTICES.md` with Vite's `?raw`; `Markdown.tsx` renders one with marked, cleans it with
   DOMPurify, gives headings GitHub's ids and keeps every link from navigating the page (another bundled document
-  opens in the view, `#heading` scrolls, `https://` goes to `platform.openLink`); `DocsView.tsx` takes the place of
-  the panes; `AboutDialog.tsx` shows the version, the build and the engine (`engine.ts`: `navigator.userAgentData`'s
-  full version where there is one, else the user agent string); `HelpMenu.tsx` opens them (F1: the guide, Esc: back);
-  `state.ts` is their own small store. `tests/help.test.ts` fails when a bundled document isn't the committed file, so
+  opens its tab, `#heading` scrolls, `https://` goes to `platform.openLink`); `DocsView.tsx` is a Docs tab's page, the
+  list of pages beside it (each opens or shows that page's tab); `AboutDialog.tsx` shows the version, the build, the
+  engine and the OS (`engine.ts`: `navigator.userAgentData` where it tells, else the user agent string); `state.ts`
+  holds whether About is open. The Help menu and F1 are commands (`commands.ts`). `tests/help.test.ts` fails when a bundled document isn't the committed file, so
   with the license check the app's notices are always the current ones. The rendered HTML stays inside the CSP: no
   inline styles or scripts (DOMPurify drops scripts and handlers; marked writes none), so the web build's hash-only
   policy is unchanged. The notices are most of the web build's size: about 1.1 MB in all.
-- `src/styles/help.css`: the menu, the Docs view, the Markdown pages and the About dialog, imported by `app.css`.
-- `src/styles/app.css`: Hive's surface and text colours, and the violet accent from `branding/theme-tokens.css`.
+- `src/styles/help.css`: the Docs view, the Markdown pages, the About dialog and the tab dialogs, imported by
+  `app.css`.
+- `src/styles/app.css`: Hive's surface and text colours, and the violet accent from `branding/theme-tokens.css`, with
+  the layout, the menu bar and the tab strip. Every control is visibly one: buttons, tabs, menus and inputs have an
+  edge (`--border-control`, 3:1 at least on every surface, which `tests/contrast.test.ts` checks), the current tab
+  has the accent on top and joins its page, and focus rings are the accent's (`--focus-ring`, `npm run contrast`).
   `[data-theme]` on `<html>` picks light or dark; the app follows the system unless the user picks one (kept in
   `localStorage` when the browser allows it).
 
@@ -563,11 +598,14 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
 - **Rust:** `src-tauri/src/main.rs` only opens the window and adds the dialog, fs and opener plugins. Conversion runs
   in the webview, from the same TypeScript as the web build.
 - **The Platform** (`src/desktopPlatform.ts`): Open and Save output use `@tauri-apps/plugin-dialog`'s open and save
-  dialogs, then `@tauri-apps/plugin-fs` to read or write that path. A dropped file is read from the drop event, as in
+  dialogs, then `@tauri-apps/plugin-fs` to read or write that path; an opened file's path is the tab's tooltip, and a
+  saved one's is where Save output writes again this session (`saveTextTo`, in the fs scope the dialog gave it).
+  `exit` closes the window through `@tauri-apps/api/window`. A dropped file is read from the drop event, as in
   the web build: the window sets `dragDropEnabled: false`, so the page gets the HTML drop and the UI hands it to
   `openDropped`. The clipboard is WebView2's clipboard API. `openLink` (a Docs link) is `@tauri-apps/plugin-opener`'s
   `openUrl`, which starts the default browser.
-- **Capabilities** (`src-tauri/capabilities/default.json`): `dialog:allow-open`, `dialog:allow-save`,
+- **Capabilities** (`src-tauri/capabilities/default.json`): `core:window:allow-close` (File → Exit closes the only
+  window, which quits the app), `dialog:allow-open`, `dialog:allow-save`,
   `fs:allow-read-text-file` and `fs:allow-write-text-file`, with no fs scope: the dialog plugin adds each file the user
   picks to the fs scope, so the page can read or write those files and no other (the smoke test checks
   `C:\Windows\win.ini` is refused). `opener:allow-open-url` with the scope `https://*` (the opener's glob, whose `*`
@@ -584,9 +622,11 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
 - **Tests:** `tests/desktop.test.ts` (in `npm test`) checks the Platform with the plugins mocked, and the config and
   capability above. `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
   (`tauri build --no-bundle`), starts it from the build output through tauri-driver and Edge WebDriver, drops a
-  fixture and checks its display set, opens About and each Docs page, then checks that the CSP refuses an inline
+  fixture and checks its display set, opens About and each Docs page in its tab, converts in a tab of its own and
+  switches back through the Window menu, then checks that the CSP refuses an inline
   script, a remote image and a fetch (WebDriver's own scripts aren't subject to the CSP, so it checks what the page
-  does), that the fs plugin refuses a file nobody picked and that the opener refuses anything but https. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
+  does), that the fs plugin refuses a file nobody picked and that the opener refuses anything but https, and last that
+  File → Exit (past the unsaved output question) ends the app's process. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
   `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs tauri-driver
   (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver matching the installed WebView2 (from
   `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`), through `MSEDGEDRIVER` or `PATH`.

@@ -1,9 +1,13 @@
 // The UI store's logic without a browser: the output, source lines and problems it derives from the source (through
-// the registry's display set tool, or convert's), the interface map, and the save name.
+// the registry's display set tool, or convert's), the interface map, the save name, the tabs and what the session keeps.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { countCommands, outputName, useStore } from '../src/store'
+import { sessionOf } from '../src/session'
+import { activeConversion, countCommands, DISPLAY_SET, isUnsaved, jobs, outputName, tabTitle, useStore } from '../src/store'
+
+/** The tab the store's actions act on. */
+const doc = () => activeConversion(useStore.getState())!
 
 beforeEach(() => {
   useStore.getState().setSource('', null)
@@ -12,7 +16,7 @@ beforeEach(() => {
 describe('the store', () => {
   it('derives the output, one set line per line, without a trailing newline', () => {
     useStore.getState().setSource('system {\n    host-name r1;\n    inactive: services { ssh; }\n}\n', 'r1.conf')
-    const { output, problems, sourceName } = useStore.getState()
+    const { output, problems, sourceName } = doc()
     expect(output).toBe('set system host-name r1\nset system services ssh\ndeactivate system services')
     expect(problems).toEqual([])
     expect(sourceName).toBe('r1.conf')
@@ -20,28 +24,28 @@ describe('the store', () => {
 
   it("gives each output line its statement's source line, from the tool's result", () => {
     useStore.getState().setSource('system {\n    host-name r1;\n    inactive: services { ssh; }\n}\n')
-    expect(useStore.getState().sourceLines).toEqual([2, 3, 3])
+    expect(doc().sourceLines).toEqual([2, 3, 3])
     useStore.getState().setSource('system {\n    host-name r1\n}\n')
-    expect(useStore.getState().sourceLines).toEqual([])
+    expect(doc().sourceLines).toEqual([])
   })
 
   it('keeps the name while the source is edited, and drops it for pasted text', () => {
     useStore.getState().setSource('version 1;', 'a.conf')
     useStore.getState().setSource('version 2;')
-    expect(useStore.getState().sourceName).toBe('a.conf')
+    expect(doc().sourceName).toBe('a.conf')
     useStore.getState().setSource('version 3;', null)
-    expect(useStore.getState().sourceName).toBeNull()
+    expect(doc().sourceName).toBeNull()
   })
 
   it('gives a syntax error as the only problem, with no output', () => {
     useStore.getState().setSource('system {\n    host-name r1\n}\n')
-    expect(useStore.getState().output).toBe('')
-    expect(useStore.getState().problems).toEqual([{ severity: 'error', message: "missing ';' after the statement at line 2, column 5", line: 3, column: 1 }])
+    expect(doc().output).toBe('')
+    expect(doc().problems).toEqual([{ severity: 'error', message: "missing ';' after the statement at line 2, column 5", line: 3, column: 1 }])
   })
 
   it('lists warnings as problems', () => {
     useStore.getState().setSource('/* x */\nversion 1;\n')
-    expect(useStore.getState().problems).toEqual([{ severity: 'warning', message: "annotation on this statement isn't shown in display set", line: 2, column: 1 }])
+    expect(doc().problems).toEqual([{ severity: 'warning', message: "annotation on this statement isn't shown in display set", line: 2, column: 1 }])
   })
 
   it('counts each reveal and notice, so the same place asked twice moves twice', () => {
@@ -65,7 +69,7 @@ describe('countCommands', () => {
 
   it("matches the display set's own commands for a banner, its lines linked to one statement", () => {
     useStore.getState().setSource('system {\n    login {\n        message "one\ntwo\nthree";\n    }\n    host-name r1;\n}\n')
-    const { output, sourceLines } = useStore.getState()
+    const { output, sourceLines } = doc()
     expect(output.split('\n')).toHaveLength(4)
     expect(countCommands(output)).toBe(2)
     expect(sourceLines).toEqual([3, 3, 3, 7])
@@ -73,7 +77,7 @@ describe('countCommands', () => {
 
   it('counts deactivate and protect lines as commands of their own', () => {
     useStore.getState().setSource('system {\n    protect: host-name r1;\n    inactive: login {\n        message "one\ntwo";\n    }\n}\n')
-    const { output } = useStore.getState()
+    const { output } = doc()
     expect(output).toBe('set system host-name r1\nprotect system host-name r1\nset system login message "one\ntwo"\ndeactivate system login')
     expect(countCommands(output)).toBe(4)
   })
@@ -85,15 +89,15 @@ describe('the store in convert mode', () => {
   const SUGGESTED = { 'ge-0/0/0': 'GigabitEthernet0/0/0', 'ge-0/0/1': 'GigabitEthernet0/0/1', 'xe-0/1/0': 'TenGigabitEthernet0/1/0', lo0: 'Loopback0' }
 
   beforeEach(() => {
-    useStore.getState().setMode('convert')
+    useStore.getState().setJob({ kind: 'convert', target: 'iosxe' })
     useStore.getState().setSource(PHASE1, 'phase1.conf')
   })
   afterEach(() => {
-    useStore.getState().setMode('display-set')
+    useStore.getState().setJob(DISPLAY_SET)
   })
 
   it('lists the interfaces unnamed, with suggestions and their lines, and keeps their source names in the output', () => {
-    const { interfaces, output, interfaceMap } = useStore.getState()
+    const { interfaces, output, interfaceMap } = doc()
     expect(interfaces).toEqual([
       { source: 'ge-0/0/0', suggestion: 'GigabitEthernet0/0/0', line: 21 },
       { source: 'ge-0/0/1', suggestion: 'GigabitEthernet0/0/1', line: 29 },
@@ -106,43 +110,43 @@ describe('the store in convert mode', () => {
 
   it('gives the fixture\'s IOS-XE once the suggestions are taken, and other names by hand', () => {
     useStore.getState().takeSuggestions()
-    expect(useStore.getState().interfaceMap).toEqual(SUGGESTED)
-    expect(useStore.getState().output + '\n').toBe(EXPECTED)
-    expect(useStore.getState().interfaces.every((i) => i.target === i.suggestion)).toBe(true)
+    expect(doc().interfaceMap).toEqual(SUGGESTED)
+    expect(doc().output + '\n').toBe(EXPECTED)
+    expect(doc().interfaces.every((i) => i.target === i.suggestion)).toBe(true)
     useStore.getState().setInterfaceName('ge-0/0/0', ' Gi9 ')
-    expect(useStore.getState().output).toContain('interface Gi9\n')
+    expect(doc().output).toContain('interface Gi9\n')
     // An empty name clears it.
     useStore.getState().setInterfaceName('ge-0/0/0', '')
-    expect(useStore.getState().output).toContain('interface ge-0/0/0\n')
-    expect(useStore.getState().interfaces[0]).toEqual({ source: 'ge-0/0/0', suggestion: 'GigabitEthernet0/0/0', line: 21 })
+    expect(doc().output).toContain('interface ge-0/0/0\n')
+    expect(doc().interfaces[0]).toEqual({ source: 'ge-0/0/0', suggestion: 'GigabitEthernet0/0/0', line: 21 })
   })
 
   it('merges a loaded map, keeps the names while the source is edited, and drops them for another file', () => {
     useStore.getState().mergeInterfaceMap({ lo0: 'Loopback9', 'ge-9/9/9': 'Gi9' })
-    expect(useStore.getState().output).toContain('interface Loopback9\n')
+    expect(doc().output).toContain('interface Loopback9\n')
     useStore.getState().setSource(PHASE1.replace('edge-1', 'edge-2'))
-    expect(useStore.getState().output).toContain('interface Loopback9\n')
+    expect(doc().output).toContain('interface Loopback9\n')
     useStore.getState().setSource(PHASE1, 'other.conf')
-    expect(useStore.getState().interfaceMap).toEqual({})
+    expect(doc().interfaceMap).toEqual({})
   })
 
   it('lists what did not carry over as warnings, by line, and the plugin errors', () => {
-    expect(useStore.getState().problems).toEqual([
+    expect(doc().problems).toEqual([
       { severity: 'warning', message: 'Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards', line: 66, column: 9 },
       { severity: 'warning', message: 'Not converted: routing protocols come later', line: 74, column: 1 },
       { severity: 'warning', message: 'Not converted: routing protocols come later', line: 75, column: 5 },
       { severity: 'warning', message: 'Not converted: routing protocols come later', line: 76, column: 9 }
     ])
     useStore.getState().mergeInterfaceMap({ 'ge-0/0/0': 'Gi1', 'ge-0/0/1': 'Gi1' })
-    expect(useStore.getState().problems[0]).toEqual({ severity: 'error', message: '2 interfaces would have one name on Cisco IOS / IOS-XE (lines 21, 29): give each its own.', line: 21, column: 5 })
+    expect(doc().problems[0]).toEqual({ severity: 'error', message: '2 interfaces would have one name on Cisco IOS / IOS-XE (lines 21, 29): give each its own.', line: 21, column: 5 })
     useStore.getState().setSource('system {\n    host-name r1\n}\n')
-    expect(useStore.getState().output).toBe('')
-    expect(useStore.getState().problems.map((p) => p.severity)).toEqual(['error'])
+    expect(doc().output).toBe('')
+    expect(doc().problems.map((p) => p.severity)).toEqual(['error'])
   })
 
   it('links source statements to the output lines they gave', () => {
     useStore.getState().takeSuggestions()
-    const { links, output, source } = useStore.getState()
+    const { links, output, source } = doc()
     const out = output.split('\n')
     const src = source.split('\n')
     const pairs = links.map(([from, to]) => [src[from - 1].trim(), out[to - 1]])
@@ -161,8 +165,101 @@ describe('outputName', () => {
     expect(outputName(null)).toBe('display-set.set')
   })
 
-  it("is the source's name with the target's id in convert mode, or converted.<id>", () => {
-    expect(outputName('edge-1.conf', 'convert', 'iosxe')).toBe('edge-1.iosxe')
-    expect(outputName(null, 'convert', 'iosxe')).toBe('converted.iosxe')
+  it("is the source's name with the target's id in convert, or converted.<id>", () => {
+    expect(outputName('edge-1.conf', { kind: 'convert', target: 'iosxe' })).toBe('edge-1.iosxe')
+    expect(outputName(null, { kind: 'convert', target: 'iosxe' })).toBe('converted.iosxe')
+  })
+})
+
+describe('the tabs', () => {
+  const CONVERT = { kind: 'convert', target: 'iosxe' } as const
+  const titles = (): string[] => useStore.getState().tabs.map((t) => tabTitle(t, (page) => page))
+
+  beforeEach(() => {
+    useStore.setState({ tabs: [], activeId: null, closing: null, exiting: false })
+    useStore.getState().newTab(DISPLAY_SET)
+  })
+
+  it('keeps each tab its own job, source and output, and acts on the active one', () => {
+    const first = useStore.getState().activeId!
+    useStore.getState().setSource('system { host-name r1; }', 'r1.conf')
+    const second = useStore.getState().newTab(CONVERT)
+    useStore.getState().setSource('system { host-name r2; }', 'r2.conf')
+    expect(titles()).toEqual(['r1.conf → Display set', 'r2.conf → IOS-XE'])
+    expect(doc().output).toBe('hostname r2\n!\nend')
+    useStore.getState().activate(first)
+    expect(doc().output).toBe('set system host-name r1')
+    useStore.getState().cycle(1)
+    expect(useStore.getState().activeId).toBe(second)
+    useStore.getState().cycle(1)
+    expect(useStore.getState().activeId).toBe(first)
+    useStore.getState().cycle(-1)
+    expect(useStore.getState().activeId).toBe(second)
+  })
+
+  it('asks before closing a tab with unsaved output, and not once it is saved', () => {
+    const id = useStore.getState().activeId!
+    useStore.getState().setSource('system { host-name r1; }', 'r1.conf')
+    expect(isUnsaved(doc())).toBe(true)
+    useStore.getState().closeTab(id)
+    expect(useStore.getState().closing).toBe(id)
+    expect(useStore.getState().tabs).toHaveLength(1)
+    useStore.getState().cancelClose()
+    useStore.getState().markSaved(id, doc().output, null)
+    expect(isUnsaved(doc())).toBe(false)
+    useStore.getState().setSource('system { host-name r1; }\n')
+    expect(isUnsaved(doc())).toBe(false)
+    useStore.getState().closeTab(id)
+    expect(useStore.getState().tabs).toEqual([])
+    expect(useStore.getState().activeId).toBeNull()
+  })
+
+  it('closes a tab with nothing to save at once, and shows its right-hand neighbour', () => {
+    const [a, b, c] = [useStore.getState().activeId!, useStore.getState().newTab(CONVERT), useStore.getState().newTab(DISPLAY_SET)]
+    useStore.getState().activate(b)
+    useStore.getState().closeTab(b)
+    expect(useStore.getState().tabs.map((t) => t.id)).toEqual([a, c])
+    expect(useStore.getState().activeId).toBe(c)
+    useStore.getState().closeTab(c)
+    expect(useStore.getState().activeId).toBe(a)
+  })
+
+  it('opens one Docs tab per page, and shows it again rather than opening another', () => {
+    useStore.getState().openDocs('guide')
+    const guide = useStore.getState().activeId
+    useStore.getState().openDocs('license')
+    useStore.getState().openDocs('guide')
+    expect(useStore.getState().activeId).toBe(guide)
+    expect(titles()).toEqual(['Untitled → Display set', 'guide', 'license'])
+    // Opening a file with a Docs tab shown opens it in a new display set tab.
+    useStore.getState().setSource('system { host-name r1; }', 'r1.conf')
+    expect(titles()).toEqual(['Untitled → Display set', 'guide', 'license', 'r1.conf → Display set'])
+  })
+
+  it('keeps the jobs, file names and Docs pages for the next start, never the contents', () => {
+    useStore.getState().setSource('system { host-name secret-host; }', 'r1.conf')
+    useStore.getState().newTab(CONVERT)
+    useStore.getState().setSource('system { host-name other; }\ninterfaces { ge-0/0/0 { unit 0; } }', 'r2.conf')
+    useStore.getState().setInterfaceName('ge-0/0/0', 'Gi1')
+    useStore.getState().openDocs('notices')
+    const session = sessionOf(useStore.getState().tabs, useStore.getState().activeId)
+    expect(session).toEqual({
+      tabs: [
+        { kind: 'conversion', job: DISPLAY_SET, name: 'r1.conf' },
+        { kind: 'conversion', job: CONVERT, name: 'r2.conf' },
+        { kind: 'docs', page: 'notices' }
+      ],
+      active: 2
+    })
+    expect(JSON.stringify(session)).not.toMatch(/secret-host|host-name|Gi1|ge-0/)
+  })
+})
+
+describe('the jobs a new tab offers', () => {
+  it('come from the registry: each tool, then convert to each target', () => {
+    expect(jobs().map((j) => [j.job, j.label])).toEqual([
+      [DISPLAY_SET, 'Display set (Junos)'],
+      [{ kind: 'convert', target: 'iosxe' }, 'Convert: Junos → Cisco IOS / IOS-XE']
+    ])
   })
 })

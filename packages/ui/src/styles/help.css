@@ -1,56 +1,10 @@
 /* ==========================================================================
-   The Help menu, the Docs view and the About dialog (src/help), in the app's theme tokens (app.css imports this).
+   The Docs view and the About dialog (src/help), in the app's theme tokens (app.css imports this).
    ========================================================================== */
 
-/* ---------- Help menu ---------- */
-.menu-anchor {
-  position: relative;
-}
-.menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
-  min-width: 200px;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: var(--shadow);
-}
-.menu-item {
-  text-align: left;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
-}
-.menu-item:hover,
-.menu-item:focus-visible {
-  background: var(--accent-soft);
-  color: var(--fg-strong);
-}
-.menu-sep {
-  height: 1px;
-  margin: 4px 2px;
-  background: var(--border-subtle);
-}
-
 /* ---------- Docs view ---------- */
-/* The panes and the problems panel while the Docs show: hidden, not unmounted (App.tsx), over their own display. */
-.app > [hidden] {
-  display: none;
-}
-
-/* In place of the panes and the problems panel: both of the app grid's rows (app.css). */
+/* A Docs tab's page (app.css places it). */
 .docs {
-  grid-row: 2 / 4;
-  min-height: 0;
   display: flex;
 }
 .docs-nav {
@@ -88,12 +42,6 @@
   background: var(--accent-soft);
   color: var(--accent-ink);
   font-weight: 600;
-}
-.docs-nav-spacer {
-  flex: 1;
-}
-.docs-back {
-  justify-content: center;
 }
 .docs-page {
   flex: 1;
@@ -248,4 +196,52 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* ---------- Tab dialogs: the new tab picker and the unsaved output questions (components/Dialogs.tsx) ---------- */
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--fg-strong);
+}
+.modal-text {
+  margin: 0 0 12px;
+  color: var(--fg-muted);
+}
+.modal.picker {
+  width: min(520px, calc(100vw - 32px));
+}
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.picker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.picker-item:hover {
+  background: var(--bg-active);
+  border-color: var(--accent);
+}
+.picker-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.picker-label {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.picker-detail {
+  color: var(--fg-muted);
+  font-size: 12px;
 }
