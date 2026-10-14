@@ -1,0 +1,59 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "edge-1"
+    },
+    "interfaces": {
+      "Ethernet1/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet1/2": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.5": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "processId": "1",
+          "routerId": "192.0.2.1",
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "Ethernet1/1": {
+                  "enabledBy": "interface",
+                  "passive": true
+                },
+                "Ethernet1/2": {
+                  "enabledBy": "interface"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

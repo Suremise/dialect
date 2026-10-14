@@ -1,0 +1,143 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_interface_switchport"
+    },
+    "vlans": {
+      "1": {},
+      "2": {},
+      "3": {},
+      "4": {},
+      "5": {}
+    },
+    "interfaces": {
+      "Ethernet1/1": {
+        "type": "ethernet"
+      },
+      "Loopback0": {
+        "type": "loopback"
+      },
+      "mgmt0": {
+        "type": "management",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "management"
+          }
+        },
+        "enabled": true
+      },
+      "port-channel1": {
+        "type": "aggregate"
+      },
+      "Ethernet1/2": {
+        "type": "ethernet",
+        "enabled": true,
+        "subinterfaces": {
+          "1": {},
+          "2": {
+            "vlanId": 2
+          }
+        },
+        "vlanTagging": true
+      },
+      "port-channel2": {
+        "type": "aggregate",
+        "enabled": true,
+        "subinterfaces": {
+          "1": {}
+        }
+      },
+      "Ethernet1/3": {
+        "type": "ethernet",
+        "enabled": true
+      },
+      "Ethernet1/4": {
+        "type": "ethernet",
+        "switching": {
+          "accessVlan": 2
+        }
+      },
+      "Ethernet1/5": {
+        "type": "ethernet"
+      },
+      "Ethernet1/6": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "nativeVlan": 2
+        }
+      },
+      "Ethernet1/7": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "1-3"
+          ]
+        }
+      },
+      "Ethernet1/8": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "1-4"
+          ]
+        }
+      },
+      "Ethernet1/9": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "1",
+            "3-4094"
+          ]
+        }
+      },
+      "Ethernet1/10": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": []
+        }
+      },
+      "Ethernet1/11": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "1-2"
+          ]
+        }
+      },
+      "Ethernet1/12": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "access"
+        }
+      },
+      "Ethernet1/13": {
+        "type": "ethernet"
+      },
+      "Ethernet1/14": {
+        "type": "ethernet"
+      },
+      "Ethernet1/15": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk"
+        }
+      },
+      "Ethernet1/16": {
+        "type": "ethernet"
+      }
+    },
+    "networkInstances": {
+      "management": {
+        "type": "vrf"
+      }
+    }
+  }
+}

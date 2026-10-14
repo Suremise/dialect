@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.4.0",
   "device": {
     "system": {
       "hostname": "nxos-kitchensink",
@@ -9,6 +9,18 @@
         },
         "location": "DataCenter-1-RackB",
         "contact": "netops@example.net"
+      }
+    },
+    "vlans": {
+      "1": {},
+      "10": {
+        "name": "PROD"
+      },
+      "20": {
+        "name": "VOICE"
+      },
+      "30": {
+        "name": "MGMT-VLAN"
       }
     },
     "networkInstances": {
@@ -58,11 +70,10 @@
     },
     "interfaces": {
       "Vlan10": {
-        "type": "vlan",
-        "description": "PROD gateway SVI",
-        "enabled": true,
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 10,
             "ipv4": {
               "addresses": {
                 "10.10.10.1": {
@@ -71,14 +82,15 @@
               }
             }
           }
-        }
+        },
+        "description": "PROD gateway SVI",
+        "enabled": true
       },
       "Vlan20": {
-        "type": "vlan",
-        "description": "tenant-a anycast gateway SVI",
-        "enabled": true,
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 20,
             "networkInstance": "TENANT-A",
             "ipv4": {
               "addresses": {
@@ -88,11 +100,20 @@
               }
             }
           }
-        }
+        },
+        "description": "tenant-a anycast gateway SVI",
+        "enabled": true
       },
       "port-channel1": {
         "type": "aggregate",
-        "description": "uplink bundle"
+        "description": "uplink bundle",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "10",
+            "20"
+          ]
+        }
       },
       "Ethernet1/1": {
         "type": "ethernet",
@@ -137,11 +158,23 @@
       },
       "Ethernet1/3": {
         "type": "ethernet",
-        "description": "access port"
+        "description": "access port",
+        "switching": {
+          "accessVlan": 10
+        }
       },
       "Ethernet1/4": {
         "type": "ethernet",
-        "description": "trunk port"
+        "description": "trunk port",
+        "switching": {
+          "mode": "trunk",
+          "nativeVlan": 1,
+          "allowedVlans": [
+            "10",
+            "20",
+            "30"
+          ]
+        }
       },
       "Ethernet1/5": {
         "type": "ethernet",

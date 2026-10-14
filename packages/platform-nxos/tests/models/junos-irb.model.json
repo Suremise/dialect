@@ -1,0 +1,40 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "vlans": {
+      "100": {
+        "name": "SERVERS"
+      },
+      "200": {
+        "name": "STORAGE"
+      }
+    },
+    "interfaces": {
+      "irb": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "100": {
+            "routedVlan": 100,
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          },
+          "200": {
+            "routedVlan": 200,
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

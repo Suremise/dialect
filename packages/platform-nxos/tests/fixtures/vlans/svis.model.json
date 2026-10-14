@@ -1,0 +1,81 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "leaf-1"
+    },
+    "networkInstances": {
+      "TENANT-A": {
+        "type": "vrf"
+      }
+    },
+    "vlans": {
+      "10": {
+        "name": "SERVERS"
+      },
+      "20": {}
+    },
+    "interfaces": {
+      "Vlan10": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 10,
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24,
+                  "primary": true
+                },
+                "198.51.100.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "description": "servers gateway",
+        "enabled": true
+      },
+      "Vlan20": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 20,
+            "networkInstance": "TENANT-A",
+            "ipv4": {
+              "addresses": {
+                "203.0.113.1": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8:20::1": {
+                  "prefixLength": 64
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "Vlan30": {
+        "type": "vlan",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.129": {
+                  "prefixLength": 25
+                }
+              }
+            }
+          }
+        },
+        "description": "no VLAN 30 is defined: an interface of type vlan"
+      }
+    }
+  }
+}

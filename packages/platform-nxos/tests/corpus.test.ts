@@ -1,6 +1,6 @@
 // The plugin against the repo's corpus (fixtures/public/nxos, see fixtures/README.md), referenced by path rather than
 // copied. Two parts:
-// - chosen files, at least one per phase 1 area, through the conformance kit's four checks against an expected model
+// - chosen files, at least one per phase 1 and phase 2 area, through the conformance kit's four checks against an expected model
 //   (tests/corpus/<file>.model.json, checked by hand against the source);
 // - every NX-OS file in the corpus, phase 1 or not: it parses without an error, every statement gets a disposition,
 //   and render → reparse gives the same model, so nothing the plugin doesn't know is dropped or garbled.
@@ -15,7 +15,7 @@ import plugin from '../src'
 const corpus = fileURLToPath(new URL('../../../fixtures/public/nxos/', import.meta.url))
 const expected = fileURLToPath(new URL('./corpus/', import.meta.url))
 
-/** Corpus files with an expected model, by phase 1 area. */
+/** Corpus files with an expected model, by phase 1 and phase 2 area. */
 export const CASES: readonly (readonly [area: string, path: string])[] = [
   ['system', 'system/batfish__nxos_hostname.cfg'],
   ['system', 'system/batfish__nxos_banner.cfg'],
@@ -32,14 +32,20 @@ export const CASES: readonly (readonly [area: string, path: string])[] = [
   ['static-routes', 'static-routes/batfish__ipv6_route.cfg'],
   ['ntp', 'mgmt/batfish__nxos_ntp.cfg'],
   ['logging', 'mgmt/batfish__nxos_logging.cfg'],
-  ['snmp', 'mgmt/batfish__nxos_snmp_server.cfg']
+  ['snmp', 'mgmt/batfish__nxos_snmp_server.cfg'],
+  ['vlans', 'vlans/batfish__nxos_vlan.cfg'],
+  ['vlans', 'interfaces/batfish__nxos_interface_switchport.cfg'],
+  ['ospf', 'ospf/batfish__unit-tests_nxos_ospf.cfg'],
+  ['ospf', 'ospf/batfish__nxos-ospf-cost-loopback.cfg'],
+  ['bgp', 'bgp/batfish__unit-tests_nxos_bgp.cfg'],
+  ['bgp', 'bgp/batfish__nxos_bgp_peer_template.cfg']
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
 
 describe('corpus files with an expected model', () => {
-  it('cover every phase 1 area', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp']))
+  it('cover every phase 1 and phase 2 area', () => {
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'vlans', 'ospf', 'bgp']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {
