@@ -46,16 +46,18 @@ export function declaredLicense(meta) {
 }
 
 /**
- * Whether an SPDX expression is satisfied when every license id passes `ok`: OR needs one side, AND both, and `X WITH
- * exception` is judged on X. Null when it isn't a valid expression ("SEE LICENSE IN …", "UNLICENSED", free text).
+ * An SPDX expression as a tree: `{ license, exception }` for `X` or `X WITH exception`, `{ op: 'AND' | 'OR', terms }`
+ * for the rest, AND binding tighter than OR. Null when it isn't a valid expression ("SEE LICENSE IN …", "UNLICENSED",
+ * free text).
  */
-export function satisfies(expression, ok) {
+function parseLicense(expression) {
   const tokens = expression.match(/\(|\)|[^\s()]+/g) ?? []
   let at = 0
   const peek = () => tokens[at]
   const fail = () => {
     throw new SyntaxError(expression)
   }
+  const id = (t) => t && !/^(AND|OR|WITH|\(|\))$/i.test(t) && /^[A-Za-z0-9.+-]+$/.test(t) && !/^(UNLICENSED|SEE)$/i.test(t)
   const primary = () => {
     const t = tokens[at++]
     if (t === '(') {
@@ -63,35 +65,63 @@ export function satisfies(expression, ok) {
       if (tokens[at++] !== ')') fail()
       return v
     }
-    if (!t || /^(AND|OR|WITH|\))$/i.test(t) || !/^[A-Za-z0-9.+-]+$/.test(t) || /^(UNLICENSED|SEE)$/i.test(t)) fail()
-    if (peek()?.toUpperCase() === 'WITH') {
-      at++
-      if (!tokens[at++]) fail()
-    }
-    return ok(t)
+    if (!id(t)) fail()
+    if (peek()?.toUpperCase() !== 'WITH') return { license: t, exception: null }
+    at++
+    const exception = tokens[at++]
+    if (!id(exception)) fail()
+    return { license: t, exception }
   }
-  const and = () => {
-    let v = primary()
-    while (peek()?.toUpperCase() === 'AND') {
+  const list = (op, next) => () => {
+    const terms = [next()]
+    while (peek()?.toUpperCase() === op) {
       at++
-      v = primary() && v
+      terms.push(next())
     }
-    return v
+    return terms.length > 1 ? { op, terms } : terms[0]
   }
-  const or = () => {
-    let v = and()
-    while (peek()?.toUpperCase() === 'OR') {
-      at++
-      v = and() || v
-    }
-    return v
-  }
+  const and = list('AND', primary)
+  const or = list('OR', and)
   try {
     const v = or()
     return at === tokens.length ? v : null
   } catch {
     return null
   }
+}
+
+/** Whether a parsed expression is satisfied when every license id passes `ok`. */
+const holds = (node, ok) =>
+  node.op === 'OR' ? node.terms.some((t) => holds(t, ok)) : node.op === 'AND' ? node.terms.every((t) => holds(t, ok)) : !!ok(node.license)
+
+/**
+ * Whether an SPDX expression is satisfied when every license id passes `ok`: OR needs one side, AND both, and `X WITH
+ * exception` is judged on X. Null when it isn't a valid expression ("SEE LICENSE IN …", "UNLICENSED", free text).
+ */
+export function satisfies(expression, ok) {
+  const tree = parseLicense(expression)
+  return tree ? holds(tree, ok) : null
+}
+
+/**
+ * The license terms Dialect takes a package under, when its expression offers a choice (an OR): at each OR, MIT where it
+ * is offered, otherwise the first choice whose terms are all in `allowed` (decided 2026-10-14). "MIT OR Apache-2.0"
+ * gives "MIT", "(MIT OR Apache-2.0) AND Unicode-3.0" gives "MIT AND Unicode-3.0". Null when it offers no choice, isn't
+ * an expression, or no choice is allowed (the license check reports that).
+ */
+export function chosenLicense(expression, allowed = SHIPPED_ALLOWED) {
+  const tree = typeof expression === 'string' ? parseLicense(expression) : null
+  const offersChoice = (node) => node.op === 'OR' || (node.op === 'AND' && node.terms.some(offersChoice))
+  if (!tree || !offersChoice(tree) || !holds(tree, (l) => allowed.has(l))) return null
+  // Each node, with every OR decided, as the terms it is taken under.
+  const choose = (node) => {
+    if (!node.op) return node.exception ? `${node.license} WITH ${node.exception}` : node.license
+    // With every OR decided only ANDs are left, so no brackets are needed.
+    if (node.op === 'AND') return node.terms.map(choose).join(' AND ')
+    const choices = node.terms.filter((t) => holds(t, (l) => allowed.has(l)))
+    return choose(choices.find((t) => !t.op && t.license === 'MIT' && !t.exception) ?? choices[0])
+  }
+  return choose(tree)
 }
 
 /**

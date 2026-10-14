@@ -79,6 +79,12 @@ export const RULES: readonly Rule[] = [
   { name: 'unit', match: /^interfaces (\S+) unit (\d+)$/ },
   { name: 'family', match: /^interfaces (\S+) unit (\d+) family inet$/ },
   { name: 'address', match: /^interfaces (\S+) unit (\d+) family inet address ([\d.]+)\/(\d+)$/, set: (m) => [[['interfaces', m[1], 'subinterfaces', m[2], 'ipv4', 'addresses', m[3], 'prefixLength'], Number(m[4])]] },
+  // VRF membership and a VRF's own settings (model 0.3.0), for the kit's model checks; the renderer doesn't write them.
+  { name: 'unit-vrf', match: /^interfaces (\S+) unit (\d+) vrf (\S+)$/, set: (m) => [[['interfaces', m[1], 'subinterfaces', m[2], 'networkInstance'], m[3]]] },
+  { name: 'routing-instances', match: /^routing-instances$/ },
+  { name: 'routing-instance', match: /^routing-instances (\S+)$/ },
+  { name: 'instance-type', match: /^routing-instances (\S+) instance-type (vrf|virtual-router)$/, set: (m) => [[['networkInstances', m[1], 'type'], m[2]]] },
+  { name: 'route-distinguisher', match: /^routing-instances (\S+) route-distinguisher (\S+)$/, set: (m) => [[['networkInstances', m[1], 'routeDistinguisher'], m[2]]] },
   { name: 'routing-options', match: /^routing-options$/ },
   { name: 'static', match: /^routing-options static$/ },
   { name: 'route', match: /^routing-options static route (\S+) next-hop (\S+)$/, set: (m, next) => [[[...nh, 'staticRoutes', m[1], 'nextHops', next(m[1]), 'address'], m[2]]] },

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Dialect",
+  "version": "0.0.0",
+  "identifier": "io.github.suremise.dialect",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5183",
+    "beforeBuildCommand": "npm run frontend",
+    "beforeDevCommand": "npx vite"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Dialect",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 480,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'none'",
+        "script-src": "'self'",
+        "style-src": "'self'",
+        "img-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "base-uri": "'none'",
+        "form-action": "'none'",
+        "object-src": "'none'"
+      },
+      "freezePrototype": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Dialect",
+    "shortDescription": "Translates network device configs between vendor dialects",
+    "copyright": "Copyright (c) 2026 Darren Marshall. MIT License.",
+    "icon": [
+      "../../../branding/out/icon-32.png",
+      "../../../branding/out/icon-128.png",
+      "../../../branding/out/icon-256.png",
+      "../../../branding/out/icon.ico"
+    ],
+    "windows": {
+      "signCommand": "node ../scripts/sign.mjs %1",
+      "nsis": {
+        "installMode": "currentUser",
+        "compression": "zlib"
+      }
+    }
+  }
+}

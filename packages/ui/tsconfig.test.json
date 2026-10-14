@@ -1,0 +1,10 @@
+// The UI's tests, on Node (help.test.ts reads the committed docs to compare with the bundled ones).
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*", "tests/**/*"]
+}

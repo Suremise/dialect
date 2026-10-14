@@ -1,0 +1,23 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "ntp",
+      "ntp": {
+        "servers": {
+          "10.0.0.1": {
+            "networkInstance": "MGMT"
+          },
+          "10.0.0.2": {
+            "prefer": true,
+            "version": 4
+          },
+          "2001:db8::10": {}
+        }
+      }
+    },
+    "networkInstances": {
+      "MGMT": {}
+    }
+  }
+}

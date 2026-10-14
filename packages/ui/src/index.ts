@@ -3,5 +3,5 @@
 export const PACKAGE_NAME = '@dialect/ui'
 
 export { App } from './App'
-export type { OpenedFile, Platform } from './platform'
-export { outputName, useStore, type Problem, type ThemeChoice } from './store'
+export type { FileKind, OpenedFile, Platform } from './platform'
+export { outputName, useStore, type InterfaceRow, type Mode, type Problem, type ThemeChoice } from './store'

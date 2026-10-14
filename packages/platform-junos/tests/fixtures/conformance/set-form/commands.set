@@ -1,0 +1,17 @@
+# A set-form configuration, with the other commands a pasted one can hold.
+set version 23.2R1.14
+set system host-name set-1
+set system domain-search [ example.net example.org ]
+set system name-server 192.0.2.53
+set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24
+set interfaces ge-0/0/0 description "first description"
+set interfaces ge-0/0/0 description "second description"
+set interfaces ge-0/0/1 unit 0 family inet address 192.0.2.5/30
+delete interfaces ge-0/0/1
+set interfaces ge-0/0/1 unit 0 family inet address 192.0.2.9/30
+set interfaces ge-0/0/2 unit 0 family inet address 192.0.2.13/30
+deactivate interfaces ge-0/0/2
+set routing-options static route 0.0.0.0/0 next-hop 192.0.2.254
+protect system
+set snmp community PLACEHOLDER-RO authorization read-only
+set snmp community PLACEHOLDER-RO clients 192.0.2.0/24

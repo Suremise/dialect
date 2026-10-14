@@ -1,11 +1,22 @@
-// Dialect's display set mode: the source config on the left, its display set on the right, problems below. The same
-// UI runs in the web build and the desktop app; `platform` is the shell's file and clipboard access.
+// Dialect's two modes, display set and convert: the source config on the left, its display set or conversion on the
+// right, problems below (and in convert, the interface table beside them). The same UI runs in the web build and the
+// desktop app; `platform` is the shell's file and clipboard access.
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react'
 import iconUrl from '../../../branding/icon-small.svg'
 import { CheckIcon, CopyIcon, ErrorIcon, OpenIcon, PasteIcon, SaveIcon, ThemeIcon, WarningIcon } from './components/Icons'
+import { InterfaceTable } from './components/InterfaceTable'
 import { Editor, type LineMark } from './editor/Editor'
+import { AboutDialog } from './help/AboutDialog'
+import { DocsView } from './help/DocsView'
+import { HelpMenu } from './help/HelpMenu'
+import { useHelp } from './help/state'
 import type { Platform } from './platform'
-import { outputName, useStore, type ThemeChoice } from './store'
+import { outputName, SOURCE_PLUGIN, TARGETS, targetPlugin, useStore, type Mode, type ThemeChoice } from './store'
+
+const MODES: readonly { mode: Mode; label: string; title: string }[] = [
+  { mode: 'display-set', label: 'Display set', title: 'Hierarchical Junos config to display set commands' },
+  { mode: 'convert', label: 'Convert', title: "A Junos config to another platform's" }
+]
 
 const THEME_LABEL: Record<ThemeChoice, string> = { system: 'System theme', light: 'Light theme', dark: 'Dark theme' }
 const NEXT_THEME: Record<ThemeChoice, ThemeChoice> = { system: 'light', light: 'dark', dark: 'system' }
@@ -25,12 +36,15 @@ function useSystemDark(): boolean {
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
 export function App({ platform }: { platform: Platform }) {
-  const { source, sourceName, result, output, problems, theme, reveal, notice } = useStore()
-  const { setSource, setTheme, revealAt, notify, dismissNotice } = useStore.getState()
+  const { mode, targetId, source, sourceName, output, links, problems, interfaces, theme, reveal, notice } = useStore()
+  const { setSource, setMode, setTarget, setTheme, revealAt, notify, dismissNotice } = useStore.getState()
+  const converting = mode === 'convert'
+  const target = targetPlugin(targetId)
+  const docsPage = useHelp((s) => s.docsPage)
   const systemDark = useSystemDark()
   const dark = theme === 'system' ? systemDark : theme === 'dark'
   // Lines linked to the other pane's cursor: output lines → their source statement, and back.
-  const [linkedSource, setLinkedSource] = useState<number | null>(null)
+  const [linkedSource, setLinkedSource] = useState<number[]>([])
   const [linkedOutput, setLinkedOutput] = useState<number[]>([])
   const [dragging, setDragging] = useState(false)
 
@@ -39,9 +53,9 @@ export function App({ platform }: { platform: Platform }) {
   }, [dark])
 
   useEffect(() => {
-    setLinkedSource(null)
+    setLinkedSource([])
     setLinkedOutput([])
-  }, [source])
+  }, [source, mode, targetId])
 
   useEffect(() => {
     if (!notice) return
@@ -49,40 +63,48 @@ export function App({ platform }: { platform: Platform }) {
     return () => clearTimeout(timer)
   }, [notice])
 
-  const lines = result.ok ? result.lines : []
   const error = problems.find((p) => p.severity === 'error')
   const warnings = problems.filter((p) => p.severity === 'warning')
 
+  const unnamed = interfaces.filter((i) => i.target === undefined).length
+  const outputLines = output ? output.split('\n').length : 0
+
   const sourceMarks = useMemo<LineMark[]>(
-    () => [...problems.map((p) => ({ line: p.line, kind: p.severity })), ...(linkedSource ? [{ line: linkedSource, kind: 'link' as const }] : [])],
+    () => [
+      ...problems.flatMap((p) => (p.line ? [{ line: p.line, kind: p.severity, title: p.message }] : [])),
+      ...linkedSource.map((line) => ({ line, kind: 'link' as const }))
+    ],
     [problems, linkedSource]
   )
   const outputMarks = useMemo<LineMark[]>(() => linkedOutput.map((line) => ({ line, kind: 'link' as const })), [linkedOutput])
 
   const onOutputCursor = useCallback(
     (line: number) => {
-      const target = lines[line - 1]?.sourceLine
+      const lines = [...new Set(links.flatMap(([from, to]) => (to === line ? [from] : [])))].sort((a, b) => a - b)
       setLinkedOutput([])
-      setLinkedSource(target ?? null)
-      if (target) revealAt('source', target, 1, false)
+      setLinkedSource(lines)
+      if (lines.length > 0) revealAt('source', lines[0], 1, false)
     },
-    [lines]
+    [links]
   )
 
   const onSourceCursor = useCallback(
     (line: number) => {
-      const targets = lines.flatMap((l, i) => (l.sourceLine === line ? [i + 1] : []))
-      setLinkedSource(null)
-      setLinkedOutput(targets)
-      if (targets.length > 0) revealAt('output', targets[0], 1, false)
+      const lines = [...new Set(links.flatMap(([from, to]) => (from === line ? [to] : [])))].sort((a, b) => a - b)
+      setLinkedSource([])
+      setLinkedOutput(lines)
+      if (lines.length > 0) revealAt('output', lines[0], 1, false)
     },
-    [lines]
+    [links]
   )
 
   const open = useCallback(async () => {
     try {
       const file = await platform.openFile()
-      if (file) setSource(file.text, file.name)
+      if (file) {
+        setSource(file.text, file.name)
+        useHelp.getState().closeDocs()
+      }
     } catch (e) {
       notify('error', `Couldn't open the file: ${(e as Error).message}`)
     }
@@ -101,21 +123,21 @@ export function App({ platform }: { platform: Platform }) {
   const save = useCallback(async () => {
     if (!output) return
     try {
-      await platform.saveText(outputName(sourceName), output + '\n')
+      await platform.saveText(outputName(sourceName, mode, targetId), output + '\n')
     } catch (e) {
       notify('error', `Couldn't save the output: ${(e as Error).message}`)
     }
-  }, [platform, output, sourceName])
+  }, [platform, output, sourceName, mode, targetId])
 
   const copy = useCallback(async () => {
     if (!output) return
     try {
       await platform.writeClipboard(output + '\n')
-      notify('info', `Copied ${plural(lines.length, 'set line', 'set lines')}.`)
+      notify('info', `Copied ${converting ? plural(outputLines, 'line', 'lines') : plural(outputLines, 'set line', 'set lines')}.`)
     } catch (e) {
       notify('error', `Couldn't copy the output: ${(e as Error).message}`)
     }
-  }, [platform, output, lines.length])
+  }, [platform, output, converting, outputLines])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -147,21 +169,48 @@ export function App({ platform }: { platform: Platform }) {
     e.stopPropagation()
     // The shell reads it (as it opens and saves files), here from the event's data.
     platform.openDropped(e.dataTransfer).then(
-      (file) => file && setSource(file.text, file.name),
+      (file) => {
+        if (!file) return
+        setSource(file.text, file.name)
+        useHelp.getState().closeDocs()
+      },
       (err: Error) => notify('error', `Couldn't open the dropped file: ${err.message}`)
     )
   }
 
-  const outputSummary = error ? 'No output: the config has a syntax error' : source.trim() === '' ? '' : plural(lines.length, 'set line', 'set lines')
+  const outputSummary = error
+    ? 'No output: the config has a syntax error'
+    : source.trim() === ''
+      ? ''
+      : converting
+        ? `${plural(outputLines, 'line', 'lines')}${unnamed ? `, incomplete: ${plural(unnamed, 'interface needs', 'interfaces need')} a name` : ''}`
+        : plural(outputLines, 'set line', 'set lines')
+  const outputTitle = converting ? target.name : 'Display set'
 
   return (
-    <div className="app" onDragOverCapture={onDragOver} onDragLeave={(e) => e.relatedTarget === null && setDragging(false)} onDropCapture={onDrop}>
+    <div className={`app${converting ? ' converting' : ''}`} onDragOverCapture={onDragOver} onDragLeave={(e) => e.relatedTarget === null && setDragging(false)} onDropCapture={onDrop}>
       <header className="titlebar">
         <img className="titlebar-logo" src={iconUrl} alt="" width="18" height="18" />
         <span className="titlebar-name">Dialect</span>
-        <span className="titlebar-mode" title="Hierarchical Junos config to display set commands">
-          Display set
-        </span>
+        <div className="mode-switch" role="group" aria-label="Mode">
+          {MODES.map((m) => (
+            <button key={m.mode} className={`mode-button${m.mode === mode ? ' selected' : ''}`} aria-pressed={m.mode === mode} title={m.title} onClick={() => setMode(m.mode)}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {converting && (
+          <label className="target-picker">
+            <span>{SOURCE_PLUGIN.name} →</span>
+            <select aria-label="Target platform" value={targetId} onChange={(e) => setTarget(e.target.value)}>
+              {TARGETS.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="toolbar" role="toolbar" aria-label="Actions">
           <button className="btn" onClick={() => void open()} title="Open a config file (Ctrl+O)">
             <OpenIcon /> Open…
@@ -169,20 +218,23 @@ export function App({ platform }: { platform: Platform }) {
           <button className="btn" onClick={() => void paste()} title="Replace the source with the clipboard's text">
             <PasteIcon /> Paste
           </button>
-          <button className="btn" onClick={() => void copy()} disabled={!output} title="Copy the display set">
+          <button className="btn" onClick={() => void copy()} disabled={!output} title={converting ? `Copy the ${target.name} config` : 'Copy the display set'}>
             <CopyIcon /> Copy output
           </button>
-          <button className="btn primary" onClick={() => void save()} disabled={!output} title={`Save the display set as ${outputName(sourceName)} (Ctrl+S)`}>
+          <button className="btn primary" onClick={() => void save()} disabled={!output} title={`Save the ${converting ? `${target.name} config` : 'display set'} as ${outputName(sourceName, mode, targetId)} (Ctrl+S)`}>
             <SaveIcon /> Save output
           </button>
           <span className="toolbar-sep" />
+          <HelpMenu />
           <button className="btn subtle icon-only" onClick={() => setTheme(NEXT_THEME[theme])} title={`${THEME_LABEL[theme]}: click for ${THEME_LABEL[NEXT_THEME[theme]].toLowerCase()}`} aria-label={THEME_LABEL[theme]}>
             <ThemeIcon />
           </button>
         </div>
       </header>
 
-      <main className="workbench">
+      {/* While the Docs show, the panes are hidden, not unmounted: the editors keep their state and undo history. */}
+      {docsPage && <DocsView platform={platform} />}
+      <main className="workbench" hidden={!!docsPage}>
         <section className="pane" aria-label="Source">
           <div className="pane-header">
             <span>Source</span>
@@ -200,21 +252,24 @@ export function App({ platform }: { platform: Platform }) {
             reveal={reveal}
             onCursorLine={onSourceCursor}
             dark={dark}
+            issueGutter
           />
         </section>
         <section className="pane" aria-label="Output">
           <div className="pane-header">
-            <span>Display set</span>
+            <span>{outputTitle}</span>
             <span className="pane-detail" data-testid="output-summary">
               {outputSummary}
             </span>
           </div>
           <Editor
             pane="output"
-            label="Display set output"
+            label={`${outputTitle} output`}
             value={output}
             readOnly
-            placeholder={error ? 'Fix the syntax error to see the display set.' : 'The display set commands appear here.'}
+            placeholder={
+              error ? `Fix the syntax error to see the ${converting ? 'conversion' : 'display set'}.` : converting ? `The ${target.name} config appears here.` : 'The display set commands appear here.'
+            }
             marks={outputMarks}
             reveal={reveal}
             onCursorLine={onOutputCursor}
@@ -223,7 +278,8 @@ export function App({ platform }: { platform: Platform }) {
         </section>
       </main>
 
-      <section className="problems" aria-label="Problems">
+      <div className={`bottom${converting ? ' converting' : ''}`} hidden={!!docsPage}>
+        <section className="problems" aria-label="Problems">
         <div className="section-header">
           <span>Problems</span>
           <span className="count" data-testid="problem-count">
@@ -234,7 +290,7 @@ export function App({ platform }: { platform: Platform }) {
           {problems.length === 0 ? (
             <li className="problem-empty">
               {source.trim() === '' ? (
-                'Open or paste a Junos config to see its display set.'
+                `Open or paste a Junos config to see its ${converting ? 'conversion' : 'display set'}.`
               ) : (
                 <>
                   <CheckIcon /> No problems.
@@ -244,21 +300,25 @@ export function App({ platform }: { platform: Platform }) {
           ) : (
             problems.map((p, i) => (
               <li key={i}>
-                <button className={`problem ${p.severity}`} onClick={() => revealAt('source', p.line, p.column, true)}>
+                <button className={`problem ${p.severity}`} onClick={() => p.line && revealAt('source', p.line, p.column, true)} title={p.message}>
                   {p.severity === 'error' ? <ErrorIcon /> : <WarningIcon />}
                   <span className="problem-message">{p.message}</span>
-                  <span className="problem-place">
-                    line {p.line}, column {p.column}
-                  </span>
+                  {p.line && (
+                    <span className="problem-place">
+                      line {p.line}, column {p.column}
+                    </span>
+                  )}
                 </button>
               </li>
             ))
           )}
         </ul>
-      </section>
+        </section>
+        {converting && <InterfaceTable platform={platform} />}
+      </div>
 
       <footer className="statusbar">
-        <span className="status-item">Junos → display set</span>
+        <span className="status-item">{converting ? `${SOURCE_PLUGIN.name} → ${target.name}` : 'Junos → display set'}</span>
         <span className="status-item" data-testid="status-result">
           {error ? (
             <>
@@ -278,6 +338,8 @@ export function App({ platform }: { platform: Platform }) {
           Offline: nothing leaves this computer
         </span>
       </footer>
+
+      <AboutDialog platform={platform} />
 
       {dragging && (
         <div className="drop-overlay" aria-hidden="true">

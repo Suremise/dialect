@@ -20,6 +20,8 @@ freely, but **read it only and never change anything there**.
   tag or release unless the user asks. Commits use the GitHub no-reply address in the repo's git config
   (`git config user.email`), never a personal email: never set or pass another email (`git config`, `-c user.email`,
   `--author`, `GIT_AUTHOR_EMAIL`).
+- **Merging into main:** run `git -C D:/Development/Workspaces/Scratch/juniper merge --no-ff <branch>` as a command of
+  its own, the path written out in full (not `$M` or `cd … &&`), so `.claude/settings.json`'s allow rule matches it.
 - **Keep to your card's files.** Cards that run in parallel own different packages; a change another lane's package
   needs goes through the Hive Assistant, not into your card. Work you find that isn't your card's goes on a new card.
 - **Never run Prettier** (`prettier --write` or as a check): the repo has no Prettier config. Match the surrounding
@@ -60,10 +62,18 @@ npm run licenses       # regenerate THIRD_PARTY_NOTICES.md and docs/BUILD_ONLY_P
 npm run icons          # regenerate branding/out/ from the SVG masters
 npm run contrast       # check the theme tokens against WCAG AA
 npm run fixtures       # check fixtures/ against its manifest and print the coverage table (npm test runs it too)
+npm run build -w @dialect/desktop       # the desktop app and its NSIS installer (needs Rust); never run the installer
+npm run test:smoke -w @dialect/desktop  # the desktop smoke test: builds the app, needs tauri-driver and msedgedriver
 ```
 
+Rust (stable, through rustup) and the Visual Studio C++ build tools are needed for the desktop app, and cargo for
+`npm run licenses` and its test, which list the desktop app's crates (docs/ARCHITECTURE.md, Licenses).
+
 CI (`.github/workflows/ci.yml`, Windows, Node 24 with npm 12) runs typecheck, lint, the tests and the license check on
-every push to main and every pull request. The repo has no remote yet, so CI hasn't run: run the checks locally.
+every push to main and every pull request. A second job, `desktop`, runs `cargo deny --locked check`, builds the
+installer (kept as the run's `dialect-installer` artifact, never released) and runs the desktop smoke test, with
+tauri-driver and the msedgedriver of the runner's WebView2. The repo has no remote yet, so CI hasn't run: run the checks
+locally.
 
 **npm 12 through npx:** the global npm stays 11, because Hive on the same PC uses it, so run install, ci and test as
 `npx npm@12.2.0 …`. Under npm 11, `npm test` skips the npm 12 install-script checks (`tests/installScripts.test.ts`)

@@ -3,16 +3,17 @@
 //
 // For a fixture `<case>.<ext>` (source) + `<case>.model.json` (expected model) + optionally `<case>.rendered.<ext>`
 // (expected render):
-// 1. parse → no error, and the model equals the expected model;
+// 1. parse → no error, a valid model (core's modelProblems(): references resolve, values in the model's forms), and the
+//    model equals the expected model;
 // 2. render → no error, and the text equals the expected render (when the fixture has one; skipped when it has none
 //    and the render reported no error);
-// 3. render → reparse → no error, and the same model (round-trip stability);
+// 3. render → reparse → no error, a valid model, and the same model (round-trip stability);
 // 4. the coverage ledger is complete: every statement of the parse and every populated field of the render has a
 //    disposition (core's ledger.ts, which doesn't trust the plugin's own count);
 // 5. no secret: none of the fixture's secret values is in a diagnostic, needs-input item, ledger reason, tool
 //    diagnostic, tool report (a tool's text, unless it is a config tool's) or thrown error, on the fixture or on broken copies of it (secrets.ts). Skipped for a fixture with none.
 // An error a step reports fails its check even when its output matches: a plugin that says it failed isn't conformant.
-import { buildLedger, ledgerProblems, MODEL_VERSION, type Context, type Device, type PlatformPlugin } from '@dialect/core'
+import { buildLedger, ledgerProblems, MODEL_VERSION, modelProblems, type Context, type Device, type PlatformPlugin } from '@dialect/core'
 import type { SecretAllowance } from './allowances'
 import { checkSecrets, describeLeak, findSecrets, type SecretsOptions } from './secrets'
 
@@ -99,8 +100,11 @@ export function checkFixture(plugin: PlatformPlugin, fixture: Fixture, { modelVe
   // An error a step reports fails its check, whatever its output matches: warnings and info don't.
   const errors = (step: string, r: { diagnostics: readonly { severity: string; message: string }[] }) => r.diagnostics.filter((d) => d.severity === 'error').map((d) => `${step} error: ${d.message}`)
 
+  // What core's modelProblems() finds in a model a step made: a VRF that isn't declared, a malformed route distinguisher.
+  const invalid = (step: string, model: Device) => modelProblems(model).map((d) => `${step} made an invalid model: ${d.message} (${d.field})`)
+
   const parsed = plugin.parse(fixture.source, context)
-  const checks: CheckResult[] = [result('parse', [...errors('parse', parsed), ...modelDifferences(fixture.expectedModel, parsed.model)])]
+  const checks: CheckResult[] = [result('parse', [...errors('parse', parsed), ...invalid('parse', parsed.model), ...modelDifferences(fixture.expectedModel, parsed.model)])]
 
   const rendered = plugin.render(parsed.model, context)
   const renderErrors = errors('render', rendered)
@@ -114,7 +118,7 @@ export function checkFixture(plugin: PlatformPlugin, fixture: Fixture, { modelVe
   )
 
   const reparsed = plugin.parse(rendered.text, context)
-  checks.push(result('round-trip', [...errors('reparse', reparsed), ...modelDifferences(parsed.model, reparsed.model).map((d) => `render → reparse changed the model: ${d}`)]))
+  checks.push(result('round-trip', [...errors('reparse', reparsed), ...invalid('reparse', reparsed.model), ...modelDifferences(parsed.model, reparsed.model).map((d) => `render → reparse changed the model: ${d}`)]))
 
   checks.push(result('ledger', ledgerProblems(buildLedger(parsed, rendered))))
   checks.push(secretsCheck(plugin, fixture, modelVersion, options))

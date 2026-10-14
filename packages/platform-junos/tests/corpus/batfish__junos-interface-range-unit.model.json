@@ -1,0 +1,35 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "interfaces": {
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "description": "RANGE_UNIT"
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/1": {
+        "subinterfaces": {
+          "0": {
+            "description": "EXPLICIT"
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/2": {
+        "subinterfaces": {
+          "0": {
+            "description": "RESERVED",
+            "ipv4": {}
+          }
+        },
+        "type": "ethernet"
+      }
+    },
+    "system": {
+      "hostname": "junos-interface-range-unit"
+    }
+  }
+}

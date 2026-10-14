@@ -18,7 +18,7 @@ product decisions.
     allowed;
   - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout: results to stdout, warnings and errors
     to stderr with their line and column. Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
-    unreadable input.
+    unreadable input, 3 a conversion with interfaces left unnamed (unless `--allow-incomplete`).
 - **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
   content security policy blocks remote content in both shells. The web build's allows only its own inlined script
   and styles, by hash, and no network at all.
@@ -51,6 +51,14 @@ product decisions.
   `CHANGELOG.md` with an Unreleased section. What doesn't carry over (Electron-only) is listed in the spike report.
 - **npm 12, pinned** (`packageManager: npm@12.2.0`, `engines.npm >=12`), for its default deny of install scripts: only
   packages approved in `allowScripts` run theirs. CI installs npm 12 before `npm ci`.
+- **The desktop app** (B7): Tauri 2 around the same UI, Windows first. An **NSIS installer only**
+  (`Dialect_<version>_x64-setup.exe`), installed **per user** (no admin), with NSIS's **zlib** compression (its LZMA
+  module is CPL-licensed) and Tauri's default WebView2 mode (download the bootstrapper only if WebView2 is missing). No
+  MSI: Tauri builds it with WiX 3 (MS-RL). **Unsigned** until there is a certificate: the build runs a signing hook
+  (`apps/desktop/scripts/sign.mjs`) that signs only when `DIALECT_SIGN_COMMAND` is set. A **strict CSP** (nothing remote,
+  no inline code, IPC only). Open and save go through the system dialogs, and the app can read and write only the
+  files the user picks there; a dropped file is read from the drop itself. Agents build the installer and run the
+  smoke test, but **never run the installer**: Darren installs and tests it himself.
 - **Versions:** semver 0.x until the model and the plugin API are stable.
 
 ## 3. License
@@ -77,9 +85,17 @@ product decisions.
 - **`THIRD_PARTY_NOTICES.md` is generated** from what actually ships (`npm run licenses`): every package with a link,
   version, license and full license text, the products it ships in (a package that publishes no license file, or that
   only another platform installs, needs a reviewed supplement with its text, or the check fails), plus hand-written
-  entries for material that ships but isn't a package (`scripts/notices`; copied, not shipped material isn't listed). From B7 it also covers the Rust crates in
-  the Tauri binary (runtime crates only) and the installer's components. **Every link is a working `https://` URL, or
-  there is none.** `npm run licenses -- --check` and a unit test fail when either generated file is stale or the rule
+  entries for material that ships but isn't a package (`scripts/notices`; copied, not shipped material isn't listed). It
+  also covers the desktop app's **Rust crates**: only those compiled into the app (found with `cargo tree`), while the
+  proc-macros and build scripts that run on the build machine are build-only. A crate that publishes no license file
+  needs a reviewed supplement, as a package does. The installer's components (NSIS, its `nsis_tauri_utils` plug-in)
+  and the Microsoft WebView2 loader linked into the app are hand-written entries. A license text that is the same as
+  one given earlier is given once and referred to. So `npm run licenses` needs Rust (cargo). **A package or crate
+  offered under a choice of licenses** (an SPDX `OR`) is used under MIT where it is offered, otherwise under the first
+  choice the shipped rule allows, decided at each `OR` (`(MIT OR Apache-2.0) AND Unicode-3.0` is used under
+  `MIT AND Unicode-3.0`). This is worked out, never listed by hand, and each entry says so: "MIT OR Apache-2.0, used
+  under MIT" (decided 2026-10-14). **Every link Dialect gives
+  is a working `https://` URL, or there is none**; quoted license texts keep their own words, addresses included. `npm run licenses -- --check` and a unit test fail when either generated file is stale or the rule
   is broken.
 - **netcanon:** use it **for ideas only**. We write our own converter: don't depend on it, fork it or wrap it. It may be
   used as an optional benchmark.
@@ -96,6 +112,19 @@ product decisions.
   registry refuses one outside it. Minor versions only add.
 - **Built in at first**, through a static registry each shell imports. Loading plugins at runtime comes later;
   third-party drop-in plugins stay out of v1.
+- **Junos scope:** MX, EX and QFX, routing and switching. Switching is ELS only (`vlans` and `family
+  ethernet-switching`, with VLANs in a later model version), not the older non-ELS syntax. Both the hierarchical and
+  the set form are read, and `apply-groups` and `interface-range` are expanded before mapping. SRX security zones,
+  policies and NAT come later: until then they show as `unsupported` in the ledger, never dropped.
+- **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
+- **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,
+  a source interface), needs a name on the target from the user: in the app's interface table, or a `--map` file on
+  the command line (`from,to` lines or a JSON object). A plugin may suggest names (Junos `ge-0/0/0` → IOS
+  `GigabitEthernet0/0/0`), shown as suggestions and used only once the user takes them. Until every interface is named,
+  the CLI writes no config and exits 3; `--allow-incomplete` writes it anyway, the unnamed interfaces keeping their
+  source names and their lines listed on stderr. Messages give an interface's line, never its name (a name can be a
+  secret's value reused); `--write-map` writes the names, with suggestions, to a file the user chose. Two interfaces
+  never end up with one name: such answers are refused, never merged.
 
 ## 5. Configs and test data
 
@@ -115,7 +144,20 @@ product decisions.
 
 - Like Hive: an **About dialog** (Help → About Dialect) and a **Docs view** that bundles the user guide
   ([USER_GUIDE.md](USER_GUIDE.md)), the release notes ([CHANGELOG.md](../CHANGELOG.md)), the License and the
-  Third-Party Notices.
+  Third-Party Notices, in the desktop app and the web build alike (B16).
+- The documents are the committed files, bundled at build time and rendered with marked and DOMPurify; a test fails
+  when what the UI bundles differs from the committed file, and the license check keeps the committed notices current.
+  The notices make the web build's single file about 1.1 MB (0.59 MB without the Docs).
+- About (modelled on Hive's) shows the icon, the name, a one-line description, then the version, the build (desktop or
+  web), the WebView2 or browser version and the OS where the browser tells it, with Copy for those rows. "Open source
+  under the MIT License. Includes third-party software." links to the License and Third-Party Notices pages, and a
+  Release Notes button opens the release notes. In small print, word for word (README.md's Trademarks section is the
+  same text, and a test keeps them so): "© 2026 Darren Marshall. Dialect is independently developed and isn't
+  affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of
+  Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc."
+- Links in the Docs never navigate the app's own page: a link to another bundled document opens it, and an `https://`
+  link opens outside the app (the default browser through Tauri's opener plugin, which the desktop app may use for
+  `https://` URLs only; a new tab in the web build).
 
 ## 8. Icon and theme
 
@@ -132,10 +174,9 @@ product decisions.
 
 From the spike report, still for the user to decide:
 
-1. Direction and first platform for Convert: Junos → Cisco or Cisco → Junos first, and which Cisco platform (IOS-XE
-   suggested)?
+1. ~~Direction and first platform for Convert~~: decided, Junos → IOS/IOS-XE first (§4).
 2. Sample configs: cleaned-up real configs (Junos and the chosen Cisco platform) for fixtures?
-3. Junos families in scope: MX/EX/QFX? SRX security zones, policies and NAT in or out?
+3. ~~Junos families in scope~~: decided, MX/EX/QFX with SRX security as `unsupported` for now (§4).
 4. Reverse display set (set → hierarchical): needed?
 5. Annotations: should display set output include `/* comments */`, or drop them with a warning?
 6. Who gets the app (decides code signing, installer or web build first, and whether the CLI is published)?

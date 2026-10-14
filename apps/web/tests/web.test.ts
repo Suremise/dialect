@@ -12,6 +12,11 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { build } from 'vite'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { tempDir } from '../../../tests/tempDir'
+import { version } from '../../../package.json'
+
+/** About's notice, word for word (card #42). */
+const NOTICE =
+  "© 2026 Darren Marshall. Dialect is independently developed and isn't affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc."
 
 const webRoot = join(__dirname, '..')
 const FIXTURES = join(__dirname, '../../../packages/platform-junos/tests/fixtures/display-set')
@@ -260,6 +265,260 @@ describe('the web build', () => {
     await page.locator('[data-pane=output] .cm-line').nth(2).click()
     await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('    inactive: services {')
   })
+
+  it('shows About with the version, the build, the browser, the OS and the notice, and copies the version information', async () => {
+    await openPage()
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Dialect' })
+    await expect
+      .poll(() => dialog.getByTestId('about-info').innerText(), UI_WAIT)
+      .toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Web build\\s+Browser\\s+Microsoft Edge \\d+\\.\\d+\\.\\d+\\.\\d+\\s+OS\\s+Windows 1[01]$`))
+    expect(await dialog.getByTestId('about-notice').innerText()).toBe(NOTICE)
+    expect(await dialog.innerText()).toContain('Open source under the MIT License. Includes third-party software.')
+    await dialog.getByRole('button', { name: 'Copy' }).click()
+    await expect
+      .poll(async () => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n'), UI_WAIT)
+      .toMatch(new RegExp(`^Dialect ${version.replaceAll('.', '\\.')}\nBuild: Web build\nBrowser: Microsoft Edge [\\d.]+\nOS: Windows 1[01]\n$`))
+    await dialog.getByRole('button', { name: 'OK' }).click()
+    await expect.poll(() => dialog.count(), UI_WAIT).toBe(0)
+  })
+
+  it("opens the Docs pages from About's links and Release Notes", async () => {
+    await openPage()
+    const page1 = (): Promise<string> => page.locator('.docs-page h1').first().innerText()
+    for (const [label, heading] of [['MIT License', 'License'], ['third-party software', 'Third-party notices'], ['Release Notes', 'Release Notes']]) {
+      await page.getByRole('button', { name: 'Help' }).click()
+      await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+      await page.getByRole('dialog').getByRole('button', { name: label, exact: true }).click()
+      await expect.poll(page1, UI_WAIT).toBe(heading)
+      await expect.poll(() => page.getByRole('dialog').count(), UI_WAIT).toBe(0)
+    }
+  })
+
+  it('renders each Docs page, from Help and from About, and goes back to the display set', async () => {
+    await openPage()
+    const page1 = (): Promise<string> => page.locator('.docs-page h1').first().innerText()
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'User Guide' }).click()
+    await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
+    // The view takes the panes' and the problems panel's rows: the status bar keeps its height.
+    expect((await page.locator('.statusbar').boundingBox())?.height).toBe(24)
+    for (const [label, heading] of [['Release Notes', 'Release Notes'], ['License', 'License'], ['Third-Party Notices', 'Third-party notices']]) {
+      await page.getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: label }).click()
+      await expect.poll(page1, UI_WAIT).toBe(heading)
+    }
+    // From About's links too.
+    await page.getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: 'About Dialect' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'MIT License' }).click()
+    await expect.poll(page1, UI_WAIT).toBe('License')
+    expect(await page.locator('.docs-page pre').first().innerText()).toContain('MIT License')
+    // A link to another document opens it here.
+    await page.locator('.docs-page a', { hasText: 'third-party notices' }).click()
+    await expect.poll(page1, UI_WAIT).toBe('Third-party notices')
+    await page.keyboard.press('Escape')
+    await expect.poll(() => page.locator('[data-pane=source] .cm-content').count(), UI_WAIT).toBe(1)
+    // F1 opens the guide.
+    await page.keyboard.press('F1')
+    await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
+  })
+
+  it('keeps the editors and their undo history while the Docs show', async () => {
+    await openPage()
+    const first = 'system { host-name alpha; }'
+    const both = `${first}\ninterfaces { }`
+    const sourceText = (): Promise<string> => page.locator('[data-pane=source] .cm-content').innerText()
+    await typeSource(first)
+    await page.keyboard.press('End')
+    await page.keyboard.insertText('\ninterfaces { }')
+    await expect.poll(sourceText, UI_WAIT).toBe(both)
+    // The control: what one undo gives here (CodeMirror joins quick edits into one undo step), then redo.
+    await page.keyboard.press('Control+Z')
+    await expect.poll(sourceText, UI_WAIT).not.toBe(both)
+    const undone = await sourceText()
+    await page.keyboard.press('Control+Y')
+    await expect.poll(sourceText, UI_WAIT).toBe(both)
+    // To the Docs and back, by F1 and Esc, then by the menu and the back button.
+    await page.keyboard.press('F1')
+    await expect.poll(() => page.locator('[data-pane=source]').isVisible(), UI_WAIT).toBe(false)
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'Release Notes' }).click()
+    await page.getByRole('button', { name: '← Display set' }).click()
+    await expect.poll(() => page.locator('[data-pane=source]').isVisible(), UI_WAIT).toBe(true)
+    expect(await sourceText()).toBe(both)
+    expect(await text('output-summary')).toBe(setLines(2))
+    await page.locator('[data-pane=source] .cm-content').click()
+    await page.keyboard.press('Control+Z')
+    await expect.poll(sourceText, UI_WAIT).toBe(undone)
+    await page.keyboard.press('Control+Y')
+    await expect.poll(sourceText, UI_WAIT).toBe(both)
+  })
+
+  it('lists a shipped package in the notices with its version, license and full license text, as committed', async () => {
+    await openPage()
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'Third-Party Notices' }).click()
+    const docs = page.locator('.docs-page')
+    await expect.poll(() => docs.locator('h2', { hasText: /^zustand / }).count(), UI_WAIT).toBe(1)
+    const committed = readFileSync(join(webRoot, '../../THIRD_PARTY_NOTICES.md'), 'utf8')
+    const zustand = /^\| \[zustand\]\(([^)]+)\) \| ([\d.]+) \| MIT \| desktop app, web build \|$/m.exec(committed)
+    expect(zustand).not.toBeNull()
+    const [, link, zustandVersion] = zustand!
+    const row = docs.locator('tr', { has: page.locator(`a[href="${link}"]`) })
+    expect((await row.innerText()).split('\t').map((c) => c.trim())).toEqual(['zustand', zustandVersion, 'MIT', 'desktop app, web build'])
+    const heading = docs.locator('h2', { hasText: `zustand ${zustandVersion}` })
+    expect(await heading.count()).toBe(1)
+    const licenseText = await heading.locator('xpath=following-sibling::pre[1]').innerText()
+    expect(licenseText).toMatch(/^MIT License\s+Copyright \(c\) \d{4}/)
+    expect(licenseText).toContain('THE SOFTWARE IS PROVIDED "AS IS"')
+    // Every package and crate the committed file lists is on the page.
+    const rows = committed.split('\n').filter((l) => /^\| \[?[\w@./-]+/.test(l) && !l.startsWith('| Package') && !l.startsWith('| Crate'))
+    expect(await docs.locator('table tbody tr').count()).toBe(rows.length)
+  })
+})
+
+describe('convert mode in the web build', () => {
+  const CONVERT = join(__dirname, '../../../packages/cli/tests/fixtures/convert')
+  const expected = readFileSync(join(CONVERT, 'phase1.iosxe'), 'utf8')
+  const outputLines = (): Promise<string[]> => page.locator('[data-pane=output] .cm-line').allInnerTexts()
+  const interfaceInput = (name: string) => page.getByRole('textbox', { name: `${name} on Cisco IOS / IOS-XE` })
+
+  async function openPhase1(): Promise<void> {
+    await openPage()
+    await page.getByRole('button', { name: 'Convert' }).click()
+    await expect.poll(() => page.getByRole('combobox', { name: 'Target platform' }).inputValue(), UI_WAIT).toBe('iosxe')
+    await openWithPicker(join(CONVERT, 'phase1.conf'))
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
+  }
+
+  it('converts the phase 1 fixture to IOS-XE once the interfaces are named, and saves it', async () => {
+    await openPhase1()
+    const lines = expected.split('\n').length - 1
+    // Unnamed, the interfaces keep their Junos names: the output says it is incomplete.
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(`${lines} lines, incomplete: 4 interfaces need a name`)
+    expect(await outputLines()).toContain('interface ge-0/0/0')
+    expect(await interfaceInput('ge-0/0/0').getAttribute('placeholder')).toBe('GigabitEthernet0/0/0 (suggested)')
+    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(`${lines} lines`)
+    expect(await outputLines()).toEqual(expected.trimEnd().split('\n'))
+    expect(await saveOutput()).toEqual({ name: 'phase1.iosxe', text: expected })
+    expect(await text('status-result')).toBe(`${lines} lines`)
+  })
+
+  it('changes the output names from the interface table and from a loaded map, and saves the map', async () => {
+    await openPhase1()
+    await interfaceInput('ge-0/0/0').fill('GigabitEthernet1')
+    await expect.poll(outputLines, UI_WAIT).toContain('interface GigabitEthernet1')
+    // The Junos unit 0 next hop is the main interface on IOS.
+    expect(await outputLines()).toContain('ip route 198.51.100.64 255.255.255.192 GigabitEthernet1 192.0.2.2')
+    await page.getByRole('button', { name: 'Use Loopback0 for lo0' }).click()
+    await expect.poll(outputLines, UI_WAIT).toContain('interface Loopback0')
+    writeFileSync(join(dir, 'names.csv'), 'ge-0/0/1,GigabitEthernet2\nxe-0/1/0,TenGigabitEthernet9/9/9\n')
+    const chooser = page.waitForEvent('filechooser', UI_WAIT)
+    await page.getByRole('button', { name: /^Load map/ }).click()
+    await (await chooser).setFiles(join(dir, 'names.csv'))
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+    expect(await outputLines()).toEqual(expect.arrayContaining(['interface GigabitEthernet2.10', 'interface TenGigabitEthernet9/9/9']))
+    const download = page.waitForEvent('download', UI_WAIT)
+    await page.getByRole('button', { name: 'Save map' }).click()
+    const file = await download
+    const path = join(dir, `download-${++downloads}-${file.suggestedFilename()}`)
+    await file.saveAs(path)
+    expect({ name: file.suggestedFilename(), text: readFileSync(path, 'utf8') }).toEqual({
+      name: 'interfaces.csv',
+      text: 'ge-0/0/0,GigabitEthernet1\nlo0,Loopback0\nge-0/0/1,GigabitEthernet2\nxe-0/1/0,TenGigabitEthernet9/9/9\n'
+    })
+  })
+
+  it('shows what did not carry over in the warnings panel and the source gutter, and jumps to it', async () => {
+    await openPhase1()
+    await expect
+      .poll(() => page.locator('.problem.warning').allInnerTexts(), UI_WAIT)
+      .toEqual([
+        'Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards\nline 66, column 9',
+        'Not converted: routing protocols come later\nline 74, column 1',
+        'Not converted: routing protocols come later\nline 75, column 5',
+        'Not converted: routing protocols come later\nline 76, column 9'
+      ])
+    expect(await text('problem-count')).toBe('4 warnings')
+    await page.locator('.problem.warning').first().click()
+    await expect.poll(() => page.locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('        route 192.0.2.192/26 reject;')
+    // The gutter marks the line, saying why on hover; the line itself is marked too.
+    const marker = page.locator('[data-pane=source] .cm-issue-warning[title^="Not written"]')
+    await expect.poll(() => marker.getAttribute('title'), UI_WAIT).toBe('Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards')
+    expect(await page.locator('[data-pane=source] .cm-mark-warning', { hasText: 'reject' }).count()).toBe(1)
+    await page.locator('.problem.warning').last().click()
+    await expect.poll(() => page.locator('[data-pane=source] .cm-issue-warning[title^="Not converted"]').count(), UI_WAIT).toBe(3)
+  })
+
+  it('links an output line to its source statement, and back', async () => {
+    await openPhase1()
+    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+    await page.locator('[data-pane=output] .cm-line', { hasText: 'ip address 192.0.2.1 255.255.255.252' }).click()
+    await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['                address 192.0.2.1/30;'])
+    // Back by the keyboard: the source pane has just scrolled to the address (on its next frame), so a click by position
+    // could land on another line. Line 3 is `host-name edge-1;`.
+    await page.locator('[data-pane=source] .cm-content').focus()
+    await page.keyboard.press('Control+Home')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => page.locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('    host-name edge-1;')
+    await expect.poll(() => page.locator('[data-pane=output] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['hostname edge-1'])
+  })
+
+  it('refuses a loaded JSON map that names an interface twice, applying none of it', async () => {
+    await openPhase1()
+    writeFileSync(join(dir, 'twice.json'), '{"lo0":"Loopback1","lo0":"Loopback2","ge-0/0/0":"GigabitEthernet1"}')
+    const chooser = page.waitForEvent('filechooser', UI_WAIT)
+    await page.getByRole('button', { name: /^Load map/ }).click()
+    await (await chooser).setFiles(join(dir, 'twice.json'))
+    await expect.poll(() => page.getByRole('status').innerText(), UI_WAIT).toBe('twice.json: the JSON names an interface twice')
+    expect(await text('interface-count')).toBe('4 of 4 need a name')
+    expect(await interfaceInput('ge-0/0/0').inputValue()).toBe('')
+  })
+
+  it('refuses a name another interface keeps, in the problems panel, by line', async () => {
+    await openPhase1()
+    await interfaceInput('ge-0/0/0').fill('ge-0/0/1')
+    await expect
+      .poll(() => page.locator('.problem.error').allInnerTexts(), UI_WAIT)
+      .toEqual(['2 interfaces would have one name on Cisco IOS / IOS-XE (lines 21, 29): give each its own.\nline 21, column 5'])
+    // Both interfaces are still in the output, under their own names.
+    expect(await outputLines()).toEqual(expect.arrayContaining(['interface ge-0/0/0', 'interface ge-0/0/1.10']))
+  })
+
+  it('keeps the interface table usable in a narrow window (the desktop app\'s smallest)', async () => {
+    await openPhase1()
+    await page.setViewportSize({ width: 720, height: 480 })
+    const table = page.locator('.interfaces')
+    await expect.poll(() => table.isVisible(), UI_WAIT).toBe(true)
+    const input = interfaceInput('xe-0/1/0')
+    await input.scrollIntoViewIfNeeded()
+    expect(await input.isVisible()).toBe(true)
+    // Inside the window, not cut off.
+    const box = (await input.boundingBox())!
+    expect(box.x + box.width).toBeLessThanOrEqual(720)
+    expect(box.y + box.height).toBeLessThanOrEqual(480)
+    await input.fill('TenGigabitEthernet1/1/1')
+    await expect.poll(outputLines, UI_WAIT).toContain('interface TenGigabitEthernet1/1/1')
+    for (const name of ['Use suggestions', 'Load map…', 'Save map']) expect(await page.getByRole('button', { name }).isVisible()).toBe(true)
+    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+  })
+
+  it('keeps display set as it was, and Convert in the Docs back button', async () => {
+    await openPhase1()
+    await page.keyboard.press('F1')
+    await expect.poll(() => page.getByRole('button', { name: '← Convert' }).count(), UI_WAIT).toBe(1)
+    await page.getByRole('button', { name: '← Convert' }).click()
+    await page.getByRole('button', { name: 'Display set' }).click()
+    await expect.poll(() => text('output-summary'), UI_WAIT).toMatch(/^\d+ set lines$/)
+    expect(await page.locator('.interfaces').count()).toBe(0)
+  })
 })
 
 // Writes light and dark screenshots of a fixture for the card's report, when asked: DIALECT_SCREENSHOTS=<folder>.
@@ -275,6 +534,19 @@ describe.runIf(Boolean(shots))('screenshots', () => {
     await typeSource('system {\n    /* lab */\n    host-name r1\n}\n')
     await expect.poll(() => text('problem-count'), UI_WAIT).toBe('1 error')
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-error.png`) })
+    await page.getByRole('button', { name: 'Convert' }).click()
+    await openWithPicker(join(__dirname, '../../../packages/cli/tests/fixtures/convert/phase1.conf'))
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
+    await page.getByRole('button', { name: 'Use GigabitEthernet0/0/0 for ge-0/0/0' }).click()
+    await page.locator('.problem.warning').first().click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('3 of 4 need a name')
+    await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert.png`) })
+    await page.setViewportSize({ width: 720, height: 480 })
+    await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert-narrow.png`) })
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+    await expect.poll(() => page.getByTestId('about-info').innerText(), UI_WAIT).toContain('OS')
+    await page.screenshot({ path: join(shots!, `dialect-${scheme}-about.png`) })
     writeFileSync(join(shots!, 'size.txt'), `${readFileSync(join(dir, 'dist', 'dialect.html')).length}\n`)
   })
 })

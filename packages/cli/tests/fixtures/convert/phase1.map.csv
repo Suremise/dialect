@@ -1,0 +1,5 @@
+# Junos name,IOS-XE name
+ge-0/0/0,GigabitEthernet0/0/0
+ge-0/0/1,GigabitEthernet0/0/1
+xe-0/1/0,TenGigabitEthernet0/1/0
+lo0,Loopback0

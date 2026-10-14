@@ -32,3 +32,65 @@ jobs:
       - run: npm test
       # npm test already checks this (tests/licenses.test.ts); here it has its own line in the log.
       - run: npm run licenses -- --check
+
+  # The desktop app: the NSIS installer (kept as a build artifact, never released), cargo-deny on its crates, and the
+  # smoke test (apps/desktop/e2e), which drives the built app through tauri-driver and Edge WebDriver.
+  desktop:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install -g npm@12.2.0
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+      # tauri-driver and cargo-deny go in ~/.cargo-tools, apart from ~/.cargo/bin (rustup's), so they cache on their own.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo-tools
+          key: cargo-tools-${{ runner.os }}-tauri-driver-2-cargo-deny-0.20
+      # cargo install skips a tool whose cached version is still the newest that meets the requirement.
+      - name: Install tauri-driver and cargo-deny
+        run: |
+          $tools = Join-Path $HOME '.cargo-tools'
+          cargo install tauri-driver --locked --version ^2 --root $tools
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo install cargo-deny --locked --version ^0.20 --root $tools
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Join-Path $tools 'bin' | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: cargo deny
+        working-directory: apps/desktop/src-tauri
+        run: cargo deny --locked check
+      # The smoke test needs the msedgedriver of the runner's WebView2 runtime, whose version EdgeUpdate records.
+      - name: Download msedgedriver for the installed WebView2
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $version = (Get-ItemProperty -Path $key -ErrorAction Stop).pv
+          if (-not $version) { throw "No WebView2 version under $key" }
+          Write-Output "WebView2 $version"
+          $dir = Join-Path $env:RUNNER_TEMP 'msedgedriver'
+          $zip = Join-Path $env:RUNNER_TEMP 'edgedriver_win64.zip'
+          Invoke-WebRequest -Uri "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          "MSEDGEDRIVER=$(Join-Path $dir 'msedgedriver.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - run: npm run build -w @dialect/desktop
+      # Builds the app again without the installer, which after the build above is incremental.
+      - run: npm run test:smoke -w @dialect/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dialect-installer
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

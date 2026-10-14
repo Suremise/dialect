@@ -4,3 +4,8 @@ declare module '*.svg' {
   export default url
 }
 declare module '*.css'
+// A file's text, bundled (the Docs view's documents).
+declare module '*?raw' {
+  const text: string
+  export default text
+}

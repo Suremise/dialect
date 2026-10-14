@@ -1,12 +1,11 @@
 // The offline web build: the UI as one self-contained file, dist/dialect.html, opened from disk with no server.
-// vite-plugin-singlefile inlines the script and the styles; then `csp` below fills in the Content Security Policy from
+// `inlineAssets` below puts the script and the styles into the page; then `csp` fills in the Content Security Policy from
 // their hashes, so the page runs only its own inlined code and can reach no network at all.
 import react from '@vitejs/plugin-react'
 import { createHash } from 'crypto'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { defineConfig, type Plugin } from 'vite'
-import { viteSingleFile } from 'vite-plugin-singlefile'
 
 const OUTPUT = 'dialect.html'
 
@@ -24,6 +23,41 @@ export function contentSecurityPolicy(scripts: string[], styles: string[]): stri
     "form-action 'none'",
     "object-src 'none'"
   ].join('; ')
+}
+
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Moves the one script chunk and the one stylesheet into index.html, and fails on any other file the build emits. */
+function inlineAssets(): Plugin {
+  return {
+    name: 'dialect-inline',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      const page = bundle['index.html']
+      if (!page || page.type !== 'asset') throw new Error('dialect-inline: no index.html in the bundle')
+      let html = String(page.source)
+      for (const [fileName, file] of Object.entries(bundle)) {
+        if (fileName === 'index.html') continue
+        if (file.type === 'chunk' && fileName.endsWith('.js')) {
+          const tag = new RegExp(`<script\\b[^>]*\\bsrc="(?:\\./)?${escape(fileName)}"[^>]*></script>`)
+          if (!tag.test(html)) throw new Error(`dialect-inline: index.html doesn't load ${fileName}`)
+          // `</script` or `<!--` in a string would end or change the script element: \x3C reads the same in JS.
+          const code = file.code.replace(/<(\/script|!--)/gi, '\\x3C$1').trim()
+          html = html.replace(tag, () => `<script type="module">${code}</script>`)
+        } else if (file.type === 'asset' && fileName.endsWith('.css')) {
+          const tag = new RegExp(`<link\\b[^>]*\\bhref="(?:\\./)?${escape(fileName)}"[^>]*>`)
+          if (!tag.test(html)) throw new Error(`dialect-inline: index.html doesn't load ${fileName}`)
+          const css = String(file.source).replace('@charset "UTF-8";', '').trim()
+          if (/<\/style/i.test(css)) throw new Error(`dialect-inline: ${fileName} contains </style`)
+          html = html.replace(tag, () => `<style>${css}</style>`)
+        } else {
+          throw new Error(`dialect-inline: ${fileName} can't be inlined into the page`)
+        }
+        delete bundle[fileName]
+      }
+      page.source = html
+    }
+  }
 }
 
 function csp(): Plugin {
@@ -52,11 +86,18 @@ function csp(): Plugin {
 
 export default defineConfig({
   base: './',
-  plugins: [react(), viteSingleFile({ removeViteModuleLoader: true }), csp()],
+  plugins: [react(), inlineAssets(), csp()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
     target: 'es2022',
-    reportCompressedSize: false
+    reportCompressedSize: false,
+    // One script and one stylesheet, for `inlineAssets`: no code splitting, no preload helper, assets as data: URLs.
+    assetsDir: '',
+    assetsInlineLimit: () => true,
+    cssCodeSplit: false,
+    modulePreload: { polyfill: false },
+    chunkSizeWarningLimit: 100_000,
+    rolldownOptions: { output: { codeSplitting: false } }
   }
 })

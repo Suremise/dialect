@@ -1,6 +1,7 @@
 // The platform plugin interface: what each platform package (`@dialect/platform-*`) exports as its default export.
 // Plugins take and return strings and plain objects, with no file system, DOM or Node APIs, so the same plugin runs in
 // the CLI, the desktop app's webview and the browser. File access lives in the shells.
+import type { PortName } from './convert'
 import type { Device } from './model'
 import type { Context, Diagnostic, ParseResult, RenderResult } from './results'
 
@@ -33,6 +34,12 @@ export interface ToolResult {
   readonly text: string
   /** Errors (with where, as a span) and warnings; an error means `text` may be incomplete. */
   readonly diagnostics: readonly Diagnostic[]
+  /**
+   * The 1-based source line each line of `text` comes from, in order, for linking the output to its source (the UI marks
+   * a set line's statement). Left out when the tool doesn't track it. A line break is `\n`, `\r\n` or `\r`, as the
+   * editors count them, and a final line break starts no line.
+   */
+  readonly sourceLines?: readonly number[]
 }
 
 export interface PlatformPlugin {
@@ -49,6 +56,10 @@ export interface PlatformPlugin {
   parse?(text: string, context: Context): ParseResult
   /** Model → text and a disposition per populated field. Without it, the plugin can't convert to. */
   render?(model: Device, context: Context): RenderResult
+  /** What one of its interface names says (type, speed, numbers), so a target can suggest a name for it (convert.ts). */
+  describeInterface?(name: string): PortName | undefined
+  /** Its own name for a port another plugin described, as a suggestion only; undefined when it has none. */
+  nameInterface?(port: PortName): string | undefined
   /** Its platform-only tools; none when left out. */
   tools?(): readonly Tool[]
 }

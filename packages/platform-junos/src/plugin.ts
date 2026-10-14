@@ -1,7 +1,11 @@
-// The Junos plugin for the core's registry (B2's PlatformPlugin). For now it has one tool, display set; parsing into
-// the shared model and rendering from it come in B4.
+// The Junos plugin for the core's registry (B2's PlatformPlugin): parse into the shared model and render from it for the
+// phase 1 areas (B4), detect(), and one tool, display set.
 import type { Diagnostic, PlatformPlugin, Tool, ToolResult } from '@dialect/core'
+import { detect } from './detect'
 import { displaySet } from './displaySet'
+import { describeInterface } from './names'
+import { parse } from './parse'
+import { render } from './render'
 
 /**
  * Display set as a core Tool. The core's Tool has no field for what it reads and writes, so this one says it twice: in
@@ -19,6 +23,9 @@ function at(line: number, column: number): Diagnostic['span'] {
   return { startLine: line, startColumn: column, endLine: line, endColumn: column }
 }
 
+/** A line break as editors count them (CodeMirror among them). */
+const LINE_BREAK = /\r\n?|\n/
+
 export const displaySetTool: JunosTool = {
   id: 'display-set',
   name: 'Display set',
@@ -29,11 +36,14 @@ export const displaySetTool: JunosTool = {
     const result = displaySet(input)
     if (!result.ok) {
       const { message, line, column } = result.error
-      return { text: '', diagnostics: [{ severity: 'error', category: 'syntax', code: 'junos.syntax', message, span: at(line, column) }] }
+      return { text: '', diagnostics: [{ severity: 'error', category: 'syntax', code: 'junos.syntax', message, span: at(line, column) }], sourceLines: [] }
     }
     return {
       text: result.lines.length > 0 ? result.lines.map((line) => line.text).join('\n') + '\n' : '',
-      diagnostics: result.warnings.map((w) => ({ severity: 'warning', category: 'syntax', code: `junos.${w.code}`, message: w.message, span: at(w.line, w.column) }))
+      diagnostics: result.warnings.map((w) => ({ severity: 'warning', category: 'syntax', code: `junos.${w.code}`, message: w.message, span: at(w.line, w.column) })),
+      // A quoted value can hold line breaks (a banner), so one set line can be several output lines: each gets its
+      // statement's line.
+      sourceLines: result.lines.flatMap((line) => Array<number>(line.text.split(LINE_BREAK).length).fill(line.sourceLine))
     }
   }
 }
@@ -41,9 +51,20 @@ export const displaySetTool: JunosTool = {
 export const junos: PlatformPlugin = {
   id: 'junos',
   name: 'Junos',
-  // Minor model versions only add, also in 0.x, so every 0.x model from 0.1 on (docs/ARCHITECTURE.md, the shared model).
-  modelApi: '>=0.1.0 <1.0.0',
-  // No model mapping yet (B4), so no area is parsed or rendered.
-  capabilities: {},
+  // 0.2.0: its parse fills system.dns, which a 0.1 core doesn't know. Minor versions only add, so every 0.x from there.
+  modelApi: '>=0.2.0 <1.0.0',
+  capabilities: {
+    system: { parse: 'full', render: 'full' },
+    dns: { parse: 'partial', render: 'full' },
+    interfaces: { parse: 'partial', render: 'partial' },
+    'static-routes': { parse: 'partial', render: 'partial' },
+    ntp: { parse: 'partial', render: 'partial' },
+    syslog: { parse: 'partial', render: 'partial' },
+    snmp: { parse: 'partial', render: 'partial' }
+  },
+  detect,
+  parse,
+  render,
+  describeInterface,
   tools: () => [displaySetTool]
 }

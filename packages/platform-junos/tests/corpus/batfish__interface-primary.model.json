@@ -1,0 +1,42 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "interface-primary"
+    },
+    "interfaces": {
+      "em0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "1.1.1.1": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          },
+          "1": {
+            "ipv4": {
+              "addresses": {
+                "2.1.1.1": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          },
+          "2": {
+            "ipv4": {
+              "addresses": {
+                "2.1.1.1": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        },
+        "type": "management"
+      }
+    }
+  }
+}
