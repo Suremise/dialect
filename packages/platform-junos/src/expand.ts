@@ -262,9 +262,9 @@ export function expand(statements: readonly Statement[]): Expansion {
     for (const { body } of list) {
       body.forEach((word, j) => {
         const at = key(body.slice(0, j))
-        const children = tree.get(at) ?? []
-        if (!children.includes(word)) children.push(word)
-        tree.set(at, children)
+        const siblings = tree.get(at) ?? []
+        if (!siblings.includes(word)) siblings.push(word)
+        tree.set(at, siblings)
       })
     }
     trees.set(name, tree)
@@ -276,8 +276,8 @@ export function expand(statements: readonly Statement[]): Expansion {
     const y = b.entry.body
     const j = x.findIndex((w, i) => w !== y[i])
     if (j < 0 || (!isWildcard(x[j]) && !isWildcard(y[j]))) return false
-    const children = trees.get(a.entry.group)?.get(key(x.slice(0, j))) ?? []
-    return children.indexOf(x[j]) < children.indexOf(y[j])
+    const siblings = trees.get(a.entry.group)?.get(key(x.slice(0, j))) ?? []
+    return siblings.indexOf(x[j]) < siblings.indexOf(y[j])
   }
   // Groups can name range members too, which wildcards then match: resolve once for those, then again with them.
   classify(inheritAll())
