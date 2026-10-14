@@ -139,7 +139,9 @@ Each platform names interfaces its own way (Junos `ge-0/0/0`, IOS `GigabitEthern
 interface on its own. Every interface the config names, as an interface or in a next hop or a source interface, needs a
 name on the target. Dialect suggests one where the name makes it likely (from Junos to IOS-XE: `ge-0/0/0` →
 `GigabitEthernet0/0/0`, `xe-0/1/0` → `TenGigabitEthernet0/1/0`, `lo0` → `Loopback0`), but a suggestion is only used once
-you take it.
+you take it. Aggregated interfaces get one on every target: Junos counts them from 0 and Cisco from 1, so `ae0` is
+suggested as IOS `Port-channel1`, NX-OS `port-channel1` or IOS-XR `Bundle-Ether1`, and the other way round
+`Port-channel1` as `ae0`. Between Cisco platforms the number stays (`Port-channel5` → `Bundle-Ether5`).
 
 In the app, name them in the **Interfaces** table: type a name, click **Use** to take a row's suggestion, or **Use
 suggestions** to take every one at once. Until an interface has a name, it is marked, keeps its source name in the

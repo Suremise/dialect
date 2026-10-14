@@ -41,7 +41,8 @@ const SPEEDS: Readonly<Record<string, number>> = { fe: 100, ge: 1000, xe: 10000,
 
 /**
  * What an interface name says, for another platform's suggested name (the core's PortName): `ge-1/0/3` is 1000 Mb/s
- * Ethernet 1/0/3, `xe-0/0/0:2` a channel of one, `ae1` an aggregate, `lo0` a loopback, `fxp0` the management port.
+ * Ethernet 1/0/3, `xe-0/0/0:2` a channel of one, `lo0` a loopback, `fxp0` the management port. An aggregate is numbered
+ * as Cisco counts it, from 1, so every target keeps the number: `ae0` is aggregate 1 (Port-channel1, Bundle-Ether1).
  * Undefined for names with no number (`irb`, `vlan`) and the rest.
  */
 export function describeInterface(name: string): PortName | undefined {
@@ -55,13 +56,14 @@ export function describeInterface(name: string): PortName | undefined {
   const single = /^(ae|lo|fxp|em|me)(\d+)$/.exec(name)
   if (!single) return undefined
   const type = interfaceType(name)
-  return type ? { type, numbers: [Number(single[2])] } : undefined
+  if (!type) return undefined
+  return { type, numbers: [Number(single[2]) + (type === 'aggregate' ? 1 : 0)] }
 }
 
 /**
  * The Junos name for a port another plugin described, as a suggestion (convert never takes it silently). Only
- * aggregates so far, as the user decided: Cisco `Port-channelN`, `port-channelN` and `Bundle-EtherN` start at 1, Junos's
- * `ae` at 0, so N is `ae(N-1)`. Undefined for anything else.
+ * aggregates so far, as the user decided: a described aggregate is counted from 1 (Cisco's `Port-channelN`,
+ * `port-channelN` and `Bundle-EtherN` as written), Junos's `ae` from 0, so N is `ae(N-1)`. Undefined for anything else.
  */
 export function nameInterface(port: PortName): string | undefined {
   if (port.type !== 'aggregate' || port.numbers.length !== 1 || !Number.isInteger(port.numbers[0]) || port.numbers[0] < 1) return undefined

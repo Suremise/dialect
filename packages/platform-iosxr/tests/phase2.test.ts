@@ -242,16 +242,13 @@ describe('the semantic warnings, each raised by a saved fixture', () => {
 })
 
 describe('aggregate names suggested for convert', () => {
-  it('Junos aeN is Bundle-Ether(N+1); IOS-XE and NX-OS port-channels keep N; an unknown source gets none', () => {
+  it('an aggregate, counted from 1 as every plugin describes it, keeps its number; aggregate 0 and other ports get none', () => {
     const aggregate = (n: number) => ({ type: 'aggregate' as const, numbers: [n] })
-    const name = plugin.nameInterface as (port: Parameters<NonNullable<typeof plugin.nameInterface>>[0], source?: string) => string | undefined
-    expect(name(aggregate(0), 'junos')).toBe('Bundle-Ether1')
-    expect(name(aggregate(4), 'junos')).toBe('Bundle-Ether5')
-    expect(name(aggregate(5), 'iosxe')).toBe('Bundle-Ether5')
-    expect(name(aggregate(3), 'nxos')).toBe('Bundle-Ether3')
-    expect(name(aggregate(0), 'iosxe')).toBeUndefined()
-    expect(name(aggregate(1))).toBeUndefined()
-    expect(name({ type: 'loopback', numbers: [0] }, 'junos')).toBeUndefined()
+    expect(plugin.nameInterface?.(aggregate(1))).toBe('Bundle-Ether1')
+    expect(plugin.nameInterface?.(aggregate(65535))).toBe('Bundle-Ether65535')
+    expect(plugin.nameInterface?.(aggregate(0))).toBeUndefined()
+    expect(plugin.nameInterface?.(aggregate(65536))).toBeUndefined()
+    expect(plugin.nameInterface?.({ type: 'loopback', numbers: [0] })).toBeUndefined()
     expect(plugin.describeInterface?.('Bundle-Ether10')).toEqual(aggregate(10))
     expect(plugin.describeInterface?.('GigabitEthernet0/0/0/0')).toBeUndefined()
   })

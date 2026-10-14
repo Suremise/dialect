@@ -1126,6 +1126,12 @@ describe('names for ports from another platform (convert mode suggestions)', () 
     expect(plugin.nameInterface?.({ type: 'other', numbers: [1] })).toBeUndefined()
   })
 
+  it('describes a port-channel by its number, for another platform to name, and nothing else', () => {
+    expect(plugin.describeInterface?.('Port-channel10')).toEqual({ type: 'aggregate', numbers: [10] })
+    expect(plugin.describeInterface?.('Po3')).toEqual({ type: 'aggregate', numbers: [3] })
+    for (const name of ['Port-channel1.10', 'GigabitEthernet0/0/0', 'Loopback0', '__proto__']) expect(plugin.describeInterface?.(name)).toBeUndefined()
+  })
+
   it('writes a reference to subinterface 0 as the main interface', () => {
     const route = { nextHops: { '0': { address: '192.0.2.2', interface: 'Gi0/0/0.0' } } }
     const model: Device = { system: { ntp: { sourceInterface: 'Gi0/0/1.0' }, logging: { sourceInterface: 'Gi0/0/1.20' } }, networkInstances: { default: { staticRoutes: { '0.0.0.0/0': route } } } }
