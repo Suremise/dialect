@@ -1,17 +1,17 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.5.3",
   "device": {
     "system": {
       "hostname": "rtr01",
+      "dns": {
+        "servers": {
+          "192.168.255.1": {}
+        }
+      },
       "domainName": "example.com",
       "ntp": {
         "servers": {
           "192.168.100.100": {}
-        }
-      },
-      "dns": {
-        "servers": {
-          "192.168.255.1": {}
         }
       }
     },
@@ -65,6 +65,35 @@
               }
             }
           }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "NAT": {
+          "terms": {
+            "10": {
+              "matches": {
+                "sourcePrefixes": [
+                  "192.168.0.0/24"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "20": {
+              "matches": {
+                "sourcePrefixes": [
+                  "192.168.100.0/24"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
         }
       }
     }

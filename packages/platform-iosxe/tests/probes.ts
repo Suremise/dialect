@@ -35,6 +35,8 @@ const routed = lines(
   ' exit-address-family'
 )
 const bgp = (...children: string[]) => lines('router bgp 65000', ...children)
+/** An extended access list with entries. */
+const acl = (...entries: string[]) => lines('ip access-list extended F', ...entries)
 /** A route map with one sequence and what it says. */
 const routeMap = (...children: string[]) => lines('route-map M permit 10', ...children)
 const ospf = (...children: string[]) => lines('interface GigabitEthernet1', ' ip address 192.0.2.1 255.255.255.0', 'router ospf 1', ' network 192.0.2.0 0.0.0.255 area 0', ...children)
@@ -61,7 +63,9 @@ export const IOSXE_PROBES: ProbeAdapter = {
     'bgp-neighbor': { set: bgp(' neighbor 192.0.2.2 remote-as 65001'), negated: bgp(' neighbor 192.0.2.2 remote-as 65001', ' no neighbor 192.0.2.2'), path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2'] },
     'ospf-interface': { set: ospf(), negated: ospf(' no network 192.0.2.0 0.0.0.255 area 0'), path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'GigabitEthernet1'] },
     'policy-term': { set: routeMap(' set tag 1'), negated: lines(routeMap(' set tag 1'), 'no route-map M permit 10'), path: ['routingPolicy', 'policies', 'M', 'terms', '10'] },
-    'prefix-list-entry': { set: 'ip prefix-list L seq 5 permit 10.0.0.0/8', negated: lines('ip prefix-list L seq 5 permit 10.0.0.0/8', 'no ip prefix-list L seq 5'), path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '5'] }
+    'prefix-list-entry': { set: 'ip prefix-list L seq 5 permit 10.0.0.0/8', negated: lines('ip prefix-list L seq 5 permit 10.0.0.0/8', 'no ip prefix-list L seq 5'), path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '5'] },
+    'filter-term': { set: acl(' 10 permit tcp any any eq 22'), negated: lines(acl(' 10 permit tcp any any eq 22'), acl(' no 10')), path: ['filters', 'ipv4', 'F', 'terms', '10'] },
+    'filter-attachment': { set: lines(acl(' 10 permit ip any any'), iface(' ip access-group F in')), negated: lines(acl(' 10 permit ip any any'), iface(' ip access-group F in', ' no ip access-group F in')), path: ['interfaces', 'GigabitEthernet1', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] }
   },
   malformed: {
     'ipv4-address': { source: iface(' ip address 999.1.1.1 255.255.255.0'), value: '999.1.1.1' },
@@ -72,7 +76,11 @@ export const IOSXE_PROBES: ProbeAdapter = {
     'vlan-id': { source: iface(' switchport mode access', ' switchport access vlan 4095'), value: '4095' },
     'as-number': { source: bgp(' neighbor 192.0.2.2 remote-as 4294967296'), value: '4294967296' },
     prefix: { source: 'ip prefix-list L seq 5 permit 10.0.0.1/8', value: '10.0.0.1/8' },
-    'prefix-length': { source: 'ip prefix-list L seq 5 permit 10.0.0.0/8 le 33', value: '33' }
+    'prefix-length': { source: 'ip prefix-list L seq 5 permit 10.0.0.0/8 le 33', value: '33' },
+    port: { source: acl(' 10 permit tcp any any eq 70000'), value: '70000' },
+    'filter-prefix': { source: acl(' 10 permit ip host 999.1.1.1 any'), value: '999.1.1.1' },
+    // Non-contiguous: never approximated as a prefix.
+    wildcard: { source: acl(' 10 permit ip 10.0.0.0 0.255.0.255 any'), value: '0.255.0.255' }
   },
   vrfScoping: {
     delete: { base: scoped, changed: lines(scoped, 'no vrf definition A'), vrf: 'A' },
@@ -87,7 +95,11 @@ export const IOSXE_PROBES: ProbeAdapter = {
     'prefix-list': { source: routeMap(' match ip address prefix-list NOPE'), value: 'NOPE' },
     'community-set': { source: routeMap(' match community NOPE'), value: 'NOPE' },
     'as-path-set': { source: routeMap(' match as-path 99'), value: '99' },
-    policy: { source: bgp(' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  neighbor 192.0.2.2 route-map NOPE in'), value: 'NOPE' }
+    policy: { source: bgp(' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  neighbor 192.0.2.2 route-map NOPE in'), value: 'NOPE' },
+    // Model 0.5.1: an interface applying an access list the text never defines.
+    filter: { source: iface(' ip address 192.0.2.1 255.255.255.0', ' ip access-group NOPE in'), value: 'NOPE' }
   },
+  // Model 0.5.1: an access list, which ends in IOS's implicit deny.
+  implicitAction: { source: acl(' 10 permit tcp any any eq 22') },
   regex: { source: lines('ip as-path access-list 10 permit _65000_', 'ip community-list expanded C permit ^65000:[0-9]+$'), regexes: ['_65000_', '^65000:[0-9]+$'] }
 }

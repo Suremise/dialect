@@ -1,0 +1,195 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "allowtointernet": {
+          "terms": {
+            "10": {
+              "description": "$Id:$ Denies all traffic to internal IPs except established tcp replies. Also denies access to certain public allocations. Ideal for some internal lab/testing types of subnets that are not well trusted, but allowing internal users to access. Apply to ingress interface (to filter traffic coming from lab) accept-dhcp Optional - allow forwarding of DHCP requests.",
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "destinationPorts": [
+                  "67"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "20": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "destinationPorts": [
+                  "68"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "30": {
+              "description": "accept-to-honestdns Allow name resolution using honestdns.",
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "destinationPrefixes": [
+                  "8.8.4.4/32"
+                ],
+                "destinationPorts": [
+                  "53"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "40": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "destinationPrefixes": [
+                  "8.8.8.8/32"
+                ],
+                "destinationPorts": [
+                  "53"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "50": {
+              "description": "accept-tcp-replies Allow tcp replies to internal hosts.",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "10.0.0.0/8"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "60": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "172.16.0.0/12"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "70": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "192.168.0.0/16"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "80": {
+              "description": "deny-to-internal Deny access to rfc1918/internal.",
+              "matches": {
+                "destinationPrefixes": [
+                  "10.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "90": {
+              "matches": {
+                "destinationPrefixes": [
+                  "172.16.0.0/12"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "100": {
+              "matches": {
+                "destinationPrefixes": [
+                  "192.168.0.0/16"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "110": {
+              "description": "deny-to-specific_hosts Deny access to specified public.",
+              "matches": {
+                "destinationPrefixes": [
+                  "200.1.1.1/32"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "120": {
+              "matches": {
+                "destinationPrefixes": [
+                  "200.1.1.2/32"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "130": {
+              "matches": {
+                "destinationPrefixes": [
+                  "200.1.1.4/32"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "140": {
+              "matches": {
+                "destinationPrefixes": [
+                  "200.1.1.5/32"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "150": {
+              "description": "default-permit Allow what's left.",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

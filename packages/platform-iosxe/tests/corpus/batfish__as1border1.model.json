@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.5.1",
+  "modelVersion": "0.5.3",
   "device": {
     "system": {
       "hostname": "as1border1",
@@ -230,6 +230,103 @@
             }
           },
           "fallThrough": "reject"
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "101": {
+          "terms": {
+            "10": {
+              "matches": {
+                "sourcePrefixes": [
+                  "1.0.1.0/32"
+                ],
+                "destinationPrefixes": [
+                  "255.255.255.0/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "20": {
+              "matches": {
+                "sourcePrefixes": [
+                  "1.0.2.0/32"
+                ],
+                "destinationPrefixes": [
+                  "255.255.255.0/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        },
+        "102": {
+          "terms": {
+            "10": {
+              "matches": {
+                "sourcePrefixes": [
+                  "2.0.0.0/32"
+                ],
+                "destinationPrefixes": [
+                  "255.0.0.0/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "20": {
+              "matches": {
+                "sourcePrefixes": [
+                  "2.128.0.0/32"
+                ],
+                "destinationPrefixes": [
+                  "255.255.0.0/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        },
+        "103": {
+          "terms": {
+            "10": {
+              "matches": {
+                "sourcePrefixes": [
+                  "3.0.1.0/32"
+                ],
+                "destinationPrefixes": [
+                  "255.255.255.0/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "20": {
+              "matches": {
+                "sourcePrefixes": [
+                  "3.0.2.0/32"
+                ],
+                "destinationPrefixes": [
+                  "255.255.255.0/32"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
         }
       }
     }

@@ -10,6 +10,7 @@
 import { fieldPath, isRouteDistinguisher, type Context, type Device, type Diagnostic, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { asNumber, inRange, ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { interfaceName, interfaceType, isInterfaceName, splitSubinterface } from './names'
+import { createAclReader } from './acl'
 import { createPolicyReader } from './policy'
 import { BANNER_TYPES, parseTree, unquote, type IosNode } from './tree'
 
@@ -178,6 +179,8 @@ export function parse(text: string, _context: Context): ParseResult {
   const deferred: (() => void)[] = []
   /** Prefix lists, community and AS-path lists and route maps (policy.ts). */
   const policy = createPolicyReader(dispositions)
+  /** Access lists and their attachment to interfaces (acl.ts). */
+  const acl = createAclReader(dispositions)
 
   const ensureInterface = (name: string): string[] => {
     const fields: string[] = []
@@ -470,6 +473,8 @@ export function parse(text: string, _context: Context): ParseResult {
     const own = ctx.isSub ? sub : iface
 
     if (lw[0] === 'switchport' || (lw[0] === 'no' && lw[1] === 'switchport')) return mapSwitchport(node, ctx)
+    const attached = acl.attach(node, sub)
+    if (attached) return attached
     if ((lw[0] === 'ip' && lw[1] === 'ospf') || (lw[0] === 'no' && lw[1] === 'ip' && lw[2] === 'ospf')) return mapInterfaceOspf(node, ctx)
     if (lw[0] === 'description' && w.length > 1) {
       const path = [...own, 'description']
@@ -1523,7 +1528,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (node.kind === 'banner') return set(node, unsupported(`a ${BANNER_TYPES.has(node.words[1]?.toLowerCase()) ? node.words[1].toLowerCase() : 'motd'} banner, ${lines} line${lines === 1 ? '' : 's'}, kept verbatim`))
     if (node.kind === 'certificate-chain') return set(node, unsupported(`certificate chain ${node.words[4] ?? ''}, ${lines} lines, kept verbatim`))
 
-    if (policy.top(node)) return
+    if (policy.top(node) || acl.top(node)) return
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
     if (lw[0] === 'interface') return mapInterface(node)
@@ -1557,6 +1562,7 @@ export function parse(text: string, _context: Context): ParseResult {
     else if (lw[0] === 'logging') d = mapLogging(node)
     else if (lw[0] === 'snmp-server') d = mapSnmp(node)
     else if (lw[0] === 'end' && w.length === 1) d = ignored('the end of the configuration')
+    else if (lw[0] === 'exit' && w.length === 1) d = ignored('leaves a configuration mode: nothing to convert')
     else if (lw[0] === 'version' && w.length === 2) d = ignored('the software version the configuration was written by')
     else if (node.text === 'Building configuration...' || /^Current configuration : \d+ bytes$/.test(node.text)) d = ignored('show running-config\'s header')
     set(node, d)
@@ -1903,6 +1909,16 @@ export function parse(text: string, _context: Context): ParseResult {
           if (!(n[leaf] ?? group?.[leaf] ?? n.addressFamilies?.[family]?.[leaf] ?? group?.addressFamilies?.[family]?.[leaf])) sides.add(side)
     }
     if (sides.size) model.set(['networkInstances', instance, 'bgp', 'ebgpDefaultPolicy'], { ...(sides.has('import') ? { import: 'accept' } : {}), ...(sides.has('export') ? { export: 'accept' } : {}) })
+  }
+
+  // Access lists (model 0.5.1), and each interface's, once every interface is final: one applied to an interface the
+  // model doesn't have (a VLAN interface left out, say), or naming an ACL that isn't converted, is left out.
+  const acls = acl.finish()
+  if (acls.filters) model.set(['filters'], acls.filters)
+  for (const a of acls.attachments) {
+    if (a.why) set(a.node, unsupported(a.why))
+    else if (model.get(['interfaces', a.path[1]]) === undefined) set(a.node, unsupported('on an interface the model doesn\'t have'))
+    else set(a.node, mapped([model.set(a.path, a.name)]))
   }
 
   return { tree: nodes, model: model.root as Device, dispositions, diagnostics }
