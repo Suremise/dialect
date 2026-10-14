@@ -1,0 +1,21 @@
+# -------------------------------------------------------
+# 04 - Routing Instances | MNHA-VSRX-A
+# -------------------------------------------------------
+
+# Shared (apply on both nodes)
+set routing-instances mgmt_junos description MANAGEMENT_VRF
+set routing-instances HA-ICD instance-type virtual-router
+set routing-instances HA-ICD interface ge-0/0/6.0
+set routing-instances PROD instance-type virtual-router
+set routing-instances PROD interface ge-0/0/0.0
+set routing-instances PROD interface ge-0/0/3.0
+set routing-instances PROD interface ge-0/0/4.0
+set routing-instances PROD interface lo0.10
+set routing-instances PROD interface st0.100
+set routing-instances VPN interface st0.200
+
+# VSRX-A specific
+set routing-instances PROD interface ge-0/0/1.0
+set routing-instances ISP-2 instance-type virtual-router
+set routing-instances ISP-2 interface ge-0/0/2.0
+set routing-instances ISP-2 interface lo0.2

@@ -1,0 +1,3 @@
+# Fixtures are kept byte-for-byte: no line-ending conversion on checkout or commit
+# (core.autocrlf=true on Windows would otherwise rewrite them and break manifest hashes).
+* -text
