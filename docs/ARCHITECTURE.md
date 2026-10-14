@@ -706,7 +706,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   cleaned up by `tests/cleanFixtures.ts` into `tests/fixtures/display-set/` (`tests/displaySetFixtures.test.ts`). The
   plugin in the core's registry, and display set through `registry.tools()` on the same pairs (`tests/plugin.test.ts`).
   The conformance kit over hand-written fixtures, one folder per area plus groups, set form and an SRX config whose
-  security statements are `unsupported` (`tests/fixtures/conformance/`, `tests/conformance.test.ts`). The corpus
+  security statements are `unsupported` (`tests/fixtures/conformance/`, `tests/conformance.test.ts`), and the kit's
+  probes with two Junos adapters (`tests/probes.ts`, #56), each running every probe and case, none not applicable:
+  one in set form, negation as `delete`, and one in the hierarchical form, where negation is the configuration with
+  the setting left out (the form has no negation of its own). The corpus
   (`tests/corpus.test.ts`), read by path: chosen files per area against expected models in `tests/corpus/`, and every
   Junos file through the kit's checks against its own parse, secrets included; the one that isn't a configuration (a
   terminal capture that cuts a quoted hash) must give a syntax error that quotes nothing. `tests/mapping.test.ts`:
