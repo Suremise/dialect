@@ -3,7 +3,7 @@
 // installer only, per user, zlib, with the Dialect icon; a strict CSP; file access only through what the user picks; a
 // tray icon whose menu needs no permission). The built app is tested by the smoke test (e2e/).
 import { readFileSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const dialog = vi.hoisted(() => ({ open: vi.fn(), save: vi.fn() }))
@@ -241,5 +241,38 @@ describe('the tray icon', () => {
 
   it('needs no permission of its own: its menu runs in Rust, and the page only listens', () => {
     expect(JSON.stringify(capability.permissions)).not.toMatch(/tray|menu|emit/)
+  })
+})
+
+describe('the dual-installer build (scripts/build-installers.mjs)', () => {
+  it('runs the Tauri CLI with no shell, so a path with spaces or shell characters arrives as one argument', async () => {
+    const { tauriInvocation } = await import('../scripts/build-installers.mjs')
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { spawnSync } = await import('child_process')
+    const { tempDir } = await import('../../../tests/tempDir')
+    const dir = join(tempDir('dialect-args-'), 'a checkout & (folder)')
+    mkdirSync(dir, { recursive: true })
+    try {
+      // A stand-in for Tauri's CLI that prints the arguments it was given.
+      const echo = join(dir, 'echo cli.mjs')
+      writeFileSync(echo, 'console.log(JSON.stringify(process.argv.slice(2)))\n')
+      const args = ['build', '--config', join(dir, 'offline conf.json'), '100%', '"quoted"']
+      const { file, args: argv } = tauriInvocation(args, echo)
+      const r = spawnSync(file, argv, { encoding: 'utf8' })
+      expect(r.status, r.stderr).toBe(0)
+      expect(JSON.parse(r.stdout)).toEqual(args)
+    } finally {
+      rmSync(dirname(dir), { recursive: true, force: true })
+    }
+  })
+
+  it("uses the installed Tauri CLI's own entry by default, run by this Node", async () => {
+    const { tauriInvocation } = await import('../scripts/build-installers.mjs')
+    const { existsSync } = await import('fs')
+    const { file, args } = tauriInvocation(['build'])
+    expect(file).toBe(process.execPath)
+    expect(existsSync(args[0])).toBe(true)
+    expect(args[0]).toMatch(/@tauri-apps[\\/]cli[\\/]tauri\.js$/)
+    expect(args.slice(1)).toEqual(['build'])
   })
 })
