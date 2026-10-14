@@ -450,6 +450,9 @@ VRF membership, route distinguishers and route targets), with `detect`, `parse` 
   (`tests/fixtures/<area>`, with expected models and renders), chosen corpus files against expected models in
   `tests/corpus/`, and every file of `fixtures/public/nxos` through the kit's checks. `plugin.test.ts` also checks
   every render of the fixtures and the corpus for a missing `feature` line, with its own table of what needs one.
+  `tests/probes.ts` is its adapter for the kit's probes (#54): every probe runs, a community limited by an access list
+  in either order beside an open statement and a letter-led malformed next hop among them, but a prototype key as an
+  interface name, which NX-OS can't say.
 
 ## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
 
