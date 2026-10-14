@@ -1,6 +1,6 @@
 // The plugin against the repo's corpus (fixtures/public/iosxe, see fixtures/README.md), referenced by path rather than
 // copied. Two parts:
-// - chosen files, at least one per area (phase 1's, and phase 2's VLANs, OSPF and BGP), through the conformance kit's
+// - chosen files, at least one per area (phase 1's, phase 2's VLANs, OSPF and BGP, and phase 3's routing policy), through the conformance kit's
 //   four checks against an expected model (tests/corpus/<file>.model.json, checked by hand against the source);
 // - every IOS / IOS-XE file in the corpus, phase 1 or not: it parses without an error, every statement gets a
 //   disposition, and render → reparse gives the same model, so nothing the plugin doesn't know is dropped or garbled.
@@ -16,8 +16,8 @@ const corpus = fileURLToPath(new URL('../../../fixtures/public/iosxe/', import.m
 const expected = fileURLToPath(new URL('./corpus/', import.meta.url))
 
 /**
- * Corpus files with an expected model, by area: the phase 1 areas, and phase 2's VLANs (switch ports and VLAN interfaces
- * too), OSPF and BGP.
+ * Corpus files with an expected model, by area: the phase 1 areas, phase 2's VLANs (switch ports and VLAN interfaces too),
+ * OSPF and BGP, and phase 3's routing policy.
  */
 const CASES: readonly (readonly [area: string, path: string])[] = [
   ['system', 'system/cml__ccnaprep-s1e7_cat8000v.cfg'],
@@ -43,14 +43,22 @@ const CASES: readonly (readonly [area: string, path: string])[] = [
   ['ospf', 'ospf/batfish__ios-ospf-stub-settings.cfg'],
   ['ospf', 'whole/batfish__as2core1.cfg'],
   ['bgp', 'bgp/batfish__unit-tests_ios-xe-bgp-vrf.cfg'],
-  ['bgp', 'whole/batfish__as2core1.cfg']
+  ['bgp', 'whole/batfish__as2core1.cfg'],
+  ['routing-policy', 'policy/batfish__prefix-list-seq.cfg'],
+  ['routing-policy', 'policy/batfish__ios-ip-community-list-standard.cfg'],
+  ['routing-policy', 'policy/batfish__ios-ip-community-list-expanded.cfg'],
+  ['routing-policy', 'policy/batfish__unit-tests_cisco_route_map.cfg'],
+  ['routing-policy', 'bgp/batfish__unit-tests_cisco_bgp.cfg'],
+  ['routing-policy', 'bgp/batfish__ios-aggregate-address.cfg'],
+  ['routing-policy', 'vrfs/batfish__ios-vrf-leaking.cfg'],
+  ['routing-policy', 'whole/batfish__as1border1.cfg']
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
 
 describe('corpus files with an expected model', () => {
   it('cover every area the plugin converts', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'vlans', 'ospf', 'bgp']))
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'vlans', 'ospf', 'bgp', 'routing-policy']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {

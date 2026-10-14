@@ -1,14 +1,16 @@
 // IOS / IOS-XE text → the shared model, for the phase 1 areas: system (hostname, domain name, DNS), interfaces and
 // subinterfaces with their addresses and VRF, VRFs (`vrf definition`, `ip vrf`) with their route distinguisher and
 // route targets, static routes, NTP, logging and SNMP; and from model 0.4, VLANs, switch ports (`switchport`) and VLAN
-// interfaces (`interface Vlan10`, routing for VLAN 10). Every statement of the tree gets a disposition: `mapped` when
+// interfaces (`interface Vlan10`, routing for VLAN 10); from model 0.5, routing policy (policy.ts: prefix lists,
+// community and AS-path lists, route maps), which BGP's route maps resolve to. Every statement of the tree gets a disposition: `mapped` when
 // everything it says went into the model, `ignored-by-design` with why, or `unsupported` (its text kept in the tree). A
 // statement is mapped only when every option on it is understood: one with an option the model can't hold
 // (`ntp server 192.0.2.1 key 1`) is unsupported as a whole, never half-converted. `vrf forwarding` clears the addresses
 // before it, as on the device.
 import { fieldPath, isRouteDistinguisher, type Context, type Device, type Diagnostic, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
-import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
+import { asNumber, inRange, ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { interfaceName, interfaceType, isInterfaceName, splitSubinterface } from './names'
+import { createPolicyReader } from './policy'
 import { BANNER_TYPES, parseTree, unquote, type IosNode } from './tree'
 
 type Obj = { [key: string]: unknown }
@@ -118,15 +120,6 @@ export function ospfArea(s: string): string | null {
   return isIpv4(s) ? s : null
 }
 
-/** An AS number in plain form (`65000`, `4200000000`) or asdot (`1.10`), from 1 to 4294967295, or null. */
-export function asNumber(s: string): number | null {
-  const dot = /^(\d+)\.(\d+)$/.exec(s)
-  const n = dot ? (Number(dot[1]) <= 65535 && Number(dot[2]) <= 65535 ? Number(dot[1]) * 65536 + Number(dot[2]) : NaN) : INTEGER.test(s) ? Number(s) : NaN
-  return n >= 1 && n <= 4294967295 ? n : null
-}
-
-/** An integer from `min` to `max`, or null. */
-const inRange = (s: string | undefined, min: number, max: number): number | null => (s !== undefined && INTEGER.test(s) && Number(s) >= min && Number(s) <= max ? Number(s) : null)
 /** An IPv4 address as a 32-bit number. */
 const ipv4Number = (a: string) => a.split('.').reduce((n, o) => n * 256 + Number(o), 0)
 
@@ -183,6 +176,8 @@ export function parse(text: string, _context: Context): ParseResult {
 
   // Applied once every statement is read: they depend on others, wherever those are in the text.
   const deferred: (() => void)[] = []
+  /** Prefix lists, community and AS-path lists and route maps (policy.ts). */
+  const policy = createPolicyReader(dispositions)
 
   const ensureInterface = (name: string): string[] => {
     const fields: string[] = []
@@ -1430,7 +1425,7 @@ export function parse(text: string, _context: Context): ParseResult {
       return pending()
     }
     if (direction) {
-      // IOS has one route map a direction: a later one replaces it. Its body isn't converted (phase 3).
+      // IOS has one route map a direction: a later one replaces it. It names a route map, resolved once the text is read.
       const f = familyState()
       const previous = f.policies.get(direction)
       if (previous) set(previous.node, ignored(`superseded by line ${line(node)}`))
@@ -1528,6 +1523,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (node.kind === 'banner') return set(node, unsupported(`a ${BANNER_TYPES.has(node.words[1]?.toLowerCase()) ? node.words[1].toLowerCase() : 'motd'} banner, ${lines} line${lines === 1 ? '' : 's'}, kept verbatim`))
     if (node.kind === 'certificate-chain') return set(node, unsupported(`certificate chain ${node.words[4] ?? ''}, ${lines} lines, kept verbatim`))
 
+    if (policy.top(node)) return
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
     if (lw[0] === 'interface') return mapInterface(node)
@@ -1575,6 +1571,15 @@ export function parse(text: string, _context: Context): ParseResult {
 
   for (const node of nodes) mapTop(node)
   for (const run of deferred) run()
+
+  // Routing policy (model 0.5.0), once every list a route map names is read; BGP's route maps resolve to it below.
+  const routingPolicy = policy.finish()
+  if (routingPolicy) model.set(['routingPolicy'], routingPolicy)
+  /** Why a BGP route map can't be kept, or undefined when it names a policy of the model. */
+  const policyProblem = (name: string): string | undefined => {
+    if (routingPolicy?.policies && Object.hasOwn(routingPolicy.policies, name)) return undefined
+    return policy.definesRouteMap(name) ? 'names a route map that isn\'t converted' : 'names a route map the configuration doesn\'t define: IOS denies every route then, which the model can\'t say'
+  }
 
   // A community with a statement not converted anywhere in the text (an access list, a view) is left out whole: mapped
   // without it, it would answer clients, or allow access, the source doesn't.
@@ -1857,19 +1862,21 @@ export function parse(text: string, _context: Context): ParseResult {
         continue
       }
       carried.add(family)
+      // A route map names a policy of the model (model 0.5.0), or it isn't kept: a name alone would say nothing.
+      const policies = [...f.policies].filter(([, p]) => {
+        const why = policyProblem(p.name)
+        if (why) set(p.node, unsupported(why))
+        return !why
+      })
       // Inherited with nothing of its own: the group's family says it all.
-      if (fromGroup && !f.policies.size) continue
+      if (fromGroup && !policies.length) continue
       const at = [...base, 'addressFamilies', family]
       const field = model.set(at, {})
       if (own) {
         const d = dispositions[own.id]
         set(own, mapped([...(d?.kind === 'mapped' ? d.fields : []), field]))
       }
-      for (const [leaf, p] of f.policies) {
-        const policy = model.set([...at, leaf], [p.name])
-        set(p.node, mapped([...(own ? [] : [field]), policy]))
-        diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A route map is kept by name only: its body isn\'t converted, so a target needs a policy of that name.', field: policy, statement: p.node.id })
-      }
+      for (const [leaf, p] of policies) set(p.node, mapped([...(own ? [] : [field]), model.set([...at, leaf], [p.name])]))
     }
     if (peer.kind === 'groups') groupFamilies.set(`${peer.instance}|${peer.key}`, carried)
     else if (peer.instance !== 'default' && !carried.size && !inherited.size) {

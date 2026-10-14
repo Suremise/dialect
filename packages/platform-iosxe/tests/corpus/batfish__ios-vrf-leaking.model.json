@@ -1,0 +1,164 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "ios-vrf-leaking"
+    },
+    "networkInstances": {
+      "SRC_VRF": {
+        "type": "vrf",
+        "routeDistinguisher": "65003:1",
+        "staticRoutes": {
+          "1.1.1.1/32": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "2.2.2.0/24": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          }
+        },
+        "bgp": {
+          "localAs": 65003,
+          "routerId": "192.168.123.31"
+        },
+        "routeTargets": {
+          "export": [
+            "65003:11"
+          ]
+        }
+      },
+      "SRC_VRF_WITH_EXPORT_MAP": {
+        "type": "vrf",
+        "routeDistinguisher": "65003:5",
+        "staticRoutes": {
+          "3.3.3.0/24": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "4.4.4.0/24": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          }
+        },
+        "bgp": {
+          "localAs": 65003,
+          "routerId": "192.168.123.31"
+        }
+      },
+      "DST_VRF": {
+        "type": "vrf",
+        "routeDistinguisher": "65003:2",
+        "bgp": {
+          "localAs": 65003,
+          "routerId": "192.168.123.32"
+        }
+      },
+      "DST_VRF_NO_IMPORT_MAP": {
+        "type": "vrf",
+        "routeDistinguisher": "65003:6",
+        "bgp": {
+          "localAs": 65003,
+          "routerId": "192.168.123.32"
+        },
+        "routeTargets": {
+          "import": [
+            "65003:11"
+          ]
+        }
+      },
+      "DST_IMPOSSIBLE": {
+        "type": "vrf",
+        "routeDistinguisher": "65003:3"
+      },
+      "NOT_UNDER_ROUTER_BGP": {
+        "type": "vrf",
+        "routeDistinguisher": "65003:4",
+        "routeTargets": {
+          "import": [
+            "65003:11"
+          ]
+        }
+      },
+      "default": {
+        "bgp": {
+          "localAs": 65003,
+          "routerId": "192.168.123.3"
+        }
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "import_pl": {
+            "entries": {
+              "2": {
+                "action": "permit",
+                "prefix": "2.2.2.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              },
+              "3": {
+                "action": "permit",
+                "prefix": "3.3.3.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              },
+              "4": {
+                "action": "permit",
+                "prefix": "4.4.4.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              }
+            }
+          },
+          "export_pl": {
+            "entries": {
+              "4": {
+                "action": "permit",
+                "prefix": "4.4.4.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              }
+            }
+          }
+        }
+      },
+      "policies": {
+        "IMPORT_MAP": {
+          "terms": {
+            "10": {
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "import_pl"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}

@@ -522,9 +522,8 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.4.1 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, and 0.4.1's eBGP
-default), with `detect`,
-`parse`, `render` and `nameInterface`.
+`modelApi: '>=0.5.0 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default and
+0.5.0's routing policy), with `detect`, `parse`, `render` and `nameInterface`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
   statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
@@ -619,8 +618,9 @@ default), with `detect`,
     same AS. `neighbor X` is a neighbor by address or a peer group by name (`neighbor G peer-group`, defined before
     use): `remote-as` (`peerAs`), `peer-group G` (`group`), `description`, `update-source` (left out when it names no
     interface of the model), `ebgp-multihop [ttl]`, and `password`, flagged as `authentication: true` and never
-    carried. In an address family, `neighbor X activate` and `route-map NAME in|out` (by name only, with a warning,
-    `iosxe.route-map-name-only`, that its body isn't converted) are the peer's `addressFamilies`, built once the text
+    carried. In an address family, `neighbor X activate` and `route-map NAME in|out` (the policy of that name, below:
+    a route map the text doesn't define, which IOS takes as denying every route, or one that isn't converted, is
+    `unsupported`) are the peer's `addressFamilies`, built once the text
     is read: a family is there only when the peer carries it, so a route map alone activates nothing (in a family the
     peer doesn't carry it is `unsupported`), and `no neighbor X activate` takes the family out with its route maps, as
     on the device. A peer group's member carries the group's families too, and its own route map there (a member can
@@ -632,6 +632,30 @@ default), with `detect`,
     `no neighbor X` (or `… remote-as`) removes the peer, a peer group with its members; `no router bgp` removes BGP
     everywhere. An instance with an eBGP peer (its own or its group's peer AS, not the local one) carrying a family
     with no route map in a direction gets `ebgpDefaultPolicy` `accept` for that side (model 0.4.1): IOS's default.
+  - **Routing policy (#77, model 0.5.0, `policy.ts`):** `ip prefix-list` and `ipv6 prefix-list` (`seq N`, or 5 after
+    the highest; `permit|deny P`, `ge`/`le` in IOS's ranges, the prefix's length < ge ≤ le ≤ 32 or 128, as the model's
+    range with the `form` written; a `description`), `ip community-list standard|expanded NAME` and numbered lists (1
+    to 99 standard, 100 to 500 expanded: an entry a line, a standard one's communities all carried, `local-AS` as
+    `no-export-subconfed`, `gshut` as `graceful-shutdown`, a 32-bit number as `AA:NN`; an expanded one's regex kept as
+    written, without the quotes IOS takes, in a set of `type: 'standard'` and `regexDialect: 'cisco'`), `ip as-path
+    access-list N` (1 to 500; an entry a line, its regex as written, `cisco`) and `route-map NAME [permit|deny] [SEQ]`
+    (a term a sequence, keyed by its number; no number is 10 of a new route map, or its only sequence; `permit` is
+    `accept` and `deny` `reject`, and `fallThrough` is `reject`, IOS's implicit deny). In a sequence, `match ip|ipv6
+    address prefix-list`, `match community` (not `exact-match`), `match as-path` and `match tag` (each a list; a
+    match's statements are joined, as IOS joins them), and `set local-preference`, `set metric N` (`med`), `set
+    community … [additive]`, `set comm-list L delete`, `set as-path prepend`, `set ip|ipv6 next-hop A` and `set tag`
+    (a later one of a kind replaces the earlier); a `description` is `ignored-by-design`. A sequence entered again adds
+    to it, and its action is the last given. The `no` forms remove a list, a prefix list entry (by number or by what it
+    says), its description, a sequence (the route map with its last) or a route map. Read in order, put in the model
+    once the text is read (a route map may name a list defined after it). **A list is converted whole or not at all**:
+    one with any statement that isn't converted (`internet`, which the model has no form for, a named AS-path list,
+    part of a community list taken out, a sequence number reused for another entry) is left out whole, with its
+    statements `unsupported`, and so is a prefix list with no entries, as what a match on one does isn't certain.
+    **A route map follows the per-term rule:** a sequence with a statement that isn't converted (`continue`, a match
+    or set the model doesn't have, `match ip address` with an ACL, `set metric +5`), or naming a list that isn't
+    converted or defined, is left out whole; every sequence permits or denies, so leaving one out is safe only for the
+    last (`termSkipSafe()`), and otherwise the whole route map is left out, as it is when none of its sequences is
+    converted.
 - **Render (`render.ts`):** gives every leaf of model 0.3 and of 0.4's areas a disposition (DNS as one
   `ip name-server` line per server) and leaves a later version's fields without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,
   and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then
@@ -646,7 +670,9 @@ default), with `detect`,
   warning, `iosxe.ospf-network-exact`, that later interfaces in the source's range aren't taken in. BGP is one
   `router bgp ASN`: `no bgp default ipv4-unicast`, the peer groups then the neighbors, an `address-family ipv4|ipv6`
   with each peer's `activate` and route maps (a peer's own policies go in each family it carries; IOS applies one route
-  map a direction, so a list of several is `unsupported`; each written policy gets the name-only warning), then each
+  map a direction, so a list of several is `unsupported`; a policy of the model is named only when it is written, and
+  one the model doesn't have, from a source that keeps policy names alone, is written by name with a warning,
+  `iosxe.route-map-name-only`), then each
   VRF's `address-family … vrf V` with its peers. A group typed `internal` with no peer AS gets the local AS; a local
   address is `unsupported` (IOS sources a session from an interface); a VRF's BGP in another AS is left out. **Secrets
   are needs-input items:** an OSPF key (or key chain's name) and a BGP password are `secret` items whose `field` is
@@ -668,13 +694,35 @@ default), with `detect`,
   which would otherwise land in another table), a route distinguisher or route targets on the global table, and an
   instance type other than `vrf`. With several IPv4 addresses and no primary, the first becomes primary, with a
   warning.
+  - **Routing policy (#77, `renderPolicy.ts`):** planned before BGP and written after it: `ip as-path access-list`,
+    `ip community-list`, `ip prefix-list` and `ipv6 prefix-list` (a prefix list entry's sequence number is its
+    position; its range as `ge` and `le`, its `form` `not-applicable` when it is another platform's; a regex that starts
+    or ends with a space in double quotes, which IOS takes off as the parse does), then a
+    `route-map` sequence a term. **A list is written whole or not at all**: one IOS can't write in full (a name it
+    can't take; an AS-path list not numbered 1 to 500; a numbered community list of the wrong kind; an extended or
+    large community set; a community IOS has no word for; literal communities and regexes in one set; several regexes
+    in one entry; no entries) is `unsupported` whole, as are **another dialect's regexes, never translated**, and a
+    term naming such a list can't be written either. **A policy follows the per-term rule**: a term IOS can't write
+    (a flow other than `accept` or `reject`, a route filter, a protocol, neighbor or family match, a prefix list
+    matched or-longer, next-hop-self, communities both added and replaced, a set's communities added) is `unsupported`
+    whole, and the whole policy is when leaving it out isn't safe (`termSkipSafe()`). A term's name is
+    `not-applicable` (sequences have none). **The fall-through:** `reject` is `not-applicable`, as IOS's implicit
+    deny; `next-policy` (Junos: the next policy of the chain, then the protocol's default) gets a final `route-map
+    NAME permit S` (S 10 after the last sequence written) and a semantic warning, `iosxe.policy-fall-through`, on the
+    field and that line, since an IOS route map denies a route no sequence decides and BGP's default accepts it; the
+    final permit counts as a later term when judging what can be left out. A policy whose written terms already decide
+    every route gets neither. `tests/models/junos-policy-fall-through` shows it.
 - **Tests:** `tests/fixtures/<area>` are hand-written, with expected models and renders, through the conformance kit.
   `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
   parse (no error, a complete ledger, a stable round trip). `tests/probes.ts` is its adapter for the kit's probes
   (#55): every probe runs, but a prototype key as an interface name, which IOS can't say. Its model 0.4 cases are a
   VLAN name and a BGP peer group as prototype keys, `no neighbor` and `no network` as negation, a malformed VLAN ID and
-  AS number, and OSPF and BGP changes in one VRF of three.
+  AS number, and OSPF and BGP changes in one VRF of three. Its model 0.5.0 cases are `no route-map M permit 10` and `no
+  ip prefix-list L seq 5` as negation, a prefix with host bits set and an `le` past 32 as malformed values, a route
+  map naming a prefix list, community list or AS-path list the text doesn't define, and a neighbor a route map it
+  doesn't, and AS-path and expanded community regexes. `tests/fixtures/routing-policy` has every list and route map
+  statement the plugin converts; the corpus cases include `policy/` files and others with route maps.
 - **Convert suggestions (`names.ts`):** `nameInterface()` names an Ethernet port by its speed, `Port-channel`,
   `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. A Junos `irb.100`
   gets `Vlan100` only once the core's convert names an IRB unit on its own (#41): today it names the `irb` interface

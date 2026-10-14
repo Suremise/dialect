@@ -1,0 +1,92 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "cisco_bgp"
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 1
+        }
+      }
+    },
+    "routingPolicy": {
+      "asPathSets": {
+        "10": {
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "deny",
+              "regex": "^65535$"
+            },
+            "2": {
+              "action": "deny",
+              "regex": "_65535_"
+            }
+          }
+        },
+        "20": {
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "^65536$"
+            }
+          }
+        },
+        "30": {
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "^4000$"
+            }
+          }
+        }
+      },
+      "policies": {
+        "ospfv3_map": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "CONNECTED-TO-BGP": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "AGGREGATE-MAP": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "UNSUPP-MAP": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    }
+  }
+}
