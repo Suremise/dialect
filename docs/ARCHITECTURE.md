@@ -454,7 +454,8 @@ Each fixture goes through five checks (`checkFixture()`):
    that maps into it, widened while its parent maps nothing outside the term) are none of them `unsupported` once
    any maps into the model; on the render, a term's fields are all `unsupported` or none is, and a term left out whose
    skip isn't safe (`termSkipSafe()`, `filterTermSkipSafe()`) leaves every field of its policy or filter `unsupported`
-   (its `fallThrough` or `implicitAction` may be `not-applicable`). A filter left out whole, whatever its terms, has
+   (its `fallThrough` or `implicitAction` may be `not-applicable`). A filter term's `description` doesn't count: a
+   remark says nothing about what the term decides, so a target that keeps none leaves it out alone (#102). A filter left out whole, whatever its terms, has
    every leaf `unsupported`, its `implicitAction` included (a filter written, even with no terms left, has that
    `not-applicable`), and no subinterface's attachment naming it, nor one naming a filter whose unsafe skip left it out,
    may be `rendered` (#103). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
@@ -1759,7 +1760,9 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `traffic-class` in inet6), ports and ranges as numbers, `tcp-flags "syn & !ack"`, and `count`, `log` and the action
   in `then`. A term is written whole or not at all: one Junos can't say (a prefix list not written for the family,
   addresses and prefix lists of one direction together, a TCP flag Junos has no name for, `ece` and `cwr`) is
-  `unsupported`, and when `filterTermSkipSafe()` doesn't allow leaving it out, so is the filter. `implicitAction` is
+  `unsupported`, and when `filterTermSkipSafe()` doesn't allow leaving it out, so is the filter. A term's
+  `description` (a Cisco remark, model 0.5.3) is `unsupported` beside the term written: Junos keeps none per term, and
+  comments aren't written (annotations, #90). `implicitAction` is
   `not-applicable`, and raises `junos.filter-implicit-action` on the filter's `implicitAction` field (a path, never in
   the message) naming its line when the source's is `deny` (a Cisco ACL, which may send an ICMP unreachable) or the
   terms written rely on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {

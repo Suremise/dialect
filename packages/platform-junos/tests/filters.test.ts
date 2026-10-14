@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { buildLedger, ledgerProblems, modelProblems, MODEL_VERSION, type Device, type FilterTerm, type ParseResult, type RenderResult } from '@dialect/core'
+import { termProblems } from '@dialect/conformance'
 import { parse, render } from '../src'
 import { PORT_NUMBERS, port } from '../src/filters'
 
@@ -208,6 +209,17 @@ describe('render from another platform’s model', () => {
     expect(codes({ '1': unwritable })).toEqual(['junos.filter-implicit-action'])
     expect(codes({ '1': { matches: { protocols: [6] }, actions: { action: 'accept' } }, '2': unwritable })).toEqual(['junos.filter-implicit-action'])
     expect(codes({ '1': { matches: { protocols: [6] }, actions: { action: 'accept' } }, '2': { actions: { action: 'discard' } } })).toEqual([])
+  })
+
+  it("leaves a term's description (a Cisco remark) out with why, and writes the term (#102)", () => {
+    const model: Device = { filters: { ipv4: { F: { implicitAction: 'deny', terms: { '10': { description: 'ssh from the jump hosts', matches: { protocols: [6], destinationPorts: ['22'] }, actions: { action: 'accept' } } } } } } }
+    const r = render(model, context)
+    expect(r.dispositions['filters.ipv4.F.terms["10"].description']).toEqual({ kind: 'unsupported', reason: 'Junos filters keep no description per term' })
+    expect(r.dispositions['filters.ipv4.F.terms["10"].actions.action']).toMatchObject({ kind: 'rendered' })
+    expect(r.text).toContain('term 10 {')
+    expect(r.text).not.toContain('jump hosts')
+    expect(ledgerProblems(buildLedger(parse('', context), r, model))).toEqual([])
+    expect(termProblems(parse('', context), r, model)).toEqual([])
   })
 
   it('names no filter, counter or prefix list in a message', () => {
