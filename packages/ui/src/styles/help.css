@@ -42,8 +42,9 @@
 }
 
 /* ---------- Docs view ---------- */
+/* In place of the panes and the problems panel: both of the app grid's rows (app.css). */
 .docs {
-  flex: 1;
+  grid-row: 2 / 4;
   min-height: 0;
   display: flex;
 }

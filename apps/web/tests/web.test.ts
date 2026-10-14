@@ -284,6 +284,8 @@ describe('the web build', () => {
     await page.getByRole('button', { name: 'Help' }).click()
     await page.getByRole('menuitem', { name: 'User Guide' }).click()
     await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
+    // The view takes the panes' and the problems panel's rows: the status bar keeps its height.
+    expect((await page.locator('.statusbar').boundingBox())?.height).toBe(24)
     for (const [label, heading] of [['Release Notes', 'Release Notes'], ['License', 'License'], ['Third-Party Notices', 'Third-party notices']]) {
       await page.getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: label }).click()
       await expect.poll(page1, UI_WAIT).toBe(heading)
