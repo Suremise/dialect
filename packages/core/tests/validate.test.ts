@@ -509,6 +509,20 @@ describe('isPortRange (model 0.5.1)', () => {
   })
 })
 
+describe('modelProblems, model 0.5.3', () => {
+  const at = (...path: string[]) => fieldPath('filters', 'ipv4', 'F', 'terms', '10', ...path)
+  const filter = (description: unknown): Device => ({ filters: { ipv4: { F: { implicitAction: 'deny', terms: { '10': { description: description as string, actions: { action: 'accept' } } } } } } })
+
+  it('takes a term description of one line, and finds one of several lines or not text, quoting neither', () => {
+    expect(modelProblems(filter('ssh from the jump hosts'))).toEqual([])
+    for (const bad of ['CANARY_SECRET\nsecond line', 'CANARY_SECRET\r', 7]) {
+      const found = modelProblems(filter(bad))
+      expect(found.map((d) => [d.code, d.field]), String(bad)).toEqual([['model.description', at('description')]])
+      expect(found[0].message).not.toContain('CANARY_SECRET')
+    }
+  })
+})
+
 describe('modelProblems, model 0.5.1', () => {
   const CANARY = 'CANARY_SECRET'
   const problems = (device: Device) => {

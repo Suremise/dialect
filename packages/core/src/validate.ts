@@ -318,7 +318,8 @@ const TCP_FLAGS: ReadonlySet<unknown> = new Set(['fin', 'syn', 'rst', 'psh', 'ac
  *   of the model's in that family (`model.unknown-prefix-list`);
  * - a protocol isn't from 0 to 255, an ICMP type or code from 0 to 255, a DSCP value from 0 to 63 (`model.number`); a
  *   port isn't a port or a range of them (`model.port-range`); a TCP flag isn't one of the model's
- *   (`model.tcp-flags`); a fragment match isn't `initial` or `non-initial` (`model.fragment`).
+ *   (`model.tcp-flags`); a fragment match isn't `initial` or `non-initial` (`model.fragment`);
+ * - since 0.5.3, a term's description isn't one line of text (`model.description`).
  * A leaf-list's problem is reported on the list, once.
  */
 export function filterProblems(filters: Filters | undefined, policy?: RoutingPolicy): Diagnostic[] {
@@ -335,6 +336,8 @@ export function filterProblems(filters: Filters | undefined, policy?: RoutingPol
       for (const [key, term] of entries(filter?.terms)) {
         const t = [...at, 'terms', key]
         if (!['accept', 'discard', 'reject', 'next-term'].includes(term?.actions?.action as string)) problem('filter-action', 'A filter term\'s action is missing, or isn\'t accept, discard, reject or next-term.', ...t, 'actions', 'action')
+        // Since 0.5.3: a term's description is one line of text.
+        if (term?.description !== undefined && (typeof term.description !== 'string' || /[\r\n]/.test(term.description))) problem('description', 'A filter term\'s description isn\'t one line of text.', ...t, 'description')
         const m = term?.matches
         for (const leaf of ['sourcePrefixes', 'destinationPrefixes', 'prefixes'] as const)
           if (!list(m?.[leaf]).every((p) => parsePrefix(p)?.family === family)) problem('prefix', `A prefix isn't in CIDR form with no host bits set, or isn't an ${family === 'ipv4' ? 'IPv4' : 'IPv6'} prefix in an ${family === 'ipv4' ? 'IPv4' : 'IPv6'} filter.`, ...t, 'matches', leaf)
