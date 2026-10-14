@@ -8,6 +8,13 @@ export type FileKind = 'config' | 'interface-map'
 export interface OpenedFile {
   name: string
   text: string
+  /** Its full path, where the shell knows it (the desktop app): the tab's tooltip. */
+  path?: string
+}
+
+/** Where saved text went: a path the shell can write to again (the desktop app), or none (a download). */
+export interface SavedFile {
+  path?: string
 }
 
 export interface Platform {
@@ -22,11 +29,18 @@ export interface Platform {
    * during the event: take what's needed from `data` before the first await.
    */
   openDropped: (data: DataTransfer) => Promise<OpenedFile | null>
-  /** Saves text under a suggested file name (the web build downloads it), a config unless said otherwise. */
-  saveText: (suggestedName: string, text: string, kind?: FileKind) => Promise<void>
+  /**
+   * Saves text under a suggested file name (the web build downloads it), a config unless said otherwise. Null if the
+   * user cancels.
+   */
+  saveText: (suggestedName: string, text: string, kind?: FileKind) => Promise<SavedFile | null>
+  /** Writes text again to a path an earlier save returned, without asking; only where saves return paths. */
+  saveTextTo?: (path: string, text: string) => Promise<void>
   /** The clipboard's text. Rejects if the shell isn't allowed to read it; the UI then asks for Ctrl+V. */
   readClipboard: () => Promise<string>
   writeClipboard: (text: string) => Promise<void>
   /** Opens an https link from the Docs outside the app (a browser tab, or the default browser). */
   openLink: (url: string) => Promise<void>
+  /** Quits the app: File → Exit, in the desktop app only (a web page can't close its browser tab). */
+  exit?: () => Promise<void>
 }

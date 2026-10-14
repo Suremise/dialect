@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The window
+- **Tabs and a menu bar**, the same in the desktop app and the web build. Open several conversions at once, each in
+  its own tab (File → New Tab, Ctrl+T, or +, then Display set or Convert), with its own source, output, interface
+  names and undo history. A dot marks a tab whose output isn't saved, and closing it asks first. The Docs pages open in
+  tabs of their own, beside your conversions.
+- **The menus:** File, Edit, View (the theme), Window (every open tab, the current one ticked) and Help, all usable
+  from the keyboard (Alt or F10, the arrow keys, Enter, Esc). Exit is in the desktop app's File menu. In a browser,
+  which keeps Ctrl+T, Ctrl+W and Ctrl+Tab for itself, the web build uses Alt+T, Alt+W and Alt+PgDn.
+- **Tabs come back after a restart** with their file names, but never your configs: Dialect doesn't keep configs
+  anywhere. Reopen the file from the tab.
+- **Controls stand out:** buttons, tabs and menus have a visible edge, the current tab is marked in violet, and the
+  keyboard focus shows.
+
 ### Convert
 - **Junos to Cisco IOS / IOS-XE** on the command line: `dialect convert --from junos --to iosxe [--map file]
   [--allow-incomplete] <file|->`. What didn't carry over is listed on stderr by line, with the reason, and never quotes

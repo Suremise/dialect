@@ -23,6 +23,7 @@ import { tags } from '@lezer/highlight'
 import { useEffect, useRef } from 'react'
 import type { Reveal } from '../store'
 import { junos } from './junosLanguage'
+import { noteFocus, registerView } from './views'
 
 /** A line to mark: the error, a warning, or the line linked to the other pane's cursor. */
 export interface LineMark {
@@ -46,6 +47,8 @@ export interface EditorProps {
   dark: boolean
   /** For tests and the problems panel: names the pane (`data-pane`). */
   pane: 'source' | 'output'
+  /** The tab it belongs to: Edit → Undo and Redo act on its tab's editors, and reveals name their tab. */
+  tab: string
   /** A gutter that marks the error and warning lines, with what they say on hover. */
   issueGutter?: boolean
 }
@@ -196,6 +199,7 @@ export function Editor(props: EditorProps) {
           themeRef.current.of(theme(props.dark)),
           EditorState.readOnly.of(props.readOnly ?? false),
           EditorView.contentAttributes.of({ 'aria-label': props.label }),
+          EditorView.domEventHandlers({ focus: () => noteFocus(props.tab, props.pane) }),
           placeholderRef.current.of(props.placeholder ? placeholder(props.placeholder) : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !externalRef.current) onChangeRef.current?.(update.state.doc.toString())
@@ -213,7 +217,9 @@ export function Editor(props: EditorProps) {
       })
     })
     viewRef.current = view
+    const unregister = registerView(props.tab, props.pane, view)
     return () => {
+      unregister()
       view.destroy()
       viewRef.current = null
     }
@@ -246,7 +252,7 @@ export function Editor(props: EditorProps) {
   useEffect(() => {
     const view = viewRef.current
     const reveal = props.reveal
-    if (!view || !reveal || reveal.pane !== props.pane) return
+    if (!view || !reveal || reveal.tab !== props.tab || reveal.pane !== props.pane) return
     const doc = view.state.doc
     const line = doc.line(Math.min(Math.max(reveal.line, 1), doc.lines))
     const pos = Math.min(line.from + Math.max(reveal.column - 1, 0), line.to)
