@@ -4,6 +4,7 @@
    against. Dark is the default; [data-theme] on <html> picks the theme.
    ========================================================================== */
 @import '../../../../branding/theme-tokens.css';
+@import './help.css';
 
 :root,
 [data-theme='dark'] {

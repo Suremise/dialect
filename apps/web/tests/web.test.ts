@@ -12,6 +12,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { build } from 'vite'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { tempDir } from '../../../tests/tempDir'
+import { version } from '../../../package.json'
 
 const webRoot = join(__dirname, '..')
 const FIXTURES = join(__dirname, '../../../packages/platform-junos/tests/fixtures/display-set')
@@ -259,6 +260,69 @@ describe('the web build', () => {
     await expect.poll(() => text('output-summary'), UI_WAIT).toBe(setLines(3))
     await page.locator('[data-pane=output] .cm-line').nth(2).click()
     await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').innerText(), UI_WAIT).toBe('    inactive: services {')
+  })
+
+  it('shows About with the version, the build, the browser and the disclaimer, and copies the version information', async () => {
+    await openPage()
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'About Dialect' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Dialect' })
+    await expect.poll(() => dialog.getByTestId('about-info').innerText(), UI_WAIT).toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Web build\\s+Browser\\s+Microsoft Edge \\d+\\.\\d+\\.\\d+\\.\\d+$`))
+    expect(await dialog.innerText()).toContain('Dialect is not affiliated with or endorsed by Juniper Networks or Cisco Systems.')
+    await dialog.getByRole('button', { name: 'Copy' }).click()
+    await expect
+      .poll(async () => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n'), UI_WAIT)
+      .toMatch(new RegExp(`^Dialect ${version.replaceAll('.', '\\.')}\nBuild: Web build\nBrowser: Microsoft Edge [\\d.]+\n$`))
+    await dialog.getByRole('button', { name: 'OK' }).click()
+    await expect.poll(() => dialog.count(), UI_WAIT).toBe(0)
+  })
+
+  it('renders each Docs page, from Help and from About, and goes back to the display set', async () => {
+    await openPage()
+    const page1 = (): Promise<string> => page.locator('.docs-page h1').first().innerText()
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'User Guide' }).click()
+    await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
+    for (const [label, heading] of [['Release Notes', 'Release Notes'], ['License', 'License'], ['Third-Party Notices', 'Third-party notices']]) {
+      await page.getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: label }).click()
+      await expect.poll(page1, UI_WAIT).toBe(heading)
+    }
+    // From About's links too.
+    await page.getByRole('navigation', { name: 'Documents' }).getByRole('button', { name: 'About Dialect' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'License' }).click()
+    await expect.poll(page1, UI_WAIT).toBe('License')
+    expect(await page.locator('.docs-page pre').first().innerText()).toContain('MIT License')
+    // A link to another document opens it here.
+    await page.locator('.docs-page a', { hasText: 'third-party notices' }).click()
+    await expect.poll(page1, UI_WAIT).toBe('Third-party notices')
+    await page.keyboard.press('Escape')
+    await expect.poll(() => page.locator('[data-pane=source] .cm-content').count(), UI_WAIT).toBe(1)
+    // F1 opens the guide.
+    await page.keyboard.press('F1')
+    await expect.poll(page1, UI_WAIT).toBe('Dialect user guide')
+  })
+
+  it('lists a shipped package in the notices with its version, license and full license text, as committed', async () => {
+    await openPage()
+    await page.getByRole('button', { name: 'Help' }).click()
+    await page.getByRole('menuitem', { name: 'Third-Party Notices' }).click()
+    const docs = page.locator('.docs-page')
+    await expect.poll(() => docs.locator('h2', { hasText: /^zustand / }).count(), UI_WAIT).toBe(1)
+    const committed = readFileSync(join(webRoot, '../../THIRD_PARTY_NOTICES.md'), 'utf8')
+    const zustand = /^\| \[zustand\]\(([^)]+)\) \| ([\d.]+) \| MIT \| desktop app, web build \|$/m.exec(committed)
+    expect(zustand).not.toBeNull()
+    const [, link, zustandVersion] = zustand!
+    const row = docs.locator('tr', { has: page.locator(`a[href="${link}"]`) })
+    expect((await row.innerText()).split('\t').map((c) => c.trim())).toEqual(['zustand', zustandVersion, 'MIT', 'desktop app, web build'])
+    const heading = docs.locator('h2', { hasText: `zustand ${zustandVersion}` })
+    expect(await heading.count()).toBe(1)
+    const licenseText = await heading.locator('xpath=following-sibling::pre[1]').innerText()
+    expect(licenseText).toMatch(/^MIT License\s+Copyright \(c\) \d{4}/)
+    expect(licenseText).toContain('THE SOFTWARE IS PROVIDED "AS IS"')
+    // Every package and crate the committed file lists is on the page.
+    const rows = committed.split('\n').filter((l) => /^\| \[?[\w@./-]+/.test(l) && !l.startsWith('| Package') && !l.startsWith('| Crate'))
+    expect(await docs.locator('table tbody tr').count()).toBe(rows.length)
   })
 })
 

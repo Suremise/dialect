@@ -1,0 +1,245 @@
+/* ==========================================================================
+   The Help menu, the Docs view and the About dialog (src/help), in the app's theme tokens (app.css imports this).
+   ========================================================================== */
+
+/* ---------- Help menu ---------- */
+.menu-anchor {
+  position: relative;
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.menu-item {
+  text-align: left;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--accent-soft);
+  color: var(--fg-strong);
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border-subtle);
+}
+
+/* ---------- Docs view ---------- */
+.docs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.docs-nav {
+  width: 210px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 2px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+}
+.docs-nav-header {
+  padding: 4px 8px 8px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.docs-nav-item {
+  text-align: left;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.docs-nav-item:hover {
+  background: var(--bg-hover);
+}
+.docs-nav-item.selected {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.docs-nav-spacer {
+  flex: 1;
+}
+.docs-back {
+  justify-content: center;
+}
+.docs-page {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 20px 32px 40px;
+  background: var(--bg-panel);
+}
+
+/* ---------- Markdown ---------- */
+.markdown {
+  max-width: 920px;
+  color: var(--fg);
+  line-height: 1.55;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  color: var(--fg-strong);
+  line-height: 1.25;
+  margin: 1.4em 0 0.5em;
+}
+.markdown h1 {
+  font-size: 22px;
+  margin-top: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.markdown h2 {
+  font-size: 17px;
+}
+.markdown h3 {
+  font-size: 14px;
+}
+.markdown a {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.markdown code {
+  font-family: 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-input);
+}
+.markdown pre {
+  padding: 10px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+.markdown table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
+.markdown th,
+.markdown td {
+  padding: 4px 10px;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+.markdown th {
+  background: var(--bg-sidebar);
+  color: var(--fg-strong);
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 22px;
+}
+.markdown li + li {
+  margin-top: 3px;
+}
+
+/* ---------- About dialog ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.modal {
+  width: min(440px, calc(100vw - 32px));
+  padding: 24px 24px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.about {
+  text-align: center;
+}
+.about h1 {
+  margin: 8px 0 2px;
+  font-size: 20px;
+  color: var(--fg-strong);
+}
+.about-tagline,
+.about-disclaimer {
+  margin: 6px auto;
+  max-width: 340px;
+  color: var(--fg-muted);
+}
+.about-table {
+  margin: 14px auto;
+  border-collapse: collapse;
+  text-align: left;
+}
+.about-table th,
+.about-table td {
+  padding: 3px 8px;
+}
+.about-table th {
+  color: var(--fg-muted);
+  font-weight: normal;
+}
+.about-table td {
+  color: var(--fg-strong);
+  user-select: text;
+}
+.about-docs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  margin: 12px 0 4px;
+}
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}

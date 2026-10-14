@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react
 import iconUrl from '../../../branding/icon-small.svg'
 import { CheckIcon, CopyIcon, ErrorIcon, OpenIcon, PasteIcon, SaveIcon, ThemeIcon, WarningIcon } from './components/Icons'
 import { Editor, type LineMark } from './editor/Editor'
+import { AboutDialog } from './help/AboutDialog'
+import { DocsView } from './help/DocsView'
+import { HelpMenu } from './help/HelpMenu'
+import { useHelp } from './help/state'
 import type { Platform } from './platform'
 import { outputName, useStore, type ThemeChoice } from './store'
 
@@ -27,6 +31,7 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 export function App({ platform }: { platform: Platform }) {
   const { source, sourceName, output, sourceLines, problems, theme, reveal, notice } = useStore()
   const { setSource, setTheme, revealAt, notify, dismissNotice } = useStore.getState()
+  const docsPage = useHelp((s) => s.docsPage)
   const systemDark = useSystemDark()
   const dark = theme === 'system' ? systemDark : theme === 'dark'
   // Lines linked to the other pane's cursor: output lines → their source statement, and back.
@@ -81,7 +86,10 @@ export function App({ platform }: { platform: Platform }) {
   const open = useCallback(async () => {
     try {
       const file = await platform.openFile()
-      if (file) setSource(file.text, file.name)
+      if (file) {
+        setSource(file.text, file.name)
+        useHelp.getState().closeDocs()
+      }
     } catch (e) {
       notify('error', `Couldn't open the file: ${(e as Error).message}`)
     }
@@ -146,7 +154,11 @@ export function App({ platform }: { platform: Platform }) {
     e.stopPropagation()
     // The shell reads it (as it opens and saves files), here from the event's data.
     platform.openDropped(e.dataTransfer).then(
-      (file) => file && setSource(file.text, file.name),
+      (file) => {
+        if (!file) return
+        setSource(file.text, file.name)
+        useHelp.getState().closeDocs()
+      },
       (err: Error) => notify('error', `Couldn't open the dropped file: ${err.message}`)
     )
   }
@@ -175,86 +187,93 @@ export function App({ platform }: { platform: Platform }) {
             <SaveIcon /> Save output
           </button>
           <span className="toolbar-sep" />
+          <HelpMenu />
           <button className="btn subtle icon-only" onClick={() => setTheme(NEXT_THEME[theme])} title={`${THEME_LABEL[theme]}: click for ${THEME_LABEL[NEXT_THEME[theme]].toLowerCase()}`} aria-label={THEME_LABEL[theme]}>
             <ThemeIcon />
           </button>
         </div>
       </header>
 
-      <main className="workbench">
-        <section className="pane" aria-label="Source">
-          <div className="pane-header">
-            <span>Source</span>
-            <span className="pane-detail" data-testid="source-name">
-              {sourceName ?? (source ? 'Pasted text' : 'Junos, hierarchical')}
-            </span>
-          </div>
-          <Editor
-            pane="source"
-            label="Source config"
-            value={source}
-            onChange={(text) => setSource(text)}
-            placeholder="Paste a hierarchical Junos config here, open a file, or drop one anywhere in this window."
-            marks={sourceMarks}
-            reveal={reveal}
-            onCursorLine={onSourceCursor}
-            dark={dark}
-          />
-        </section>
-        <section className="pane" aria-label="Output">
-          <div className="pane-header">
-            <span>Display set</span>
-            <span className="pane-detail" data-testid="output-summary">
-              {outputSummary}
-            </span>
-          </div>
-          <Editor
-            pane="output"
-            label="Display set output"
-            value={output}
-            readOnly
-            placeholder={error ? 'Fix the syntax error to see the display set.' : 'The display set commands appear here.'}
-            marks={outputMarks}
-            reveal={reveal}
-            onCursorLine={onOutputCursor}
-            dark={dark}
-          />
-        </section>
-      </main>
+      {docsPage ? (
+        <DocsView platform={platform} />
+      ) : (
+        <>
+          <main className="workbench">
+            <section className="pane" aria-label="Source">
+              <div className="pane-header">
+                <span>Source</span>
+                <span className="pane-detail" data-testid="source-name">
+                  {sourceName ?? (source ? 'Pasted text' : 'Junos, hierarchical')}
+                </span>
+              </div>
+              <Editor
+                pane="source"
+                label="Source config"
+                value={source}
+                onChange={(text) => setSource(text)}
+                placeholder="Paste a hierarchical Junos config here, open a file, or drop one anywhere in this window."
+                marks={sourceMarks}
+                reveal={reveal}
+                onCursorLine={onSourceCursor}
+                dark={dark}
+              />
+            </section>
+            <section className="pane" aria-label="Output">
+              <div className="pane-header">
+                <span>Display set</span>
+                <span className="pane-detail" data-testid="output-summary">
+                  {outputSummary}
+                </span>
+              </div>
+              <Editor
+                pane="output"
+                label="Display set output"
+                value={output}
+                readOnly
+                placeholder={error ? 'Fix the syntax error to see the display set.' : 'The display set commands appear here.'}
+                marks={outputMarks}
+                reveal={reveal}
+                onCursorLine={onOutputCursor}
+                dark={dark}
+              />
+            </section>
+          </main>
 
-      <section className="problems" aria-label="Problems">
-        <div className="section-header">
-          <span>Problems</span>
-          <span className="count" data-testid="problem-count">
-            {error ? '1 error' : plural(warnings.length, 'warning', 'warnings')}
-          </span>
-        </div>
-        <ul className="problem-list">
-          {problems.length === 0 ? (
-            <li className="problem-empty">
-              {source.trim() === '' ? (
-                'Open or paste a Junos config to see its display set.'
+          <section className="problems" aria-label="Problems">
+            <div className="section-header">
+              <span>Problems</span>
+              <span className="count" data-testid="problem-count">
+                {error ? '1 error' : plural(warnings.length, 'warning', 'warnings')}
+              </span>
+            </div>
+            <ul className="problem-list">
+              {problems.length === 0 ? (
+                <li className="problem-empty">
+                  {source.trim() === '' ? (
+                    'Open or paste a Junos config to see its display set.'
+                  ) : (
+                    <>
+                      <CheckIcon /> No problems.
+                    </>
+                  )}
+                </li>
               ) : (
-                <>
-                  <CheckIcon /> No problems.
-                </>
+                problems.map((p, i) => (
+                  <li key={i}>
+                    <button className={`problem ${p.severity}`} onClick={() => revealAt('source', p.line, p.column, true)}>
+                      {p.severity === 'error' ? <ErrorIcon /> : <WarningIcon />}
+                      <span className="problem-message">{p.message}</span>
+                      <span className="problem-place">
+                        line {p.line}, column {p.column}
+                      </span>
+                    </button>
+                  </li>
+                ))
               )}
-            </li>
-          ) : (
-            problems.map((p, i) => (
-              <li key={i}>
-                <button className={`problem ${p.severity}`} onClick={() => revealAt('source', p.line, p.column, true)}>
-                  {p.severity === 'error' ? <ErrorIcon /> : <WarningIcon />}
-                  <span className="problem-message">{p.message}</span>
-                  <span className="problem-place">
-                    line {p.line}, column {p.column}
-                  </span>
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-      </section>
+            </ul>
+          </section>
+        </>
+      )}
 
       <footer className="statusbar">
         <span className="status-item">Junos → display set</span>
@@ -277,6 +296,8 @@ export function App({ platform }: { platform: Platform }) {
           Offline: nothing leaves this computer
         </span>
       </footer>
+
+      <AboutDialog platform={platform} />
 
       {dragging && (
         <div className="drop-overlay" aria-hidden="true">
