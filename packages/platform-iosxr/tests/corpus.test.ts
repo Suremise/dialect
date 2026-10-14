@@ -16,7 +16,7 @@ import plugin from '../src'
 const corpus = fileURLToPath(new URL('../../../fixtures/public/iosxr/', import.meta.url))
 const expected = fileURLToPath(new URL('./corpus/', import.meta.url))
 
-/** Corpus files with an expected model, by phase 1 area. */
+/** Corpus files with an expected model, by area: phase 1's, route policies, OSPF and BGP. */
 export const CASES: readonly (readonly [area: string, path: string])[] = [
   ['system', 'system/batfish__xr-hostname.domain.cfg'],
   ['system', 'system/batfish__banner.cfg'],
@@ -31,25 +31,18 @@ export const CASES: readonly (readonly [area: string, path: string])[] = [
   ['ntp', 'mgmt/batfish__unit-tests_ios_xr_ntp.cfg'],
   ['logging', 'mgmt/batfish__xr-logging.cfg'],
   ['snmp', 'mgmt/batfish__xr-snmp-server.cfg'],
-  ['policy', 'policy/batfish__unit-tests_ios_xr_route_policy.cfg']
+  ['policy', 'policy/batfish__unit-tests_ios_xr_route_policy.cfg'],
+  ['ospf', 'ospf/batfish__unit-tests_ios_xr_ospf.cfg'],
+  ['ospf', 'ospf/batfish__ospf-interface.cfg'],
+  ['bgp', 'bgp/batfish__xr-bgp.cfg'],
+  ['bgp', 'bgp/batfish__unit-tests_ios_xr_bgp_neighbor_group.cfg']
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
 
-/**
- * Files whose render → reparse loses only a secret the model flags (a BGP password, an OSPF key chain's name): the render
- * asks for it with a needs-input item, and can't write it unanswered. The kit's rule for these is still being decided
- * (#65's comments: core 0.4.1); until then each file's exact problems are expected here, and its needs-input items, so
- * nothing else slips through.
- */
-const FLAGGED_SECRETS: Readonly<Record<string, readonly string[]>> = {
-  'bgp/batfish__xr-bgp.cfg': ['round-trip: render → reparse changed the model: networkInstances.default.bgp.groups.ng1.authentication: expected true, got undefined'],
-  'whole/racc__xrv1_20230811_show_running-config.cfg': ['round-trip: render → reparse changed the model: networkInstances.default.ospf.areas: expected {"0.0.0.10":{"authentication":"key-chain"}}, got undefined']
-}
-
 describe('corpus files with an expected model', () => {
-  it('cover every phase 1 area, and route policies', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'policy']))
+  it('cover every phase 1 area, route policies, OSPF and BGP', () => {
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp', 'policy', 'ospf', 'bgp']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {
@@ -57,8 +50,7 @@ describe('corpus files with an expected model', () => {
       const fixture = { name, source: read(path), expectedModel: deserializeModel(readFileSync(join(expected, `${name}.model.json`), 'utf8')).device }
       for (const r of checkFixture(plugin, fixture)) {
         it.skipIf(r.status === 'skipped')(r.check, () => {
-          const flagged = (FLAGGED_SECRETS[path] ?? []).filter((p) => p.startsWith(`${r.check}: `)).map((p) => p.slice(r.check.length + 2))
-          expect(r.problems, r.problems.join('\n')).toEqual(flagged)
+          expect(r.problems, r.problems.join('\n')).toEqual([])
         })
       }
     })
@@ -76,11 +68,7 @@ describe('every IOS-XR file in the corpus', () => {
     it(path, () => {
       const results = checkFixture(plugin, { name: path, source: read(path), expectedModel: plugin.parse!(read(path), { modelVersion: MODEL_VERSION }).model })
       const failed = results.filter((r) => r.status === 'failed').flatMap((r) => r.problems.map((p) => `${r.check}: ${p}`))
-      expect(failed).toEqual(FLAGGED_SECRETS[path] ?? [])
-      if (Object.hasOwn(FLAGGED_SECRETS, path)) {
-        const model = plugin.parse!(read(path), { modelVersion: MODEL_VERSION }).model
-        expect(plugin.render!(model, { modelVersion: MODEL_VERSION }).needsInput?.length).toBeGreaterThan(0)
-      }
+      expect(failed).toEqual([])
     })
   }
 })

@@ -7,7 +7,7 @@
 // Later statements act on earlier ones as on the device: a second setting supersedes the first, and `no …` forms and
 // `vrf V` on an interface clear what they remove. No reason or diagnostic repeats a word of the configuration
 // (AGENTS.md, No secrets in diagnostics): they give line numbers and word positions instead.
-import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Diagnostic, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Diagnostic, type Bgp, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { interfaceType, isInterfaceName, splitSubinterface } from './names'
 import { parseTree, unquote, type XrNode } from './tree'
@@ -1594,6 +1594,32 @@ export function parse(text: string, _context: Context): ParseResult {
     }
   }
 
+  /**
+   * What IOS-XR does with an eBGP peer's routes when no policy applies: it drops them both ways (RFC 8212). Said, as
+   * model 0.4.1 has it, for each network instance with an eBGP neighbor that has no policy one way, so a target that
+   * accepts them raises a warning. It is the platform's default, not configuration: the instance's own statement maps it.
+   */
+  const sayDefaultPolicy = () => {
+    for (const [instance, ni] of Object.entries((model.get(['networkInstances']) as Obj | undefined) ?? {})) {
+      const bgp = isObject(ni) && isObject(ni.bgp) ? (ni.bgp as Bgp) : undefined
+      const opening = bgpStatements.get(instance)?.[0]
+      if (!bgp || !opening) continue
+      const sides = new Set<'import' | 'export'>()
+      for (const neighbor of Object.values(bgp.neighbors ?? {})) {
+        const group = neighbor.group !== undefined && bgp.groups && Object.hasOwn(bgp.groups, neighbor.group) ? bgp.groups[neighbor.group] : undefined
+        const peerAs = neighbor.peerAs ?? group?.peerAs
+        if (peerAs === undefined || peerAs === bgp.localAs) continue
+        for (const [field, side] of [['importPolicies', 'import'], ['exportPolicies', 'export']] as const) {
+          const has = [neighbor, group].some((p) => !!p && (!!p[field]?.length || Object.values(p.addressFamilies ?? {}).some((af) => !!af?.[field]?.length)))
+          if (!has) sides.add(side)
+        }
+      }
+      const fields = [...sides].map((side) => model.set([...bgpPath(instance), 'ebgpDefaultPolicy', side], 'reject'))
+      const d = dispositions[opening.id]
+      if (fields.length && d?.kind === 'mapped') set(opening, mapped([...d.fields, ...fields]))
+    }
+  }
+
   // ---- the top level
 
   const mapTop = (node: XrNode): void => {
@@ -1689,6 +1715,7 @@ export function parse(text: string, _context: Context): ParseResult {
 
   buildOspf()
   checkBgp()
+  sayDefaultPolicy()
 
   // A community with a statement not converted anywhere in the text (an access list, owner access) is left out whole:
   // mapped without it, it could answer clients or allow access the source doesn't.

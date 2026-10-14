@@ -410,7 +410,7 @@ export function render(model: Device, context: Context): RenderResult {
         if (chain !== undefined) emit(`${inner}authentication keychain ${chain}`, [...aAt, 'authentication'])
         else {
           skip([...aAt, 'authentication'], 'unsupported', 'needs the name of its key chain, which the model doesn\'t carry')
-          needsInput.push({ id, kind: 'other', message: 'OSPF authentication with a key chain for an area needs the key chain\'s name.', field: fieldPath(...aAt, 'authentication') })
+          needsInput.push({ id, kind: 'secret', message: 'OSPF authentication with a key chain for an area needs the key chain\'s name.', field: fieldPath(...aAt, 'authentication') })
         }
       } else if (a.authentication !== undefined) emit(`${inner}authentication${a.authentication === 'md5' ? ' message-digest' : ''}`, [...aAt, 'authentication'])
       if (a.type === 'normal') skip([...aAt, 'type'], 'not-applicable', 'an area is normal unless it is a stub or an NSSA')
@@ -461,14 +461,14 @@ export function render(model: Device, context: Context): RenderResult {
       if (chain !== undefined) emit(`${indent}authentication keychain ${chain}`, field)
       else {
         skip(field, 'unsupported', 'needs the name of its key chain, which the model doesn\'t carry')
-        needsInput.push({ id, kind: 'other', message: 'OSPF authentication with a key chain on an interface needs the key chain\'s name.', field: fieldPath(...field) })
+        needsInput.push({ id, kind: 'secret', message: 'OSPF authentication with a key chain on an interface needs the key chain\'s name.', field: fieldPath(...field) })
       }
       return
     }
     if (own !== undefined) emit(`${indent}authentication${own === 'md5' ? ' message-digest' : ''}`, field)
     const key = answer(id, kind === 'md5' ? /^(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-5])\s+\S{1,16}$/ : /^\S{1,8}$/)
     if (key === undefined) {
-      needsInput.push({ id, kind: 'secret', message: kind === 'md5' ? 'OSPF MD5 authentication on an interface needs its key ID (1 to 255) and key, as "ID KEY": the key isn\'t carried.' : 'OSPF authentication on an interface needs its key (up to 8 characters): the key isn\'t carried.', field: fieldPath(...at) })
+      needsInput.push({ id, kind: 'secret', message: kind === 'md5' ? 'OSPF MD5 authentication on an interface needs its key ID (1 to 255) and key, as "ID KEY": the key isn\'t carried.' : 'OSPF authentication on an interface needs its key (up to 8 characters): the key isn\'t carried.', field: fieldPath(...field) })
       return
     }
     if (kind === 'md5') {
@@ -509,10 +509,10 @@ export function render(model: Device, context: Context): RenderResult {
    * IOS-XR sets there.
    */
   function renderBgp() {
-    const instances = Object.entries(model.networkInstances ?? {}).sort(([a], [b]) => (a === 'default' ? -1 : b === 'default' ? 1 : 0))
-    const list = instances.flatMap(([name, ni]): [string, Bgp][] => (ni.bgp ? [[name, ni.bgp]] : []))
+    const sorted = Object.entries(model.networkInstances ?? {}).sort(([a], [b]) => (a === 'default' ? -1 : b === 'default' ? 1 : 0))
+    const list = sorted.flatMap(([name, ni]): [string, Bgp][] => (ni.bgp ? [[name, ni.bgp]] : []))
     const local = list.find(([, b]) => b.localAs !== undefined)?.[1].localAs
-    const distinguished = instances.filter(([name, ni]) => name !== 'default' && ni.routeDistinguisher !== undefined)
+    const distinguished = sorted.filter(([name, ni]) => name !== 'default' && ni.routeDistinguisher !== undefined)
     if (local === undefined || !isAsNumber(local)) {
       for (const [instance, b] of list) skipAll(b, ['networkInstances', instance, 'bgp'], 'BGP needs a local AS, which the model doesn\'t give')
       for (const [name] of distinguished) skip(['networkInstances', name, 'routeDistinguisher'], 'unsupported', 'IOS-XR sets a VRF\'s route distinguisher under router bgp, whose AS the model doesn\'t hold')
@@ -551,6 +551,8 @@ export function render(model: Device, context: Context): RenderResult {
 
   function renderBgpInstance(instance: string, b: Bgp, indent: string, local: number) {
     const at = ['networkInstances', instance, 'bgp']
+    // The source platform's default for an eBGP peer with no policy: IOS-XR has its own (RFC 8212), warned on per neighbor.
+    for (const side of ['import', 'export'] as const) if (b.ebgpDefaultPolicy?.[side] !== undefined) skip([...at, 'ebgpDefaultPolicy', side], 'not-applicable', 'the source platform\'s default, not configuration: IOS-XR\'s own is to exchange nothing (RFC 8212)')
     if (b.routerId !== undefined) {
       if (isIpv4(b.routerId)) emit(`${indent}bgp router-id ${b.routerId}`, [...at, 'routerId'])
       else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
@@ -641,6 +643,11 @@ export function render(model: Device, context: Context): RenderResult {
     const missing = ebgp ? (['importPolicies', 'exportPolicies'] as const).filter((field) => !carried.length || carried.some((f) => !policy(f, field)?.length)) : []
     const id = `iosxr.ebgp-policy:${fieldPath(...at)}`
     const given = missing.length ? answer(id, /^[\w.-]{1,64}$/) : undefined
+    // The source exchanged these routes without a policy; IOS-XR won't.
+    const source = model.networkInstances?.[String(at[1])]?.bgp?.ebgpDefaultPolicy
+    if (missing.some((field) => source?.[field === 'importPolicies' ? 'import' : 'export'] === 'accept')) {
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.ebgp-default-policy', message: 'The source accepts an eBGP neighbor\'s routes with no policy, where IOS-XR, following RFC 8212, exchanges none without one: the neighbor needs a route policy.', field: fieldPath(...at) })
+    }
     if (missing.length && given === undefined) needsInput.push({ id, kind: 'other', message: 'An eBGP neighbor has no route policy one way or both: IOS-XR, following RFC 8212, exchanges no routes that way without one. Name an existing route policy to attach.', field: fieldPath(...at) })
     const families = FAMILIES.filter((f) => own[f] !== undefined || ((peer.importPolicies || peer.exportPolicies || (given !== undefined && carried.includes(f))) && inherited(f) !== undefined))
     const peerLevel: Record<'importPolicies' | 'exportPolicies', boolean> = { importPolicies: false, exportPolicies: false }

@@ -30,6 +30,38 @@ const routes = (...inA: string[]) =>
     '!'
   )
 
+/** OSPF in VRFs A and B and the global table, an interface in each; `inA` adds lines inside A's area. */
+const ospf = (...inA: string[]) =>
+  lines(
+    'vrf A',
+    '!',
+    'vrf B',
+    '!',
+    ...['A', 'B', ''].flatMap((vrf, i) => [`interface Loopback${i + 1}`, ...(vrf ? [` vrf ${vrf}`] : []), ` ipv4 address 192.0.2.${i + 1} 255.255.255.255`, '!']),
+    'router ospf 1',
+    ' area 0',
+    '  interface Loopback3',
+    '  !',
+    ' !',
+    ...['A', 'B'].flatMap((vrf, i) => [` vrf ${vrf}`, '  area 0', `   interface Loopback${i + 1}`, '   !', ...(vrf === 'A' ? inA.map((l) => `   ${l}`) : []), '  !', ' !']),
+    '!'
+  )
+
+/** The same BGP neighbor in VRFs A and B and the global table; `inA` adds lines inside A's BGP. */
+const bgp = (...inA: string[]) =>
+  lines(
+    'vrf A',
+    '!',
+    'vrf B',
+    '!',
+    'router bgp 65000',
+    ' neighbor 192.0.2.2',
+    '  remote-as 65001',
+    ' !',
+    ...['A', 'B'].flatMap((vrf) => [` vrf ${vrf}`, '  neighbor 192.0.2.2', '   remote-as 65001', '  !', ...(vrf === 'A' ? inA.map((l) => `  ${l}`) : []), ' !']),
+    '!'
+  )
+
 const dns = lines('domain vrf A name-server 192.0.2.53', 'domain vrf B name-server 192.0.2.54', 'domain name-server 192.0.2.55')
 
 export const probes: ProbeAdapter = {
@@ -44,13 +76,23 @@ export const probes: ProbeAdapter = {
         ' ipv4 address 192.0.2.1 255.255.255.255',
         '!',
         `domain list ${key}`,
-        `domain vrf ${key} name-server 192.0.2.53`
+        `domain vrf ${key} name-server 192.0.2.53`,
+        'router bgp 65000',
+        ` neighbor-group ${key}`,
+        '  remote-as 65001',
+        ' !',
+        ' neighbor 192.0.2.2',
+        `  use neighbor-group ${key}`,
+        ' !',
+        '!'
       ),
     uses: {
       interface: { notApplicable: 'an IOS-XR interface name is a type and numbers (GigabitEthernet0/0/0/0), which none of the keys is' },
       vrf: true,
       community: true,
-      dns: true
+      dns: true,
+      vlan: { notApplicable: 'IOS-XR\'s Layer 2 (bridge domains) isn\'t converted this phase, so it names no VLAN' },
+      'bgp-group': true
     }
   },
   snmpAccess: {
@@ -82,17 +124,32 @@ export const probes: ProbeAdapter = {
       set: 'snmp-server community PLACEHOLDER RO',
       negated: lines('snmp-server community PLACEHOLDER RO', 'no snmp-server community PLACEHOLDER'),
       path: ['system', 'snmp', 'communities', 'PLACEHOLDER']
+    },
+    'bgp-neighbor': {
+      set: lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001'),
+      negated: lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 65001', ' !', ' no neighbor 192.0.2.2'),
+      path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2']
+    },
+    'ospf-interface': {
+      set: lines('interface Loopback0', '!', 'router ospf 1', ' area 0', '  interface Loopback0'),
+      negated: lines('interface Loopback0', '!', 'router ospf 1', ' area 0', '  interface Loopback0', '  !', '  no interface Loopback0'),
+      path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'Loopback0']
     }
   },
   malformed: {
     'ipv4-address': { source: lines('interface Loopback0', ' ipv4 address 192.0.2.256 255.255.255.255'), value: '192.0.2.256' },
     'ipv6-address': { source: lines('interface Loopback0', ' ipv6 address 2001:db8:::1/64'), value: '2001:db8:::1/64' },
     mask: { source: lines('interface Loopback0', ' ipv4 address 192.0.2.1 255.0.255.0'), value: '255.0.255.0' },
-    'next-hop': { source: lines('router static', ' address-family ipv4 unicast', '  10.0.0.0/8 192.0.2.300'), value: '192.0.2.300' }
+    'next-hop': { source: lines('router static', ' address-family ipv4 unicast', '  10.0.0.0/8 192.0.2.300'), value: '192.0.2.300' },
+    'as-number': { source: lines('router bgp 65000', ' neighbor 192.0.2.2', '  remote-as 4294967296'), value: '4294967296' },
+    'vlan-id': { source: lines('interface GigabitEthernet0/0/0/0.10', ' encapsulation dot1q 4095'), value: '4095' }
   },
   vrfScoping: {
     delete: { base: routes(), changed: lines(routes(), 'no vrf A'), vrf: 'A' },
     dns: { base: dns, changed: lines(dns, 'no domain vrf A name-server 192.0.2.53'), vrf: 'A' },
-    'static-route': { base: routes(), changed: routes('no 10.0.0.0/8 192.0.2.1'), vrf: 'A' }
+    'static-route': { base: routes(), changed: routes('no 10.0.0.0/8 192.0.2.1'), vrf: 'A' },
+    // A's interface leaves its area; B's and the global table's, the same, stay.
+    ospf: { base: ospf(), changed: ospf('no interface Loopback1'), vrf: 'A' },
+    bgp: { base: bgp(), changed: bgp('no neighbor 192.0.2.2'), vrf: 'A' }
   }
 }
