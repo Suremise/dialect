@@ -1,0 +1,140 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "interfaces": {
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/1": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.5": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/2": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.9": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/3": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.13": {
+                  "prefixLength": 30
+                }
+              }
+            },
+            "networkInstance": "CUST"
+          }
+        },
+        "type": "ethernet"
+      },
+      "lo0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "203.0.113.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        },
+        "type": "loopback"
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "lo0.0": {
+                  "passive": true,
+                  "enabledBy": "interface"
+                },
+                "ge-0/0/0.0": {
+                  "enabledBy": "interface"
+                }
+              }
+            },
+            "0.0.0.1": {
+              "type": "stub",
+              "interfaces": {
+                "ge-0/0/1.0": {
+                  "cost": 100,
+                  "enabledBy": "interface"
+                }
+              }
+            },
+            "0.0.0.2": {
+              "type": "nssa",
+              "interfaces": {
+                "ge-0/0/2.0": {
+                  "enabledBy": "interface"
+                }
+              }
+            }
+          },
+          "routerId": "203.0.113.1"
+        }
+      },
+      "CUST": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:1",
+        "ospf": {
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "ge-0/0/3.0": {
+                  "passive": true,
+                  "enabledBy": "interface"
+                }
+              }
+            }
+          },
+          "routerId": "192.0.2.13"
+        },
+        "routeTargets": {
+          "import": [
+            "65000:1"
+          ],
+          "export": [
+            "65000:1"
+          ]
+        }
+      }
+    }
+  }
+}

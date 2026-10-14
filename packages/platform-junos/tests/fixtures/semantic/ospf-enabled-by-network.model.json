@@ -1,0 +1,37 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "interfaces": {
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "processId": "1",
+          "routerId": "192.0.2.1",
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "ge-0/0/0.0": {
+                  "enabledBy": "network"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

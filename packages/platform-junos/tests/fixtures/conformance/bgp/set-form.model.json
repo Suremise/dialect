@@ -1,0 +1,34 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "groups": {
+            "EBGP": {
+              "type": "external",
+              "peerAs": 64500,
+              "importPolicies": [
+                "IN"
+              ]
+            }
+          },
+          "neighbors": {
+            "192.0.2.2": {
+              "group": "EBGP"
+            },
+            "192.0.2.6": {
+              "group": "EBGP",
+              "peerAs": 64501,
+              "multihop": {}
+            }
+          },
+          "localAs": 65001,
+          "ebgpDefaultPolicy": {
+            "export": "accept"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 65000,
+          "routerId": "192.0.2.1",
+          "groups": {
+            "TRANSIT": {
+              "peerAs": 64500
+            }
+          },
+          "neighbors": {
+            "192.0.2.2": {
+              "group": "TRANSIT"
+            }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "reject",
+            "export": "reject"
+          }
+        }
+      }
+    }
+  }
+}

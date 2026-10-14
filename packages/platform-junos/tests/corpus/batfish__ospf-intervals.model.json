@@ -1,0 +1,67 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "ospf-intervals"
+    },
+    "interfaces": {
+      "ge-0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {}
+        }
+      },
+      "ge-0/0/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {}
+        }
+      },
+      "ge-0/0/2": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {}
+        }
+      },
+      "ge-0/0/3": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {}
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "ge-0/0/0": {
+                  "helloInterval": 11,
+                  "enabledBy": "interface"
+                }
+              }
+            },
+            "0.0.0.1": {
+              "interfaces": {
+                "ge-0/0/1": {
+                  "helloInterval": 2,
+                  "enabledBy": "interface",
+                  "deadInterval": 22
+                }
+              }
+            },
+            "0.0.0.2": {
+              "interfaces": {
+                "ge-0/0/2": {
+                  "deadInterval": 44,
+                  "enabledBy": "interface"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
