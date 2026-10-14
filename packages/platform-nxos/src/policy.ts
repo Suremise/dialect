@@ -388,17 +388,19 @@ export function createPolicyReader(dispositions: Record<string, StatementDisposi
     if (name === undefined || w.length > (hasAction ? 4 : 3)) return refuse('not a route map statement the model has')
     const state = stateOf(routeMaps, name, (): RouteMapState => ({ nodes: [], sequences: new Map() }))
     const seq = seqWord === undefined ? undefined : inRange(seqWord, 0, 65535)
-    // With no sequence number, NX-OS makes sequence 10 of a new route map, or edits a route map's only sequence.
-    const number = seq === undefined ? (state.sequences.size === 0 ? 10 : state.sequences.size === 1 ? [...state.sequences.keys()][0] : null) : seq
+    // With no sequence number, NX-OS always takes sequence 10, made or edited, whatever others the route map has (unlike
+    // IOS, which edits a route map's only sequence).
+    const number = seq === undefined ? 10 : seq
     if (number === null) {
       state.unconverted ??= node
       state.nodes.push(...all(node))
-      return refuse(seq === null ? 'not a sequence number from 0 to 65535' : 'no sequence number, and the route map has several: NX-OS refuses it')
+      return refuse('not a sequence number from 0 to 65535')
     }
     const sequence: Sequence = state.sequences.get(number) ?? { action: 'permit', headers: [], nodes: [], matches: new Map(), sets: new Map() }
     state.sequences.set(number, sequence)
-    // Entering a sequence again with the other action changes its action, as on the device.
-    if (hasAction) sequence.action = lw[2] as Action
+    // Each header sets the sequence's action: the one it gives, or permit, NX-OS's default, even on a sequence that
+    // denied before (unlike IOS, which keeps the action of a sequence entered again with none).
+    sequence.action = hasAction ? (lw[2] as Action) : 'permit'
     sequence.headers.push(node)
     sequence.nodes.push(...all(node))
     state.nodes.push(...all(node))

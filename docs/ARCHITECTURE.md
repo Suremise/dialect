@@ -852,7 +852,8 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's
     taking it out; a prefix list's `eq N` is one length (`minLength` and `maxLength` N, with no `form`, as the model has
     none for it), and `mask` is `unsupported`; regexes are read without the double quotes NX-OS writes around them, and
     one with a quote of its own is `unsupported`, as it couldn't be written back; the well-known communities are
-    `no-export`, `no-advertise` and `local-AS`. A BGP neighbor's `route-map NAME in|out` names a converted policy, or
+    `no-export`, `no-advertise` and `local-AS`; a `route-map` statement with no sequence number is always sequence 10,
+    made or edited, and one with no action sets `permit`, even on a sequence that denied (IOS keeps it). A BGP neighbor's `route-map NAME in|out` names a converted policy, or
     is `unsupported` (`checkBgp()`). `template peer-policy` stays `unsupported`: the model's groups are peer templates,
     and a policy template's per-family route maps, inherited by sequence, have no place in them.
   - **A VRF's deletion** (`no vrf context V`) leaves V's OSPF and BGP so far out as `unsupported`, as its interfaces'

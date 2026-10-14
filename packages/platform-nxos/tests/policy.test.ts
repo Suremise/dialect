@@ -57,6 +57,22 @@ describe('routing policy (model 0.5.0)', () => {
     expect(roundTrips(text)).toEqual([])
   })
 
+  it('takes a route map statement with no sequence number as sequence 10, and one with no action as permit, as NX-OS does', () => {
+    const policies = (text: string) => parse(text).model.routingPolicy?.policies
+    // Sequence 10 missing: made, beside one other sequence or several.
+    const one = lines('route-map M deny 20', '  match tag 1', 'route-map M permit', '  set tag 2')
+    expect(policies(one)).toEqual({ M: { terms: { '10': { actions: { flow: 'accept', tag: 2 } }, '20': { matches: { tags: [1] }, actions: { flow: 'reject' } } }, fallThrough: 'reject' } })
+    expect(roundTrips(one)).toEqual([])
+    expect(Object.keys(policies(lines('route-map M permit 20', 'route-map M permit 30', 'route-map M permit'))?.M?.terms ?? {})).toEqual(['10', '20', '30'])
+    // Sequence 10 there: edited, beside other sequences too.
+    expect(policies(lines('route-map M permit 10', '  match tag 1', 'route-map M deny 20', 'route-map M permit', '  set tag 3'))?.M?.terms?.['10']).toEqual({ matches: { tags: [1] }, actions: { flow: 'accept', tag: 3 } })
+    // No action on a sequence that denied: it permits now.
+    const denied = lines('route-map M deny 10', '  match tag 1', 'route-map M 10', '  set metric 20')
+    expect(policies(denied)?.M?.terms?.['10']).toEqual({ matches: { tags: [1] }, actions: { flow: 'accept', med: 20 } })
+    expect(render(parse(denied).model).text).toContain('route-map M permit 10\n')
+    expect(roundTrips(denied)).toEqual([])
+  })
+
   it('keeps any name as an own key, and leaves Object.prototype alone', () => {
     const before = Object.getOwnPropertyNames(Object.prototype).sort()
     const text = lines('ip prefix-list __proto__ seq 5 permit 10.0.0.0/8', 'ip as-path access-list constructor permit "_1_"', 'route-map toString permit 10', '  match ip address prefix-list __proto__', '  match as-path constructor')
