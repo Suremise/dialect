@@ -1,0 +1,19 @@
+set groups ACCESS-PORTS interfaces <ge-*> unit 0 family ethernet-switching interface-mode access
+set apply-groups ACCESS-PORTS
+set interfaces ge-0/0/0 unit 0 family ethernet-switching vlan members users
+set interfaces ge-0/0/1 unit 0 family ethernet-switching interface-mode trunk
+set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members users
+set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members 10
+set interfaces ge-0/0/1 native-vlan-id 10
+set interfaces ge-0/0/2 unit 0 family ethernet-switching port-mode trunk
+set interfaces ge-0/0/2 unit 0 family ethernet-switching vlan members users
+set interfaces ge-0/0/3 unit 0 family ethernet-switching vlan members missing
+set interfaces xe-0/0/0 unit 0 family ethernet-switching interface-mode access
+set interfaces xe-0/0/0 unit 0 family ethernet-switching vlan members [ users servers ]
+set interfaces irb unit 10 family inet address 192.0.2.1/24
+set interfaces irb unit 30 family inet address 203.0.113.1/24
+set vlans users vlan-id 10
+set vlans users l3-interface irb.10
+set vlans servers vlan-id 30
+set vlans servers vlan-id-list 31
+set vlans undecided description "no ID yet"

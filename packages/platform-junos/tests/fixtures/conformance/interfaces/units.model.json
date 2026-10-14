@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.4.0",
   "device": {
     "interfaces": {
       "ge-0/0/0": {
@@ -53,6 +53,12 @@
           }
         }
       },
+      "ge-0/0/2": {
+        "switching": {
+          "mode": "access"
+        },
+        "type": "ethernet"
+      },
       "lo0": {
         "subinterfaces": {
           "0": {
@@ -76,10 +82,17 @@
                   "prefixLength": 25
                 }
               }
-            }
+            },
+            "routedVlan": 100
           }
         },
-        "type": "vlan"
+        "type": "irb-or-svi"
+      }
+    },
+    "vlans": {
+      "100": {
+        "name": "v100",
+        "description": "servers"
       }
     }
   }

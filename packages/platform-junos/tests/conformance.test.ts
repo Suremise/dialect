@@ -16,7 +16,7 @@ describe('conformance: junos > probes, hierarchical form', () => {
   const results = runProbes(plugin, hierarchicalProbes, { configTools })
   it('runs every probe case, none not applicable', () => {
     expect(results.filter((r) => r.status === 'not-applicable')).toEqual([])
-    expect(results).toHaveLength(17)
+    expect(results).toHaveLength(18)
   })
   for (const r of results)
     it(`${r.probe}: ${r.case}`, () => {
