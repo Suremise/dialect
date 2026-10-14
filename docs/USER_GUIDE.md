@@ -31,7 +31,8 @@ The desktop app and the web build look and work the same: a menu bar at the top,
 you're on below that.
 
 - **One tab per job.** **File → New Tab…** (Ctrl+T), or **+** at the end of the tab strip, asks what you're doing:
-  **Display set (Junos)**, or **Convert: Junos → Cisco IOS / IOS-XE**. Each tab keeps its own source, output,
+  **Display set (Junos)**, or **Convert** from one platform to another (Junos, Cisco IOS / IOS-XE, Cisco NX-OS or
+  Cisco IOS-XR, chosen in the two lists). Each tab keeps its own source, output,
   problems, interface names and undo history, so several configs can be open at once. New platforms and tools appear
   in this list as Dialect gains them.
 - **A tab's title** is its file name and job, such as `phase1.conf → IOS-XE` (`Untitled` until you open a file). A
@@ -123,8 +124,8 @@ Nothing is dropped silently. Every line of the source is either converted, left 
 as not converted, and every setting is either written or marked as one IOS-XE can't say (a `reject` route, say). These
 are listed as warnings, by line, with the reason.
 
-In the app, open a convert tab (**File → New Tab…**, then **Convert: Junos → Cisco IOS / IOS-XE**); the target
-platform can be changed at the top of the tab. Then open, drop or paste a Junos config as in display set. The IOS-XE config appears on the right as you type. Below, the **Problems**
+In the app, open a convert tab (**File → New Tab…**, then **Convert**, with the platform to convert from and the one
+to convert to); both can be changed at the top of the tab. Then open, drop or paste the config as in display set. The IOS-XE config appears on the right as you type. Below, the **Problems**
 panel lists what didn't carry over. The same lines are marked in the source's gutter, with the reason on hover, and
 clicking a problem shows its line. The **Interfaces** table lists every interface to name (see below). Moving the
 cursor in one pane marks the matching lines in the other. Copy output and Save output work as in display set; a saved
@@ -168,6 +169,17 @@ interface twice is refused whole, in either form.
 ## Supported platforms and features
 
 Which platforms and which parts of a config each one reads and writes.
+
+| Platform | `--from` / `--to` | Display set | Convert from and to |
+|---|---|---|---|
+| Junos (MX, EX, QFX) | `junos` | yes | yes |
+| Cisco IOS / IOS-XE | `iosxe` | no | yes |
+| Cisco NX-OS | `nxos` | no | yes |
+| Cisco IOS-XR | `iosxr` | no | yes |
+
+Convert goes from any of them to any other, in the app and on the command line. Each converts system settings (host
+name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP, syslog and SNMP; what one can't read
+or write is listed as not converted, with why.
 
 ## The command line
 

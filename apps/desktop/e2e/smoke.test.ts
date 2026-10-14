@@ -201,7 +201,7 @@ describe('the desktop app', () => {
       }, label)
     // A convert tab of its own, from File → New Tab.
     await menu('File', 'New Tab…')
-    await expect.poll(() => click('[role=dialog] .picker-label', 'Convert: Junos → Cisco IOS / IOS-XE'), UI_WAIT).toBe(true)
+    await expect.poll(() => click('[role=dialog] .picker-convert button', 'Convert: Junos → Cisco IOS / IOS-XE'), UI_WAIT).toBe(true)
     await expect.poll(() => paneText('source'), UI_WAIT).not.toBeNull()
     await drop('phase1.conf', readFileSync(join(convertFixtures, 'phase1.conf'), 'utf8'))
     await expect.poll(() => testIdText('interface-count'), UI_WAIT).toBe('4 of 4 need a name')

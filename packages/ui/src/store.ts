@@ -6,15 +6,17 @@
 // next start, never their text.
 import { convert, createRegistry, interfaceInputs, type Conversion, type ConversionIssue, type InterfaceMap, type PlatformPlugin, type Tool } from '@dialect/core'
 import iosxe from '@dialect/platform-iosxe'
+import iosxr from '@dialect/platform-iosxr'
 import junos from '@dialect/platform-junos'
+import nxos from '@dialect/platform-nxos'
 import { create } from 'zustand'
 import type { DocId } from './help/docs'
 import { loadSession, saveSession } from './session'
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
 
-/** What a conversion tab does: run a plugin's tool (`junos.display-set`), or convert to a target plugin. */
-export type Job = { kind: 'tool'; tool: string } | { kind: 'convert'; target: string }
+/** What a conversion tab does: run a plugin's tool (`junos.display-set`), or convert from a source plugin (Junos unless said) to a target. */
+export type Job = { kind: 'tool'; tool: string } | { kind: 'convert'; source?: string; target: string }
 
 /** One row of the problems panel: the parse error, a warning, or what didn't carry over in a conversion. */
 export interface Problem {
@@ -134,6 +136,8 @@ export interface State {
   loadSource: (id: string | null, text: string, sourceName: string | null, sourcePath?: string | null) => boolean
   setJob: (job: Job) => void
   setTarget: (targetId: string) => void
+  /** Convert's source platform; the target stays, unless it is the new source (then the source's first target). */
+  setConvertSource: (sourceId: string) => void
   /** Names an interface on the target; an empty name clears it. */
   setInterfaceName: (source: string, target: string) => void
   /** Takes every suggestion for an interface that has no name yet. */
@@ -159,16 +163,33 @@ function storedTheme(): ThemeChoice {
   }
 }
 
-const registry = createRegistry([junos, iosxe])
+const registry = createRegistry([junos, iosxe, nxos, iosxr])
 
-/** The plugin convert reads: Junos, for now (Junos → IOS-XE first; the reverse follows). */
+/** The plugin convert reads unless a job says another: Junos. */
 export const SOURCE_PLUGIN: PlatformPlugin = junos
 
-/** The plugins convert can write, other than the source's own. */
-export const TARGETS: readonly PlatformPlugin[] = registry.targets().filter((p) => p.id !== SOURCE_PLUGIN.id)
+/** The plugins convert can read, in the registry's order (Junos first). */
+export const SOURCES: readonly PlatformPlugin[] = registry.sources()
 
-export function targetPlugin(id: string): PlatformPlugin {
-  return TARGETS.find((p) => p.id === id) ?? TARGETS[0]
+/** The plugins convert can write from `source`: every target but the source itself. */
+export const targetsFor = (source: PlatformPlugin): readonly PlatformPlugin[] => registry.targets().filter((p) => p.id !== source.id)
+
+/** The plugins convert can write from Junos. */
+export const TARGETS: readonly PlatformPlugin[] = targetsFor(SOURCE_PLUGIN)
+
+export function sourcePlugin(id: string | undefined): PlatformPlugin {
+  return SOURCES.find((p) => p.id === id) ?? SOURCE_PLUGIN
+}
+
+/** A target by its id; one convert can't write, the source's first target. */
+export function targetPlugin(id: string, source: PlatformPlugin = SOURCE_PLUGIN): PlatformPlugin {
+  return targetsFor(source).find((p) => p.id === id) ?? targetsFor(source)[0]
+}
+
+/** A convert job's plugins. */
+export function convertPlugins(job: Job & { kind: 'convert' }): { source: PlatformPlugin; target: PlatformPlugin } {
+  const source = sourcePlugin(job.source)
+  return { source, target: targetPlugin(job.target, source) }
 }
 
 /** Every plugin's tools, by `<plugin>.<tool>`. */
@@ -185,12 +206,16 @@ export function toolOf(key: string): { plugin: PlatformPlugin; tool: Tool } {
   return found
 }
 
-/** What the new tab picker offers: each tool, then convert to each target. New plugins and tools appear here. */
-export function jobs(): { job: Job; label: string; detail: string }[] {
-  return [
-    ...TOOLS.map((t) => ({ job: { kind: 'tool', tool: t.key } as Job, label: `${t.tool.name} (${t.plugin.name})`, detail: (t.tool.description ?? t.tool.name).replaceAll('`', '') })),
-    ...TARGETS.map((t) => ({ job: { kind: 'convert', target: t.id } as Job, label: `Convert: ${SOURCE_PLUGIN.name} → ${t.name}`, detail: `A ${SOURCE_PLUGIN.name} config to ${t.name}'s, with the interfaces named on ${t.name}.` }))
-  ]
+/** What the new tab picker offers besides convert: each plugin's tool. New plugins and tools appear here. */
+export function toolJobs(): { job: Job; label: string; detail: string }[] {
+  return TOOLS.map((t) => ({ job: { kind: 'tool', tool: t.key } as Job, label: `${t.tool.name} (${t.plugin.name})`, detail: (t.tool.description ?? t.tool.name).replaceAll('`', '') }))
+}
+
+/** A convert job from `source` to `target` (its first target when that's the source itself), and how the picker names it. */
+export function convertJob(source: string, target: string): { job: Job; label: string } {
+  const from = sourcePlugin(source)
+  const to = targetPlugin(target, from)
+  return { job: { kind: 'convert', source: from.id, target: to.id }, label: `Convert: ${from.name} → ${to.name}` }
 }
 
 /** A platform's short name for a tab title: "Cisco IOS / IOS-XE" → "IOS-XE", "Cisco NX-OS" → "NX-OS". */
@@ -198,10 +223,11 @@ export const shortName = (p: PlatformPlugin): string => p.name.split(' / ').at(-
 
 /** The job's name: the tool's ("Display set"), or the target's short name. */
 export function jobLabel(job: Job): string {
-  return job.kind === 'tool' ? toolOf(job.tool).tool.name : shortName(targetPlugin(job.target))
+  return job.kind === 'tool' ? toolOf(job.tool).tool.name : shortName(convertPlugins(job).target)
 }
 
-export const sameJob = (a: Job, b: Job): boolean => (a.kind === 'tool' && b.kind === 'tool' ? a.tool === b.tool : a.kind === 'convert' && b.kind === 'convert' && a.target === b.target)
+export const sameJob = (a: Job, b: Job): boolean =>
+  a.kind === 'tool' && b.kind === 'tool' ? a.tool === b.tool : a.kind === 'convert' && b.kind === 'convert' && sourcePlugin(a.source).id === sourcePlugin(b.source).id && a.target === b.target
 
 /**
  * How many commands a display set holds: set, deactivate and protect alike. A quoted value can hold line breaks (a
@@ -255,19 +281,20 @@ function deriveTool(source: string, key: string): Derived {
 }
 
 /** What an issue says in the problems panel: the plugin's reason, never the statement's text (it may hold a secret). */
-function issueMessage(issue: ConversionIssue, target: PlatformPlugin): string {
-  const what = issue.kind === 'unmapped' ? `Not converted: the ${SOURCE_PLUGIN.name} plugin gave this statement no disposition` : issue.kind === 'unsupported' ? 'Not converted' : `Not written for ${target.name}`
+function issueMessage(issue: ConversionIssue, from: PlatformPlugin, target: PlatformPlugin): string {
+  const what = issue.kind === 'unmapped' ? `Not converted: the ${from.name} plugin gave this statement no disposition` : issue.kind === 'unsupported' ? 'Not converted' : `Not written for ${target.name}`
   return issue.reason ? `${what}: ${issue.reason}` : what
 }
 
 /** The conversion behind a convert tab's state: exported for tests. */
-export function conversionOf(source: string, targetId: string, map: InterfaceMap): Conversion {
-  return convert(SOURCE_PLUGIN, targetPlugin(targetId), source, { modelVersion: registry.modelVersion, inputs: interfaceInputs(map) })
+export function conversionOf(source: string, targetId: string, map: InterfaceMap, sourceId?: string): Conversion {
+  const { source: from, target } = convertPlugins({ kind: 'convert', target: targetId, ...(sourceId ? { source: sourceId } : {}) })
+  return convert(from, target, source, { modelVersion: registry.modelVersion, inputs: interfaceInputs(map) })
 }
 
-function deriveConvert(source: string, targetId: string, map: InterfaceMap): Derived {
-  const target = targetPlugin(targetId)
-  const c = conversionOf(source, targetId, map)
+function deriveConvert(source: string, job: Job & { kind: 'convert' }, map: InterfaceMap): Derived {
+  const { source: from, target } = convertPlugins(job)
+  const c = conversionOf(source, target.id, map, from.id)
   const lineOf = new Map(c.ledger.source.statements.map((s) => [s.id, s.span?.startLine]))
   const links: [number, number][] = []
   for (const l of c.links) {
@@ -276,7 +303,7 @@ function deriveConvert(source: string, targetId: string, map: InterfaceMap): Der
   }
   const problems: Problem[] = [
     ...c.ledger.diagnostics.map((d): Problem => ({ severity: d.severity === 'error' ? 'error' : 'warning', message: d.message, ...(d.span ? { line: d.span.startLine, column: d.span.startColumn } : {}) })),
-    ...(c.render ? c.issues.map((i): Problem => ({ severity: 'warning', message: issueMessage(i, target), ...(i.span ? { line: i.span.startLine, column: i.span.startColumn } : {}) })) : [])
+    ...(c.render ? c.issues.map((i): Problem => ({ severity: 'warning', message: issueMessage(i, from, target), ...(i.span ? { line: i.span.startLine, column: i.span.startColumn } : {}) })) : [])
   ]
   return {
     output: c.render ? withoutFinalNewline(c.render.text) : '',
@@ -292,7 +319,7 @@ function deriveConvert(source: string, targetId: string, map: InterfaceMap): Der
 
 function derive(t: Pick<ConversionTab, 'job' | 'source' | 'interfaceMap'>): Derived {
   if (t.source.trim() === '') return { output: '', sourceLines: [], links: [], problems: [], interfaces: [] }
-  return t.job.kind === 'convert' ? deriveConvert(t.source, t.job.target, t.interfaceMap) : deriveTool(t.source, t.job.tool)
+  return t.job.kind === 'convert' ? deriveConvert(t.source, t.job, t.interfaceMap) : deriveTool(t.source, t.job.tool)
 }
 
 /** The tab has output that hasn't been saved since it last changed. */
@@ -319,7 +346,7 @@ function conversionTab(job: Job, sourceName: string | null = null, reopen: strin
 /** A restored job, if this build still has its tool or target; else display set. */
 function knownJob(job: Job): Job {
   if (job.kind === 'tool') return TOOLS.some((t) => t.key === job.tool) ? job : DISPLAY_SET
-  return TARGETS.some((t) => t.id === job.target) ? job : { kind: 'convert', target: TARGETS[0].id }
+  return convertJob(job.source ?? SOURCE_PLUGIN.id, job.target).job
 }
 
 /** The tabs at start-up: the last session's, without their contents, or one display set tab. */
@@ -410,7 +437,14 @@ export const useStore = create<State>()((set, get) => {
       const tab = active()
       if (tab) update(tab.id, { job, ...(job.kind === 'convert' ? { interfaceMap: mapOf([]) } : {}) })
     },
-    setTarget: (targetId) => get().setJob({ kind: 'convert', target: targetPlugin(targetId).id }),
+    setTarget: (targetId) => {
+      const job = active()?.job
+      get().setJob(convertJob(job?.kind === 'convert' ? (job.source ?? SOURCE_PLUGIN.id) : SOURCE_PLUGIN.id, targetId).job)
+    },
+    setConvertSource: (sourceId) => {
+      const job = active()?.job
+      get().setJob(convertJob(sourceId, job?.kind === 'convert' ? job.target : TARGETS[0].id).job)
+    },
     setInterfaceName: (source, target) => {
       const tab = active()
       if (!tab) return

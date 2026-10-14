@@ -6,7 +6,7 @@ import iconUrl from '../../../branding/icon-small.svg'
 import { dropFile } from './actions'
 import { createCommands, matchKey, runCommand } from './commands'
 import { ConversionView, jobTitle, outputSummary } from './components/ConversionView'
-import { CloseDialog, ExitDialog, NewTabDialog } from './components/Dialogs'
+import { CloseDialog, ExitDialog, JobChoices, NewTabDialog } from './components/Dialogs'
 import { ErrorIcon } from './components/Icons'
 import { MenuBar } from './components/MenuBar'
 import { TabStrip } from './components/TabStrip'
@@ -15,7 +15,7 @@ import { DOCS } from './help/docs'
 import { DocsView } from './help/DocsView'
 import { useHelp } from './help/state'
 import type { Platform } from './platform'
-import { isUnsaved, jobs, tabTitle, useStore } from './store'
+import { isUnsaved, tabTitle, useStore } from './store'
 
 function useSystemDark(): boolean {
   const query = useMemo(() => (typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null), [])
@@ -37,14 +37,7 @@ function NoTabs() {
     <div className="no-tabs">
       <h1>No tabs open</h1>
       <p>Open a tab for what you're doing (File → New Tab):</p>
-      <div className="picker-list">
-        {jobs().map((j) => (
-          <button key={j.label} className="picker-item" onClick={() => useStore.getState().newTab(j.job)}>
-            <span className="picker-label">{j.label}</span>
-            <span className="picker-detail">{j.detail}</span>
-          </button>
-        ))}
-      </div>
+      <JobChoices />
     </div>
   )
 }

@@ -621,6 +621,25 @@ describe('tabs and the menu bar in the web build', () => {
     await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → Display set', line: 'set system host-name r1' })
   })
 
+  it('converts between any two platforms, chosen in the new tab picker and then in the tab', async () => {
+    await openPage()
+    await menu('File', 'New Tab…')
+    const picker = page.getByRole('dialog', { name: 'New tab' })
+    await picker.getByRole('combobox', { name: 'Convert from' }).selectOption('nxos')
+    await picker.getByRole('combobox', { name: 'Convert to' }).selectOption('iosxr')
+    await picker.getByRole('button', { name: 'Convert: Cisco NX-OS → Cisco IOS-XR' }).click()
+    await expect.poll(() => tabs().then((t) => t.current), UI_WAIT).toBe('Untitled → IOS-XR')
+    expect(await tab().locator('[data-pane=source] .cm-placeholder').innerText()).toBe('Paste a Cisco NX-OS config here, open a file, or drop one anywhere in this window.')
+    await typeSource('hostname n1\n')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('hostname n1')
+    expect(await text('status-result')).toMatch(/^\d+ lines?$/)
+    // The tab's source changes on its own; the target stays.
+    await tab().getByRole('combobox', { name: 'Source platform' }).selectOption('iosxe')
+    expect(await tab().getByRole('combobox', { name: 'Target platform' }).inputValue()).toBe('iosxr')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('hostname n1')
+    expect(await page.locator('.statusbar .status-item').first().innerText()).toBe('Cisco IOS / IOS-XE → Cisco IOS-XR')
+  })
+
   it('asks before closing a tab with unsaved output, by Ctrl+W, middle-click or ×, and saves first when asked', async () => {
     await openPage()
     await typeSource('system { host-name r1; }')
@@ -714,7 +733,7 @@ describe('tabs and the menu bar in the web build', () => {
     expect(JSON.parse(stored.local['dialect.session']!)).toEqual({
       tabs: [
         { kind: 'conversion', job: { kind: 'tool', tool: 'junos.display-set' }, name: 'config_15.conf' },
-        { kind: 'conversion', job: { kind: 'convert', target: 'iosxe' }, name: 'phase1.conf' },
+        { kind: 'conversion', job: { kind: 'convert', source: 'junos', target: 'iosxe' }, name: 'phase1.conf' },
         { kind: 'docs', page: 'license' }
       ],
       active: 2

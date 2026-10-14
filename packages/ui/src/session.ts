@@ -24,7 +24,8 @@ function tabOf(value: unknown): SessionTab | null {
   if (t.kind !== 'conversion' || (t.name !== null && typeof t.name !== 'string')) return null
   const job = t.job as Record<string, unknown> | null
   if (job?.kind === 'tool' && typeof job.tool === 'string') return { kind: 'conversion', job: { kind: 'tool', tool: job.tool }, name: t.name }
-  if (job?.kind === 'convert' && typeof job.target === 'string') return { kind: 'conversion', job: { kind: 'convert', target: job.target }, name: t.name }
+  if (job?.kind === 'convert' && typeof job.target === 'string' && (job.source === undefined || typeof job.source === 'string'))
+    return { kind: 'conversion', job: { kind: 'convert', ...(typeof job.source === 'string' ? { source: job.source } : {}), target: job.target }, name: t.name }
   return null
 }
 

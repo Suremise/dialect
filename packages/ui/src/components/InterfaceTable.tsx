@@ -4,13 +4,13 @@
 import { formatInterfaceMap } from '@dialect/core'
 import { loadInterfaceMap } from '../actions'
 import type { Platform } from '../platform'
-import { SOURCE_PLUGIN, targetPlugin, useStore, type ConversionTab } from '../store'
+import { convertPlugins, useStore, type ConversionTab } from '../store'
 import { CheckIcon, OpenIcon, SaveIcon, WarningIcon } from './Icons'
 
 export function InterfaceTable({ tab, platform }: { tab: ConversionTab; platform: Platform }) {
   const { interfaces, interfaceMap } = tab
   const { setInterfaceName, takeSuggestions, revealAt, notify } = useStore.getState()
-  const target = targetPlugin(tab.job.kind === 'convert' ? tab.job.target : '')
+  const { source, target } = convertPlugins(tab.job.kind === 'convert' ? tab.job : { kind: 'convert', target: '' })
   const unnamed = interfaces.filter((i) => i.target === undefined)
   const suggestible = unnamed.filter((i) => i.suggestion)
 
@@ -48,7 +48,7 @@ export function InterfaceTable({ tab, platform }: { tab: ConversionTab; platform
           <table className="interface-table">
             <thead>
               <tr>
-                <th scope="col">{SOURCE_PLUGIN.name}</th>
+                <th scope="col">{source.name}</th>
                 <th scope="col">{target.name}</th>
                 <th scope="col">
                   <span className="visually-hidden">Suggestion</span>
