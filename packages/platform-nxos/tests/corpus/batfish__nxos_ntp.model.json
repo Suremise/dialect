@@ -1,0 +1,17 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_ntp",
+      "ntp": {
+        "servers": {
+          "192.0.2.1": {},
+          "192.0.2.4": {
+            "prefer": true
+          }
+        },
+        "sourceInterface": "mgmt0"
+      }
+    }
+  }
+}

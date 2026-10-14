@@ -1,0 +1,23 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "leaf-7",
+      "logging": {
+        "remoteServers": {
+          "192.0.2.50": {
+            "severity": "notice",
+            "networkInstance": "management",
+            "facility": "local7"
+          },
+          "198.51.100.50": {
+            "severity": "error",
+            "port": 5514
+          },
+          "203.0.113.50": {}
+        },
+        "sourceInterface": "loopback0"
+      }
+    }
+  }
+}

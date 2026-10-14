@@ -1,0 +1,32 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_ip_dns",
+      "dns": {
+        "servers": {
+          "192.0.2.11": {
+            "networkInstance": "Client"
+          },
+          "192.0.2.12": {
+            "networkInstance": "Client"
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "loopback0": {
+        "type": "loopback"
+      },
+      "loopback3": {
+        "type": "loopback"
+      },
+      "loopback4": {
+        "type": "loopback"
+      },
+      "loopback5": {
+        "type": "loopback"
+      }
+    }
+  }
+}

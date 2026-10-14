@@ -1,0 +1,23 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "leaf-2",
+      "domainName": "example.net",
+      "dns": {
+        "search": [
+          "example.net",
+          "corp.example.net"
+        ],
+        "servers": {
+          "192.0.2.53": {},
+          "2001:db8::53": {},
+          "198.51.100.53": {
+            "networkInstance": "management"
+          },
+          "203.0.113.53": {}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+// The plugin's tests, on Node: they read fixtures, from the package and from the repo's corpus (fixtures/public).
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "tests/**/*"]
+}

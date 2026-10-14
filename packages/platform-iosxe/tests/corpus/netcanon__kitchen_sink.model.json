@@ -1,0 +1,284 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "kitchensink-rtr01",
+      "domainName": "kitchensink.example.com",
+      "dns": {
+        "servers": {
+          "198.51.100.53": {},
+          "198.51.100.54": {},
+          "2001:db8:53::1": {}
+        }
+      },
+      "ntp": {
+        "servers": {
+          "198.51.100.123": {},
+          "198.51.100.124": {}
+        }
+      },
+      "logging": {
+        "remoteServers": {
+          "198.51.100.200": {
+            "severity": "notice",
+            "facility": "local5"
+          },
+          "198.51.100.201": {
+            "severity": "notice",
+            "facility": "local5"
+          }
+        }
+      },
+      "snmp": {
+        "communities": {
+          "publicRO": {
+            "access": "read-only"
+          },
+          "privateRW": {
+            "access": "read-write"
+          }
+        },
+        "location": "\"Lab-A Rack 12 Unit 4\"",
+        "contact": "\"noc@kitchensink.example.com\""
+      }
+    },
+    "networkInstances": {
+      "Mgmt-vrf": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:1",
+        "routeTargets": {
+          "import": [
+            "65000:1"
+          ],
+          "export": [
+            "65000:1"
+          ]
+        }
+      },
+      "CUSTOMER-A": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:100",
+        "staticRoutes": {
+          "172.16.0.0/16": {
+            "nextHops": {
+              "0": {
+                "address": "198.51.100.50"
+              }
+            }
+          }
+        },
+        "routeTargets": {
+          "import": [
+            "65000:100",
+            "65000:999"
+          ],
+          "export": [
+            "65000:100"
+          ]
+        }
+      },
+      "default": {
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "198.51.100.2"
+              }
+            }
+          },
+          "10.10.0.0/16": {
+            "nextHops": {
+              "0": {
+                "address": "198.51.100.2"
+              }
+            }
+          },
+          "10.20.0.0/16": {
+            "nextHops": {
+              "0": {
+                "interface": "GigabitEthernet0/0/0"
+              }
+            }
+          },
+          "2001:db8:cafe::/48": {
+            "nextHops": {
+              "0": {
+                "address": "2001:db8:beef::2"
+              }
+            }
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "Port-channel1": {
+        "type": "aggregate",
+        "description": "Uplink to core (LACP)"
+      },
+      "Port-channel2": {
+        "type": "aggregate",
+        "description": "Server bond (LACP passive)"
+      },
+      "Loopback0": {
+        "type": "loopback",
+        "description": "Router-ID and management loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.255.255.1": {
+                  "prefixLength": 32
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8:ffff::1": {
+                  "prefixLength": 128
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0": {
+        "type": "ethernet",
+        "description": "WAN uplink to ISP-A",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 30
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8:beef::1": {
+                  "prefixLength": 64
+                }
+              }
+            }
+          }
+        },
+        "mtu": 1500,
+        "enabled": true
+      },
+      "GigabitEthernet0/0/1": {
+        "type": "ethernet",
+        "description": "Access port — desk pool A",
+        "enabled": true
+      },
+      "TenGigabitEthernet1/0/1": {
+        "type": "ethernet",
+        "description": "LACP member to core (Po1)",
+        "enabled": true
+      },
+      "TenGigabitEthernet1/0/2": {
+        "type": "ethernet",
+        "description": "LACP member to core (Po1)",
+        "enabled": true
+      },
+      "TenGigabitEthernet1/0/3": {
+        "type": "ethernet",
+        "description": "Server bond member (Po2)",
+        "enabled": true
+      },
+      "TenGigabitEthernet1/0/4": {
+        "type": "ethernet",
+        "description": "Server bond member (Po2)",
+        "enabled": true
+      },
+      "TenGigabitEthernet1/0/5": {
+        "type": "ethernet",
+        "description": "Disabled spare port",
+        "enabled": false
+      },
+      "Vlan10": {
+        "type": "vlan",
+        "description": "Users SVI",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.168.10.1": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8:10::1": {
+                  "prefixLength": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan20": {
+        "type": "vlan",
+        "description": "Servers SVI",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.168.20.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan30": {
+        "type": "vlan",
+        "description": "Voice SVI",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.168.30.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan40": {
+        "type": "vlan",
+        "description": "Guests SVI",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.168.40.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0": {
+        "type": "ethernet",
+        "description": "Out-of-band management interface",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "Mgmt-vrf",
+            "ipv4": {
+              "addresses": {
+                "10.0.0.10": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      }
+    }
+  }
+}

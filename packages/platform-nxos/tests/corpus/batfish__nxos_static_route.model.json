@@ -1,0 +1,109 @@
+{
+  "modelVersion": "0.2.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_static_route"
+    },
+    "interfaces": {
+      "Ethernet1/1": {
+        "type": "ethernet",
+        "enabled": true,
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.255.1.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ethernet1/2": {
+        "type": "ethernet",
+        "enabled": true
+      }
+    },
+    "networkInstances": {
+      "vrf1": {
+        "type": "vrf",
+        "staticRoutes": {
+          "10.0.11.0/24": {
+            "nextHops": {
+              "0": {
+                "address": "10.255.1.254"
+              }
+            }
+          },
+          "10.0.12.0/24": {
+            "nextHops": {
+              "0": {
+                "interface": "Ethernet1/100",
+                "address": "10.255.1.254"
+              }
+            }
+          }
+        }
+      },
+      "default": {
+        "staticRoutes": {
+          "10.0.0.0/24": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "10.0.1.0/24": {
+            "nextHops": {
+              "0": {
+                "address": "10.255.1.254"
+              }
+            }
+          },
+          "10.0.2.0/24": {
+            "nextHops": {
+              "0": {
+                "interface": "Ethernet1/1",
+                "address": "10.255.1.254"
+              }
+            }
+          },
+          "10.0.13.0/24": {
+            "nextHops": {
+              "0": {
+                "interface": "Ethernet1/1"
+              }
+            }
+          },
+          "10.0.14.0/24": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              },
+              "1": {
+                "address": "10.255.1.254"
+              },
+              "2": {
+                "interface": "Ethernet1/1",
+                "address": "10.255.1.254"
+              },
+              "3": {
+                "interface": "Ethernet1/1"
+              }
+            }
+          },
+          "10.0.15.0/24": {
+            "description": "bar",
+            "nextHops": {
+              "0": {
+                "address": "10.255.1.254"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
