@@ -1,0 +1,24 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "nxos_bgp_peer_template"
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 64603,
+          "groups": {
+            "peer-rr-overlay": {}
+          },
+          "neighbors": {
+            "10.0.0.1": {
+              "group": "peer-rr-overlay",
+              "peerAs": 64602
+            }
+          }
+        }
+      }
+    }
+  }
+}

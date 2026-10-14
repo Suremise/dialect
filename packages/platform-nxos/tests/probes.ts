@@ -6,13 +6,38 @@ const lines = (...l: string[]) => l.join('\n')
 const iface = (...children: string[]) => lines('interface Ethernet1/1', '  no switchport', ...children)
 /** VRFs A and B and the global table, each with the same route, and a name server in A and one in the global table. */
 const scoped = lines('vrf context A', '  ip route 10.0.0.0/8 192.0.2.2', 'vrf context B', '  ip route 10.0.0.0/8 192.0.2.3', 'ip route 10.0.0.0/8 192.0.2.1', 'ip name-server 192.0.2.53', 'ip name-server 192.0.2.54 use-vrf A')
+/** OSPF in VRFs A and B and the global table: an interface in each, and a stub area in each VRF. */
+const ospfScoped = lines(
+  'vrf context A',
+  'vrf context B',
+  ...['A', 'B', ''].flatMap((vrf, i) => [`interface loopback${i + 1}`, ...(vrf ? [`  vrf member ${vrf}`] : []), `  ip address 192.0.2.${i + 1}/32`, '  ip router ospf 1 area 0']),
+  'router ospf 1',
+  '  router-id 192.0.2.3',
+  ...['A', 'B'].flatMap((vrf) => [`  vrf ${vrf}`, '    area 0.0.0.1 stub'])
+)
+/** The same BGP neighbor in VRFs A and B and the global table. */
+const bgpScoped = lines('vrf context A', 'vrf context B', 'router bgp 65000', '  neighbor 192.0.2.2 remote-as 65001', ...['A', 'B'].flatMap((vrf) => [`  vrf ${vrf}`, '    neighbor 192.0.2.2 remote-as 65001']))
 
 export const NXOS_PROBES: ProbeAdapter = {
   prototypeKeys: {
     // The key as a community, a VRF (with a route in it) and a DNS name (a search domain, a name server's VRF), in one
     // text: a community value is a secret wherever else it appears.
-    source: (key) => lines(`snmp-server community ${key} group network-operator`, `vrf context ${key}`, '  ip route 10.0.0.0/8 192.0.2.1', `ip domain-list ${key}`, `ip name-server 192.0.2.53 use-vrf ${key}`),
-    uses: { interface: { notApplicable: 'NX-OS names an interface by its type and number (Ethernet1/1): no prototype name is one' }, vrf: true, community: true, dns: true }
+    source: (key) =>
+      lines(
+        `snmp-server community ${key} group network-operator`,
+        `vrf context ${key}`,
+        '  ip route 10.0.0.0/8 192.0.2.1',
+        `ip domain-list ${key}`,
+        `ip name-server 192.0.2.53 use-vrf ${key}`,
+        'vlan 10',
+        `  name ${key}`,
+        'router bgp 65000',
+        `  template peer ${key}`,
+        '    remote-as 65001',
+        '  neighbor 192.0.2.2',
+        `    inherit peer ${key}`
+      ),
+    uses: { interface: { notApplicable: 'NX-OS names an interface by its type and number (Ethernet1/1): no prototype name is one' }, vrf: true, community: true, dns: true, vlan: true, 'bgp-group': true }
   },
   // Each community limited by an access list, after and before a statement that opens it: either order must leave it
   // out (or limited), never open.
@@ -25,19 +50,26 @@ export const NXOS_PROBES: ProbeAdapter = {
     description: { set: iface('  description uplink'), negated: iface('  description uplink', '  no description'), path: ['interfaces', 'Ethernet1/1', 'description'] },
     'name-server': { set: 'ip name-server 192.0.2.53', negated: lines('ip name-server 192.0.2.53', 'no ip name-server 192.0.2.53'), path: ['system', 'dns', 'servers', '192.0.2.53'] },
     'static-route': { set: 'ip route 10.0.0.0/8 192.0.2.1', negated: lines('ip route 10.0.0.0/8 192.0.2.1', 'no ip route 10.0.0.0/8 192.0.2.1'), path: ['networkInstances', 'default', 'staticRoutes', '10.0.0.0/8'] },
-    community: { set: 'snmp-server community PLACEHOLDER group network-operator', negated: lines('snmp-server community PLACEHOLDER group network-operator', 'no snmp-server community PLACEHOLDER'), path: ['system', 'snmp', 'communities', 'PLACEHOLDER'] }
+    community: { set: 'snmp-server community PLACEHOLDER group network-operator', negated: lines('snmp-server community PLACEHOLDER group network-operator', 'no snmp-server community PLACEHOLDER'), path: ['system', 'snmp', 'communities', 'PLACEHOLDER'] },
+    'bgp-neighbor': { set: lines('router bgp 65000', '  neighbor 192.0.2.2 remote-as 65001'), negated: lines('router bgp 65000', '  neighbor 192.0.2.2 remote-as 65001', '  no neighbor 192.0.2.2'), path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2'] },
+    'ospf-interface': { set: iface('  ip address 192.0.2.1/24', '  ip router ospf 1 area 0'), negated: iface('  ip address 192.0.2.1/24', '  ip router ospf 1 area 0', '  no ip router ospf 1 area 0'), path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'Ethernet1/1'] }
   },
   malformed: {
     'ipv4-address': { source: iface('  ip address 999.1.1.1/24'), value: '999.1.1.1' },
     'ipv6-address': { source: iface('  ipv6 address dead::beef::1/64'), value: 'dead::beef::1' },
     mask: { source: iface('  ip address 192.0.2.1/33'), value: '192.0.2.1/33' },
     // Letter-led, so it can't pass for an interface name either (the numeric and stray-word ones are in plugin.test.ts).
-    'next-hop': { source: 'ipv6 route 2001:db8::/32 dead::beef::bad', value: 'dead::beef::bad' }
+    'next-hop': { source: 'ipv6 route 2001:db8::/32 dead::beef::bad', value: 'dead::beef::bad' },
+    'as-number': { source: lines('router bgp 65000', '  neighbor 192.0.2.2 remote-as 4294967296'), value: '4294967296' },
+    'vlan-id': { source: lines('vlan 4095', 'interface Ethernet1/2', '  switchport access vlan 4095'), value: '4095' }
   },
   vrfScoping: {
     delete: { base: scoped, changed: lines(scoped, 'no vrf context A'), vrf: 'A' },
     // The global table's server named as if in A, and A's own: only A's goes.
     dns: { base: scoped, changed: lines(scoped, 'no ip name-server 192.0.2.53 use-vrf A', 'no ip name-server 192.0.2.54 use-vrf A'), vrf: 'A' },
-    'static-route': { base: scoped, changed: lines(scoped, 'vrf context A', '  no ip route 10.0.0.0/8 192.0.2.2'), vrf: 'A' }
+    'static-route': { base: scoped, changed: lines(scoped, 'vrf context A', '  no ip route 10.0.0.0/8 192.0.2.2'), vrf: 'A' },
+    // A's stub area and its interface go; B's and the global table's, the same, stay.
+    ospf: { base: ospfScoped, changed: lines(ospfScoped, 'router ospf 1', '  vrf A', '    no area 0.0.0.1 stub', 'interface loopback1', '  no ip router ospf 1 area 0'), vrf: 'A' },
+    bgp: { base: bgpScoped, changed: lines(bgpScoped, 'router bgp 65000', '  vrf A', '    no neighbor 192.0.2.2'), vrf: 'A' }
   }
 }

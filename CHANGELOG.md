@@ -21,6 +21,13 @@
 - **Cisco NX-OS and IOS-XR join convert**, in the app and on the command line: convert from any of Junos, IOS / IOS-XE,
   NX-OS and IOS-XR to any other (`dialect convert --from nxos --to iosxr …`). In the app, a new tab's Convert row has
   the platform to convert from and the one to convert to, and a convert tab can change either.
+- **Cisco NX-OS VLANs, switch ports, VLAN interfaces, OSPF and BGP convert:** VLANs and their names, access and trunk
+  ports (allowed VLANs with add, remove and except, a native VLAN), VLAN interfaces (SVIs), OSPF as NX-OS enables it on
+  each interface (areas, stub and NSSA, cost, network type, passive, timers, `passive-interface default`) and BGP
+  (neighbors, peer templates, eBGP multihop, address families, route maps by name only), in the global table and in
+  VRFs. The `feature` lines they need are written. OSPF keys and BGP passwords are never carried: converting to NX-OS
+  asks for them. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route
+  (IOS-XR exchanges none, RFC 8212), and OSPF enabled with `network` statements is enabled per interface.
 - **Junos routing instances convert:** VRFs and virtual routers, with their units, route distinguisher and vrf-target
   (one target or an import and export), to and from the model, so their interfaces stay in the right VRF. A unit in two
   instances is an error, as on the device, and instance types Dialect doesn't convert yet (mac-vrf, EVPN) are listed as

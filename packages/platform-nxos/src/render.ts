@@ -1,23 +1,33 @@
-// The shared model → NX-OS text, for the phase 1 areas. Every populated leaf of model 0.3 gets a disposition:
+// The shared model → NX-OS text. Every populated leaf of model 0.4 gets a disposition:
 // `rendered` with the line it went to, `unsupported` with why (NX-OS can't say it, or this renderer can't yet), or
 // `not-applicable` (NX-OS implies it). Fields of a later model version are left without one, so the ledger reports them
 // as unrendered rather than this renderer claiming them. The text says everything it relies on: each `feature` a
 // written statement needs, and `switchport` or `no switchport` on every Ethernet and port-channel interface, so the
-// result doesn't depend on the switch's defaults.
-import { fieldPath, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
-import { featuresFor, VPN_FEATURE } from './features'
+// result doesn't depend on the switch's defaults. Secrets the model only flags (an OSPF key, a BGP password) are
+// needs-input items, written when answered (Context.inputs) and never made up.
+import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type BgpPeer, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type OspfInterface, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
+import { isIpv4, isIpv6 } from './addresses'
+import { featuresFor, OSPF_FEATURE, VPN_FEATURE } from './features'
 import { isSwitchable } from './names'
 import { SEVERITY_LEVELS, SNMP_GROUPS } from './parse'
+import { vlanEntries } from './vlans'
 
 type Segments = readonly (string | number)[]
 
 /** A word NX-OS reads back as one: quoted when it has a space in it. */
 const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
+/** A VLAN name NX-OS takes: up to 32 characters, no space. */
+const VLAN_NAME = /^\S{1,32}$/
+/** An OSPF process tag NX-OS takes: up to 20 letters, digits and `_.-`. */
+const OSPF_TAG = /^[\w.-]{1,20}$/
+/** The BGP address families phase 2 writes, in order. */
+const FAMILIES = ['ipv4-unicast', 'ipv6-unicast'] as const satisfies readonly BgpAddressFamilyName[]
 
-export function render(model: Device, _context: Context): RenderResult {
+export function render(model: Device, context: Context): RenderResult {
   const lines: string[] = []
   const dispositions: Record<string, FieldDisposition> = {}
   const diagnostics: Diagnostic[] = []
+  const needsInput: NeedsInput[] = []
 
   /** Writes a line, marking the fields it says as rendered there. */
   const emit = (line: string, ...fields: Segments[]) => {
@@ -51,6 +61,8 @@ export function render(model: Device, _context: Context): RenderResult {
 
   const features = new Set(Object.keys(model.interfaces ?? {}).flatMap(featuresFor))
   if (Object.entries(model.networkInstances ?? {}).some(([name, instance]) => name !== 'default' && writesVpn(instance))) features.add(VPN_FEATURE)
+  if (Object.values(model.networkInstances ?? {}).some((instance) => instance.bgp !== undefined)) features.add(VPN_FEATURE)
+  if (Object.values(model.networkInstances ?? {}).some((instance) => instance.ospf !== undefined)) features.add(OSPF_FEATURE)
   if (features.size) {
     separator()
     for (const feature of [...features].sort()) emit(`feature ${feature}`)
@@ -280,15 +292,47 @@ export function render(model: Device, _context: Context): RenderResult {
     if (route.description !== undefined && !described) skip([...at, 'description'], 'unsupported', 'a route name needs a next hop to go on')
   }
 
-  // ---- interfaces
+  // ---- VLANs: before the interfaces that use them
 
+  emptyContainer(model.vlans, ['vlans'])
+  for (const [id, vlan] of Object.entries(model.vlans ?? {}).sort(([a], [b]) => Number(a) - Number(b))) {
+    const at = ['vlans', id]
+    if (!/^\d+$/.test(id) || !isVlanId(Number(id))) {
+      skipAll(vlan, at, 'not a VLAN ID from 1 to 4094')
+      continue
+    }
+    separator()
+    emit(`vlan ${id}`, ...(isEmpty(vlan) ? [at] : []))
+    if (vlan.name !== undefined) {
+      if (VLAN_NAME.test(vlan.name)) emit(`  name ${vlan.name}`, [...at, 'name'])
+      else skip([...at, 'name'], 'unsupported', 'not a VLAN name NX-OS takes: up to 32 characters, with no space')
+    }
+    if (vlan.description !== undefined) skip([...at, 'description'], 'unsupported', 'NX-OS VLANs have a name but no description')
+  }
+
+  // ---- interfaces, with each one's OSPF
+
+  /** The network instances whose OSPF the source enabled with `network` statements, for the warning. */
+  const networkEnabled = new Set<string>()
+  const ospf = ospfInterfaces()
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
   emptyContainer(model.interfaces, ['interfaces'])
+  // An OSPF interface whose interface wasn't written, with why when it is known.
+  for (const entries of ospf.values()) for (const e of entries) if (!e.done) skipAll(e.value, e.at, e.why ?? 'OSPF on an interface that isn\'t written')
 
   function renderInterface(name: string, iface: Interface) {
     const at = ['interfaces', name]
     const subs = Object.entries(iface.subinterfaces ?? {})
-    const main = iface.subinterfaces?.['0']
+    // An SVI (irb-or-svi) is named Vlan and its VLAN ID on NX-OS, and routes for that VLAN.
+    const svi = iface.type === 'irb-or-svi' ? (/^vlan(\d+)$/i.exec(name) ?? [])[1] : undefined
+    if (iface.type === 'irb-or-svi' && svi === undefined) {
+      skipAll(iface, at, 'a routed VLAN interface, which NX-OS names Vlan and its VLAN ID: written only under such a name')
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.svi-name', message: 'A routed VLAN interface is written only when the interface map names it Vlan and its VLAN ID, as NX-OS does.', field: fieldPath(...at) })
+      return
+    }
+    // The subinterface whose Layer 3 is the interface's own: 0, or on an SVI the one that routes for its VLAN.
+    const own = svi === undefined ? '0' : [...subs].sort(([a], [b]) => (a === '0' ? -1 : b === '0' ? 1 : 0)).find(([, s]) => s.routedVlan === Number(svi))?.[0]
+    const main = own === undefined ? undefined : iface.subinterfaces?.[own]
     if (iface.type !== undefined) skip([...at, 'type'], 'not-applicable', 'NX-OS gives an interface\'s type by its name')
     if (iface.vlanTagging !== undefined) skip([...at, 'vlanTagging'], 'not-applicable', 'NX-OS tags each subinterface (encapsulation dot1q)')
     emptyContainer(iface.subinterfaces, [...at, 'subinterfaces'])
@@ -296,32 +340,68 @@ export function render(model: Device, _context: Context): RenderResult {
     // A routed port: an address or a VRF on it, or subinterfaces (which need a routed parent).
     const routed = subs.some(([index, s]) => index !== '0' || s.ipv4 !== undefined || s.ipv6 !== undefined || s.networkInstance !== undefined)
     separator()
-    emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []))
+    emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []), ...(svi !== undefined && own !== undefined ? [[...at, 'subinterfaces', own, 'routedVlan']] : []))
     if (iface.description !== undefined) emit(`  description ${iface.description}`, [...at, 'description'])
     if (isSwitchable(name)) emit(routed ? '  no switchport' : '  switchport')
+    if (iface.switching !== undefined) renderSwitching(name, iface.switching, routed)
     if (iface.mtu !== undefined) emit(`  mtu ${iface.mtu}`, [...at, 'mtu'])
     const isMgmt = /^mgmt0$/i.test(name)
     // mgmt0 is always in the management VRF: said, as NX-OS shows it, whether the model says so or not.
     if (isMgmt && main?.networkInstance === undefined) emit('  vrf member management')
-    if (main) {
-      const sub = [...at, 'subinterfaces', '0']
+    if (main && own !== undefined) {
+      const sub = [...at, 'subinterfaces', own]
       if (isEmpty(main)) skip(sub, 'not-applicable', 'NX-OS has no subinterface 0 of its own: the main interface is it')
       if (main.description !== undefined) skip([...sub, 'description'], 'unsupported', 'NX-OS has one description for the main interface')
       if (main.enabled !== undefined) skip([...sub, 'enabled'], 'unsupported', 'NX-OS has one shutdown for the main interface')
-      if (main.vlanId !== undefined) skip([...sub, 'vlanId'], 'unsupported', 'NX-OS has no subinterface 0 to tag')
-      if (renderMembership(main, sub, isMgmt)) renderAddresses(main, sub)
-    }
+      if (main.vlanId !== undefined) skip([...sub, 'vlanId'], 'unsupported', `NX-OS has no subinterface ${svi === undefined ? '0' : 'on a Vlan interface'} to tag`)
+      if (main.routedVlan !== undefined && svi === undefined) skip([...sub, 'routedVlan'], 'unsupported', 'only a Vlan interface routes for a VLAN on NX-OS')
+      if (renderMembership(main, sub, isMgmt)) {
+        renderAddresses(main, sub)
+        renderOspfInterface(name, own, main)
+      }
+    } else if (own === '0') renderOspfInterface(name, own, {})
     if (iface.enabled !== undefined) emit(iface.enabled ? '  no shutdown' : '  shutdown', [...at, 'enabled'])
 
     for (const [index, sub] of subs) {
-      if (index === '0') continue
+      if (index === own) continue
       const subAt = [...at, 'subinterfaces', index]
+      if (svi !== undefined) {
+        skipAll(sub, subAt, `NX-OS's Vlan interface has no subinterfaces: it routes for the VLAN its name gives`)
+        continue
+      }
       separator()
       emit(`interface ${name}.${index}`, ...(isEmpty(sub) ? [subAt] : []))
       if (sub.description !== undefined) emit(`  description ${sub.description}`, [...subAt, 'description'])
       if (sub.vlanId !== undefined) emit(`  encapsulation dot1q ${sub.vlanId}`, [...subAt, 'vlanId'])
-      if (renderMembership(sub, subAt, false)) renderAddresses(sub, subAt)
+      if (sub.routedVlan !== undefined) skip([...subAt, 'routedVlan'], 'unsupported', 'only a Vlan interface routes for a VLAN on NX-OS')
+      if (renderMembership(sub, subAt, false)) {
+        renderAddresses(sub, subAt)
+        renderOspfInterface(name, index, sub)
+      }
       if (sub.enabled !== undefined) emit(sub.enabled ? '  no shutdown' : '  shutdown', [...subAt, 'enabled'])
+    }
+  }
+
+  /** A switch port's settings, after its `switchport` line. A routed port, or one NX-OS can't switch, has none. */
+  function renderSwitching(name: string, switching: Switching, routed: boolean) {
+    const at = ['interfaces', name, 'switching']
+    if (!isSwitchable(name) || routed) {
+      skipAll(switching, at, isSwitchable(name) ? 'a routed port (it has IP configuration) isn\'t a switch port on NX-OS' : 'only an Ethernet or port-channel interface is a switch port on NX-OS')
+      return
+    }
+    if (isEmpty(switching)) skip(at, 'not-applicable', 'a switch port with nothing set: written as switchport')
+    if (switching.mode !== undefined) emit(`  switchport mode ${switching.mode}`, [...at, 'mode'])
+    for (const [field, line] of [['accessVlan', 'switchport access vlan'], ['nativeVlan', 'switchport trunk native vlan']] as const) {
+      const id = switching[field]
+      if (id === undefined) continue
+      if (isVlanId(id)) emit(`  ${line} ${id}`, [...at, field])
+      else skip([...at, field], 'unsupported', 'not a VLAN ID from 1 to 4094')
+    }
+    const allowed = switching.allowedVlans
+    if (allowed !== undefined) {
+      if (!allowed.length) emit('  switchport trunk allowed vlan none', [...at, 'allowedVlans'])
+      else if (vlanEntries(allowed.join(','))?.join(',') === allowed.join(',')) emit(`  switchport trunk allowed vlan ${allowed.join(',')}`, [...at, 'allowedVlans'])
+      else skip([...at, 'allowedVlans'], 'unsupported', 'not a list of VLAN IDs and ranges from 1 to 4094')
     }
   }
 
@@ -384,5 +464,312 @@ export function render(model: Device, _context: Context): RenderResult {
     if (family.mtu !== undefined) skip([...at, 'mtu'], 'unsupported', 'NX-OS sets one MTU for the interface, not one per address family')
   }
 
-  return { text: `${lines.join('\n')}\n`, dispositions, diagnostics }
+  // ---- OSPF
+
+  /** An OSPF interface of the model, by the interface it names; `done` once written, `why` when it can't be. */
+  type OspfEntry = { readonly instance: string; readonly tag: string; readonly area: string; readonly value: OspfInterface; readonly at: Segments; done?: boolean; why?: string }
+
+  /** The process tag NX-OS writes for an instance's OSPF: its own, or `1` when the source has none (Junos). */
+  function ospfTag(o: Ospf): string {
+    return o.processId ?? '1'
+  }
+
+  /** Every OSPF interface, by `name|subinterface` of the interface it names (a reference as model.ts says). */
+  function ospfInterfaces(): Map<string, OspfEntry[]> {
+    const out = new Map<string, OspfEntry[]>()
+    const interfaces = model.interfaces ?? {}
+    for (const [instance, ni] of Object.entries(model.networkInstances ?? {})) {
+      if (!ni.ospf) continue
+      for (const [area, a] of Object.entries(ni.ospf.areas ?? {})) {
+        for (const [ref, value] of Object.entries(a.interfaces ?? {})) {
+          const at = ['networkInstances', instance, 'ospf', 'areas', area, 'interfaces', ref]
+          const m = /^(.+)\.(\d+)$/.exec(ref)
+          const key = Object.hasOwn(interfaces, ref) ? `${ref}|0` : m && Object.hasOwn(interfaces, m[1]) ? `${m[1]}|${m[2]}` : undefined
+          const entry: OspfEntry = { instance, tag: ospfTag(ni.ospf), area, value, at, ...(key ? {} : { why: 'names an interface the model doesn\'t have' }) }
+          if (key) out.set(key, [...(out.get(key) ?? []), entry])
+          else skipAll(value, at, entry.why!)
+        }
+      }
+    }
+    return out
+  }
+
+  /** `ip router ospf TAG area A` and the interface's OSPF settings, after its addresses. */
+  function renderOspfInterface(name: string, index: string, sub: Subinterface) {
+    const entries = ospf.get(`${name}|${index}`) ?? []
+    let written: OspfEntry | undefined
+    for (const e of entries) {
+      const tag = e.tag
+      if (e.instance !== (sub.networkInstance ?? (/^mgmt0$/i.test(name) && index === '0' ? 'management' : 'default'))) e.why = 'OSPF in another network instance than its interface\'s'
+      else if (!OSPF_TAG.test(tag)) e.why = 'not a process tag NX-OS takes'
+      else if (!isIpv4(e.area)) e.why = 'not an area in dotted form'
+      else if (written) e.why = 'a second OSPF area or process for the interface: NX-OS enables one per interface'
+      if (e.why) continue
+      written = e
+      e.done = true
+      const at = e.at
+      const v = e.value
+      emit(`  ip router ospf ${tag} area ${e.area}`, ...(isEmpty(v) ? [at] : []), ...(v.enabledBy !== undefined ? [[...at, 'enabledBy']] : []))
+      if (v.enabledBy === 'network') networkEnabled.add(e.instance)
+      if (v.cost !== undefined) number(v.cost, 'ip ospf cost', [...at, 'cost'])
+      if (v.networkType !== undefined) emit(`  ip ospf network ${v.networkType}`, [...at, 'networkType'])
+      if (v.passive === true) emit('  ip ospf passive-interface', [...at, 'passive'])
+      else if (v.passive === false) skip([...at, 'passive'], 'not-applicable', 'not passive, as an interface is unless set')
+      if (v.helloInterval !== undefined) number(v.helloInterval, 'ip ospf hello-interval', [...at, 'helloInterval'])
+      if (v.deadInterval !== undefined) number(v.deadInterval, 'ip ospf dead-interval', [...at, 'deadInterval'])
+      const areaAuth = model.networkInstances?.[e.instance]?.ospf?.areas?.[e.area]?.authentication
+      renderOspfAuthentication(v.authentication, areaAuth, at)
+    }
+  }
+
+  /** `<line> N` for an OSPF number NX-OS takes from 1 to 65535. */
+  function number(value: number, line: string, field: Segments) {
+    if (Number.isInteger(value) && value >= 1 && value <= 65535) emit(`  ${line} ${value}`, field)
+    else skip(field, 'unsupported', 'not a number from 1 to 65535')
+  }
+
+  /**
+   * An interface's OSPF authentication: its own type (the area's applies when it has none), and the key, which is never
+   * carried: a needs-input item asks for it, and the answer is written. A key chain is named by the answer.
+   */
+  function renderOspfAuthentication(own: OspfAuthentication | undefined, area: OspfAuthentication | undefined, at: Segments) {
+    const kind = own ?? (area === 'key-chain' ? undefined : area)
+    const field = [...at, 'authentication']
+    if (kind === undefined) return
+    const id = `nxos.ospf-key:${fieldPath(...at)}`
+    if (kind === 'key-chain') {
+      const chain = answer(id, /^\S{1,63}$/)
+      if (chain !== undefined) emit(`  ip ospf authentication key-chain ${chain}`, field)
+      else {
+        skip(field, 'unsupported', 'needs the name of its key chain, which the model doesn\'t carry')
+        needsInput.push({ id, kind: 'other', message: 'OSPF authentication with a key chain on an interface needs the key chain\'s name.', field: fieldPath(...field) })
+      }
+      return
+    }
+    if (own !== undefined) emit(own === 'md5' ? '  ip ospf authentication message-digest' : '  ip ospf authentication', field)
+    const key = answer(id, kind === 'md5' ? /^(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-5])\s+\S{1,16}$/ : /^\S{1,8}$/)
+    if (key === undefined) {
+      needsInput.push({ id, kind: 'secret', message: kind === 'md5' ? 'OSPF MD5 authentication on an interface needs its key ID (1 to 255) and key, as "ID KEY": the key isn\'t carried.' : 'OSPF authentication on an interface needs its key (up to 8 characters): the key isn\'t carried.', field: fieldPath(...at) })
+      return
+    }
+    if (kind === 'md5') {
+      const [keyId, secret] = key.split(/\s+/)
+      emit(`  ip ospf message-digest-key ${keyId} md5 0 ${secret}`)
+    } else emit(`  ip ospf authentication-key 0 ${key}`)
+  }
+
+  /** The user's answer to a needs-input item when NX-OS takes it, else undefined (with a warning when it doesn't). */
+  function answer(id: string, valid: RegExp): string | undefined {
+    const given = context.inputs && Object.hasOwn(context.inputs, id) ? context.inputs[id].trim() : undefined
+    if (given === undefined || valid.test(given)) return given
+    // The answer may be a secret: not repeated.
+    diagnostics.push({ severity: 'warning', category: 'other', code: 'nxos.answer-not-taken', message: 'An answer to a needs-input item isn\'t one NX-OS takes, so it isn\'t used.' })
+    return undefined
+  }
+
+  /** Each `router ospf TAG`: the global table's settings, then each VRF's under `vrf V`. */
+  function renderOspfProcesses() {
+    const byTag = new Map<string, [instance: string, o: Ospf][]>()
+    for (const [instance, ni] of Object.entries(model.networkInstances ?? {}).sort(([a], [b]) => (a === 'default' ? -1 : b === 'default' ? 1 : 0))) {
+      if (!ni.ospf) continue
+      const tag = ospfTag(ni.ospf)
+      const at = ['networkInstances', instance, 'ospf']
+      if (!OSPF_TAG.test(tag)) {
+        skipAll(ni.ospf, at, 'not a process tag NX-OS takes')
+        continue
+      }
+      if (ni.ospf.processId === undefined) diagnostics.push({ severity: 'info', category: 'other', code: 'nxos.ospf-process-tag', message: 'The source gives OSPF no process tag: NX-OS needs one, and it is written as 1.', field: fieldPath(...at) })
+      byTag.set(tag, [...(byTag.get(tag) ?? []), [instance, ni.ospf]])
+    }
+    for (const [tag, list] of byTag) {
+      separator()
+      const global = list.find(([i]) => i === 'default')
+      emit(`router ospf ${tag}`, ...(global ? ospfFields(global[1]) : []))
+      if (global) renderOspfSettings('default', global[1], '  ')
+      for (const [instance, o] of list) {
+        if (instance === 'default') continue
+        emit(`  vrf ${instance}`, ...ospfFields(o, instance))
+        renderOspfSettings(instance, o, '    ')
+      }
+    }
+    for (const instance of networkEnabled) {
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.ospf-enabled-per-interface', message: 'The source enabled OSPF with network statements: NX-OS enables it on each interface, so an interface added later in the same range doesn\'t join OSPF by itself.', field: fieldPath('networkInstances', instance, 'ospf') })
+    }
+  }
+
+  /** The fields a `router ospf` or `vrf` line says: the process tag, or OSPF configured with nothing in it. */
+  function ospfFields(o: Ospf, instance = 'default'): Segments[] {
+    const at = ['networkInstances', instance, 'ospf']
+    return [...(o.processId !== undefined ? [[...at, 'processId']] : []), ...(isEmpty(o) ? [at] : [])]
+  }
+
+  function renderOspfSettings(instance: string, o: Ospf, indent: string) {
+    const at = ['networkInstances', instance, 'ospf']
+    if (o.routerId !== undefined) {
+      if (isIpv4(o.routerId)) emit(`${indent}router-id ${o.routerId}`, [...at, 'routerId'])
+      else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
+    }
+    emptyContainer(o.areas, [...at, 'areas'])
+    for (const [area, a] of Object.entries(o.areas ?? {})) {
+      const aAt = [...at, 'areas', area]
+      if (!isIpv4(area)) {
+        skipAll({ ...a, interfaces: undefined }, aAt, 'not an area in dotted form')
+        continue
+      }
+      if (isEmpty(a)) skip(aAt, 'not-applicable', 'an area with nothing in it: NX-OS has an area where an interface or a setting puts one')
+      emptyContainer(a.interfaces, [...aAt, 'interfaces'])
+      if (a.type === 'normal') skip([...aAt, 'type'], 'not-applicable', 'an area is normal unless it is a stub or an NSSA')
+      else if (a.type !== undefined && area === '0.0.0.0') skip([...aAt, 'type'], 'unsupported', 'the backbone area is never a stub or NSSA')
+      else if (a.type !== undefined) emit(`${indent}area ${area} ${a.type}`, [...aAt, 'type'])
+      if (a.authentication === 'key-chain') skip([...aAt, 'authentication'], 'unsupported', 'NX-OS names a key chain on each interface, not for an area')
+      else if (a.authentication !== undefined) emit(`${indent}area ${area} authentication${a.authentication === 'md5' ? ' message-digest' : ''}`, [...aAt, 'authentication'])
+    }
+  }
+
+  // ---- BGP
+
+  /** `router bgp ASN`, the global table's BGP, then each VRF's under `vrf V`. NX-OS runs one BGP process. */
+  function renderBgp() {
+    const list = Object.entries(model.networkInstances ?? {})
+      .flatMap(([name, ni]): [string, Bgp][] => (ni.bgp ? [[name, ni.bgp]] : []))
+      .sort(([a], [b]) => (a === 'default' ? -1 : b === 'default' ? 1 : 0))
+    if (!list.length) return
+    const local = list.find(([, b]) => b.localAs !== undefined)?.[1].localAs
+    if (local === undefined || !isAsNumber(local)) {
+      for (const [instance, b] of list) skipAll(b, ['networkInstances', instance, 'bgp'], 'BGP needs a local AS, which the model doesn\'t give')
+      return
+    }
+    separator()
+    const global = list.find(([i]) => i === 'default')?.[1]
+    emit(`router bgp ${local}`, ...(global ? bgpFields('default', global, local) : []))
+    for (const [instance, b] of list) {
+      const at = ['networkInstances', instance, 'bgp']
+      const indent = instance === 'default' ? '  ' : '    '
+      if (instance !== 'default') emit(`  vrf ${instance}`, ...bgpFields(instance, b, local))
+      if (b.routerId !== undefined) {
+        if (isIpv4(b.routerId)) emit(`${indent}router-id ${b.routerId}`, [...at, 'routerId'])
+        else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
+      }
+      // NX-OS carries a family to a neighbor only when the process has it too: each family a peer carries.
+      const families = new Set(Object.values({ ...b.groups, ...b.neighbors }).flatMap((p) => Object.keys(p.addressFamilies ?? {})))
+      for (const family of FAMILIES) if (families.has(family)) emit(`${indent}address-family ${family.replace('-', ' ')}`)
+      emptyContainer(b.groups, [...at, 'groups'])
+      emptyContainer(b.neighbors, [...at, 'neighbors'])
+      for (const [name, group] of Object.entries(b.groups ?? {})) {
+        if (instance !== 'default') skipAll(group, [...at, 'groups', name], 'a group in a VRF: NX-OS\'s peer templates belong to the whole process')
+        else if (!/^\S+$/.test(name)) skipAll(group, [...at, 'groups', name], 'not a template name NX-OS takes')
+        else renderPeer(`template peer ${name}`, group, [...at, 'groups', name], indent, local)
+      }
+      for (const [address, neighbor] of Object.entries(b.neighbors ?? {})) {
+        const nAt = [...at, 'neighbors', address]
+        if (!isIpv4(address) && !isIpv6(address)) {
+          skipAll(neighbor, nAt, 'not a neighbor address')
+          continue
+        }
+        const group = neighbor.group !== undefined && instance === 'default' && b.groups && Object.hasOwn(b.groups, neighbor.group) && /^\S+$/.test(neighbor.group) ? b.groups[neighbor.group] : undefined
+        renderPeer(`neighbor ${address}`, neighbor, nAt, indent, local, group)
+        bgpWarnings(neighbor, nAt, local, group)
+      }
+    }
+  }
+
+  /** The fields a `router bgp` or `vrf` line says: the local AS (NX-OS's is the process's), or BGP with nothing in it. */
+  function bgpFields(instance: string, b: Bgp, local: number): Segments[] {
+    const at = ['networkInstances', instance, 'bgp']
+    if (b.localAs !== undefined && b.localAs !== local) skip([...at, 'localAs'], 'unsupported', 'a VRF\'s own local AS: NX-OS runs one BGP process, with one AS')
+    return [...(b.localAs === local ? [[...at, 'localAs']] : []), ...(isEmpty(b) ? [at] : [])]
+  }
+
+  /** A neighbor or a template, with its families and their route maps. `group` is a neighbor's template, when written. */
+  function renderPeer(header: string, peer: BgpGroup & BgpNeighbor, at: Segments, indent: string, local: number, group?: BgpGroup) {
+    const inner = `${indent}  `
+    emit(`${indent}${header}`, ...(isEmpty(peer) ? [at] : []))
+    if (peer.group !== undefined) {
+      if (group) emit(`${inner}inherit peer ${peer.group}`, [...at, 'group'])
+      else skip([...at, 'group'], 'unsupported', 'a group NX-OS can\'t write as a template of the global table')
+    }
+    if (peer.peerAs !== undefined) {
+      if (isAsNumber(peer.peerAs)) emit(`${inner}remote-as ${peer.peerAs}`, [...at, 'peerAs'])
+      else skip([...at, 'peerAs'], 'unsupported', 'not an AS number from 1 to 4294967295')
+    }
+    if (peer.type !== undefined) {
+      // An internal group's peers are in the local AS: said with remote-as when nothing else says it.
+      if (peer.type === 'internal' && peer.peerAs === undefined) emit(`${inner}remote-as ${local}`, [...at, 'type'])
+      else skip([...at, 'type'], 'not-applicable', 'NX-OS tells iBGP from eBGP by the remote AS')
+    }
+    if (peer.description !== undefined) emit(`${inner}description ${peer.description}`, [...at, 'description'])
+    if (peer.localAddress !== undefined) skip([...at, 'localAddress'], 'unsupported', 'NX-OS sources a session from an interface (update-source), not an address')
+    if (peer.updateSource !== undefined) emit(`${inner}update-source ${peer.updateSource}`, [...at, 'updateSource'])
+    if (peer.multihop !== undefined) {
+      const ttl = peer.multihop.ttl
+      if (ttl === undefined) skip([...at, 'multihop'], 'unsupported', 'NX-OS\'s ebgp-multihop needs a TTL, which the source doesn\'t give')
+      else if (Number.isInteger(ttl) && ttl >= 2 && ttl <= 255) emit(`${inner}ebgp-multihop ${ttl}`, [...at, 'multihop', 'ttl'])
+      else skip([...at, 'multihop', 'ttl'], 'unsupported', 'not a TTL from 2 to 255')
+    }
+    if (peer.authentication === false) skip([...at, 'authentication'], 'not-applicable', 'no password: nothing to write')
+    else if (peer.authentication) {
+      // The password is never carried: a needs-input item asks for it, and the answer is written.
+      const id = `nxos.bgp-password:${fieldPath(...at)}`
+      const password = answer(id, /^\S{1,80}$/)
+      if (password !== undefined) emit(`${inner}password 0 ${password}`, [...at, 'authentication'])
+      else {
+        skip([...at, 'authentication'], 'unsupported', 'needs the password, which isn\'t carried')
+        needsInput.push({ id, kind: 'secret', message: 'A BGP session with a password needs the password, which isn\'t carried.', field: fieldPath(...at, 'authentication') })
+      }
+    }
+    renderPeerFamilies(peer, at, inner, group)
+  }
+
+  /**
+   * A peer's address families, each with its route maps: NX-OS applies them per family, one each way. A policy given for
+   * the whole peer goes into each family it carries (its template's too), unless the family has its own.
+   */
+  function renderPeerFamilies(peer: BgpPeer, at: Segments, indent: string, group?: BgpGroup) {
+    const own = peer.addressFamilies ?? {}
+    emptyContainer(own, [...at, 'addressFamilies'])
+    for (const family of Object.keys(own)) if (!(FAMILIES as readonly string[]).includes(family)) skipAll(own[family as BgpAddressFamilyName], [...at, 'addressFamilies', family], 'an address family NX-OS\'s phase 2 rendering doesn\'t write')
+    const families = FAMILIES.filter((f) => own[f] !== undefined || ((peer.importPolicies || peer.exportPolicies) && group?.addressFamilies?.[f] !== undefined))
+    const peerLevel: Record<'importPolicies' | 'exportPolicies', boolean> = { importPolicies: false, exportPolicies: false }
+    let maps = 0
+    for (const family of families) {
+      const af = own[family]
+      const afAt = [...at, 'addressFamilies', family]
+      emit(`${indent}address-family ${family.replace('-', ' ')}`, ...(af !== undefined && isEmpty(af) ? [afAt] : []))
+      for (const [field, direction] of [['importPolicies', 'in'], ['exportPolicies', 'out']] as const) {
+        const list = af?.[field] ?? peer[field]
+        const where = af?.[field] !== undefined ? [...afAt, field] : [...at, field]
+        if (list === undefined) continue
+        if (!list.length) skip(where, 'not-applicable', 'no policy: nothing to write')
+        else if (list.length > 1) skip(where, 'unsupported', 'NX-OS applies one route map each way: a chain of policies isn\'t written')
+        else if (!/^\S{1,63}$/.test(list[0])) skip(where, 'unsupported', 'not a route map name NX-OS takes')
+        else {
+          emit(`${indent}  route-map ${list[0]} ${direction}`, ...(af?.[field] !== undefined || !peerLevel[field] ? [where] : []))
+          if (af?.[field] === undefined) peerLevel[field] = true
+          maps++
+        }
+      }
+    }
+    for (const field of ['importPolicies', 'exportPolicies'] as const) {
+      if (peer[field] === undefined || peerLevel[field] || Object.hasOwn(dispositions, fieldPath(...at, field))) continue
+      skip([...at, field], 'unsupported', families.length ? 'every family the peer carries has its own policy' : 'NX-OS applies a route map per address family, and the peer carries none')
+    }
+    if (maps) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.route-map-name-only', message: 'A policy is written as a route map by its name only: its body isn\'t converted yet, so NX-OS needs a route map of that name.', field: fieldPath(...at) })
+  }
+
+  /** The semantic warnings a neighbor raises: eBGP with no policy (RFC 8212 on other platforms), and no family. */
+  function bgpWarnings(neighbor: BgpNeighbor, at: Segments, local: number, group?: BgpGroup) {
+    const peerAs = neighbor.peerAs ?? group?.peerAs ?? (group?.type === 'internal' ? local : undefined)
+    const policies = [neighbor, group].some((p) => !!p && (!!p.importPolicies?.length || !!p.exportPolicies?.length || Object.values(p.addressFamilies ?? {}).some((af) => !!af?.importPolicies?.length || !!af?.exportPolicies?.length)))
+    if (peerAs !== undefined && peerAs !== local && !policies) {
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.ebgp-no-policy', message: 'An eBGP neighbor has no route map: NX-OS exchanges every route with it, where IOS-XR, which follows RFC 8212, exchanges none without a policy.', field: fieldPath(...at) })
+    }
+    if (!Object.keys(neighbor.addressFamilies ?? {}).length && !Object.keys(group?.addressFamilies ?? {}).length) {
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.bgp-no-address-family', message: 'A BGP neighbor has no address family: on NX-OS it carries no routes until one is configured.', field: fieldPath(...at) })
+    }
+  }
+
+  renderOspfProcesses()
+  renderBgp()
+
+  return { text: `${lines.join('\n')}\n`, dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }
 }

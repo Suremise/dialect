@@ -10,10 +10,13 @@ export const REQUIRED_FEATURES: readonly (readonly [feature: string, needs: RegE
 ]
 
 /**
- * The feature a VRF's route distinguisher and route targets need: they are BGP's (L3VPN), and NX-OS refuses `rd` and
- * `route-target` until it is on.
+ * The feature BGP needs (`router bgp`), and a VRF's route distinguisher and route targets with it: they are BGP's
+ * (L3VPN), and NX-OS refuses `rd` and `route-target` until it is on.
  */
 export const VPN_FEATURE = 'bgp'
+
+/** The feature OSPF needs: `router ospf` and an interface's `ip router ospf` and `ip ospf …`. */
+export const OSPF_FEATURE = 'ospf'
 
 /** The features an interface needs, by its name. */
 export const featuresFor = (name: string): string[] => REQUIRED_FEATURES.filter(([, needs]) => needs.test(name)).map(([feature]) => feature)
