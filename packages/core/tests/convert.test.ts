@@ -212,6 +212,41 @@ describe('convert: issues and the parse', () => {
     expect(c.links.length).toBe(8)
   })
 
+  it("gives a render's needs-input items and placeless diagnostics the source statement of their field (#105)", () => {
+    // A target that asks for a key on each interface's description, and for a VRF the source never configures.
+    const asking: PlatformPlugin = {
+      ...target,
+      render: (model, context) => {
+        const rendered = target.render!(model, context)
+        const ifc = Object.keys(model.interfaces ?? {})
+        return {
+          ...rendered,
+          diagnostics: [
+            { severity: 'warning', message: 'placeless', field: fieldPath('interfaces', ifc[0], 'description') },
+            { severity: 'warning', message: 'at an output line', field: fieldPath('interfaces', ifc[0], 'description'), span: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 2 } }
+          ],
+          needsInput: [
+            { id: 'key:desc', kind: 'secret', message: 'a key', field: fieldPath('interfaces', ifc[0], 'description') },
+            // Under nothing the source filled, but under lo0, which it did.
+            { id: 'key:lo0', kind: 'secret', message: 'a key', field: fieldPath('interfaces', 'lo0', 'mtu') },
+            { id: 'rd:blue', kind: 'other', message: 'an RD', field: fieldPath('networkInstances', 'blue') },
+            { id: 'given', kind: 'other', message: 'placed by the plugin', field: fieldPath('interfaces', 'lo0'), statement: 'host' }
+          ]
+        }
+      }
+    }
+    for (const inputs of [undefined, interfaceInputs({ eth0: 'Gig0' })]) {
+      const c = convert(source, asking, 'config', { modelVersion: MODEL_VERSION, ...(inputs ? { inputs } : {}) })
+      const placed = Object.fromEntries(c.unanswered.filter((n) => n.kind !== 'interface-name').map((n) => [n.id, n.statement]))
+      expect(placed).toEqual({ 'key:desc': 'eth0-desc', 'key:lo0': 'lo0', 'rd:blue': undefined, given: 'host' })
+      expect(c.ledger.needsInput.find((n) => n.id === 'key:desc')?.statement).toBe('eth0-desc')
+      expect(c.ledger.diagnostics.map((d) => d.statement)).toEqual(['eth0-desc', undefined])
+    }
+    // The plugin asks again for what it can't use: an answer it doesn't take leaves the item unanswered.
+    const rejected = convert(source, asking, 'config', { modelVersion: MODEL_VERSION, inputs: { 'key:desc': 'not taken' } })
+    expect(rejected.unanswered.map((n) => n.id)).toContain('key:desc')
+  })
+
   it('renders nothing after a parse error', () => {
     const c = run(undefined, 'broken')
     expect(c.render).toBeUndefined()

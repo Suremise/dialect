@@ -385,6 +385,15 @@ error). Interface names are the core's job, not a plugin's, so they never map si
 - no message names an interface (needs-input items say which by `statement` and `field`): a name can be a secret's
   value reused, and messages reach stderr and logs.
 
+**The render's own items and placeless diagnostics get a statement** (#105). A render knows fields, not lines: its
+needs-input items (a key, a password, IOS-XR's eBGP policy, a Junos VRF's RD and RTs) and a diagnostic it raises about
+a field with no span carry only a `field` of the renamed model. `convert()` maps that back to the source's names
+(`sourcePathOf()`, as for issues) and sets `statement` to the first source statement, in tree order, that filled the
+field or a leaf under it, else its nearest ancestor's below the model's top level (`statementAt()`), so shells give
+the item's line. One the plugin placed itself, or a diagnostic with a span, is left as it is. `unanswered` holds every
+item the render raised, answered or not: a plugin raises one only while it has no answer it can use, so an answer in a
+form it doesn't take leaves the item asked (and shells say the answer wasn't taken).
+
 `issues` lists, by source statement in tree order, what didn't carry over: `unmapped`, `unsupported` (the source's
 reason), or `not-rendered` (a field the statement filled that the target marked unsupported or left without a
 disposition, found by mapping the render's paths back to the source's names). Shells show them in the source gutter
@@ -1795,9 +1804,21 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   through the core's registry (`createRegistry([junos, iosxe, nxos, iosxr])`): `display-set` as the Junos plugin's tool, `convert`
   through the core's `convert()` with the plugins `--from` and `--to` name and the `--map` file's answers (`--write-map`
   writes every interface to a map file to fill in, through `io.writeFile`). It returns the
-  exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 interfaces unnamed without
+  exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 needs-input items unanswered without
   `--allow-incomplete`). Diagnostics and convert's issues print as `name:line:column: severity: message`, an issue with
-  its plugin's reason only. It never touches `process`, so it can be called directly.
+  its plugin's reason only, and a diagnostic with no span at its `statement`'s. It never touches `process`, so it can
+  be called directly.
+- `src/answers.ts` (#105): the answers file, for every needs-input item but interface names. `parseAnswers()` reads
+  `"id" = answer` lines (the id a JSON string, as ids hold any character; the answer the rest of the line, trimmed) or
+  a JSON object, refusing interface ids (the map's) and an id JSON doesn't read, and saying what's wrong by line,
+  quoting nothing (not even the parser's message); `questions()` makes the items one question per id (a plugin asks
+  once per place an answer goes, as for a BGP group shared by VRFs, and the ledger keeps each), with every place's
+  line, and `formatAnswers()` writes each with a comment giving its lines and the plugin's question. `--answers <file|->` reads one (stdin
+  for `-`, never argv: secrets on a command line are visible to other processes and kept in shell history), and
+  `--write-answers` writes one. What's asked is what a conversion without the answers asks (an answered item isn't
+  raised again), so convert runs twice when answers are given. Each unanswered item prints its line and the plugin's
+  question (`secret needed: …`, `needs input: …`, `(the answer given isn't in the form asked for)` when one was),
+  once per line, never its id or an answer, and the summary counts interfaces and questions (by id) apart.
 - `src/bin.ts`: the entry. It wires `run()` to Node's file system, stdin, stdout and stderr, sets `process.exitCode`,
   and ignores a closed stdout pipe.
 - `vite.config.ts`: `npm run build -w @dialect/cli` bundles `bin.ts` and the workspace packages it imports into one ES
@@ -1818,7 +1839,9 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 - `tests/cli.test.ts` builds into a temp folder with Vite's API and runs the built file with Node: the 22 display set
   fixtures, stdin, invalid input, warnings, unreadable files and usage errors; and convert on
   `tests/fixtures/convert/phase1.conf` (a Junos phase 1 config, its map `phase1.map.csv` and the IOS-XE it gives,
-  `phase1.iosxe`, also used by the web and desktop tests), other maps, exit 3 and `--allow-incomplete`.
+  `phase1.iosxe`, also used by the web and desktop tests), other maps, exit 3 and `--allow-incomplete`; and answers on
+  `tests/fixtures/convert/secrets.conf` (an OSPF key, a BGP password and an eBGP neighbor with no policy, also used by
+  the UI's and the web build's tests) to IOS-XR, IOS-XE and NX-OS.
 
 ## The UI (`packages/ui`)
 
@@ -1884,6 +1907,13 @@ The window is a menu bar, a tab strip and the current tab's page (juniper-decisi
 - `src/components/InterfaceTable.tsx`: convert's interface table: each interface with its name on the target, the
   suggestion as the input's placeholder and a Use button, Use suggestions, and Load map… / Save map in the CLI's map
   format (the core's `parseInterfaceMap()` and `formatInterfaceMap()`).
+- `src/components/NeedsInputPanel.tsx` (#105): convert's Needs input panel, a third column beside the interfaces
+  (stacked below them in a narrow window), shown while the conversion asks for something besides names: each item
+  (the store's `inputs`, from what a conversion without the answers asks, one row per id with every place's line) with
+  the plugin's question, links to its lines and a field. A `secret` item's field is a password input, shown as text only while Show secrets is pressed.
+  The tab's `answers` are in memory only, like its source: never in `session.ts`'s storage, and dropped with the
+  interface map when another file opens or the job changes. An answer the target doesn't take is marked and asked
+  again; no problem or notice repeats an answer.
 - `src/editor/`: the CodeMirror 6 editor component, and Junos colouring as a stream language (colouring only: the
   parser does the real work). The source editor has an issue gutter: a marker on each error or warning line, with what
   it says on hover.
