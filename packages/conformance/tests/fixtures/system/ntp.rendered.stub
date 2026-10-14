@@ -1,0 +1,6 @@
+system {
+    ntp {
+        server 192.0.2.123;
+        server 198.51.100.123 prefer;
+    }
+}
