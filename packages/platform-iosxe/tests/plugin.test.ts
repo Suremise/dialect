@@ -133,6 +133,106 @@ describe('IPv4 addresses', () => {
   })
 })
 
+describe('"no" forms clear what they remove (#55)', () => {
+  it('"no description" removes the interface\'s description', () => {
+    const result = parse('interface GigabitEthernet1\n description uplink\n no description')
+    expect(result.model.interfaces?.GigabitEthernet1).toEqual({ type: 'ethernet' })
+    expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 3' })
+    expect(result.dispositions.L3).toEqual({ kind: 'ignored-by-design', reason: 'removes the description on line 2: nothing to convert' })
+    expect(parse('interface GigabitEthernet1\n no description').dispositions.L2).toMatchObject({ kind: 'ignored-by-design' })
+  })
+
+  it('"no ip route" removes the next hop it names, or every one; the others keep their order', () => {
+    const text = ['ip route 10.0.0.0 255.0.0.0 192.0.2.1', 'ip route 10.0.0.0 255.0.0.0 192.0.2.2 250', 'ip route 10.0.0.0 255.0.0.0 192.0.2.3', 'no ip route 10.0.0.0 255.0.0.0 192.0.2.2'].join('\n')
+    const result = parse(text)
+    expect(result.model.networkInstances?.default.staticRoutes?.['10.0.0.0/8']).toEqual({ nextHops: { '0': { address: '192.0.2.1' }, '1': { address: '192.0.2.3' } } })
+    expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 4' })
+    // Renumbered, and each statement says where its next hop went.
+    expect(result.dispositions.L3).toEqual({ kind: 'mapped', fields: ['networkInstances.default.staticRoutes["10.0.0.0/8"].nextHops["1"].address'] })
+    expect(buildLedger(result).complete).toBe(true)
+    expect(parse(`${text}\nno ip route 10.0.0.0 255.0.0.0`).model.networkInstances).toBeUndefined()
+    expect(parse('no ip route 10.0.0.0 255.0.0.0').dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'no such route: nothing to convert' })
+    // IPv6 too.
+    expect(parse('ipv6 route ::/0 2001:db8::1\nno ipv6 route ::/0 2001:db8::1').model).toEqual({})
+  })
+
+  it('"no ip route vrf A" touches only A\'s route, and "no ip route" only the global table\'s', () => {
+    const routes = ['vrf definition A', ' address-family ipv4', ' exit-address-family', 'ip route 10.0.0.0 255.0.0.0 192.0.2.1', 'ip route vrf A 10.0.0.0 255.0.0.0 192.0.2.1']
+    const inA = parse([...routes, 'no ip route vrf A 10.0.0.0 255.0.0.0'].join('\n')).model.networkInstances
+    expect(inA?.default.staticRoutes?.['10.0.0.0/8']).toEqual({ nextHops: { '0': { address: '192.0.2.1' } } })
+    expect(inA?.A).toEqual({ type: 'vrf' })
+    const global = parse([...routes, 'no ip route 10.0.0.0 255.0.0.0'].join('\n')).model.networkInstances
+    expect(global?.default).toBeUndefined()
+    expect(global?.A.staticRoutes?.['10.0.0.0/8']).toEqual({ nextHops: { '0': { address: '192.0.2.1' } } })
+  })
+
+  it('"no ip name-server" removes a server only in the VRF it names (none: the global table), and keeps a statement\'s others', () => {
+    const servers = (text: string) => parse(text).model.system?.dns?.servers
+    expect(servers('ip name-server vrf A 192.0.2.53\nno ip name-server 192.0.2.53')).toEqual({ '192.0.2.53': { networkInstance: 'A' } })
+    expect(servers('ip name-server vrf A 192.0.2.53\nno ip name-server vrf B 192.0.2.53')).toEqual({ '192.0.2.53': { networkInstance: 'A' } })
+    expect(servers('ip name-server vrf A 192.0.2.53\nno ip name-server vrf A 192.0.2.53')).toBeUndefined()
+    expect(servers('ip name-server 192.0.2.53\nno ip name-server vrf default 192.0.2.53')).toBeUndefined()
+    const result = parse('ip name-server 192.0.2.53 192.0.2.54\nno ip name-server 192.0.2.53')
+    expect(result.model.system?.dns?.servers).toEqual({ '192.0.2.54': {} })
+    expect(result.dispositions.L1).toEqual({ kind: 'mapped', fields: ['system.dns.servers["192.0.2.54"]'] })
+    expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'removes name servers configured on line 1: nothing to convert' })
+  })
+
+  it('"no snmp-server community" removes the community, and names it in no reason', () => {
+    const result = parse('snmp-server community PLACEHOLDER RO\nsnmp-server contact noc\nno snmp-server community PLACEHOLDER')
+    expect(result.model.system).toEqual({ snmp: { contact: 'noc' } })
+    expect(result.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 3' })
+    expect(result.dispositions.L3).toEqual({ kind: 'ignored-by-design', reason: 'removes the community configured on line 1: nothing to convert' })
+    expect(parse('no snmp-server community PLACEHOLDER').dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'no such community: nothing to convert' })
+  })
+
+  it('a community with an access list anywhere is left out whole, in either order and access; another is untouched', () => {
+    for (const access of ['RO', 'RW']) {
+      for (const lines of [[`snmp-server community PLACEHOLDER ${access}`, `snmp-server community PLACEHOLDER ${access} 10`], [`snmp-server community PLACEHOLDER ${access} 10`, `snmp-server community PLACEHOLDER ${access}`]]) {
+        const result = parse([...lines, 'snmp-server community OTHER-PLACEHOLDER RO'].join('\n'))
+        expect(result.model.system?.snmp?.communities, lines.join(' / ')).toEqual({ 'OTHER-PLACEHOLDER': { access: 'read-only' } })
+        const acl = lines.findIndex((l) => l.endsWith(' 10')) + 1
+        const open = acl === 1 ? 2 : 1
+        expect(result.dispositions[`L${open}`]).toEqual({ kind: 'unsupported', reason: `left out whole: line ${acl} about the same community isn't converted, and may limit or change it` })
+        expect(render(result.model).text).not.toMatch(/community PLACEHOLDER /)
+      }
+    }
+  })
+
+  it('"no snmp-server community" takes its access list with it: the community made again is open, as on the device', () => {
+    const result = parse(['snmp-server community PLACEHOLDER RO 10', 'no snmp-server community PLACEHOLDER', 'snmp-server community PLACEHOLDER RO'].join('\n'))
+    expect(result.model.system?.snmp?.communities).toEqual({ PLACEHOLDER: { access: 'read-only' } })
+    expect(result.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 2' })
+    expect(result.dispositions.L3).toMatchObject({ kind: 'mapped' })
+    // Removed with nothing after it, nothing comes back.
+    expect(parse('snmp-server community PLACEHOLDER RO\nsnmp-server community PLACEHOLDER RO 10\nno snmp-server community PLACEHOLDER').model).toEqual({})
+  })
+})
+
+describe('route next hops', () => {
+  it('a malformed address isn\'t taken for an interface: the route is unsupported, also in "no ip route"', () => {
+    for (const text of ['ipv6 route 2001:db8::/32 dead::beef::bad', 'ip route 10.0.0.0 255.0.0.0 192.0.2.300', 'ip route 10.0.0.0 255.0.0.0 not-an-interface', 'ip route 10.0.0.0 255.0.0.0 dead::beef::bad']) {
+      const result = parse(text)
+      expect(result.model, text).toEqual({})
+      expect(result.dispositions.L1, text).toMatchObject({ kind: 'unsupported' })
+    }
+    const removal = parse('ipv6 route 2001:db8::/32 2001:db8::1\nno ipv6 route 2001:db8::/32 dead::beef::bad')
+    expect(removal.dispositions.L2).toMatchObject({ kind: 'unsupported' })
+    expect(removal.model.networkInstances?.default.staticRoutes?.['2001:db8::/32']).toEqual({ nextHops: { '0': { address: '2001:db8::1' } } })
+  })
+
+  it('a real interface name is one: full, short, a channel, a subinterface and Null0', () => {
+    for (const [text, hop] of [
+      ['ip route 10.0.0.0 255.0.0.0 GigabitEthernet0/0/1', { interface: 'GigabitEthernet0/0/1' }],
+      ['ip route 10.0.0.0 255.0.0.0 Gi0/1.10', { interface: 'Gi0/1.10' }],
+      ['ip route 10.0.0.0 255.0.0.0 Serial0/0/0:0', { interface: 'Serial0/0/0:0' }],
+      ['ip route 10.0.0.0 255.0.0.0 Loopback 1', { interface: 'Loopback1' }],
+      ['ip route 10.0.0.0 255.0.0.0 Null0', { drop: 'discard' }]
+    ] as const)
+      expect(parse(text).model.networkInstances?.default.staticRoutes?.['10.0.0.0/8'], text).toEqual({ nextHops: { '0': hop } })
+  })
+})
+
 describe('VRF membership', () => {
   const vrfA = 'vrf definition A\n address-family ipv4\n exit-address-family\n address-family ipv6\n exit-address-family'
   const sub0 = (text: string, name = 'GigabitEthernet1') => parse(text).model.interfaces?.[name]?.subinterfaces?.['0']
