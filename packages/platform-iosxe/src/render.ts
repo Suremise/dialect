@@ -169,10 +169,11 @@ export function render(model: Device, _context: Context): RenderResult {
     const isDefault = name === 'default'
     if (instance.type !== undefined) {
       if (isDefault || instance.type === 'default') skip([...at, 'type'], 'not-applicable', 'the global routing table')
-      else skip([...at, 'type'], 'unsupported', `VRF definitions come later: the routes are written with "ip route vrf ${name}", but "vrf definition ${name}" isn't`)
+      // Value-free, like every message (AGENTS.md): a VRF can share its name with a secret. The field says which.
+      else skip([...at, 'type'], 'unsupported', 'VRF definitions come later: the routes are written with "ip route vrf", but the VRF\'s "vrf definition" isn\'t')
     }
     if (!isDefault && Object.keys(instance.staticRoutes ?? {}).length) {
-      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.vrf-not-defined', message: `VRF ${name} isn't defined in the output (VRFs come later): add "vrf definition ${name}" before its routes.`, field: fieldPath(...at) })
+      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.vrf-not-defined', message: 'A VRF isn\'t defined in the output (VRFs come later): add its "vrf definition" before its routes.', field: fieldPath(...at) })
     }
     if (isEmpty(instance)) skip(at, 'unsupported', 'VRFs without routes come later')
     emptyContainer(instance.staticRoutes, [...at, 'staticRoutes'])
