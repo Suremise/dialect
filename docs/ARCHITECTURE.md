@@ -451,7 +451,10 @@ default), with `detect`,
     `iosxe.route-map-name-only`, that its body isn't converted) are the peer's `addressFamilies`, built once the text
     is read: a family is there only when the peer carries it, so a route map alone activates nothing (in a family the
     peer doesn't carry it is `unsupported`), and `no neighbor X activate` takes the family out with its route maps, as
-    on the device. A VRF's neighbor carries the family it is defined in. Under `bgp default ipv4-unicast`, IOS's
+    on the device. A peer group's member carries the group's families too, and its own route map there (a member can
+    customise its inbound policy) is kept on its own family entry. A VRF's neighbor carries the family it is defined
+    in; one taken out of it is left out (`unsupported`), as IOS defines a VRF's neighbors in their family, which would
+    activate it, and the render writes no VRF neighbor that carries no family, its own or its group's. Under `bgp default ipv4-unicast`, IOS's
     default, a global IPv4 neighbor carries IPv4 unless `no neighbor X activate` says otherwise (IPv6 neighbors haven't
     been activated in IPv4 by default since 12.2(33)SRE4); `no bgp default ipv4-unicast` leaves only the explicit ones.
     `no neighbor X` (or `… remote-as`) removes the peer, a peer group with its members; `no router bgp` removes BGP

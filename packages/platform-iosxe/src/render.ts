@@ -744,9 +744,15 @@ export function render(model: Device, context: Context): RenderResult {
         unplaced(instance, bgp)
         continue
       }
-      // A VRF's BGP: its peers in an address family of the VRF, the first they carry (IPv4 by default).
+      // A VRF's BGP: its peers in an address family of the VRF, the first they carry (IPv4 by default). A neighbor there
+      // is activated by being defined, so one that carries no family (its own or its group's) is left out.
+      const carries = (peer: BgpPeer & { group?: string }) => Object.keys(peer.addressFamilies ?? {}).length > 0 || (peer.group !== undefined && Object.keys(bgp.groups?.[peer.group]?.addressFamilies ?? {}).length > 0)
       const families = familiesOfPeers(bgp)
-      const peers = peersOf(bgp)
+      const peers = peersOf(bgp).filter(([kind, key, peer]) => {
+        if (kind === 'groups' || carries(peer)) return true
+        skipAll(peer, [...at, kind, key], 'a VRF\'s neighbor that carries no address family: IOS defines it in a family, which would activate it')
+        return false
+      })
       for (const [index, family] of (families.length ? families : (['ipv4-unicast'] as const)).entries()) {
         emit(' !')
         emit(` address-family ${family === 'ipv4-unicast' ? 'ipv4' : 'ipv6'} vrf ${instance}`, ...(index === 0 && bgp.localAs !== undefined ? [[...at, 'localAs']] : []))
@@ -755,7 +761,8 @@ export function render(model: Device, context: Context): RenderResult {
           else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
         }
         for (const [kind, key, peer] of peers) {
-          const first = (['ipv4-unicast', 'ipv6-unicast'] as const).find((f) => peer.addressFamilies?.[f] !== undefined) ?? 'ipv4-unicast'
+          const group = kind === 'neighbors' && (peer as { group?: string }).group !== undefined ? bgp.groups?.[(peer as { group?: string }).group!] : undefined
+          const first = (['ipv4-unicast', 'ipv6-unicast'] as const).find((f) => peer.addressFamilies?.[f] !== undefined) ?? (['ipv4-unicast', 'ipv6-unicast'] as const).find((f) => group?.addressFamilies?.[f] !== undefined) ?? 'ipv4-unicast'
           if (first === family) peerLines(instance, bgp, kind, key, peer, '  ')
           familyLines(instance, kind, key, peer, family, '  ')
         }

@@ -926,6 +926,42 @@ describe('BGP (model 0.4.0)', () => {
     for (const text of [standalone, ['router bgp 65000', ' neighbor 192.0.2.2 remote-as 65001', ' address-family ipv4', '  no neighbor 192.0.2.2 activate', '  neighbor 192.0.2.2 activate', '  neighbor 192.0.2.2 route-map FILTER in'].join('\n')]) expect(roundTrips(text), text).toEqual([])
   })
 
+  it('keeps a member\'s own route map in a family it carries through its peer group, IPv4 and IPv6', () => {
+    for (const [family, name, v6] of [['ipv4', 'ipv4-unicast', false], ['ipv6', 'ipv6-unicast', true]] as const) {
+      const member = v6 ? '2001:db8::2' : '192.0.2.2'
+      const text = ['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor G peer-group', ' neighbor G remote-as 65001', ` neighbor ${member} peer-group G`, ` address-family ${family}`, '  neighbor G activate', '  neighbor G route-map GROUP-OUT out', `  neighbor ${member} route-map FILTER in`].join('\n')
+      const result = parse(text)
+      expect(bgp(result)?.groups?.G?.addressFamilies, family).toEqual({ [name]: { exportPolicies: ['GROUP-OUT'] } })
+      expect(bgp(result)?.neighbors?.[member]?.addressFamilies, family).toEqual({ [name]: { importPolicies: ['FILTER'] } })
+      expect(result.diagnostics.map((d) => d.code), family).toEqual(['iosxe.route-map-name-only', 'iosxe.route-map-name-only'])
+      expect(render(result.model).text, family).toContain(`  neighbor ${member} route-map FILTER in\n`)
+      expect(roundTrips(text), family).toEqual([])
+    }
+    // A member in a group that doesn't carry the family still carries nothing there.
+    const inactive = parse(['router bgp 65000', ' no bgp default ipv4-unicast', ' neighbor G peer-group', ' neighbor G remote-as 65001', ' neighbor 192.0.2.2 peer-group G', ' address-family ipv4', '  neighbor 192.0.2.2 route-map FILTER in'].join('\n'))
+    expect(bgp(inactive)?.neighbors?.['192.0.2.2']?.addressFamilies).toBeUndefined()
+  })
+
+  it('leaves out a VRF\'s neighbor taken out of its family, and takes it back once activated again, IPv4 and IPv6', () => {
+    for (const [family, member] of [['ipv4', '192.0.2.2'], ['ipv6', '2001:db8::2']] as const) {
+      const vrf = ['vrf definition A', ` address-family ${family}`, 'router bgp 65000', ` address-family ${family} vrf A`, `  neighbor ${member} remote-as 65001`]
+      for (const deactivate of [[`  no neighbor ${member} activate`], [`  neighbor ${member} activate`, `  no neighbor ${member} activate`]]) {
+        const text = [...vrf, ...deactivate].join('\n')
+        const result = parse(text)
+        expect(result.model.networkInstances?.A?.bgp, text).toEqual({ localAs: 65000 })
+        expect(render(result.model).text, text).not.toContain(member)
+        expect(roundTrips(text), text).toEqual([])
+      }
+      const again = [...vrf, `  no neighbor ${member} activate`, `  neighbor ${member} activate`].join('\n')
+      expect(parse(again).model.networkInstances?.A?.bgp?.neighbors?.[member]?.peerAs, family).toBe(65001)
+      expect(roundTrips(again), family).toEqual([])
+    }
+    // Rendered from another platform: a VRF neighbor with no family isn't written.
+    const foreign = render({ networkInstances: { A: { type: 'vrf', bgp: { localAs: 65000, neighbors: { '192.0.2.2': { peerAs: 65001 } } } } } })
+    expect(foreign.dispositions['networkInstances.A.bgp.neighbors["192.0.2.2"].peerAs']).toMatchObject({ kind: 'unsupported' })
+    expect(foreign.text).not.toContain('192.0.2.2')
+  })
+
   it('activates only an IPv4 neighbor in IPv4 by default, as IOS has since 12.2(33)SRE4, keeping an explicit one', () => {
     const v6 = parse(['router bgp 65000', ' neighbor 2001:db8::2 remote-as 65001', ' address-family ipv6', '  neighbor 2001:db8::2 activate'].join('\n'))
     expect(bgp(v6)?.neighbors?.['2001:db8::2']?.addressFamilies).toEqual({ 'ipv6-unicast': {} })

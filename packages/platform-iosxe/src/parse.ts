@@ -1833,26 +1833,49 @@ export function parse(text: string, _context: Context): ParseResult {
   // under `bgp default ipv4-unicast`, IOS's default, unless taken out), with their route maps. A route map in a family
   // the peer doesn't carry is left out: the model keeps policies with a family it carries, which would activate it.
   // IOS stopped activating IPv6 neighbors in IPv4 by default (12.2(33)SRE4), so the default is for IPv4 addresses only.
-  for (const peer of peers.values()) {
+  //
+  // A member carries the families its peer group does, too: its own route map there is kept on its own family entry
+  // (a member can customise its inbound policy), which the model reads as the group's family with the member's
+  // setting winning. A VRF's neighbor that carries no family (taken out with `no neighbor X activate`) is left out:
+  // IOS writes a VRF's neighbors in their family, which would activate it.
+  /** The families each peer group carries, by `instance|group`. */
+  const groupFamilies = new Map<string, Set<string>>()
+  const groupsFirst = [...peers.values()].sort((x, y) => Number(x.kind === 'neighbors') - Number(y.kind === 'neighbors'))
+  for (const peer of groupsFirst) {
     const base = ['networkInstances', peer.instance, 'bgp', peer.kind, peer.key]
     if (model.get(base) === undefined) continue
     const implicit = !noDefaultIpv4 && peer.instance === 'default' && peer.kind === 'neighbors' && isIpv4(peer.key)
     if (implicit && !peer.families.has('ipv4-unicast')) peer.families.set('ipv4-unicast', { policies: new Map() })
+    const group = peer.kind === 'neighbors' ? model.get([...base, 'group']) : undefined
+    const inherited = typeof group === 'string' ? (groupFamilies.get(`${peer.instance}|${group}`) ?? new Set<string>()) : new Set<string>()
+    const carried = new Set<string>()
     for (const [family, f] of peer.families) {
-      const by = f.activate ?? f.auto ?? (family === 'ipv4-unicast' && implicit && !f.deactivate ? peer.nodes.find((n) => dispositions[n.id]?.kind === 'mapped') : undefined)
-      if (!by) {
+      const own = f.activate ?? f.auto ?? (family === 'ipv4-unicast' && implicit && !f.deactivate ? peer.nodes.find((n) => dispositions[n.id]?.kind === 'mapped') : undefined)
+      const fromGroup = !own && !f.deactivate && inherited.has(family)
+      if (!own && !fromGroup) {
         for (const p of f.policies.values()) set(p.node, unsupported('a route map in an address family the neighbor doesn\'t carry: the model keeps policies only with a family it carries'))
         continue
       }
+      carried.add(family)
+      // Inherited with nothing of its own: the group's family says it all.
+      if (fromGroup && !f.policies.size) continue
       const at = [...base, 'addressFamilies', family]
       const field = model.set(at, {})
-      const d = dispositions[by.id]
-      set(by, mapped([...(d?.kind === 'mapped' ? d.fields : []), field]))
+      if (own) {
+        const d = dispositions[own.id]
+        set(own, mapped([...(d?.kind === 'mapped' ? d.fields : []), field]))
+      }
       for (const [leaf, p] of f.policies) {
         const policy = model.set([...at, leaf], [p.name])
-        set(p.node, mapped([policy]))
+        set(p.node, mapped([...(own ? [] : [field]), policy]))
         diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A route map is kept by name only: its body isn\'t converted, so a target needs a policy of that name.', field: policy, statement: p.node.id })
       }
+    }
+    if (peer.kind === 'groups') groupFamilies.set(`${peer.instance}|${peer.key}`, carried)
+    else if (peer.instance !== 'default' && !carried.size && !inherited.size) {
+      model.remove(base)
+      model.removeIfEmpty(['networkInstances', peer.instance, 'bgp', 'neighbors'])
+      for (const n of peer.nodes) if (dispositions[n.id]?.kind === 'mapped') set(n, unsupported('a VRF\'s neighbor taken out of its address family: IOS defines it in the family, which would activate it'))
     }
   }
 
