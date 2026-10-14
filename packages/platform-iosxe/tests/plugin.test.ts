@@ -327,6 +327,35 @@ describe('VRF membership', () => {
   })
 })
 
+describe('a VRF only routes name (#53)', () => {
+  const routeOnly = ['ip route vrf CUST 10.0.0.0 255.0.0.0 192.0.2.1', 'ipv6 route vrf CUST ::/0 2001:db8::1']
+
+  it('is kept for its routes with a warning saying no definition was given; nothing is invented for it', () => {
+    const result = parse(routeOnly.join('\n'))
+    expect(result.model.networkInstances?.CUST).toEqual({ type: 'vrf', staticRoutes: { '10.0.0.0/8': { nextHops: { '0': { address: '192.0.2.1' } } }, '::/0': { nextHops: { '0': { address: '2001:db8::1' } } } } })
+    expect(result.diagnostics).toEqual([{ severity: 'warning', category: 'semantic', code: 'iosxe.vrf-created', message: 'A VRF only routes name has no definition in the text: it is kept for its routes, with no route distinguisher or route targets, and a render writes a definition for it.', field: 'networkInstances.CUST', statement: 'L1' }])
+    // The render writes the definition IOS needs, with the families its routes use, and no RD or route targets.
+    const text = render(result.model).text
+    expect(text).toContain('vrf definition CUST\n !\n address-family ipv4\n exit-address-family\n !\n address-family ipv6\n exit-address-family\n!')
+    expect(text).not.toMatch(/ rd |route-target/)
+    expect(roundTrips(routeOnly.join('\n'))).toEqual([])
+  })
+
+  it('a VRF with a definition, before or after its routes, gets no warning', () => {
+    for (const lines of [['vrf definition CUST', ' address-family ipv4', ' exit-address-family', routeOnly[0]], [routeOnly[0], 'ip vrf CUST']]) expect(parse(lines.join('\n')).diagnostics, lines.join(' / ')).toEqual([])
+    // Nor a VRF whose only route a later `no` removed: nothing names it, so it goes too.
+    const removed = parse(`${routeOnly[0]}\nno ip route vrf CUST 10.0.0.0 255.0.0.0`)
+    expect(removed.diagnostics).toEqual([])
+    expect(removed.model).toEqual({})
+  })
+
+  it('names no VRF in its warning: a VRF can share its name with a secret', () => {
+    const text = ['snmp-server community CANARY-PLACEHOLDER RO', 'ip route vrf CANARY-PLACEHOLDER 10.0.0.0 255.0.0.0 192.0.2.1'].join('\n')
+    expect(parse(text).diagnostics.map((d) => d.code)).toEqual(['iosxe.vrf-created'])
+    expect(checkSecrets(plugin, text, ['CANARY-PLACEHOLDER'], { allowances: [] }).leaks).toEqual([])
+  })
+})
+
 describe('VRF definitions', () => {
   const vrf = (text: string) => parse(text).model.networkInstances?.A
 
