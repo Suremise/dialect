@@ -28,6 +28,23 @@
   VRFs. The `feature` lines they need are written. OSPF keys and BGP passwords are never carried: converting to NX-OS
   asks for them. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route
   (IOS-XR exchanges none, RFC 8212), and OSPF enabled with `network` statements is enabled per interface.
+- **Junos OSPF and BGP convert:** OSPF areas (stub, NSSA) and their interfaces (passive, metric, point-to-point,
+  timers), and BGP groups and neighbors (type, peer AS, description, local address, multihop, IPv4 and IPv6 unicast,
+  import and export policies by name), with the router ID and AS number, in the global table and in VRFs. Keys are
+  never carried over: Dialect asks for each one. Converting into Junos warns where its defaults differ from the
+  source's: OSPF enabled by `network` statements becomes per interface, and an eBGP peer without a policy accepts its
+  routes on Junos where IOS-XR rejects them. Policy bodies aren't converted yet, with a warning. Converting to Junos
+  suggests `ae0` for a Cisco `Port-channel1` or `Bundle-Ether1`.
+  asks for them. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route,
+  where an IOS-XR source exchanged none (RFC 8212), and OSPF enabled with `network` statements is enabled per
+  interface.
+- **Cisco IOS-XR OSPF and BGP convert:** OSPF processes with their areas (stub, NSSA, authentication) and interfaces
+  (cost, network type, passive, timers), taking IOS-XR's inheritance from the area and the process into each interface,
+  and BGP (neighbors, neighbor groups, eBGP multihop, address families, route policies by name only), in the global
+  table and in VRFs, with each VRF's route distinguisher. Layer 2 (bridge domains) isn't converted yet. Converting to
+  IOS-XR, an eBGP neighbor with no route policy one way asks for one, since IOS-XR exchanges no routes without it
+  (RFC 8212), and warns when the source accepted them; no policy is made up. OSPF keys and BGP passwords are never
+  carried: converting to IOS-XR asks for them.
 - **Junos VLANs, switch ports and IRB convert** (ELS, as on today's EX and QFX): VLANs with their names and
   descriptions, access and trunk ports with their VLANs and native VLAN, and IRB units with the VLAN each routes for.
   What Junos itself refuses (two VLANs with one ID, or naming one IRB unit) is an error, and what can't be read one way

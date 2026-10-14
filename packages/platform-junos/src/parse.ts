@@ -1,6 +1,6 @@
 // Junos text → the shared model, for the phase 1 areas: system (host name, domain name, DNS), interfaces with their
 // units, families and addresses, static routes, routing instances (VRFs and virtual routers: their units, route
-// distinguisher and vrf-target), NTP, syslog and SNMP, and from model 0.4 VLANs, ELS switch ports and IRB units.
+// distinguisher and vrf-target), NTP, syslog and SNMP, and from model 0.4 VLANs, ELS switch ports, IRB units, OSPF and BGP.
 //
 // The text is read into statements (statements.ts), groups and interface ranges are expanded (expand.ts), and each
 // statement is mapped on its own, as a `set` command says it. A statement is `mapped` only when everything it says went
@@ -48,7 +48,6 @@ const isInterfaceName = (s: string): boolean => /^[a-z][\w-]*\d[\w/:.-]*$/i.test
 const LATER: Readonly<Record<string, string>> = {
   security: 'SRX security (zones, policies, NAT) comes later',
   applications: 'SRX applications come later, with security policies',
-  protocols: 'routing protocols come later',
   'policy-options': 'routing policy comes later',
   firewall: 'firewall filters come later',
   'class-of-service': 'class of service comes later'
@@ -224,6 +223,8 @@ export function parse(text: string, _context: Context): ParseResult {
 
   const mapRoutingOptions = (instance: string, r: readonly string[], i: number): Mutable => {
     if (r[0] === 'static' && r[1] === 'route' && r.length >= 3) return mapRoute(instance, r[2], r.slice(3), i, null)
+    if (r[0] === 'router-id' && r.length === 2) return isIpv4(r[1]) ? later(routerIds, instance, r[1], i) : unsupported('not a router ID (an IPv4 address)')
+    if (r[0] === 'autonomous-system' && r.length === 2) return asNumber(r[1]) !== null ? later(asNumbers, instance, asNumber(r[1])!, i) : unsupported('not an AS number from 1 to 4294967295, in plain form')
     const prefix = instance === 'default' ? '' : `${instance}.`
     if (r[0] === 'rib' && r[2] === 'static' && r[3] === 'route' && r.length >= 5) {
       if (r[1] === `${prefix}inet.0`) return mapRoute(instance, r[4], r.slice(5), i, false)
@@ -355,6 +356,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (r[0] === 'vrf-target') return mapTarget(name, r.slice(1), i)
     if (r[0] === 'vrf-import' || r[0] === 'vrf-export') return unsupported('VRF import and export policies come later, with routing policy')
     if (r[0] === 'routing-options') return mapRoutingOptions(name, r.slice(1), i)
+    if (r[0] === 'protocols') return mapProtocols(name, r.slice(1), i)
     return unsupported()
   }
 
@@ -633,6 +635,263 @@ export function parse(text: string, _context: Context): ParseResult {
     if (left.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.irb-without-vlan', message: `An IRB unit routes for no VLAN, so it isn't converted (lines ${linesOf(left).join(', ')}).` })
   }
 
+  // ---- OSPF and BGP
+  //
+  // Per routing instance (`protocols` at the top is the global table's). The instance's router ID and AS number
+  // (`routing-options router-id`, `autonomous-system`) are its OSPF's and BGP's, settled once every statement is read.
+  // Keys are flagged, never carried: a statement with one fills only the `authentication` flag.
+
+  /** Per instance, the `router-id` and `autonomous-system` statements that set them last, with their values. */
+  const routerIds = new Map<string, { index: number; value: string | number }>()
+  const asNumbers = new Map<string, { index: number; value: string | number }>()
+  /** A single setting of an instance's routing options, settled later: a placeholder until then. */
+  const later = (states: Map<string, { index: number; value: string | number }>, instance: string, value: string | number, i: number): Mutable => {
+    if (claim(`${instance}\u0000${states === routerIds ? 'router-id' : 'autonomous-system'}`, i)) states.set(instance, { index: i, value })
+    return mapped([])
+  }
+  /** An AS number in plain form, from 1 to 4294967295, or null. */
+  const asNumber = (s: string | undefined): number | null => (isInteger(s) && Number(s) >= 1 ? Number(s) : null)
+  /** An OSPF area ID, dotted (`0.0.0.0`) or as a number (`0` is `0.0.0.0`), in dotted form; or null. */
+  const areaId = (s: string): string | null => {
+    if (isIpv4(s)) return s
+    if (!isInteger(s)) return null
+    const n = Number(s)
+    return [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.')
+  }
+  /** Per instance and area, every OSPF statement about the area: one whose type can't be carried converts not at all. */
+  const areaStatements = new Map<string, number[]>()
+  /** Per instance, area and interface reference, every OSPF statement about the interface. */
+  const interfaceStatements = new Map<string, number[]>()
+  /** `interface-type` statements of a type the model has no word for (`nbma`, `p2mp`), by statement: the interface. */
+  const untyped = new Map<number, { readonly at: Segments; readonly key: string }>()
+  /** `stub` or `nssa` statements with options (`no-summaries`, `default-metric`…), by statement: their instance and area. */
+  const optioned = new Map<number, { readonly instance: string; readonly area: string; readonly type: 'stub' | 'nssa' }>()
+  /** Every `stub` and `nssa` statement, plain or with options, by statement: which of the two it says. */
+  const areaTypes = new Map<number, 'stub' | 'nssa'>()
+  /** Each OSPF interface statement: where its interface is in the model, and its reference, checked once interfaces are settled. */
+  const ospfRefs: { readonly index: number; readonly at: Segments; readonly ref: string }[] = []
+  /** Per instance and neighbor address, the groups that name it and their statements: Junos takes a neighbor in one group. */
+  const neighbors = new Map<string, { readonly instance: string; readonly address: string; readonly groups: Map<string, number[]> }>()
+  /** The import and export statements: converted by name only, the policies' bodies not. */
+  const policies: number[] = []
+
+  const mapProtocols = (instance: string, r: readonly string[], i: number): Mutable => {
+    if (r[0] === 'ospf') return mapOspf(instance, r.slice(1), i)
+    if (r[0] === 'bgp') return mapBgp(instance, r.slice(1), i)
+    return unsupported(r[0] === 'ospf3' ? 'OSPFv3 comes later: the model has OSPFv2' : 'routing protocols come later')
+  }
+
+  const mapOspf = (instance: string, r: readonly string[], i: number): Mutable => {
+    const at = ['networkInstances', instance, 'ospf']
+    if (!r.length) return mapped([model.ensure(at)])
+    if (r[0] !== 'area' || r[1] === undefined) return unsupported(r[0] === 'import' || r[0] === 'export' ? 'OSPF import and export policies come later, with routing policy' : undefined)
+    const area = areaId(r[1])
+    if (area === null) return unsupported('not an OSPF area ID (dotted, or a number)')
+    const a = [...at, 'areas', area]
+    const areaKey = `${instance}\u0000${area}`
+    areaStatements.set(areaKey, [...(areaStatements.get(areaKey) ?? []), i])
+    const withArea = (fields: (string | null)[]) => mapped([container(at), container(a), ...fields])
+    const s = r.slice(2)
+    if (!s.length) return withArea([])
+    if (s[0] === 'stub' || s[0] === 'nssa') areaTypes.set(i, s[0])
+    if ((s[0] === 'stub' || s[0] === 'nssa') && s.length === 1) return withArea([put(i, [...a, 'type'], s[0])])
+    if (s[0] === 'stub' || s[0] === 'nssa') {
+      // It says the area's type as a plain stub or nssa does, so the ranks decide which type the area has; its option
+      // is a child of that type, which a bare `stub` beside it doesn't take away. Settled below.
+      claim(fieldPath(...a, 'type'), i)
+      optioned.set(i, { instance, area, type: s[0] })
+      return unsupported(`${s[0] === 'stub' ? 'a stub' : 'an NSSA'} area's options (no-summaries, default-metric…) come later`)
+    }
+    if (s[0] === 'authentication-type' && s.length === 2 && (s[1] === 'simple' || s[1] === 'md5')) return withArea([put(i, [...a, 'authentication'], s[1])])
+    if (s[0] !== 'interface' || s[1] === undefined) return unsupported()
+    const ref = s[1]
+    if (ref === 'all') return unsupported('OSPF on every interface (interface all): the model names each interface')
+    const f = [...a, 'interfaces', ref]
+    const t = s.slice(2)
+    const interfaceKey = `${areaKey}\u0000${ref}`
+    interfaceStatements.set(interfaceKey, [...(interfaceStatements.get(interfaceKey) ?? []), i])
+    const withInterface = (fields: (string | null)[]) => {
+      const enabled = model.set([...f, 'enabledBy'], 'interface')
+      incidental.add(enabled)
+      ospfRefs.push({ index: i, at: f, ref })
+      return withArea([container(f), enabled, ...fields])
+    }
+    const seconds = (max: number) => t.length === 2 && isInteger(t[1], max) && Number(t[1]) >= 1
+    if (!t.length) return withInterface([])
+    if (t[0] === 'passive' && t.length === 1) return withInterface([put(i, [...f, 'passive'], true)])
+    if (t[0] === 'metric' && t.length === 2 && isInteger(t[1], 65535) && Number(t[1]) >= 1) return withInterface([put(i, [...f, 'cost'], Number(t[1]))])
+    if (t[0] === 'interface-type' && t.length === 2) {
+      if (t[1] === 'p2p') return withInterface([put(i, [...f, 'networkType'], 'point-to-point')])
+      // It sets the network type as p2p would, so the ranks decide which the interface has: settled below.
+      claim(fieldPath(...f, 'networkType'), i)
+      untyped.set(i, { at: f, key: interfaceKey })
+      return unsupported('an OSPF interface type the model has no word for (it has point-to-point and broadcast)')
+    }
+    if (t[0] === 'hello-interval' && seconds(255)) return withInterface([put(i, [...f, 'helloInterval'], Number(t[1]))])
+    if (t[0] === 'dead-interval' && seconds(65535)) return withInterface([put(i, [...f, 'deadInterval'], Number(t[1]))])
+    // The key is never carried: the model says only how the interface authenticates.
+    if (t[0] === 'authentication' && t[1] === 'simple-password' && t.length === 3) return withInterface([put(i, [...f, 'authentication'], 'simple')])
+    if (t[0] === 'authentication' && t[1] === 'md5' && isInteger(t[2], 255) && t[3] === 'key' && t.length === 5) return withInterface([put(i, [...f, 'authentication'], 'md5')])
+    return unsupported()
+  }
+
+  const mapBgp = (instance: string, r: readonly string[], i: number): Mutable => {
+    const at = ['networkInstances', instance, 'bgp']
+    if (!r.length) return mapped([model.ensure(at)])
+    if (r[0] !== 'group' || r[1] === undefined) return unsupported(r[0] === 'neighbor' ? 'a BGP neighbor outside a group: the model has a neighbor in a group' : 'BGP settings for every group come later: the model has them per group and neighbor')
+    const group = r[1]
+    const g = [...at, 'groups', group]
+    const s = r.slice(2)
+    if (s[0] !== 'neighbor') return mapPeer(g, s, i, () => [container(at), container(g)], true)
+    const address = s[1]
+    if (address === undefined || !(isIpv4(address) || isIpv6(address))) return unsupported('a BGP neighbor that is not an address')
+    const n = [...at, 'neighbors', addressKey(address)]
+    // The neighbor, in its group, only once one of its settings converts: one with none isn't in the model.
+    const made = () => {
+      const key = `${instance}\u0000${addressKey(address)}`
+      const state = neighbors.get(key) ?? { instance, address: addressKey(address), groups: new Map<string, number[]>() }
+      neighbors.set(key, state)
+      state.groups.set(group, [...(state.groups.get(group) ?? []), i])
+      const inGroup = model.set([...n, 'group'], group)
+      incidental.add(inGroup)
+      return [container(at), container(g), container(n), inGroup]
+    }
+    return mapPeer(n, s.slice(2), i, made, false)
+  }
+
+  /**
+   * A setting of a BGP group (`group`) or neighbor: what both say, and a group's type. `made` makes sure of the peer
+   * (and its BGP and group), only once the setting converts.
+   */
+  const mapPeer = (at: Segments, t: readonly string[], i: number, made: () => string[], group: boolean): Mutable => {
+    const ok = (fields: () => (string | null)[]) => {
+      const peer = made()
+      return mapped([...peer, ...fields()])
+    }
+    if (!t.length) return ok(() => [])
+    if (group && t[0] === 'type' && t.length === 2 && (t[1] === 'internal' || t[1] === 'external')) return ok(() => [put(i, [...at, 'type'], t[1])])
+    if (t[0] === 'peer-as' && t.length === 2) return asNumber(t[1]) !== null ? ok(() => [put(i, [...at, 'peerAs'], asNumber(t[1]))]) : unsupported('not an AS number from 1 to 4294967295, in plain form')
+    if (t[0] === 'description' && t.length === 2) return ok(() => [put(i, [...at, 'description'], t[1])])
+    if (t[0] === 'local-address' && t.length === 2) return isIpv4(t[1]) || isIpv6(t[1]) ? ok(() => [put(i, [...at, 'localAddress'], addressKey(t[1]))]) : unsupported('not an address')
+    if (t[0] === 'multihop' && t.length === 1) return ok(() => [model.ensure([...at, 'multihop'])])
+    if (t[0] === 'multihop' && t[1] === 'ttl' && t.length === 3 && isInteger(t[2], 255) && Number(t[2]) >= 1) return ok(() => [container([...at, 'multihop']), put(i, [...at, 'multihop', 'ttl'], Number(t[2]))])
+    if (t[0] === 'family' && (t[1] === 'inet' || t[1] === 'inet6') && t[2] === 'unicast' && t.length === 3) return ok(() => [model.ensure([...at, 'addressFamilies', t[1] === 'inet' ? 'ipv4-unicast' : 'ipv6-unicast'])])
+    if (t[0] === 'family') return unsupported('BGP address families other than IPv4 and IPv6 unicast, and their options, come later')
+    if (t[0] === 'import' || t[0] === 'export') {
+      if (t.length !== 2 || !/^[A-Za-z0-9_][\w.:/-]*$/.test(t[1])) return unsupported('a policy expression: the model names each policy')
+      const field = [...at, t[0] === 'import' ? 'importPolicies' : 'exportPolicies']
+      const list = (model.get(field) as string[] | undefined) ?? []
+      if (list.includes(t[1])) return ignored('already a policy of the peer')
+      policies.push(i)
+      return ok(() => [model.set(field, [...list, t[1]])])
+    }
+    // The key is never carried: the model says only that there is one.
+    if (t[0] === 'authentication-key' && t.length === 2) return ok(() => [put(i, [...at, 'authentication'], true)])
+    return unsupported()
+  }
+
+  /**
+   * Once every statement is read and the interfaces settled: OSPF interfaces that name one the model has, each BGP
+   * neighbor in one group, and each instance's router ID and AS number on its OSPF and BGP.
+   */
+  function settleProtocols() {
+    const interfaces = model.get(['interfaces'])
+    /** Whether `ref` names an interface of the model, or with `.N`, one of its subinterfaces (as modelProblems() reads it). */
+    const exists = (ref: string): boolean => {
+      if (!isObject(interfaces)) return false
+      if (Object.hasOwn(interfaces, ref)) return true
+      const m = /^(.+)\.(\d+)$/.exec(ref)
+      const subs = m && isObject(interfaces[m[1]]) ? (interfaces[m[1]] as Obj).subinterfaces : undefined
+      return m !== null && isObject(subs) && Object.hasOwn(subs, String(Number(m[2])))
+    }
+    // An area whose type, in the end, is a stub or NSSA with options the model can't carry converts not at all: its
+    // interfaces in an area of another type (normal, or a lower-ranked type) would change how the area routes. Stub and
+    // NSSA replace each other (rank, then order), but an option stays with its type: a bare `stub` beside `stub
+    // no-summaries`, before or after it, or from the configuration over a group's, leaves the option in force.
+    const excluded = new Set<string>()
+    for (const [, { instance, area, type }] of optioned) {
+      const at = ['networkInstances', instance, 'ospf', 'areas', area]
+      const owner = owners.get(fieldPath(...at, 'type'))
+      if (owner === undefined || areaTypes.get(owner) !== type || excluded.has(`${instance}\u0000${area}`)) continue
+      excluded.add(`${instance}\u0000${area}`)
+      for (const i of areaStatements.get(`${instance}\u0000${area}`) ?? []) {
+        if (!optioned.has(i) && results[i].kind !== 'unsupported') results[i] = unsupported("the area is a stub or NSSA with options that aren't converted, so none of it is")
+      }
+      model.remove(at)
+      for (let k = at.length - 1; k >= 3; k--) model.removeIfEmpty(at.slice(0, k))
+      if (instance === 'default') model.removeIfEmpty(at.slice(0, 2))
+      model.removeIfEmpty(['networkInstances'])
+    }
+
+    // Likewise an interface whose network type, in the end, is one the model has no word for: as broadcast or with a
+    // lower-ranked type it would form adjacencies another way.
+    for (const [index, { at, key }] of untyped) {
+      if (owners.get(fieldPath(...at, 'networkType')) !== index || model.get(at) === undefined) continue
+      for (const i of interfaceStatements.get(key) ?? []) {
+        if (i !== index && results[i].kind !== 'unsupported') results[i] = unsupported("the interface's OSPF network type isn't converted, so none of its OSPF settings are")
+      }
+      model.remove(at)
+      for (let k = at.length - 1; k >= 3; k--) model.removeIfEmpty(at.slice(0, k))
+      if (at[1] === 'default') model.removeIfEmpty(at.slice(0, 2))
+      model.removeIfEmpty(['networkInstances'])
+    }
+
+    for (const { index, at, ref } of ospfRefs) {
+      if (exists(ref) || results[index].kind !== 'mapped' || model.get(at) === undefined) continue
+      results[index] = unsupported("names an interface the configuration doesn't have, or that isn't converted")
+      model.remove(at)
+      // Up to the instance, which goes too when it was only there for its OSPF (the global table).
+      for (let k = at.length - 1; k >= 3; k--) model.removeIfEmpty(at.slice(0, k))
+      if (at[1] === 'default') model.removeIfEmpty(at.slice(0, 2))
+      model.removeIfEmpty(['networkInstances'])
+    }
+
+    // A neighbor two groups name is in neither: Junos refuses it.
+    for (const { instance, address, groups } of neighbors.values()) {
+      if (groups.size < 2) continue
+      const all = [...groups.values()].flat()
+      for (const index of all) results[index] = unsupported('the neighbor is in two BGP groups, which Junos refuses: it is left in neither')
+      model.remove(['networkInstances', instance, 'bgp', 'neighbors', address])
+      model.removeIfEmpty(['networkInstances', instance, 'bgp', 'neighbors'])
+      conflict('junos.bgp-neighbor-twice', 'A BGP neighbor is in two groups: Junos accepts it in one only', all)
+    }
+
+    for (const [instance, { index, value }] of routerIds) {
+      if (otherTypes.has(instance)) continue
+      const fields = ['ospf', 'bgp'].filter((p) => isObject(model.get(['networkInstances', instance, p]))).map((p) => model.set(['networkInstances', instance, p, 'routerId'], value))
+      settleTo(index, fields.length ? mapped(fields) : unsupported('a router ID with no OSPF or BGP here: the model keeps it with them'))
+    }
+    for (const [instance, { index, value }] of asNumbers) {
+      if (otherTypes.has(instance)) continue
+      const bgp = isObject(model.get(['networkInstances', instance, 'bgp']))
+      settleTo(index, bgp ? mapped([model.set(['networkInstances', instance, 'bgp', 'localAs'], value)]) : unsupported('an AS number with no BGP here: the model keeps it with BGP'))
+    }
+
+    // Junos's default for an eBGP peer with no policy: it accepts the peer's routes and advertises its active BGP routes
+    // to it (model 0.4.1). Set for the side(s) an eBGP peer without a policy has, so a target that rejects by default
+    // (IOS-XR, RFC 8212) can say what changes.
+    const instances = model.get(['networkInstances'])
+    for (const name of isObject(instances) ? Object.keys(instances) : []) {
+      const bgp = model.get(['networkInstances', name, 'bgp'])
+      if (!isObject(bgp)) continue
+      const groups = isObject(bgp.groups) ? bgp.groups : {}
+      const sides = new Set<'import' | 'export'>()
+      for (const neighbor of Object.values(isObject(bgp.neighbors) ? bgp.neighbors : {})) {
+        if (!isObject(neighbor)) continue
+        const group = typeof neighbor.group === 'string' && isObject(groups[neighbor.group]) ? (groups[neighbor.group] as Obj) : {}
+        const peerAs = neighbor.peerAs ?? group.peerAs
+        const external = group.type === 'external' || (group.type === undefined && typeof peerAs === 'number' && typeof bgp.localAs === 'number' && peerAs !== bgp.localAs)
+        if (!external) continue
+        // A neighbor's own policies replace its group's, as Junos applies them.
+        for (const [side, field] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const) if (!Array.isArray(neighbor[field] ?? group[field])) sides.add(side)
+      }
+      if (sides.size) model.set(['networkInstances', name, 'bgp', 'ebgpDefaultPolicy'], Object.fromEntries([...sides].sort().map((side) => [side, 'accept'])))
+    }
+
+    const named = policies.filter((index) => results[index].kind === 'mapped')
+    if (named.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.policy-by-name', message: `BGP import and export policies are converted by name only: their bodies aren't converted yet (lines ${linesOf(named).join(', ')}).` })
+  }
+
   // ---- every statement
 
   const mapStatement = (s: Expanded, i: number): Mutable => {
@@ -646,6 +905,8 @@ export function parse(text: string, _context: Context): ParseResult {
         return mapInterface(w, i)
       case 'routing-options':
         return mapRoutingOptions('default', w.slice(1), i)
+      case 'protocols':
+        return mapProtocols('default', w.slice(1), i)
       case 'routing-instances':
         return mapInstance(w, i)
       case 'snmp':
@@ -742,6 +1003,7 @@ export function parse(text: string, _context: Context): ParseResult {
   }
 
   settleVlans()
+  settleProtocols()
 
   return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics, ...diagnostics] }
 }

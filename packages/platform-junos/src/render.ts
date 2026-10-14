@@ -9,7 +9,7 @@
 // A VRF can't be committed on Junos without a route distinguisher and route targets: one the model gives without them
 // is written with what it has, and each missing part is a needs-input item (`routeDistinguisherInputId()`,
 // `routeTargetInputId()`), answered through Context.inputs. Nothing is made up.
-import { fieldPath, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type NextHop, type RenderResult, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpGroup, type BgpPeer, type Ospf, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type NextHop, type RenderResult, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
 import { isIpv4, isIpv6, parsePrefix } from './addresses'
 import { fromJunos, targetFromJunos, toJunos } from './communities'
 import { SEVERITIES } from './parse'
@@ -22,6 +22,8 @@ interface Out {
   readonly text: string
   readonly children: Out[] | null
   readonly fields: Segments[]
+  /** Told the line the statement went to, for a diagnostic that names it. */
+  readonly placed?: (line: number) => void
 }
 
 const JUNOS_SEVERITY: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(SEVERITIES).map(([junos, model]) => [model, junos]))
@@ -41,6 +43,10 @@ const isVlanEntry = (entry: string): boolean => {
 export const routeDistinguisherInputId = (instance: string): string => `junos.route-distinguisher:${instance}`
 /** The needs-input id for a VRF's route target, for the side (or sides) the model doesn't give. */
 export const routeTargetInputId = (instance: string): string => `junos.vrf-target:${instance}`
+/** The needs-input id for an OSPF interface's key, which the model flags but never carries. */
+export const ospfKeyInputId = (instance: string, area: string, ref: string): string => `junos.ospf-key:${instance}:${area}:${ref}`
+/** The needs-input id for a BGP group's or neighbor's key, which the model flags but never carries. */
+export const bgpKeyInputId = (instance: string, kind: 'group' | 'neighbor', name: string): string => `junos.bgp-key:${instance}:${kind}:${name}`
 
 export function render(model: Device, context: Context): RenderResult {
   const dispositions: Record<string, FieldDisposition> = {}
@@ -346,12 +352,15 @@ export function render(model: Device, context: Context): RenderResult {
     if (!isDefault) out.push(...(members.get(name) ?? []))
     out.push(...vpnOf(name, instance, at, isDefault))
     const options = routingOptionsOf(instance, at, isDefault ? '' : `${name}.`)
+    const protocols = protocolsOf(name, instance, at)
     if (isDefault) {
       if (options) top.push(options)
-      else if (isEmpty(instance)) skip(at, 'not-applicable', 'the global routing table, configured empty')
+      if (protocols) top.push(protocols)
+      if (!options && !protocols && isEmpty(instance)) skip(at, 'not-applicable', 'the global routing table, configured empty')
       continue
     }
     if (options) out.push(options)
+    if (protocols) out.push(protocols)
     instances.push(out.length ? box(quote(name), out, ...self(instance, at)) : leaf(quote(name), ...self(instance, at)))
   }
   if (instances.length) top.push(box('routing-instances', instances))
@@ -458,7 +467,7 @@ export function render(model: Device, context: Context): RenderResult {
       const out = routeOf(prefix, route, r, p.v6)
       if (out) (p.v6 ? v6 : v4).push(out)
     }
-    const out: Out[] = []
+    const out: Out[] = [...routerOf(instance, at)]
     if (v4.length) out.push(box('static', v4))
     if (v6.length) out.push(box(`rib ${rib}inet6.0`, [box('static', v6)]))
     return out.length ? box('routing-options', out) : null
@@ -522,6 +531,205 @@ export function render(model: Device, context: Context): RenderResult {
     return box(`qualified-next-hop ${quote(target)}`, inner, targetField)
   }
 
+  // ---- OSPF and BGP
+
+  /**
+   * An instance's `router-id` and `autonomous-system`: Junos has one router ID per routing instance, which its OSPF and
+   * BGP share, and BGP's local AS is the instance's.
+   */
+  function routerOf(instance: NetworkInstance, at: Segments): Out[] {
+    const out: Out[] = []
+    const ids = (['ospf', 'bgp'] as const).filter((p) => instance[p]?.routerId !== undefined)
+    const fields: Segments[] = []
+    let written: string | undefined
+    for (const p of ids) {
+      const value = instance[p]!.routerId!
+      const field = [...at, p, 'routerId']
+      if (!isIpv4(value)) skip(field, 'unsupported', 'not a router ID (an IPv4 address)')
+      else if (written === undefined || written === value) {
+        written = value
+        fields.push(field)
+      } else skip(field, 'unsupported', "Junos has one router ID per routing instance, and OSPF's is another")
+    }
+    if (written !== undefined) out.push(leaf(`router-id ${written}`, ...fields))
+    const as = instance.bgp?.localAs
+    if (as !== undefined) {
+      if (isAsNumber(as)) out.push(leaf(`autonomous-system ${as}`, [...at, 'bgp', 'localAs']))
+      else skip([...at, 'bgp', 'localAs'], 'unsupported', 'not an AS number from 1 to 4294967295')
+    }
+    return out
+  }
+
+  /** A key the model flags but never carries: asked for, and written from the user's answer. */
+  function keyOf(id: string, field: Segments, write: (key: string) => Out): Out | null {
+    const given = context.inputs && Object.hasOwn(context.inputs, id) ? context.inputs[id] : undefined
+    if (given !== undefined && given !== '') return write(given)
+    needsInput.push({ id, kind: 'secret', message: "This needs its key on Junos, which isn't carried over from the source.", field: fieldPath(...field) })
+    skip(field, 'unsupported', "the key isn't carried over: it is asked for")
+    return null
+  }
+
+  function protocolsOf(name: string, instance: NetworkInstance, at: Segments): Out | null {
+    const out: Out[] = []
+    if (instance.ospf) out.push(ospfOf(name, instance.ospf, [...at, 'ospf']))
+    if (instance.bgp) {
+      out.push(bgpOf(name, instance.bgp, [...at, 'bgp']))
+    }
+    return out.length ? box('protocols', out) : null
+  }
+
+  function ospfOf(instance: string, ospf: Ospf, at: Segments): Out {
+    emptyContainer(ospf.areas, [...at, 'areas'])
+    if (ospf.processId !== undefined) skip([...at, 'processId'], 'not-applicable', 'Junos runs one OSPF per routing instance, with no process ID')
+    const areas: Out[] = []
+    let network = false
+    for (const [id, area] of Object.entries(ospf.areas ?? {})) {
+      const a = [...at, 'areas', id]
+      if (!isIpv4(id)) {
+        skipAll(area, a, 'not an OSPF area ID in dotted form')
+        continue
+      }
+      const inner: Out[] = []
+      if (area.type === 'stub' || area.type === 'nssa') inner.push(leaf(area.type, [...a, 'type']))
+      else if (area.type === 'normal') skip([...a, 'type'], 'not-applicable', 'an area is normal unless stub or NSSA')
+      if (area.authentication === 'simple' || area.authentication === 'md5') inner.push(leaf(`authentication-type ${area.authentication}`, [...a, 'authentication']))
+      else if (area.authentication !== undefined) skip([...a, 'authentication'], 'unsupported', 'Junos gives an area simple or MD5 authentication; key chains come later')
+      emptyContainer(area.interfaces, [...a, 'interfaces'])
+      for (const [ref, ifc] of Object.entries(area.interfaces ?? {})) {
+        const f = [...a, 'interfaces', ref]
+        const lines: Out[] = []
+        const own: Segments[] = [...self(ifc, f)]
+        if (ifc.enabledBy === 'interface') own.push([...f, 'enabledBy'])
+        else if (ifc.enabledBy === 'network') {
+          skip([...f, 'enabledBy'], 'not-applicable', 'Junos enables OSPF per interface')
+          network = true
+        }
+        if (ifc.passive === true) lines.push(leaf('passive', [...f, 'passive']))
+        else if (ifc.passive === false) skip([...f, 'passive'], 'not-applicable', 'an OSPF interface is active unless passive')
+        if (ifc.cost !== undefined) lines.push(leaf(`metric ${ifc.cost}`, [...f, 'cost']))
+        if (ifc.networkType === 'point-to-point') lines.push(leaf('interface-type p2p', [...f, 'networkType']))
+        else if (ifc.networkType === 'broadcast') skip([...f, 'networkType'], 'not-applicable', 'broadcast is Junos’s OSPF default on LAN interfaces, with no interface-type of its own')
+        if (ifc.helloInterval !== undefined) lines.push(leaf(`hello-interval ${ifc.helloInterval}`, [...f, 'helloInterval']))
+        if (ifc.deadInterval !== undefined) lines.push(leaf(`dead-interval ${ifc.deadInterval}`, [...f, 'deadInterval']))
+        if (ifc.authentication === 'simple' || ifc.authentication === 'md5') {
+          const kind = ifc.authentication
+          const key = keyOf(ospfKeyInputId(instance, id, ref), [...f, 'authentication'], (k) => box('authentication', [leaf(kind === 'md5' ? `md5 1 key ${quote(k)}` : `simple-password ${quote(k)}`)], [...f, 'authentication']))
+          if (key) lines.push(key)
+        } else if (ifc.authentication !== undefined) skip([...f, 'authentication'], 'unsupported', 'OSPF key chains come later on Junos')
+        inner.push(lines.length ? box(`interface ${quote(ref)}`, lines, ...own) : leaf(`interface ${quote(ref)}`, ...own))
+      }
+      areas.push(inner.length ? box(`area ${id}`, inner, ...self(area, a)) : leaf(`area ${id}`, ...self(area, a)))
+    }
+    // Semantic: a network statement takes in every interface in its range, later ones too; Junos names each interface.
+    if (network) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.ospf-enabled-by-network', message: 'OSPF was enabled by network statements, which also take in interfaces added later in their ranges: Junos enables it on the interfaces named here only.' })
+    // With no areas, `ospf;` still says OSPF runs here, so its router ID comes back with it.
+    return areas.length ? box('ospf', areas, ...self(ospf, at)) : leaf('ospf', ...self(ospf, at))
+  }
+
+  function bgpOf(instance: string, bgp: Bgp, at: Segments): Out {
+    emptyContainer(bgp.groups, [...at, 'groups'])
+    emptyContainer(bgp.neighbors, [...at, 'neighbors'])
+    const groups = new Map<string, { readonly name: string; readonly group?: BgpGroup; readonly at?: Segments; readonly neighbors: Out[] }>()
+    for (const [name, group] of Object.entries(bgp.groups ?? {})) groups.set(name, { name, group, at: [...at, 'groups', name], neighbors: [] })
+    let policies = false
+    const peerOf = (peer: BgpPeer, p: Segments): Out[] => {
+      const out: Out[] = []
+      if (peer.description !== undefined) out.push(leaf(`description ${quote(peer.description)}`, [...p, 'description']))
+      if (peer.localAddress !== undefined) {
+        if (isIpv4(peer.localAddress) || isIpv6(peer.localAddress)) out.push(leaf(`local-address ${peer.localAddress}`, [...p, 'localAddress']))
+        else skip([...p, 'localAddress'], 'unsupported', 'not an address')
+      }
+      if (peer.updateSource !== undefined) skip([...p, 'updateSource'], 'unsupported', 'Junos sources a BGP session from an address (local-address), not an interface')
+      if (peer.multihop !== undefined) out.push(peer.multihop.ttl !== undefined ? box('multihop', [leaf(`ttl ${peer.multihop.ttl}`, [...p, 'multihop', 'ttl'])]) : leaf('multihop', ...self(peer.multihop, [...p, 'multihop'])))
+      for (const [family, af] of Object.entries(peer.addressFamilies ?? {})) {
+        const f = [...p, 'addressFamilies', family]
+        if (family !== 'ipv4-unicast' && family !== 'ipv6-unicast') {
+          skipAll(af, f, 'not an address family the model has')
+          continue
+        }
+        for (const side of ['importPolicies', 'exportPolicies'] as const) if (af?.[side] !== undefined) skip([...f, side], 'unsupported', "Junos applies a peer's import and export policies to all its families: per family they come later")
+        out.push(box(`family ${family === 'ipv4-unicast' ? 'inet' : 'inet6'}`, [leaf('unicast', ...self(af ?? {}, f))]))
+      }
+      for (const side of ['importPolicies', 'exportPolicies'] as const) {
+        const list = peer[side]
+        if (list === undefined) continue
+        if (!list.length) {
+          skip([...p, side], 'not-applicable', 'no policies: nothing to write')
+          continue
+        }
+        policies = true
+        const word = side === 'importPolicies' ? 'import' : 'export'
+        out.push(leaf(list.length === 1 ? `${word} ${quote(list[0])}` : `${word} [ ${list.map(quote).join(' ')} ]`, [...p, side]))
+      }
+      if (peer.peerAs !== undefined) {
+        if (isAsNumber(peer.peerAs)) out.push(leaf(`peer-as ${peer.peerAs}`, [...p, 'peerAs']))
+        else skip([...p, 'peerAs'], 'unsupported', 'not an AS number from 1 to 4294967295')
+      }
+      if (peer.authentication === true) {
+        const key = keyOf(bgpKeyInputId(instance, p[p.length - 2] === 'groups' ? 'group' : 'neighbor', p[p.length - 1]), [...p, 'authentication'], (k) => leaf(`authentication-key ${quote(k)}`, [...p, 'authentication']))
+        if (key) out.push(key)
+      } else if (peer.authentication === false) skip([...p, 'authentication'], 'not-applicable', 'no key')
+      return out
+    }
+
+    // Each neighbor in its group: Junos has every neighbor in one. One the model gives without a group goes in `ibgp` or
+    // `ebgp`, by whether its peer AS is the local AS, or `peers`: a group of its own, named so that no group the model
+    // has or a neighbor names is it (`ibgp-2`…), so it inherits nothing of one.
+    const taken = new Set([...groups.keys(), ...Object.values(bgp.neighbors ?? {}).flatMap((n) => (n.group !== undefined ? [n.group] : []))])
+    const made = new Map<string, string>()
+    const synthetic = (base: string): string => {
+      if (made.has(base)) return made.get(base)!
+      let name = base
+      for (let n = 2; taken.has(name); n++) name = `${base}-${n}`
+      taken.add(name)
+      made.set(base, name)
+      return name
+    }
+    for (const [address, neighbor] of Object.entries(bgp.neighbors ?? {})) {
+      const n = [...at, 'neighbors', address]
+      if (!isIpv4(address) && !isIpv6(address)) {
+        skipAll(neighbor, n, 'a BGP neighbor that is not an address')
+        continue
+      }
+      const internal = neighbor.peerAs !== undefined && bgp.localAs !== undefined ? neighbor.peerAs === bgp.localAs : undefined
+      const name = neighbor.group ?? synthetic(internal === undefined ? 'peers' : internal ? 'ibgp' : 'ebgp')
+      if (!groups.has(name)) groups.set(name, { name, neighbors: [] })
+      const group = groups.get(name)!
+      const fields: Segments[] = [...self(neighbor, n)]
+      if (neighbor.group !== undefined) fields.push([...n, 'group'])
+      const inner = peerOf(neighbor, n)
+      group.neighbors.push(inner.length ? box(`neighbor ${address}`, inner, ...fields) : leaf(`neighbor ${address}`, ...fields))
+    }
+
+    const out: Out[] = []
+    for (const { name, group, at: g, neighbors } of groups.values()) {
+      const inner: Out[] = []
+      // Without a type, Junos tells internal from external by the peer AS, as the model's other platforms do.
+      if (group?.type === 'internal' || group?.type === 'external') inner.push(leaf(`type ${group.type}`, [...g!, 'type']))
+      else if (group?.type !== undefined) skip([...g!, 'type'], 'unsupported', 'not a BGP group type')
+      if (group && g) inner.push(...peerOf(group, g))
+      inner.push(...neighbors)
+      out.push(inner.length ? box(`group ${quote(name)}`, inner, ...(group && g ? self(group, g) : [])) : leaf(`group ${quote(name)}`, ...(group && g ? self(group, g) : [])))
+    }
+    if (policies) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.policy-by-name', message: "BGP import and export policies are written by name only: their bodies (policy-options) aren't converted yet, and Junos commits a reference only to a policy it has." })
+    // Semantic: a source that rejects an eBGP peer's routes, or doesn't advertise to it, when no policy applies (RFC
+    // 8212, IOS-XR); Junos accepts and advertises, so a peer without a policy here takes and sends everything.
+    let placed: ((line: number) => void) | undefined
+    const policy = bgp.ebgpDefaultPolicy
+    if (policy !== undefined) {
+      for (const side of ['import', 'export'] as const) if (policy[side] !== undefined) skip([...at, 'ebgpDefaultPolicy', side], 'not-applicable', "the source platform's default, not configuration: Junos's is to accept")
+      const rejects = (['import', 'export'] as const).filter((side) => policy[side] === 'reject')
+      if (rejects.length) {
+        const what = rejects.length === 2 ? "rejects an eBGP peer's routes and advertises nothing to it" : rejects[0] === 'import' ? "rejects an eBGP peer's routes" : 'advertises nothing to an eBGP peer'
+        placed = (line) =>
+          diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.ebgp-default-policy', message: `The source ${what} when no policy applies (RFC 8212); Junos accepts and advertises by default, so here an eBGP peer without a policy does (line ${line}).`, span: { startLine: line, startColumn: 1, endLine: line, endColumn: 1 } })
+      }
+    }
+    // With no groups, `bgp;` still says BGP runs here, so its AS number and router ID come back with it.
+    const written = out.length ? box('bgp', out) : leaf('bgp', ...self(bgp, at))
+    return placed ? { ...written, placed } : written
+  }
+
   // ---- write it out
 
   const lines: string[] = []
@@ -531,6 +739,7 @@ export function render(model: Device, context: Context): RenderResult {
       const line = n.children && n.children.length ? `${indent}${n.text} {` : `${indent}${n.text};`
       lines.push(line)
       const at = lines.length
+      n.placed?.(at)
       for (const f of n.fields) dispositions[fieldPath(...f)] = { kind: 'rendered', span: { startLine: at, startColumn: indent.length + 1, endLine: at, endColumn: line.length + 1 } }
       if (n.children && n.children.length) {
         write(n.children, depth + 1)

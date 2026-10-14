@@ -1,0 +1,77 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "interfaces": {
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/0/1": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "lo0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "203.0.113.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        },
+        "type": "loopback"
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "ge-0/0/0.0": {
+                  "networkType": "point-to-point",
+                  "enabledBy": "interface",
+                  "cost": 10,
+                  "helloInterval": 5,
+                  "deadInterval": 20
+                },
+                "ge-0/0/1.0": {
+                  "passive": true,
+                  "enabledBy": "interface"
+                },
+                "lo0.0": {
+                  "passive": true,
+                  "enabledBy": "interface"
+                }
+              }
+            }
+          },
+          "routerId": "203.0.113.1"
+        }
+      }
+    }
+  }
+}

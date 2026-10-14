@@ -511,8 +511,8 @@ default), with `detect`,
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
 The second Cisco platform, built like the IOS / IOS-XE plugin (its code copied, not imported: plugins don't depend on
-each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.4.0 <1.0.0'`, for model 0.4's
-VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and `describeInterface` and
+each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.4.1 <1.0.0'`, for model 0.4's
+VLANs, switch ports, SVIs, OSPF and BGP and 0.4.1's eBGP default policy), with `detect`, `parse`, `render`, and `describeInterface` and
 `nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as IOS's, nested by NX-OS's two-space indents; `!Command:` and `!Time:` headers are
@@ -607,6 +607,11 @@ VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and 
     template peer`, `no address-family`, each setting's `no` form and `no router bgp ASN` remove what they name. Once
     every statement is read, BGP in a VRF the text doesn't define, an update source that names no interface and a
     template a neighbor's VRF doesn't have (a VRF neighbor inheriting a global template, for now) are `unsupported`.
+  - **eBGP default policy (model 0.4.1, #69):** NX-OS takes and sends an eBGP peer's routes with no route map (no
+    RFC 8212). For each network instance with an eBGP neighbor that has no route map one way in a family it carries
+    (each family by its effective policy: the family's own, else the neighbor's, else the template's family's, else the
+    template's; with no family, the neighbor's or the template's), the parse sets `ebgpDefaultPolicy` to `accept` that
+    way, mapped by `router bgp` or the VRF's `vrf V`: the platform's default, not configuration.
   - **A VRF's deletion** (`no vrf context V`) leaves V's OSPF and BGP so far out as `unsupported`, as its interfaces'
     membership is (#47).
   - **SNMP communities:** a community with any statement not converted, anywhere in the text (an access list in any
@@ -651,13 +656,15 @@ VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and 
     `remote-as` with the local AS; `localAddress` and multihop with no TTL are `unsupported`. Route maps go per family,
     one each way: a policy for the whole peer goes into each family it carries (its template's too) unless the family
     has its own, and a chain of policies is `unsupported`. Warnings: `nxos.route-map-name-only` (a policy written by
-    name), `nxos.ebgp-no-policy` (an eBGP neighbor with no route map: NX-OS exchanges every route, where IOS-XR,
-    following RFC 8212, exchanges none), `nxos.bgp-no-address-family` (it carries no routes).
-  - **Secrets the model only flags** are needs-input items, written when the answer is one NX-OS takes and never made
-    up: an OSPF key per interface (`nxos.ospf-key:<the OSPF interface's path>`; for MD5, `ID KEY`; an area's
-    authentication asks on each interface without its own), a key chain's name (kind `other`), and a BGP password
-    (`nxos.bgp-password:<the peer's path>`), whose field is `unsupported` until answered, since NX-OS's `password`
-    needs one. An answer NX-OS can't take raises `nxos.answer-not-taken`, without repeating it.
+    name), `nxos.ebgp-default-policy` (an eBGP neighbor with no route map one way, by the same per-family rule, where
+    the source's `ebgpDefaultPolicy` is `reject` that way: IOS-XR's RFC 8212 drops those routes and NX-OS exchanges
+    them all; the warning names no peer), `nxos.bgp-no-address-family` (it carries no routes). `ebgpDefaultPolicy` is
+    `not-applicable`: the source's default.
+  - **Secrets the model only flags** are `secret` needs-input items, each naming the `authentication` leaf, written
+    when the answer is one NX-OS takes and never made up: an OSPF key per interface (`nxos.ospf-key:<the OSPF
+    interface's path>`; for MD5, `ID KEY`; an area's authentication asks on each interface without its own), a key
+    chain's name, and a BGP password (`nxos.bgp-password:<the peer's path>`). A key chain's and a password's field is
+    `unsupported` until answered, since NX-OS's line needs the answer; the kit's round trip leaves them to it (#68). An answer NX-OS can't take raises `nxos.answer-not-taken`, without repeating it.
 - **Suggested names (`names.ts`):** `describeInterface` says `port-channelN` is aggregate N; `nameInterface`
   suggests `port-channel` for another platform's aggregate, counted as Cisco does: Junos `aeN` is `port-channel(N+1)`,
   IOS-XE `Port-channelN` and IOS-XR `Bundle-EtherN` keep N (the user's decision). It takes the describing plugin's id as
@@ -683,8 +690,8 @@ VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and 
 ## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
 
 The third Cisco platform, built like the NX-OS plugin (its code copied, not imported). Its default export is the
-`PlatformPlugin` (`id: 'iosxr'`, `modelApi: '>=0.3.0 <1.0.0'`, for model 0.3's VRF membership and route targets), with
-`detect`, `parse` and `render`.
+`PlatformPlugin` (`id: 'iosxr'`, `modelApi: '>=0.4.1 <1.0.0'`, for model 0.4's OSPF and BGP and 0.4.1's eBGP default
+policy), with `detect`, `parse`, `render`, and `describeInterface` and `nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as NX-OS's, nested by IOS-XR's one-space indents; `!` lines are separators and `!!`
   headers comments. Three bodies are delimited, not indented, and each is kept whole, verbatim, as one atomic statement
@@ -731,8 +738,40 @@ The third Cisco platform, built like the NX-OS plugin (its code copied, not impo
     block (`import route-target` with a value a line). As NX-OS, they map only when every unicast family's agree, as
     sets in each direction, and are all `unsupported` when one isn't converted (`stitching`, an asdot AS `1.10:12`).
     Other families (`ipv4 multicast`, `flowspec`) and a VRF's import and export route policies are `unsupported`.
-  - **Route distinguishers** are BGP's on IOS-XR (`router bgp N` → `vrf X` → `rd`), so they stay `unsupported` with the
-    rest of `router bgp`, and the render can't write one (it would need the AS, which the model doesn't hold).
+  - **Route distinguishers** are BGP's on IOS-XR: `router bgp N` → `vrf X` → `rd` maps a VRF's (`rd auto` is
+    `unsupported`), and `no rd` removes it.
+  - **OSPF:** `router ospf P` (the global table) and `vrf V` inside it (V's), with `router-id`, `area A` (any form,
+    dotted in the model) with `stub`, `nssa` and `authentication [message-digest|keychain K]` (the area's, flagged;
+    `stub no-summary` and other options are `unsupported`), and `interface X` in an area (`enabledBy: 'interface'`)
+    with `cost`, `network point-to-point|broadcast`, `passive [enable|disable]`, `hello-interval`, `dead-interval` and
+    `authentication` (flagged; `null` is `unsupported`). The keys (`message-digest-key`, `authentication-key`) are
+    `ignored-by-design`: never carried. **IOS-XR's inheritance:** an interface takes its own setting, else its area's,
+    else its process's (a process's `authentication` is each area's that has none); the area's or process's statement
+    maps each interface field it fills, and says so when no interface takes it. `passive disable` overrides an
+    inherited `passive`. The model has one process per network instance: the first in the text; another one there is
+    `unsupported`, and so is an interface the text doesn't define, one in another VRF than its process's, and one
+    already in an area of the process. `no router-id`, `no area A`, `no interface X`, `no stub|nssa`, each setting's
+    `no` form, `no vrf V` inside it and `no router ospf P` remove what they name.
+  - **BGP:** `router bgp ASN` (plain or asdot) is `localAs`, with `bgp router-id`; a second AS is `unsupported`.
+    `neighbor X [remote-as N]` and `neighbor-group G` (a group) take `remote-as`, `use neighbor-group G` (a neighbor's
+    group; nested in a group, `unsupported`), `update-source`, `ebgp-multihop [N]` (with no TTL, `multihop: {}`),
+    `description`, `password` (flagged: `authentication`, never carried), `no shutdown` (`ignored-by-design`) and
+    `address-family ipv4|ipv6 unicast` with `route-policy NAME in|out` (by name only, with the warning
+    `iosxr.route-policy-name-only`, which gives the line, not the name; one with parameters is `unsupported`; RPL
+    bodies stay atomic and `unsupported`). `vrf V` under it is V's BGP, with the AS as V's `localAs`. A global
+    `address-family ipv4|ipv6 unicast` is `ignored-by-design` (the render writes it where a peer carries the family);
+    what is inside it, other families, `af-group`, `session-group` and `use` of them, and neighbor ranges are
+    `unsupported`. `no neighbor`, `no neighbor-group`, `no address-family`, each setting's `no` form, `no vrf V` under
+    it and `no router bgp ASN` remove what they name. Once every statement is read, BGP in a VRF the text doesn't
+    define, an update source that names no interface and a group a neighbor's VRF doesn't have are `unsupported`.
+  - **RFC 8212 (model 0.4.1):** IOS-XR drops an eBGP peer's routes, both ways, with no policy. For each network
+    instance with an eBGP neighbor (its peer AS, or its group's, isn't the local AS) that has no policy one way in a
+    family it carries (its own families and its group's, each by its effective policy: the family's own, else the
+    neighbor's, else the group's family's, else the group's; with no family, the neighbor's or the group's), the parse
+    sets `ebgpDefaultPolicy` to `reject` that way, mapped by `router bgp` or the VRF's `vrf V`: the platform's default,
+    not configuration. A policy on IPv4 doesn't cover IPv6.
+  - **A VRF's deletion** (`no vrf X`) leaves its OSPF and BGP so far, and its route distinguisher, out as `unsupported`:
+    what the device keeps of them isn't certain.
   - **SNMP communities:** one with any statement not converted, anywhere (an access list in any form, `IPv4 ACL`,
     `IPv6 ACL` or a bare ACL; `SystemOwner` or `SDROwner`; `no snmp-server community X …` removing part of it), is left
     out whole. An `encrypted` community doesn't carry over and is `unsupported`.
@@ -740,7 +779,7 @@ The third Cisco platform, built like the NX-OS plugin (its code copied, not impo
     banner's type, which could be a secret's value reused.
     Keys come from the configuration, so the model is built with own properties only, and bookkeeping uses `Map`s.
 - **Render (`render.ts`):** `show running-config`'s shape, one-space indents and `!` closing each block. Every leaf of
-  model 0.3 gets a disposition; a later version's fields get none. VRFs come first (`vrf X` with its route targets in
+  model 0.4.1 gets a disposition; a later version's fields get none. VRFs come first (`vrf X` with its route targets in
   the block form under both `address-family ipv4 unicast` and `ipv6 unicast`), then interfaces (`vrf V` before the
   addresses, IPv4 with a dotted mask), `router static` (the global table, then each VRF), the `ntp` block, `logging`
   hosts (each with its VRF, `vrf default` for the global table) and SNMP. A network instance with only routes isn't
@@ -749,6 +788,37 @@ The third Cisco platform, built like the NX-OS plugin (its code copied, not impo
   own description or shutdown, an address family's MTU, a syslog facility per host, an NTP version outside 1–4, a
   `reject` route, a route's metric, and an SNMP community limited to some clients (left out whole, with a warning that
   doesn't name it). With several IPv4 addresses and no primary, the first becomes primary, with a warning.
+  - **Layer 2** stays `unsupported` this phase (l2vpn, bridge domains): VLANs, switch ports, and a routed VLAN (a BVI
+    on IOS-XR). VLAN-tagged subinterfaces are written as before.
+  - **OSPF:** after `router static`, each process as `router ospf P` (a source with no name, Junos, is written as `1`,
+    with an info diagnostic), the global table's areas, then each VRF's under `vrf V`; each area with its
+    `authentication`, `stub|nssa` and interfaces, each interface with its settings (as the model has them, per
+    interface: an inherited one is written on each interface). An OSPF interface the model doesn't have, in another
+    network instance than its interface's, or in a second area of the process, is `unsupported`. One the source enabled
+    with `network` statements raises the warning `iosxr.ospf-enabled-per-interface`.
+  - **BGP:** `router bgp` with the local AS (a VRF's own other AS is `unsupported`; with no local AS, BGP and route
+    distinguishers are `unsupported`), `bgp router-id`, the global address family for each family a peer carries,
+    groups as `neighbor-group` (a VRF's are `unsupported`: IOS-XR's belong to the whole `router bgp`) and neighbors,
+    then each VRF as `vrf V` with its `rd`. A Junos `internal` group writes `remote-as` with the local AS;
+    `localAddress` is `unsupported`. Route policies go per family, one each way: a policy for the whole peer goes into
+    each family it carries (its group's too) unless the family has its own, and a chain of policies is `unsupported`.
+    `ebgpDefaultPolicy` is `not-applicable`: the source's default. Warnings: `iosxr.route-policy-name-only`,
+    `iosxr.bgp-no-address-family` (it carries no routes).
+  - **RFC 8212:** an eBGP neighbor with no policy one way (its own or its group's) exchanges nothing that way on
+    IOS-XR. Each such neighbor is a needs-input item (`iosxr.ebgp-policy:<the neighbor's path>`, kind `other`) asking
+    for an existing route policy's name, written each way the neighbor has none in each family it carries; no `pass`
+    policy is made up. When the source accepted those routes (`ebgpDefaultPolicy` `accept` that way: Junos, IOS-XE,
+    NX-OS), the render also raises `iosxr.ebgp-default-policy`.
+  - **Secrets the model only flags** are `secret` needs-input items, written when the answer is one IOS-XR takes and
+    never made up: an OSPF key per interface (`iosxr.ospf-key:<the OSPF interface's path>`; for MD5, `ID KEY`; an
+    area's authentication asks on each interface without its own), a key chain's name (on an area or an interface),
+    and a BGP password (`iosxr.bgp-password:<the peer's path>`), whose field is `unsupported` until answered. The kit's
+    round trip leaves these leaves to the answer (#68). An answer IOS-XR can't take raises `iosxr.answer-not-taken`,
+    without repeating it.
+- **Suggested names (`names.ts`):** `describeInterface` says `Bundle-EtherN` is aggregate N; `nameInterface` suggests
+  `Bundle-Ether` for another platform's aggregate, counted as Cisco does: Junos `aeN` is `Bundle-Ether(N+1)`, IOS-XE's
+  and NX-OS's port-channel N keep N (the user's decision). As NX-OS's, it takes the describing plugin's id as an
+  optional second argument, which the core's convert doesn't pass yet: without it, nothing is suggested.
 - **Detect (`detect.ts`):** counts IOS-XR's own signs (RANCID's `cisco-xr`, `!! IOS XR Configuration`, `ipv4
   address`, four-part interface names, `Bundle-Ether`, `MgmtEth`, `router static`, `end-policy`, `end-set`, `domain …`,
   `logging A vrf V`, `import|export route-target`) and discounts IOS's (`ip address`, `ip access-list`, `ip route`,
@@ -757,10 +827,10 @@ The third Cisco platform, built like the NX-OS plugin (its code copied, not impo
 - **Tests:** as the other Cisco plugins': hand-written fixtures per area through the kit (`tests/fixtures/<area>`,
   `policy` among them), chosen corpus files against expected models in `tests/corpus/`, and every file of
   `fixtures/public/iosxr` through the kit's checks. Its probe adapter (`tests/probes.ts`, #51) gives every probe in
-  IOS-XR syntax, except the prototype keys as an interface name, which IOS-XR can't have (a name is a type and numbers).
-- **For BGP (B10), not yet:** IOS-XR applies RFC 8212 to eBGP, so a neighbor with no route policy in a direction sends
-  and accepts nothing. A converted eBGP neighbor will need an explicit `route-policy … in` and `out` (a pass-all policy
-  where the source had none), or it comes up and exchanges no routes.
+  IOS-XR syntax, except the prototype keys as an interface name, which IOS-XR can't have (a name is a type and numbers),
+  and as a VLAN name (Layer 2 isn't converted this phase). `phase2.test.ts` covers OSPF and BGP beyond their fixtures,
+  RFC 8212 with a Junos-sourced model among them, and checks that each phase 2 warning comes from a saved source
+  fixture or a saved model from another platform (`tests/models`, as NX-OS's).
 
 ## TypeScript
 
@@ -829,8 +899,10 @@ The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_P
 B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
 areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.4.0 <1.0.0'`, for model
-  0.4's VLANs, switch ports and routed VLANs), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.4.1 <1.0.0'`, for model
+  0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, and 0.4.1's eBGP default policy), with `detect`, `parse`,
+  `render`, `nameInterface` (an aggregate another platform describes, Cisco `Port-channelN` or `Bundle-EtherN`, is
+  suggested as `ae(N-1)`, as the user decided; nothing else yet) and the capabilities per area. Its `tools()` has one tool,
   `displaySetTool`: id `display-set`, name "Display set". `run(text)`
   returns the set lines as text, one per line, each ended by a newline (none on an error), and `sourceLines`, the
   statement's source line for each output line (a quoted value with line breaks makes one set line several output
@@ -900,7 +972,7 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   and communities with `authorization` and `clients`. A statement is `mapped` only when everything it says went into
   the model. A later single-valued setting supersedes an earlier one ("superseded by line N"): a statement left with
   only the fields it filled in passing (the interface's type, its unit) is superseded too. Everything else is
-  `unsupported`, with a reason where one helps (per-facility syslog severities, NTP keys, `protocols`, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
+  `unsupported`, with a reason where one helps (per-facility syslog severities, NTP keys, routing protocols other than OSPF and BGP, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
   can't carry (a `client-list-name`, `clients … restrict`, a `view`) makes all its statements unsupported and leaves it
   out of the model, so it can't come out answering clients it shouldn't. The interface type comes from the name
   (`ge-`, `xe-`, `et-` ethernet, `ae` aggregate, `lo` loopback, `irb` irb-or-svi, the non-ELS `vlan` vlan,
@@ -938,8 +1010,29 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   instance membership too, are `unsupported`, with a `junos.irb-without-vlan` warning naming the lines, and the irb
   interface goes whole when none of its units routes, so the model's referential check (`model.irb-without-vlan`)
   holds. Groups and ranges apply as everywhere (R1–R12): a VLAN's ID is a single setting, members add up.
-- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.3 and 0.4's VLAN, switch
-  port and routed VLAN fields with a disposition, and its OSPF and BGP fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
+- **OSPF and BGP (#61), per routing instance** (`protocols` at the top is the global table's, `routing-instances R
+  protocols` R's). OSPF: `area A` (dotted, or a number: `area 0` is `0.0.0.0`) with `stub` or `nssa` (their options,
+  `no-summaries` and the rest, are `unsupported`) and `authentication-type`; `interface X` with `passive`, `metric` (the
+  model's `cost`), `interface-type p2p`, `hello-interval`, `dead-interval` and `authentication` (`simple-password`,
+  `md5 N key`), each interface `enabledBy: 'interface'`. An OSPF interface the model doesn't have, or doesn't convert
+  (an IRB unit with no VLAN), is `unsupported` and out of the model, so `model.unknown-interface` holds; `interface
+  all`, `ospf3` and OSPF policies are `unsupported`. **An area or interface whose type can't be carried converts not
+  at all:** `stub` and `nssa` replace each other by precedence, and an
+  option (`no-summaries`, `default-metric`…) stays with its type: when the winning type has one in force (a bare
+  `stub` beside `stub no-summaries`, before or after it or over a group's, doesn't take it away; `delete` and
+  `apply-groups-except` do), every statement of the area is `unsupported` and out of the model, so it never comes out
+  a normal area. Likewise an `interface-type` the model has no word for (`nbma`, `p2mp`) that wins over `p2p`: the
+  interface's OSPF statements are all `unsupported`, so it never comes out broadcast. BGP: `group G` with `type`, `peer-as`,
+  `description`, `local-address`, `multihop [ttl N]`, `family inet|inet6 unicast`, `import`/`export` (names only, in
+  order; an expression is `unsupported`) and `authentication-key`, and `neighbor N` in it with the same settings
+  (`group` set); a peer is in the model only once one of its settings converts. **Junos refuses a neighbor in two
+  groups**, so it's an error naming the lines, in neither. `routing-options router-id` is the instance's OSPF's and
+  BGP's `routerId`, and `autonomous-system` BGP's `localAs`, each settled once every statement is read (`unsupported`
+  where the instance has no such protocol). **Keys are flags, never values:** a statement with one fills only
+  `authentication`. Policies by name raise a `junos.policy-by-name` warning naming the lines: their bodies aren't
+  converted. An instance with an eBGP peer (a group `type external`, or a peer AS other than the local AS) without an
+  import or export policy gets `ebgpDefaultPolicy` `accept` for that side, Junos's default (model 0.4.1).
+- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.4.1 with a disposition. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
   with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
   `unsupported` with why: a route's description, NTP and syslog source interfaces (Junos uses addresses), a drop beside
@@ -955,6 +1048,20 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `unsupported`). A switch port is unit 0's `family ethernet-switching` (`interface-mode`, `vlan members` by name,
   `30-40`, `all`) and `native-vlan-id` on the interface; `vlan members` holds an access port's VLAN or a trunk's, so
   the other mode's VLANs are `unsupported`, as is a native VLAN off a trunk.
+  `routing-options` has the instance's `router-id` (one per instance: BGP's, when it differs from OSPF's, is
+  `unsupported`) and `autonomous-system`, and `protocols` its OSPF and BGP. An OSPF process ID is `not-applicable`, as
+  are a normal area, an active interface and `broadcast` (Junos's LAN default); key chains are `unsupported`. **An
+  interface the source enabled by a `network` statement** is written per interface, with a `junos.ospf-enabled-by-network`
+  semantic warning: Junos names each interface, where the statement also took in later ones. BGP neighbors go in their
+  group; one the model gives without a group (Cisco) goes in `ibgp` or `ebgp` by its peer AS against the local AS, or
+  `peers` when that can't be told: groups of their own, named so no group the model has or a neighbor names is one
+  (`ibgp-2`…), so an ungrouped neighbor inherits nothing. A group's `type` is written only when the model has it (Junos tells internal from
+  external by the peer AS otherwise). An `updateSource` (an interface) and per-family policies are `unsupported`.
+  `ebgpDefaultPolicy` is `not-applicable`, and a side the source `reject`s raises `junos.ebgp-default-policy` naming
+  the `bgp` line: Junos accepts and advertises when no policy applies. **Keys are asked for, never made up:** each
+  flagged one is a `secret` needs-input item (`ospfKeyInputId()`, `bgpKeyInputId()`) with the flag's path as its
+  field, the flag `unsupported` until answered, then written from the answer (`authentication { md5 1 key K; }`,
+  `simple-password K`, `authentication-key K`); the kit's round trip excuses it (#68).
   **A VRF Junos can't commit isn't made whole by guessing:** one without a route distinguisher, or without a route
   target for a side, is written with what it has, and each missing part is a needs-input item
   (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
@@ -978,8 +1085,13 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `tests/inheritance.test.ts`: the group and range inheritance rules, one per test, each citing Juniper's page.
   `tests/vlans.test.ts`: VLANs, switch ports and IRB beyond the fixtures (`tests/fixtures/conformance/vlans/`): the
   conflicts Junos refuses, what converts not at all, IRB units without a VLAN, render from another platform's model and
-  names like `Object.prototype`'s. The corpus's expected models include an access, a trunk and an IRB file, and the
-  probes give the VLAN name and the malformed VLAN ID cases.
+  names like `Object.prototype`'s. `tests/protocols.test.ts`: OSPF and BGP beyond the fixtures
+  (`tests/fixtures/conformance/ospf/`, `bgp/`): each semantic warning from a saved model of another platform
+  (`tests/fixtures/semantic/<code>.model.json` raises `junos.<code>`), keys asked for and written from answers, a
+  neighbor in two groups, router IDs and AS numbers with no protocol, render from another platform's model, the
+  aggregate name suggestions, and safe and secret names. The corpus's expected models include an access, a trunk, an
+  IRB, two OSPF and two BGP files, and the probes give every model 0.4 case (VLAN name and BGP group uses, BGP and OSPF
+  negation, malformed AS numbers and VLAN IDs, OSPF and BGP scoping).
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)

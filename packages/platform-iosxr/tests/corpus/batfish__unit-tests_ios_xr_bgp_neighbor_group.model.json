@@ -1,0 +1,76 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "ios_xr_bgp_neighbor_group"
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 5555,
+          "groups": {
+            "BGPMonitor": {
+              "peerAs": 65202,
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "deny_bgp_routes"
+                  ],
+                  "exportPolicies": [
+                    "advertise_fooey_dc_and_isp_routes_ipv4"
+                  ]
+                }
+              }
+            },
+            "foobar-iBGP_ipv4": {
+              "peerAs": 5555,
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "exportPolicies": [
+                    "advertise_fooey_routes_only"
+                  ]
+                }
+              }
+            },
+            "foobar-iBGP_ipv6": {
+              "peerAs": 5555,
+              "addressFamilies": {
+                "ipv6-unicast": {}
+              }
+            },
+            "foobar-iBGP_border_ipv4": {
+              "peerAs": 5555,
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "exportPolicies": [
+                    "deny_default_network_ipv4"
+                  ]
+                }
+              }
+            },
+            "foobar-iBGP_border_ipv6": {
+              "peerAs": 5555,
+              "addressFamilies": {
+                "ipv6-unicast": {}
+              }
+            }
+          },
+          "neighbors": {
+            "1.2.1.1": {
+              "group": "foobar-iBGP_ipv4",
+              "description": "htegiofnoirwejhg"
+            },
+            "1.2.1.2": {
+              "group": "foobar-iBGP_ipv4",
+              "description": "hejtuignrfojfgner"
+            },
+            "1.2.1.3": {
+              "group": "foobar-iBGP_border_ipv4",
+              "description": "bafjewoifj"
+            }
+          }
+        }
+      }
+    }
+  }
+}

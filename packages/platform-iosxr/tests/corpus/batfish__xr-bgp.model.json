@@ -1,0 +1,80 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "xr-bgp"
+    },
+    "interfaces": {
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.1.0.0": {
+                  "prefixLength": 31
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "dead:beef::": {
+                  "prefixLength": 127
+                }
+              }
+            }
+          }
+        }
+      },
+      "Loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.0.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "localAs": 65500,
+          "routerId": "10.0.0.1",
+          "groups": {
+            "ng1": {
+              "peerAs": 65500,
+              "description": "description1",
+              "updateSource": "Loopback0",
+              "authentication": true,
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "rp2"
+                  ],
+                  "exportPolicies": [
+                    "rp3"
+                  ]
+                }
+              }
+            }
+          },
+          "neighbors": {
+            "10.0.0.2": {
+              "group": "ng1",
+              "description": "description2"
+            },
+            "10.0.0.3": {
+              "group": "ng1"
+            }
+          }
+        }
+      }
+    }
+  }
+}

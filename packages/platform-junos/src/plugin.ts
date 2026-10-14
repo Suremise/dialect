@@ -3,7 +3,7 @@
 import type { Diagnostic, PlatformPlugin, Tool, ToolResult } from '@dialect/core'
 import { detect } from './detect'
 import { displaySet } from './displaySet'
-import { describeInterface } from './names'
+import { describeInterface, nameInterface } from './names'
 import { parse } from './parse'
 import { render } from './render'
 
@@ -51,9 +51,9 @@ export const displaySetTool: JunosTool = {
 export const junos: PlatformPlugin = {
   id: 'junos',
   name: 'Junos',
-  // 0.4.0: its parse fills VLANs, switch ports and IRB units' routed VLANs, which a 0.3 core doesn't know. Minor
-  // versions only add, so every 0.x from there.
-  modelApi: '>=0.4.0 <1.0.0',
+  // 0.4.1: its parse fills VLANs, switch ports, routed VLANs, OSPF and BGP (0.4.0) and BGP's eBGP default policy
+  // (0.4.1), which an older core doesn't know. Minor versions only add, so every 0.x from there.
+  modelApi: '>=0.4.1 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },
@@ -62,11 +62,14 @@ export const junos: PlatformPlugin = {
     ntp: { parse: 'partial', render: 'partial' },
     syslog: { parse: 'partial', render: 'partial' },
     snmp: { parse: 'partial', render: 'partial' },
-    vlans: { parse: 'partial', render: 'partial' }
+    vlans: { parse: 'partial', render: 'partial' },
+    ospf: { parse: 'partial', render: 'partial' },
+    bgp: { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,
   render,
   describeInterface,
+  nameInterface,
   tools: () => [displaySetTool]
 }

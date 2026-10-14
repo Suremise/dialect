@@ -1,0 +1,15 @@
+set routing-options autonomous-system 65000
+set protocols bgp group EBGP type external
+set protocols bgp group EBGP peer-as 64500
+set protocols bgp group EBGP neighbor 192.0.2.2
+set protocols bgp group EBGP neighbor 192.0.2.6 peer-as 64501
+set protocols bgp group EBGP neighbor 192.0.2.6 multihop
+set protocols bgp group EBGP import IN
+set protocols bgp group EBGP import IN
+set protocols bgp group EBGP export ( OUT && TAG )
+set protocols bgp group EBGP family evpn signaling
+set protocols bgp group EBGP bfd-liveness-detection minimum-interval 300
+set protocols bgp group EBGP neighbor 192.0.2.10 peer-as 4294967296
+set protocols bgp local-as 65100
+set protocols bgp log-updown
+set routing-options autonomous-system 65001

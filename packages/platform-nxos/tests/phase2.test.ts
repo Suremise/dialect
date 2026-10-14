@@ -212,7 +212,7 @@ describe('OSPF', () => {
     expect(checkSecrets(plugin, text, ['CANARY_KEY'], { allowances: [] }).leaks).toEqual([])
     const entry = ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'Ethernet1/1']
     const asked = render(result.model)
-    expect(asked.needsInput).toEqual([{ id: `nxos.ospf-key:${fieldPath(...entry)}`, kind: 'secret', message: expect.stringContaining('key ID'), field: fieldPath(...entry) }])
+    expect(asked.needsInput).toEqual([{ id: `nxos.ospf-key:${fieldPath(...entry)}`, kind: 'secret', message: expect.stringContaining('key ID'), field: `${fieldPath(...entry)}.authentication` }])
     expect(asked.text).toContain('  ip ospf authentication message-digest\n')
     const answered = render(result.model, { [`nxos.ospf-key:${fieldPath(...entry)}`]: '7 NEW-KEY' })
     expect(answered.needsInput).toBeUndefined()
@@ -230,7 +230,7 @@ describe('OSPF', () => {
     }
     const asked = render(model)
     expect(asked.text).toContain('router ospf 1\n  area 0.0.0.0 authentication\n')
-    expect(asked.needsInput?.map((n) => n.kind)).toEqual(['secret', 'other'])
+    expect(asked.needsInput?.map((n) => n.kind)).toEqual(['secret', 'secret'])
     expect(accounted(model)).toEqual([])
     const ids = asked.needsInput!.map((n) => n.id)
     const answered = render(model, { [ids[0]]: 'KEY1', [ids[1]]: 'CHAIN' })
@@ -257,7 +257,7 @@ describe('BGP', () => {
   it('a neighbor on one line or in a block, a template it inherits, an asdot AS', () => {
     const text = lines('router bgp 1.10', '  template peer T', '    remote-as 65001', '  neighbor 192.0.2.2', '    inherit peer T', '  neighbor 2001:DB8::2 remote-as 4200000000')
     const result = parse(text)
-    expect(bgp(result)).toEqual({ localAs: 65546, groups: { T: { peerAs: 65001 } }, neighbors: { '192.0.2.2': { group: 'T' }, '2001:db8::2': { peerAs: 4200000000 } } })
+    expect(bgp(result)).toEqual({ localAs: 65546, groups: { T: { peerAs: 65001 } }, neighbors: { '192.0.2.2': { group: 'T' }, '2001:db8::2': { peerAs: 4200000000 } }, ebgpDefaultPolicy: { import: 'accept', export: 'accept' } })
     expect(roundTrips(text)).toEqual([])
   })
 
@@ -315,14 +315,21 @@ describe('BGP', () => {
     expect(parse(answered.text).model).toEqual(result.model)
   })
 
-  it('semantic warnings: an eBGP neighbor with no route map (RFC 8212 elsewhere), a neighbor with no family, policies by name', () => {
-    const result = render(parse(readFileSync(new URL('./fixtures/bgp/neighbors.cfg', import.meta.url), 'utf8')).model)
-    // 2001:db8::1 is eBGP with no route map; 198.51.100.1 has route maps, by name.
-    expect(result.diagnostics.map((d) => [d.code, d.field])).toEqual([
-      ['nxos.route-map-name-only', 'networkInstances.default.bgp.neighbors["198.51.100.1"]'],
-      ['nxos.ebgp-no-policy', 'networkInstances.default.bgp.neighbors["2001:db8::1"]'],
-      ['nxos.ebgp-no-policy', 'networkInstances.CUST.bgp.neighbors["203.0.113.2"]']
-    ])
+  it('semantic warnings: an eBGP neighbor the source would drop without a policy (RFC 8212), a neighbor with no family, policies by name', () => {
+    const parsed = parse(readFileSync(new URL('./fixtures/bgp/neighbors.cfg', import.meta.url), 'utf8'))
+    // NX-OS accepts an eBGP peer's routes with no route map: said for the ways a neighbor has none (2001:db8::1 has none).
+    expect(parsed.model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toEqual({ import: 'accept', export: 'accept' })
+    const result = render(parsed.model)
+    // From an NX-OS source, nothing differs: only the route maps written by name.
+    expect(result.diagnostics.map((d) => [d.code, d.field])).toEqual([['nxos.route-map-name-only', 'networkInstances.default.bgp.neighbors["198.51.100.1"]']])
+    expect(result.dispositions['networkInstances.default.bgp.ebgpDefaultPolicy.import']).toMatchObject({ kind: 'not-applicable' })
+    // From IOS-XR, which drops them (reject), an eBGP neighbor with no route map that way warns; its message names no peer.
+    const xr: Device = { networkInstances: { default: { bgp: { localAs: 65000, ebgpDefaultPolicy: { import: 'reject' }, neighbors: { '198.51.100.9': { peerAs: 64512, addressFamilies: { 'ipv4-unicast': { exportPolicies: ['OUT'] } } } } } } } }
+    const warned = render(xr).diagnostics.find((d) => d.code === 'nxos.ebgp-default-policy')
+    expect(warned).toMatchObject({ severity: 'warning', category: 'semantic', field: 'networkInstances.default.bgp.neighbors["198.51.100.9"]' })
+    expect(warned?.message).not.toContain('198.51.100.9')
+    // Only the ways the source rejects: an export policy missing where only import is rejected says nothing.
+    expect(codes(render({ networkInstances: { default: { bgp: { localAs: 65000, ebgpDefaultPolicy: { import: 'reject' }, neighbors: { '198.51.100.9': { peerAs: 64512, addressFamilies: { 'ipv4-unicast': { importPolicies: ['IN'] } } } } } } } }))).toEqual(['nxos.route-map-name-only'])
     const none = render({ networkInstances: { default: { bgp: { localAs: 65000, neighbors: { '192.0.2.2': { peerAs: 65000 } } } } } })
     expect(codes(none)).toEqual(['nxos.bgp-no-address-family'])
   })
@@ -402,7 +409,7 @@ describe('the semantic warnings, each raised by a saved fixture', () => {
       }),
       ...cases.flatMap((name) => codes(render(deserializeModel(readFileSync(new URL(`${name}.model.json`, models), 'utf8')).device)))
     ])
-    for (const code of ['nxos.route-map-name-only', 'nxos.ebgp-no-policy', 'nxos.bgp-no-address-family', 'nxos.ospf-enabled-per-interface', 'nxos.svi-name']) expect(raised, code).toContain(code)
+    for (const code of ['nxos.route-map-name-only', 'nxos.ebgp-default-policy', 'nxos.bgp-no-address-family', 'nxos.ospf-enabled-per-interface', 'nxos.svi-name']) expect(raised, code).toContain(code)
   })
 })
 

@@ -1,13 +1,13 @@
-// IOS-XR text → the shared model, for the phase 1 areas: system (hostname, domain name, DNS), interfaces and
-// subinterfaces with their addresses and VRF, VRFs (`vrf X`) with their route targets, static routes (`router static`),
-// NTP, logging and SNMP. Every statement of the tree gets a disposition: `mapped` when everything it says went into the
+// IOS-XR text → the shared model: system (hostname, domain name, DNS), interfaces and subinterfaces with their addresses
+// and VRF, VRFs (`vrf X`) with their route targets, static routes (`router static`), NTP, logging and SNMP (phase 1),
+// and OSPF and BGP (phase 2, model 0.4.0). Every statement of the tree gets a disposition: `mapped` when everything it says went into the
 // model, `ignored-by-design` with why, or `unsupported` (its text kept in the tree). A statement is mapped only when every
 // option on it is understood: one with an option the model can't hold (`server 192.0.2.1 key 1`) is unsupported as a
 // whole, never half-converted. Route policies and sets are recognised and kept whole (tree.ts), not translated yet.
 // Later statements act on earlier ones as on the device: a second setting supersedes the first, and `no …` forms and
 // `vrf V` on an interface clear what they remove. No reason or diagnostic repeats a word of the configuration
 // (AGENTS.md, No secrets in diagnostics): they give line numbers and word positions instead.
-import { fieldPath, isRouteDistinguisher, type Context, type Device, type Diagnostic, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, type Context, type Device, type Diagnostic, type Bgp, type BgpAddressFamilyName, type OspfAuthentication, type OspfNetworkType, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { interfaceType, isInterfaceName, splitSubinterface } from './names'
 import { parseTree, unquote, type XrNode } from './tree'
@@ -116,6 +116,22 @@ const vrfName = (name: string): string | undefined => (name === 'default' ? unde
 const HOST = /^[A-Za-z0-9][\w.-]*$/
 /** An address as the model keys it: IPv6 lowercased. */
 const addressKey = (a: string) => (isIpv6(a) ? a.toLowerCase() : a)
+
+/** An OSPF area as the model writes it, dotted: IOS-XR takes `0.0.0.10` or `10` (any number up to 4294967295). */
+export function areaId(text: string): string | null {
+  if (isIpv4(text)) return text
+  if (!inRange(text, { min: 0, max: 4294967295 })) return null
+  const n = Number(text)
+  return [24, 16, 8, 0].map((shift) => Math.floor(n / 2 ** shift) % 256).join('.')
+}
+
+/** An AS number in plain form: IOS-XR takes `65000` or asdot `1.10` (65546). Null when it isn't one from 1 to 4294967295. */
+export function asNumber(text: string): number | null {
+  const dot = /^(\d{1,5})\.(\d{1,5})$/.exec(text)
+  const word = { min: 0, max: 65535 }
+  const n = dot ? (inRange(dot[1], word) && inRange(dot[2], word) ? Number(dot[1]) * 65536 + Number(dot[2]) : null) : inRange(text, { min: 1, max: 4294967295 }) ? Number(text) : null
+  return n !== null && isAsNumber(n) ? n : null
+}
 
 /** Where an interface statement's settings go: subinterface `0` for the main interface's addresses. */
 interface InterfaceContext {
@@ -728,6 +744,14 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const [key, u] of unconvertedRoutes) if (u.instance === instance) takeUnconverted(key, why)
     vrfs.delete(instance)
     model.prune(['networkInstances', instance], 0)
+    // Its OSPF and BGP: what the device keeps of them isn't certain, so what was configured in it up to here is left out.
+    const uncertain = unsupported(`in a VRF line ${line(node)} deletes: what the device keeps of it isn't certain`)
+    dropBgp(instance, uncertain)
+    for (const [key, scope] of ospfScopes) {
+      if (scope.instance !== instance) continue
+      for (const n of scopeStatements(scope)) set(n, uncertain)
+      ospfScopes.delete(key)
+    }
     return ignored(`removes the VRF and its routes (${linesText(removed.map(line).sort((a, b) => a - b))}): nothing to convert`)
   }
 
@@ -999,6 +1023,607 @@ export function parse(text: string, _context: Context): ParseResult {
     return ignored('removes the community configured before it: nothing to convert')
   }
 
+  // ---- OSPF
+
+  /** A setting and the statement that gave it. */
+  type Said<T> = { readonly node: XrNode; readonly value: T }
+  /** A later statement replaces the earlier one, as on the device. */
+  const replace = <T>(previous: Said<T> | undefined, node: XrNode, value: T): Said<T> => {
+    if (previous && previous.node !== node) set(previous.node, ignored(`superseded by line ${line(node)}`))
+    return { node, value }
+  }
+  /**
+   * An interface's OSPF settings, on the interface itself or, inherited by each interface that doesn't set its own, on
+   * its area or its process (IOS-XR's inheritance). `passive: false` is `passive disable`.
+   */
+  type PortSettings = { cost?: Said<number>; networkType?: Said<OspfNetworkType>; passive?: Said<boolean>; helloInterval?: Said<number>; deadInterval?: Said<number> }
+  const INHERITED = ['cost', 'networkType', 'passive', 'helloInterval', 'deadInterval'] as const
+  type OspfPort = { readonly ref: string; readonly opened: XrNode[]; readonly settings: PortSettings; authentication?: Said<OspfAuthentication> }
+  type OspfAreaState = { readonly opened: XrNode[]; readonly settings: PortSettings; type?: Said<'stub' | 'nssa'>; authentication?: Said<OspfAuthentication>; readonly ports: Map<string, OspfPort> }
+  /** One OSPF process in one network instance: `router ospf P` for the global table, `vrf V` inside it for V. */
+  type OspfScope = { readonly tag: string; readonly instance: string; readonly opened: XrNode[]; readonly settings: PortSettings; routerId?: Said<string>; authentication?: Said<OspfAuthentication>; readonly areas: Map<string, OspfAreaState> }
+  const ospfScopes = new Map<string, OspfScope>()
+  const ospfScope = (tag: string, instance: string): OspfScope => {
+    const key = JSON.stringify([tag, instance])
+    const scope = ospfScopes.get(key) ?? { tag, instance, opened: [], settings: {}, areas: new Map() }
+    ospfScopes.set(key, scope)
+    return scope
+  }
+  const settingStatements = (s: PortSettings): XrNode[] => INHERITED.flatMap((k) => (s[k] ? [s[k].node] : []))
+  const portStatements = (p: OspfPort): XrNode[] => [...p.opened, ...settingStatements(p.settings), ...(p.authentication ? [p.authentication.node] : [])]
+  const areaStatements = (a: OspfAreaState): XrNode[] => [...a.opened, ...settingStatements(a.settings), ...[a.type?.node, a.authentication?.node].filter((n) => n !== undefined), ...[...a.ports.values()].flatMap(portStatements)]
+  const scopeStatements = (s: OspfScope): XrNode[] => [...s.opened, ...settingStatements(s.settings), ...[s.routerId?.node, s.authentication?.node].filter((n) => n !== undefined), ...[...s.areas.values()].flatMap(areaStatements)]
+
+  /** One of the settings an interface takes (or inherits), read from `w`; a reason when it isn't converted; null when it isn't one. */
+  const readPortSetting = (w: readonly string[]): { key: (typeof INHERITED)[number]; value: number | string | boolean } | { reason?: string } | null => {
+    const lw = w.map((x) => x.toLowerCase())
+    const number = (key: 'cost' | 'helloInterval' | 'deadInterval') => (w.length === 2 && inRange(w[1], { min: 1, max: 65535 }) ? { key, value: Number(w[1]) } : { reason: 'not a number from 1 to 65535' })
+    if (lw[0] === 'cost') return number('cost')
+    if (lw[0] === 'hello-interval') return number('helloInterval')
+    if (lw[0] === 'dead-interval') return number('deadInterval')
+    if (lw[0] === 'network') return w.length === 2 && (lw[1] === 'point-to-point' || lw[1] === 'broadcast') ? { key: 'networkType', value: lw[1] } : { reason: 'a network type the model doesn\'t have' }
+    if (lw[0] === 'passive') return w.length === 1 || (w.length === 2 && lw[1] === 'enable') ? { key: 'passive', value: true } : w.length === 2 && lw[1] === 'disable' ? { key: 'passive', value: false } : {}
+    return null
+  }
+  /** `authentication [message-digest|keychain K]`: the kind, flagged; a reason when it isn't converted; null when it isn't one. */
+  const readAuthentication = (w: readonly string[]): OspfAuthentication | { reason?: string } | null => {
+    const lw = w.map((x) => x.toLowerCase())
+    if (lw[0] !== 'authentication') return null
+    if (w.length === 1) return 'simple'
+    if (w.length === 2 && lw[1] === 'message-digest') return 'md5'
+    if (w.length === 3 && lw[1] === 'keychain') return 'key-chain'
+    return lw[1] === 'null' ? { reason: 'no authentication, whatever the area or process has: the model can\'t say it' } : {}
+  }
+  /** The `no` form's setting: which key of PortSettings, or `authentication`. */
+  const NEGATED = new Map<string, (typeof INHERITED)[number] | 'authentication'>([['cost', 'cost'], ['hello-interval', 'helloInterval'], ['dead-interval', 'deadInterval'], ['network', 'networkType'], ['passive', 'passive'], ['authentication', 'authentication']])
+
+  /**
+   * A setting in a process, an area or an interface (`owner`), with `auth` where its authentication goes. Returns
+   * whether `node` was one; its fields are set once the model is built.
+   */
+  const mapOspfSetting = (node: XrNode, settings: PortSettings, auth: { authentication?: Said<OspfAuthentication> }): boolean => {
+    const w = node.words
+    const lw = w.map((x) => x.toLowerCase())
+    // The key is a secret: never carried. The model flags the authentication, and the target asks for the key.
+    if (lw[0] === 'message-digest-key' || lw[0] === 'authentication-key') {
+      set(node, ignored('an OSPF key: never carried, the target asks for it'))
+      return true
+    }
+    if (lw[0] === 'no' && (lw[1] === 'message-digest-key' || lw[1] === 'authentication-key')) {
+      set(node, ignored('removes an OSPF key, which is never carried: nothing to convert'))
+      return true
+    }
+    const authentication = readAuthentication(w)
+    if (authentication !== null) {
+      if (typeof authentication === 'object') set(node, unsupported(authentication.reason))
+      else {
+        auth.authentication = replace(auth.authentication, node, authentication)
+        set(node, mapped([]))
+      }
+      return true
+    }
+    const setting = readPortSetting(w)
+    if (setting !== null) {
+      if (!('key' in setting)) set(node, unsupported(setting.reason))
+      else {
+        ;(settings as Record<string, Said<unknown> | undefined>)[setting.key] = replace(settings[setting.key] as Said<unknown> | undefined, node, setting.value)
+        set(node, mapped([]))
+      }
+      return true
+    }
+    const negated = lw[0] === 'no' ? NEGATED.get(lw[1]) : undefined
+    if (negated) {
+      const holder = (negated === 'authentication' ? auth : settings) as Record<string, Said<unknown> | undefined>
+      const previous = holder[negated]
+      holder[negated] = undefined
+      if (previous) set(previous.node, ignored(`removed by line ${line(node)}`))
+      set(node, ignored(previous ? `removes the setting on line ${line(previous.node)}: nothing to convert` : 'no such setting to remove: nothing to convert'))
+      return true
+    }
+    return false
+  }
+
+  /** `router ospf P`: its settings, areas and `vrf V` blocks. */
+  const mapRouterOspf = (node: XrNode): void => {
+    const w = node.words
+    if (w.length !== 3) return unsupportedTree(node)
+    const scope = ospfScope(w[2], 'default')
+    scope.opened.push(node)
+    set(node, mapped([]))
+    for (const child of node.children) {
+      const cw = child.words
+      if (child.kind === 'statement' && cw[0].toLowerCase() === 'vrf' && cw.length === 2 && cw[1] !== 'default') {
+        const vrf = ospfScope(w[2], cw[1])
+        vrf.opened.push(child)
+        set(child, mapped([]))
+        for (const c of child.children) mapOspfScopeChild(c, vrf)
+      } else if (child.kind === 'statement' && cw[0].toLowerCase() === 'no' && cw[1]?.toLowerCase() === 'vrf' && cw.length === 3 && !child.children.length) {
+        const vrf = ospfScopes.get(JSON.stringify([w[2], cw[2]]))
+        set(child, removeOspfScope(child, vrf ? [vrf] : []))
+        if (vrf) ospfScopes.delete(JSON.stringify([w[2], cw[2]]))
+      } else mapOspfScopeChild(child, scope)
+    }
+  }
+
+  /** Marks a scope's statements removed by `node`; the `no` statement's own disposition. */
+  const removeOspfScope = (node: XrNode, scopes: OspfScope[]): StatementDisposition => {
+    const removed = scopes.flatMap(scopeStatements)
+    for (const n of removed) if (dispositions[n.id]?.kind !== 'unsupported') set(n, ignored(`removed by line ${line(node)}`))
+    return ignored(removed.length ? `removes the OSPF configuration on ${linesText([...new Set(removed.map(line))].sort((a, b) => a - b))}: nothing to convert` : 'no such OSPF configuration: nothing to convert')
+  }
+
+  const mapOspfScopeChild = (node: XrNode, scope: OspfScope): void => {
+    if (node.kind === 'comment') return set(node, ignored('a comment'))
+    const w = node.words
+    const lw = w.map((x) => x.toLowerCase())
+    if (lw[0] === 'area' && w.length === 2 && areaId(w[1]) !== null) {
+      const id = areaId(w[1])!
+      const area: OspfAreaState = scope.areas.get(id) ?? { opened: [], settings: {}, ports: new Map() }
+      scope.areas.set(id, area)
+      area.opened.push(node)
+      set(node, mapped([]))
+      for (const child of node.children) mapOspfAreaChild(child, area, id)
+      return
+    }
+    if (node.children.length) return unsupportedTree(node)
+    if (lw[0] === 'no' && lw[1] === 'area' && w.length === 3 && areaId(w[2]) !== null) {
+      const area = scope.areas.get(areaId(w[2])!)
+      scope.areas.delete(areaId(w[2])!)
+      const removed = area ? areaStatements(area) : []
+      for (const n of removed) if (dispositions[n.id]?.kind !== 'unsupported') set(n, ignored(`removed by line ${line(node)}`))
+      return set(node, ignored(removed.length ? `removes the area configured on ${linesText([...new Set(removed.map(line))].sort((a, b) => a - b))}: nothing to convert` : 'no such area: nothing to convert'))
+    }
+    if (lw[0] === 'router-id' && w.length === 2 && isIpv4(w[1])) {
+      scope.routerId = replace(scope.routerId, node, w[1])
+      return set(node, mapped([]))
+    }
+    if (lw[0] === 'no' && lw[1] === 'router-id' && w.length <= 3) {
+      const previous = scope.routerId
+      scope.routerId = undefined
+      if (previous) set(previous.node, ignored(`removed by line ${line(node)}`))
+      return set(node, ignored(previous ? `removes the router ID on line ${line(previous.node)}: nothing to convert` : 'no router ID to remove: nothing to convert'))
+    }
+    if (mapOspfSetting(node, scope.settings, scope)) return
+    unsupportedTree(node)
+  }
+
+  const mapOspfAreaChild = (node: XrNode, area: OspfAreaState, id: string): void => {
+    if (node.kind === 'comment') return set(node, ignored('a comment'))
+    const w = node.words
+    const lw = w.map((x) => x.toLowerCase())
+    if (lw[0] === 'interface' && w.length === 2 && isInterfaceName(w[1])) {
+      const port: OspfPort = area.ports.get(w[1]) ?? { ref: w[1], opened: [], settings: {} }
+      area.ports.set(w[1], port)
+      port.opened.push(node)
+      set(node, mapped([]))
+      for (const child of node.children) {
+        if (child.kind === 'comment') set(child, ignored('a comment'))
+        else if (child.children.length || !mapOspfSetting(child, port.settings, port)) unsupportedTree(child)
+      }
+      return
+    }
+    if (node.children.length) return unsupportedTree(node)
+    if (lw[0] === 'no' && lw[1] === 'interface' && w.length === 3) {
+      const port = area.ports.get(w[2])
+      area.ports.delete(w[2])
+      const removed = port ? portStatements(port) : []
+      for (const n of removed) if (dispositions[n.id]?.kind !== 'unsupported') set(n, ignored(`removed by line ${line(node)}`))
+      return set(node, ignored(removed.length ? `removes the OSPF interface configured on ${linesText([...new Set(removed.map(line))].sort((a, b) => a - b))}: nothing to convert` : 'no such OSPF interface: nothing to convert'))
+    }
+    if ((lw[0] === 'stub' || lw[0] === 'nssa') && w.length === 1) {
+      if (id === '0.0.0.0') return set(node, unsupported('the backbone area is never a stub or NSSA'))
+      area.type = replace(area.type, node, lw[0])
+      return set(node, mapped([]))
+    }
+    if (lw[0] === 'no' && (lw[1] === 'stub' || lw[1] === 'nssa') && w.length === 2) {
+      const previous = area.type?.value === lw[1] ? area.type : undefined
+      if (previous) {
+        area.type = undefined
+        set(previous.node, ignored(`removed by line ${line(node)}`))
+      }
+      return set(node, ignored(previous ? `removes the area type on line ${line(previous.node)}: nothing to convert` : 'no such area type to remove: nothing to convert'))
+    }
+    if (mapOspfSetting(node, area.settings, area)) return
+    unsupportedTree(node)
+  }
+
+  /** `no router ospf P`: removes the process, in every network instance. */
+  const removeRouterOspf = (node: XrNode): StatementDisposition => {
+    const w = node.words
+    if (w.length !== 4) return unsupported()
+    const scopes = [...ospfScopes.entries()].filter(([, s]) => s.tag === w[3])
+    for (const [key] of scopes) ospfScopes.delete(key)
+    return removeOspfScope(node, scopes.map(([, s]) => s))
+  }
+
+  /** Whether a network instance exists in the model: the global table, or a VRF the text defines. */
+  const instanceDefined = (instance: string) => instance === 'default' || model.get(['networkInstances', instance, 'type']) === 'vrf'
+  /** Whether an interface reference names an interface of the model, or one of its subinterfaces (as the core checks). */
+  const interfaceResolves = (ref: string): boolean => {
+    if (model.get(['interfaces', ref]) !== undefined) return true
+    const split = splitSubinterface(ref)
+    return split !== null && model.get(['interfaces', split.parent, 'subinterfaces', split.index]) !== undefined
+  }
+  /** The network instance an interface reference routes in (`default` for the global table). */
+  const instanceOf = (ref: string): string => {
+    const split = splitSubinterface(ref)
+    return vrfOf(split ? { name: split.parent, sub: split.index, isSub: true } : { name: ref, sub: '0', isSub: false }).vrf
+  }
+
+  /**
+   * OSPF into the model, once every statement is read. The model has one process per network instance: the first in the
+   * text; another one there is left out. An interface takes its own settings, else its area's, else its process's.
+   */
+  const buildOspf = () => {
+    const owner = new Map<string, string>()
+    const add = (node: XrNode, field: string) => {
+      const d = dispositions[node.id]
+      if (d?.kind === 'mapped') set(node, mapped([...d.fields, field]))
+    }
+    /** Settings statements on an area or a process that filled at least one interface, so the rest say why they didn't. */
+    const used = new Set<XrNode>()
+    for (const s of ospfScopes.values()) {
+      if (!instanceDefined(s.instance)) {
+        for (const n of scopeStatements(s)) set(n, unsupported('OSPF in a VRF the configuration doesn\'t define'))
+        continue
+      }
+      if (owner.has(s.instance) && owner.get(s.instance) !== s.tag) {
+        for (const n of scopeStatements(s)) set(n, unsupported('a second OSPF process in the same table: the model has one per network instance'))
+        continue
+      }
+      owner.set(s.instance, s.tag)
+      const at = ['networkInstances', s.instance, 'ospf']
+      const processId = model.set([...at, 'processId'], s.tag)
+      for (const n of s.opened) add(n, processId)
+      if (s.routerId) set(s.routerId.node, mapped([model.set([...at, 'routerId'], s.routerId.value)]))
+      /** Interfaces already in an area of this process: IOS-XR puts one in one area. */
+      const seen = new Map<string, XrNode>()
+      for (const [id, a] of s.areas) {
+        const areaAt = [...at, 'areas', id]
+        for (const n of a.opened) add(n, fieldPath(...areaAt))
+        if (a.type) set(a.type.node, mapped([model.set([...areaAt, 'type'], a.type.value)]))
+        const authentication = a.authentication ?? s.authentication
+        if (authentication) {
+          const field = model.set([...areaAt, 'authentication'], authentication.value)
+          if (authentication === a.authentication) set(authentication.node, mapped([field]))
+          else {
+            add(authentication.node, field)
+            used.add(authentication.node)
+          }
+        }
+        for (const p of a.ports.values()) {
+          const why = !interfaceResolves(p.ref)
+            ? 'OSPF on an interface the configuration doesn\'t define'
+            : instanceOf(p.ref) !== s.instance
+              ? 'OSPF on an interface in another network instance than the process\'s'
+              : seen.has(p.ref)
+                ? `an interface already in an area on line ${line(seen.get(p.ref)!)}: IOS-XR puts one in one area`
+                : undefined
+          if (why) {
+            for (const n of portStatements(p)) set(n, unsupported(why))
+            continue
+          }
+          seen.set(p.ref, p.opened[0])
+          const entry = [...areaAt, 'interfaces', p.ref]
+          for (const n of p.opened) add(n, model.set([...entry, 'enabledBy'], 'interface'))
+          if (p.authentication) set(p.authentication.node, mapped([model.set([...entry, 'authentication'], p.authentication.value)]))
+          for (const k of INHERITED) {
+            const said = p.settings[k] ?? a.settings[k] ?? s.settings[k]
+            if (!said) continue
+            if (said !== p.settings[k]) used.add(said.node)
+            if (said.value === false) continue
+            const field = model.set([...entry, k], said.value)
+            if (said === p.settings[k]) set(said.node, mapped([field]))
+            else add(said.node, field)
+          }
+          // `passive disable` says what the model says by leaving passive out.
+          if (p.settings.passive?.value === false) set(p.settings.passive.node, ignored(a.settings.passive || s.settings.passive ? 'not passive, overriding the area\'s or the process\'s passive: written back as the interface\'s own setting is' : 'not passive, as an interface is unless set: nothing to convert'))
+        }
+      }
+    }
+    // An area's or a process's setting no interface took (each has its own, or there are none): nothing of it is left.
+    for (const s of ospfScopes.values()) {
+      if (owner.get(s.instance) !== s.tag || !instanceDefined(s.instance)) continue
+      const inheritable = [...settingStatements(s.settings), ...(s.authentication ? [s.authentication.node] : []), ...[...s.areas.values()].flatMap((a) => settingStatements(a.settings))]
+      for (const n of inheritable) {
+        const d = dispositions[n.id]
+        // Taken but with nothing to put in the model: `passive disable`, what the model says by leaving passive out.
+        if (d?.kind === 'mapped' && !d.fields.length) set(n, ignored(used.has(n) ? 'not passive, as an interface is unless set: nothing to convert' : 'no interface takes it from here: nothing to convert'))
+      }
+    }
+  }
+
+  // ---- BGP
+
+  /** The AS of `router bgp`, and the statement that gave it: IOS-XR runs one BGP instance here. */
+  let bgpAs: Said<number> | undefined
+  const bgpPath = (instance: string) => ['networkInstances', instance, 'bgp']
+  /** Per network instance, every statement that put some of its BGP in the model, so `no vrf` can take it out. */
+  const bgpStatements = new Map<string, XrNode[]>()
+  /** Per peer (a neighbor or a neighbor group) and per peer address family, its statements, so `no neighbor` can remove them. */
+  const peerStatements = new Map<string, XrNode[]>()
+  const peerKey = (...path: Segments) => fieldPath(...path)
+  const track = (instance: string, node: XrNode, ...peers: string[]) => {
+    bgpStatements.set(instance, [...(bgpStatements.get(instance) ?? []), node])
+    for (const p of peers) peerStatements.set(p, [...(peerStatements.get(p) ?? []), node])
+  }
+  /** Forgets which statements set the settings under `path`: they are gone, so a later `no …` has nothing to remove. */
+  const dropOwners = (path: Segments) => {
+    const p = fieldPath(...path)
+    for (const key of owners.keys()) if (key === p || key.startsWith(`${p}.`) || key.startsWith(`${p}[`)) owners.delete(key)
+  }
+  /** The VRFs whose route distinguisher `router bgp` → `vrf V` → `rd` set, by the statement. */
+  const distinguishers = new Map<string, XrNode>()
+
+  /** Takes a network instance's BGP out of the model, each statement still mapped marked `d`. */
+  const dropBgp = (instance: string, d: StatementDisposition) => {
+    for (const n of bgpStatements.get(instance) ?? []) if (dispositions[n.id]?.kind === 'mapped') set(n, d)
+    const prefix = peerKey(...bgpPath(instance))
+    for (const key of peerStatements.keys()) if (key.startsWith(`${prefix}.`) || key.startsWith(`${prefix}[`)) peerStatements.delete(key)
+    bgpStatements.delete(instance)
+    dropOwners(bgpPath(instance))
+    model.prune(bgpPath(instance), 0)
+    const rd = distinguishers.get(instance)
+    if (rd) {
+      if (dispositions[rd.id]?.kind === 'mapped') set(rd, d)
+      distinguishers.delete(instance)
+      owners.delete(fieldPath('networkInstances', instance, 'routeDistinguisher'))
+      model.prune(['networkInstances', instance, 'routeDistinguisher'], 0)
+    }
+  }
+
+  /** `router bgp ASN`: BGP in the global table, and inside `vrf V` in V. */
+  const mapRouterBgp = (node: XrNode): void => {
+    const w = node.words
+    const as = w.length === 3 ? asNumber(w[2]) : null
+    if (as === null) return unsupportedTree(node, w.length === 3 ? 'not an AS number from 1 to 4294967295' : undefined)
+    if (bgpAs && bgpAs.value !== as) return unsupportedTree(node, `a second BGP AS beside line ${line(bgpAs.node)}'s: the model has one`)
+    bgpAs ??= { node, value: as }
+    track('default', node)
+    set(node, mapped([model.set([...bgpPath('default'), 'localAs'], as)]))
+    for (const child of node.children) mapBgpChild(child, 'default', as)
+  }
+
+  const mapBgpChild = (node: XrNode, instance: string, as: number): void => {
+    if (node.kind === 'comment') return set(node, ignored('a comment'))
+    const w = node.words
+    const lw = w.map((x) => x.toLowerCase())
+    const at = bgpPath(instance)
+    const leaf = !node.children.length
+    if (leaf && lw[0] === 'bgp' && lw[1] === 'router-id' && w.length === 3 && isIpv4(w[2])) {
+      claim(fieldPath(...at, 'routerId'), node)
+      track(instance, node)
+      return set(node, mapped([model.set([...at, 'routerId'], w[2])]))
+    }
+    if (leaf && lw[0] === 'no' && lw[1] === 'bgp' && lw[2] === 'router-id' && w.length <= 4) return set(node, unclaim(fieldPath(...at, 'routerId'), node, 'router ID', [...at, 'routerId'], at.length))
+    if (lw[0] === 'address-family' && w.length === 3 && (lw[1] === 'ipv4' || lw[1] === 'ipv6') && lw[2] === 'unicast') {
+      set(node, ignored('the address family itself: written back whenever a neighbor carries it'))
+      for (const child of node.children) unsupportedTree(child)
+      return
+    }
+    if (lw[0] === 'neighbor') return mapPeer(node, instance, 'neighbors')
+    if (lw[0] === 'neighbor-group' && instance === 'default') return mapPeer(node, instance, 'groups')
+    if (leaf && lw[0] === 'no' && lw[1] === 'neighbor' && w.length === 3) return set(node, removePeer(node, instance, 'neighbors', addressKey(w[2])))
+    if (leaf && lw[0] === 'no' && lw[1] === 'neighbor-group' && w.length === 3 && instance === 'default') return set(node, removePeer(node, instance, 'groups', w[2]))
+    if (lw[0] === 'vrf' && w.length === 2 && instance === 'default' && w[1] !== 'default') {
+      track(w[1], node)
+      set(node, mapped([model.set([...bgpPath(w[1]), 'localAs'], as)]))
+      for (const child of node.children) mapBgpChild(child, w[1], as)
+      return
+    }
+    if (leaf && lw[0] === 'no' && lw[1] === 'vrf' && w.length === 3 && instance === 'default') {
+      const had = bgpStatements.has(w[2])
+      dropBgp(w[2], ignored(`removed by line ${line(node)}`))
+      return set(node, ignored(had ? 'removes the VRF\'s BGP: nothing to convert' : 'no such VRF under BGP: nothing to convert'))
+    }
+    // A VRF's route distinguisher is BGP's on IOS-XR.
+    if (leaf && lw[0] === 'rd' && w.length === 2 && instance !== 'default') {
+      if (!isRouteDistinguisher(w[1])) return set(node, unsupported(lw[1] === 'auto' ? 'an automatic route distinguisher, which depends on the device\'s router ID' : 'not a route distinguisher in the form ASN:nn, IP:nn or ASN4:nn'))
+      claim(fieldPath('networkInstances', instance, 'routeDistinguisher'), node)
+      distinguishers.set(instance, node)
+      return set(node, mapped([model.set(['networkInstances', instance, 'routeDistinguisher'], w[1])]))
+    }
+    if (leaf && lw[0] === 'no' && lw[1] === 'rd' && w.length <= 3 && instance !== 'default') {
+      distinguishers.delete(instance)
+      return set(node, unclaim(fieldPath('networkInstances', instance, 'routeDistinguisher'), node, 'route distinguisher', ['networkInstances', instance, 'routeDistinguisher'], 2))
+    }
+    unsupportedTree(node)
+  }
+
+  /** `neighbor X [remote-as N]` or `neighbor-group G`, with what is inside it. */
+  const mapPeer = (node: XrNode, instance: string, kind: 'neighbors' | 'groups'): void => {
+    const w = node.words
+    let key: string
+    if (kind === 'neighbors') {
+      if (w[1] === undefined || !(isIpv4(w[1]) || isIpv6(w[1]))) return unsupportedTree(node, w[1]?.includes('/') ? 'a range of neighbors (dynamic peers), which comes later' : undefined)
+      key = addressKey(w[1])
+    } else {
+      if (w.length !== 2) return unsupportedTree(node)
+      key = w[1]
+    }
+    const rest = w.slice(2)
+    let peerAs: number | undefined
+    if (kind === 'neighbors' && rest.length === 2 && rest[0].toLowerCase() === 'remote-as') {
+      const n = asNumber(rest[1])
+      if (n === null) return unsupportedTree(node, 'not an AS number from 1 to 4294967295')
+      peerAs = n
+    } else if (rest.length) return unsupportedTree(node)
+    const at = [...bgpPath(instance), kind, key]
+    const fields = [model.get(at) === undefined ? model.set(at, {}) : fieldPath(...at)]
+    if (peerAs !== undefined) {
+      claim(fieldPath(...at, 'peerAs'), node)
+      fields.push(model.set([...at, 'peerAs'], peerAs))
+    }
+    track(instance, node, peerKey(...at))
+    set(node, mapped(fields))
+    for (const child of node.children) mapPeerChild(child, instance, at)
+  }
+
+  /** The settings `no <word>` takes back from a peer, by the word: the field and what to call it. */
+  const PEER_NEGATIONS = new Map<string, [field: string, what: string]>([['remote-as', ['peerAs', 'remote AS']], ['description', ['description', 'description']], ['update-source', ['updateSource', 'update source']], ['ebgp-multihop', ['multihop', 'eBGP multihop']], ['password', ['authentication', 'password']], ['use', ['group', 'neighbor group']]])
+
+  /** A setting of a neighbor or a neighbor group (`at` is its path). */
+  const mapPeerChild = (node: XrNode, instance: string, at: Segments): void => {
+    if (node.kind === 'comment') return set(node, ignored('a comment'))
+    const w = node.words
+    const lw = w.map((x) => x.toLowerCase())
+    const neighbor = at[at.length - 2] === 'neighbors'
+    if (lw[0] === 'address-family' && w.length === 3 && (lw[1] === 'ipv4' || lw[1] === 'ipv6') && lw[2] === 'unicast') return mapPeerFamily(node, instance, at, lw[1])
+    if (node.children.length) return unsupportedTree(node)
+    const say = (field: Segments, value: unknown) => {
+      claim(fieldPath(...at, ...field), node)
+      track(instance, node, peerKey(...at))
+      set(node, mapped([model.set([...at, ...field], value)]))
+    }
+    if (lw[0] === 'remote-as' && w.length === 2) {
+      const n = asNumber(w[1])
+      return n === null ? set(node, unsupported('not an AS number from 1 to 4294967295')) : say(['peerAs'], n)
+    }
+    if (lw[0] === 'description' && w.length > 1) return say(['description'], node.text.replace(/^\S+\s+/, ''))
+    if (lw[0] === 'update-source') return w.length === 2 && isInterfaceName(w[1]) ? say(['updateSource'], w[1]) : set(node, unsupported())
+    if (lw[0] === 'ebgp-multihop' && w.length <= 2) {
+      if (w.length === 1) {
+        // No TTL given: IOS-XR's default, which the model says by leaving it out.
+        claim(fieldPath(...at, 'multihop', 'ttl'), node)
+        track(instance, node, peerKey(...at))
+        model.remove([...at, 'multihop', 'ttl'])
+        return set(node, mapped([model.set([...at, 'multihop'], {})]))
+      }
+      return inRange(w[1], { min: 1, max: 255 }) ? say(['multihop', 'ttl'], Number(w[1])) : set(node, unsupported('not a TTL from 1 to 255'))
+    }
+    // The password is a secret: never carried. The model flags it, and the target asks for it.
+    if (lw[0] === 'password' && (w.length === 2 || w.length === 3) && lw[1] !== 'inheritance-disable') return say(['authentication'], true)
+    if (neighbor && lw[0] === 'use' && lw[1] === 'neighbor-group' && w.length === 3) return say(['group'], w[2])
+    if (lw[0] === 'use') return set(node, unsupported(lw[1] === 'neighbor-group' ? 'a neighbor group inside another: the model\'s groups don\'t nest' : 'a session or address family group, which the model doesn\'t have'))
+    if (lw[0] === 'shutdown' && w.length === 1) return set(node, unsupported('a session shut down: the model has no switch for it'))
+    if (lw[0] === 'no' && lw[1] === 'shutdown' && w.length === 2) return set(node, ignored('a session is up unless shut down: nothing to convert'))
+    if (lw[0] === 'no' && lw[1] === 'address-family' && w.length === 4 && (lw[2] === 'ipv4' || lw[2] === 'ipv6') && lw[3] === 'unicast') return set(node, removePeerFamily(node, at, lw[2]))
+    const negated = lw[0] === 'no' ? PEER_NEGATIONS.get(lw[1]) : undefined
+    if (negated && (neighbor || negated[0] !== 'group')) {
+      const [field, what] = negated
+      return set(node, unclaim(fieldPath(...at, ...(field === 'multihop' ? ['multihop', 'ttl'] : [field])), node, what, [...at, field], at.length))
+    }
+    unsupportedTree(node)
+  }
+
+  /** `address-family ipv4|ipv6 unicast` on a peer: the family it carries, with its route policies (by name only). */
+  const mapPeerFamily = (node: XrNode, instance: string, at: Segments, family: 'ipv4' | 'ipv6'): void => {
+    const af = [...at, 'addressFamilies', `${family}-unicast`]
+    track(instance, node, peerKey(...at), peerKey(...af))
+    set(node, mapped([model.get(af) === undefined ? model.set(af, {}) : fieldPath(...af)]))
+    for (const child of node.children) {
+      const w = child.words
+      const lw = w.map((x) => x.toLowerCase())
+      const no = lw[0] === 'no' ? 1 : 0
+      const direction = lw[2 + no] === 'in' ? 'importPolicies' : lw[2 + no] === 'out' ? 'exportPolicies' : undefined
+      if (child.kind === 'comment') set(child, ignored('a comment'))
+      else if (child.children.length || lw[no] !== 'route-policy' || w.length !== 3 + no || !direction) unsupportedTree(child)
+      // A policy with parameters (`route-policy P(10) in`) is more than a name.
+      else if (!no && !/^[\w.-]+$/.test(w[1])) set(child, unsupported('a route policy with parameters, which comes with route policies'))
+      else if (no) set(child, unclaim(fieldPath(...af, direction), child, 'route policy', [...af, direction], af.length))
+      else {
+        claim(fieldPath(...af, direction), child)
+        track(instance, child, peerKey(...at), peerKey(...af))
+        set(child, mapped([model.set([...af, direction], [w[1]])]))
+        diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.route-policy-name-only', message: `The route policy on line ${line(child)} is converted by its name only: its body isn't converted yet.`, statement: child.id, span: child.span })
+      }
+    }
+  }
+
+  /** `no address-family ipv4|ipv6 unicast` on a peer: it no longer carries the family. */
+  const removePeerFamily = (node: XrNode, at: Segments, family: 'ipv4' | 'ipv6'): StatementDisposition => {
+    const af = [...at, 'addressFamilies', `${family}-unicast`]
+    const said = peerStatements.get(peerKey(...af)) ?? []
+    if (!said.length) return ignored('no such address family on the peer: nothing to convert')
+    for (const n of said) if (dispositions[n.id]?.kind === 'mapped') set(n, ignored(`removed by line ${line(node)}`))
+    peerStatements.delete(peerKey(...af))
+    dropOwners(af)
+    model.prune(af, at.length)
+    return ignored(`removes the address family on ${linesText(said.map(line))}: nothing to convert`)
+  }
+
+  /** `no neighbor X` / `no neighbor-group G`: removes the peer and everything said about it. */
+  const removePeer = (node: XrNode, instance: string, kind: 'neighbors' | 'groups', key: string): StatementDisposition => {
+    const at = [...bgpPath(instance), kind, key]
+    const said = peerStatements.get(peerKey(...at)) ?? []
+    const what = kind === 'neighbors' ? 'neighbor' : 'neighbor group'
+    if (!said.length) return ignored(`no such ${what}: nothing to convert`)
+    for (const n of said) if (dispositions[n.id]?.kind === 'mapped') set(n, ignored(`removed by line ${line(node)}`))
+    for (const k of peerStatements.keys()) if (k === peerKey(...at) || k.startsWith(`${peerKey(...at)}.`)) peerStatements.delete(k)
+    dropOwners(at)
+    model.prune(at, 3)
+    return ignored(`removes the ${what} configured on ${linesText([...new Set(said.map(line))].sort((a, b) => a - b))}: nothing to convert`)
+  }
+
+  /** `no router bgp ASN`: removes BGP, every network instance's. */
+  const removeRouterBgp = (node: XrNode): StatementDisposition => {
+    const w = node.words
+    const as = w.length === 4 ? asNumber(w[3]) : null
+    if (as === null) return unsupported()
+    if (!bgpAs || bgpAs.value !== as) return ignored('no such BGP process: nothing to convert')
+    const lines = [...bgpStatements.values()].flat().filter((n) => dispositions[n.id]?.kind === 'mapped').map(line)
+    for (const instance of bgpStatements.keys()) dropBgp(instance, ignored(`removed by line ${line(node)}`))
+    bgpAs = undefined
+    return ignored(`removes BGP (${linesText([...new Set(lines)].sort((a, b) => a - b))}): nothing to convert`)
+  }
+
+  /**
+   * BGP's references, once every statement is read: a VRF's BGP needs the VRF defined, an update source an interface
+   * of the model, and a neighbor's group one of its instance's (a VRF neighbor using a global group, for now, isn't).
+   */
+  const checkBgp = () => {
+    for (const instance of bgpStatements.keys()) if (!instanceDefined(instance)) dropBgp(instance, unsupported('BGP in a VRF the configuration doesn\'t define'))
+    for (const [instance, ni] of Object.entries((model.get(['networkInstances']) as Obj | undefined) ?? {})) {
+      const bgp = isObject(ni) && isObject(ni.bgp) ? ni.bgp : undefined
+      if (!bgp) continue
+      const groups = isObject(bgp.groups) ? bgp.groups : {}
+      for (const kind of ['groups', 'neighbors'] as const) {
+        for (const [key, peer] of Object.entries(isObject(bgp[kind]) ? (bgp[kind] as Obj) : {})) {
+          if (!isObject(peer)) continue
+          const at = [...bgpPath(instance), kind, key]
+          const drop = (field: string, why: string) => {
+            const owner = owners.get(fieldPath(...at, field))
+            if (owner) set(owner, unsupported(why))
+            owners.delete(fieldPath(...at, field))
+            model.remove([...at, field])
+          }
+          if (typeof peer.updateSource === 'string' && !interfaceResolves(peer.updateSource)) drop('updateSource', 'names an interface the configuration doesn\'t define')
+          if (typeof peer.group === 'string' && !Object.hasOwn(groups, peer.group)) drop('group', 'names a neighbor group the configuration doesn\'t define here')
+        }
+      }
+    }
+  }
+
+  /**
+   * What IOS-XR does with an eBGP peer's routes when no policy applies: it drops them both ways (RFC 8212). Said, as
+   * model 0.4.1 has it, for each network instance with an eBGP neighbor that has no policy one way, so a target that
+   * accepts them raises a warning. It is the platform's default, not configuration: the instance's own statement maps it.
+   */
+  const sayDefaultPolicy = () => {
+    for (const [instance, ni] of Object.entries((model.get(['networkInstances']) as Obj | undefined) ?? {})) {
+      const bgp = isObject(ni) && isObject(ni.bgp) ? (ni.bgp as Bgp) : undefined
+      const opening = bgpStatements.get(instance)?.[0]
+      if (!bgp || !opening) continue
+      const sides = new Set<'import' | 'export'>()
+      for (const neighbor of Object.values(bgp.neighbors ?? {})) {
+        const group = neighbor.group !== undefined && bgp.groups && Object.hasOwn(bgp.groups, neighbor.group) ? bgp.groups[neighbor.group] : undefined
+        const peerAs = neighbor.peerAs ?? group?.peerAs
+        if (peerAs === undefined || peerAs === bgp.localAs) continue
+        // Each family it carries (its own or its group's) by its effective policy each way: the family's own, else the
+        // neighbor's, else the group's family's, else the group's. With no family, the neighbor's or the group's.
+        const families = [...new Set([...Object.keys(neighbor.addressFamilies ?? {}), ...Object.keys(group?.addressFamilies ?? {})])] as BgpAddressFamilyName[]
+        for (const [field, side] of [['importPolicies', 'import'], ['exportPolicies', 'export']] as const) {
+          const effective = (f?: BgpAddressFamilyName) => (f ? neighbor.addressFamilies?.[f]?.[field] : undefined) ?? neighbor[field] ?? (f ? group?.addressFamilies?.[f]?.[field] : undefined) ?? group?.[field]
+          const missing = families.length ? families.some((f) => !effective(f)?.length) : !effective()?.length
+          if (missing) sides.add(side)
+        }
+      }
+      const fields = [...sides].map((side) => model.set([...bgpPath(instance), 'ebgpDefaultPolicy', side], 'reject'))
+      const d = dispositions[opening.id]
+      if (fields.length && d?.kind === 'mapped') set(opening, mapped([...d.fields, ...fields]))
+    }
+  }
+
   // ---- the top level
 
   const mapTop = (node: XrNode): void => {
@@ -1018,7 +1643,11 @@ export function parse(text: string, _context: Context): ParseResult {
     if (lw[0] === 'vrf') return mapVrf(node)
     if (lw[0] === 'router' && lw[1] === 'static' && w.length === 2) return mapRouterStatic(node)
     if (lw[0] === 'ntp' && w.length === 1) return mapNtpBlock(node)
+    if (lw[0] === 'router' && lw[1] === 'ospf') return mapRouterOspf(node)
+    if (lw[0] === 'router' && lw[1] === 'bgp') return mapRouterBgp(node)
     if (node.children.length) return unsupportedTree(node)
+    if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'ospf') return set(node, removeRouterOspf(node))
+    if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'bgp') return set(node, removeRouterBgp(node))
 
     let d: StatementDisposition = unsupported()
     if (lw[0] === 'hostname' && w.length === 2) {
@@ -1087,6 +1716,10 @@ export function parse(text: string, _context: Context): ParseResult {
     }
     if (!ctx.isSub) pruneMain(ctx)
   }
+
+  buildOspf()
+  checkBgp()
+  sayDefaultPolicy()
 
   // A community with a statement not converted anywhere in the text (an access list, owner access) is left out whole:
   // mapped without it, it could answer clients or allow access the source doesn't.

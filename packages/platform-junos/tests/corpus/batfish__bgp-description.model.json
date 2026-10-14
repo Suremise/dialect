@@ -1,0 +1,29 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "bgp-description"
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "groups": {
+            "G": {
+              "description": "G"
+            }
+          },
+          "neighbors": {
+            "1.2.3.4": {
+              "group": "G",
+              "description": "N"
+            },
+            "2.3.4.5": {
+              "group": "G"
+            }
+          },
+          "localAs": 1
+        }
+      }
+    }
+  }
+}

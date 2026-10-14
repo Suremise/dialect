@@ -1,0 +1,27 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "bgp-type-internal"
+    },
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "groups": {
+            "MYGROUP": {
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              },
+              "type": "internal"
+            }
+          },
+          "neighbors": {
+            "1.1.1.1": {
+              "group": "MYGROUP"
+            }
+          }
+        }
+      }
+    }
+  }
+}
