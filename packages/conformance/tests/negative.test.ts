@@ -332,14 +332,40 @@ describe('the per-term rule: a term whole or not at all, and the whole policy wh
 
     it('fails a last accept or reject left out alone, the rest of the filter converted', () => {
       for (const last of ['accept', 'reject'] as const) expect(check(last, (p) => p.startsWith(at('terms', '2'))), last).toEqual([
-        `render left out ${at('terms', '2')}, which later terms would see packets differently without, but converted the rest of the filter: the whole filter is unsupported instead (${at('terms', '1', 'matches', 'protocols')}, ${at('terms', '1', 'actions', 'action')})`,
-        `render left out ${at('terms', '2')}, so the whole filter is unsupported, but still applied it (${attachment})`
+        `render left out ${at('terms', '2')}, which later terms would see packets differently without, but converted the rest of the filter: the whole filter is unsupported instead (${at('terms', '1', 'matches', 'protocols')}, ${at('terms', '1', 'actions', 'action')})`
       ])
     })
 
     it('fails the whole filter left out but still applied, and passes it left out with its attachment', () => {
       expect(check('accept', (p) => p.startsWith(at()) && !p.endsWith('.implicitAction'))).toEqual([`render left out ${at('terms', '1')}, ${at('terms', '2')}, so the whole filter is unsupported, but still applied it (${attachment})`])
       expect(check('accept', (p) => (p.startsWith(at()) && !p.endsWith('.implicitAction')) || p === attachment)).toEqual([])
+    })
+
+    // A filter left out whole (every leaf unsupported, its implicitAction too) can't be applied, whatever its terms: a
+    // safe only term, no terms, or empty ones.
+    describe('a filter left out whole, whatever its terms, still applied', () => {
+      const whole = (filter: NonNullable<NonNullable<Device['filters']>['ipv4']>[string], applied: boolean) => {
+        const m: Device = { interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { filters: { ipv4: { input: 'F' } } } } } }, filters: { ipv4: { F: filter } } }
+        return termProblems({ tree: [], model: m, dispositions: {}, diagnostics: [] }, renderOf(m, (p) => p.startsWith(at()) || (!applied && p === attachment)))
+      }
+      const cases = {
+        'an only discard': { implicitAction: 'discard', terms: { '1': { actions: { action: 'discard' } } } },
+        'an only next-term': { implicitAction: 'discard', terms: { '1': { actions: { action: 'next-term', count: 'c' } } } },
+        'no terms': { implicitAction: 'deny' },
+        'empty terms': { implicitAction: 'deny', terms: {} }
+      } as const
+      for (const [name, filter] of Object.entries(cases)) {
+        it(`${name}: fails it applied, passes it not`, () => {
+          expect(whole(filter, true)).toEqual([`render left ${at()} out whole, but still applied it (${attachment})`])
+          expect(whole(filter, false)).toEqual([])
+        })
+      }
+
+      it('passes a filter written with a safe term left out, and applied', () => {
+        // Its implicitAction is not-applicable: the filter is written, with no terms left.
+        const m: Device = { interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { filters: { ipv4: { input: 'F' } } } } } }, filters: { ipv4: { F: cases['an only discard'] } } }
+        expect(termProblems({ tree: [], model: m, dispositions: {}, diagnostics: [] }, renderOf(m, (p) => p.startsWith(at('terms'))))).toEqual([])
+      })
     })
   })
 

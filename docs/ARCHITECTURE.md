@@ -218,7 +218,8 @@ ideas from Capirca and Aerleon's term model (ideas only).
   interface's `ip unreachables` says). A renderer gives it `not-applicable` and raises a semantic warning when its
   platform's differs, or when the filter relies on it (`filterReliesOnImplicitAction()`: no term matching every packet
   accepts, discards or rejects it), even when the defaults agree; a filter of its own default that decides every
-  packet gets none.
+  packet gets none. A renderer asks it of the terms it writes, not the model's (#103): a catch-all left out (a last
+  discard it can't write, which the per-term rule lets go) leaves the end deciding what it did.
 - A term's `matches` all hold for a packet to match (within a list, any entry): `sourcePrefixes`,
   `destinationPrefixes` and `prefixes` (either; Junos `address`), in CIDR form of the filter's family (a Cisco `host`
   is a /32 or /128); `sourcePrefixLists`, `destinationPrefixLists` and `prefixLists` (either), naming
@@ -444,7 +445,10 @@ Each fixture goes through five checks (`checkFixture()`):
    that maps into it, widened while its parent maps nothing outside the term) are none of them `unsupported` once
    any maps into the model; on the render, a term's fields are all `unsupported` or none is, and a term left out whose
    skip isn't safe (`termSkipSafe()`, `filterTermSkipSafe()`) leaves every field of its policy or filter `unsupported`
-   (its `fallThrough` or `implicitAction` may be `not-applicable`). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
+   (its `fallThrough` or `implicitAction` may be `not-applicable`). A filter left out whole, whatever its terms, has
+   every leaf `unsupported`, its `implicitAction` included (a filter written, even with no terms left, has that
+   `not-applicable`), and no subinterface's attachment naming it, nor one naming a filter whose unsafe skip left it out,
+   may be `rendered` (#103). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
    judge, from the term's actions, and its own tests show it; so is a partial term in a flat syntax with no
    containers (one statement per line), whose statements the kit can't group;
 5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
@@ -1324,7 +1328,7 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     isn't a sequence number) is `unsupported` whole, and the whole filter when leaving it out isn't safe
     (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. `implicitAction`
     is `not-applicable` (IOS-XR denies), with the warning `iosxr.filter-implicit-action` on the field when the
-    source's differs (Junos `discard`) or the filter relies on it (`filterReliesOnImplicitAction()`). An interface's
+    source's differs (Junos `discard`) or the entries written rely on it (`filterReliesOnImplicitAction()`). An interface's
     `access-group` is written for a list that is written, else `unsupported`.
   - **Routing policy (#79, `renderPolicy.ts`):** planned first (BGP and VRFs name a policy only when it is written) and
     written before OSPF and BGP: `prefix-set` (a name's IPv4 and IPv6 lists in one set, entries by position; lengths as
@@ -1749,7 +1753,7 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `unsupported`, and when `filterTermSkipSafe()` doesn't allow leaving it out, so is the filter. `implicitAction` is
   `not-applicable`, and raises `junos.filter-implicit-action` on the filter's `implicitAction` field (a path, never in
   the message) naming its line when the source's is `deny` (a Cisco ACL, which may send an ICMP unreachable) or the
-  filter relies on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {
+  terms written rely on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {
   filter { input F; output G; } }`, beside the family's own settings or alone, each only when the firewall writes that
   filter (else `unsupported`: Junos commits a unit's filter only when it has it).
 - `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's

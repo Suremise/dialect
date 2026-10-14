@@ -94,11 +94,13 @@ export function firewall(filters: Filters, ctx: FilterRenderContext): { readonly
       inner.push(box(`term ${quote(r.out.label)}`, r.out.body, ...r.out.fields))
     }
     // Junos discards what no term decides; a source that denies (a Cisco ACL, which may also send an ICMP unreachable)
-    // is said, as is a filter that relies on its end at all.
+    // is said, as is a filter that relies on its end at all: by the terms written, as one left out (a last discard) can
+    // leave the end deciding what it did (#103).
     let placed: ((line: number) => void) | undefined
     if (filter.implicitAction !== undefined) skip([...at, 'implicitAction'], 'not-applicable', "the source platform's semantics, not configuration: Junos discards a packet no term decides")
     const differs = filter.implicitAction !== 'discard'
-    if (differs || filterReliesOnImplicitAction(filter)) {
+    const kept: Filter = { ...filter, terms: Object.fromEntries(results.flatMap((r) => (typeof r.out === 'string' || !r.term ? [] : [[r.key, r.term]]))) }
+    if (differs || filterReliesOnImplicitAction(kept)) {
       const message = differs
         ? "The source's filter ends in a deny, which may send an ICMP unreachable; Junos's discards silently what no term decides"
         : "The filter relies on its end for packets no term decides: Junos discards them silently, as the source's did"

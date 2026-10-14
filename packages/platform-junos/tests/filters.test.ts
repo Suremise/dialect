@@ -4,7 +4,7 @@
 // terms, where what Junos can't say is left out whole and says why. Messages never quote a name or a value.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { buildLedger, ledgerProblems, modelProblems, MODEL_VERSION, type Device, type ParseResult, type RenderResult } from '@dialect/core'
+import { buildLedger, ledgerProblems, modelProblems, MODEL_VERSION, type Device, type FilterTerm, type ParseResult, type RenderResult } from '@dialect/core'
 import { parse, render } from '../src'
 import { PORT_NUMBERS, port } from '../src/filters'
 
@@ -195,10 +195,19 @@ describe('render from another platform’s model', () => {
     expect(r.text).not.toContain('filter ECE')
     expect(r.dispositions['filters.ipv4.ECE.terms["20"].actions.action']).toMatchObject({ kind: 'unsupported', reason: expect.stringContaining('per-term rule') })
     expect(r.dispositions['interfaces.ge1.subinterfaces["0"].filters.ipv4.input']).toMatchObject({ kind: 'unsupported' })
-    // The last term can always be left out.
+    // A last discard can be left out alone (#103): the filter's end discards too.
     expect(r.text).toContain('filter LAST')
     expect(r.dispositions['filters.ipv4.LAST.terms["20"].actions.action']).toMatchObject({ kind: 'unsupported' })
     expect(ledgerProblems(buildLedger(parse('', context), r, model))).toEqual([])
+  })
+
+  it('warns that the filter relies on its end when the catch-all it ended with is the term left out (#103)', () => {
+    // An action Junos has no word for (a later model's): the catch-all discard is left out, and the end decides instead.
+    const unwritable = { actions: { action: 'discard', later: true } } as unknown as FilterTerm
+    const codes = (entries: Record<string, FilterTerm>) => render({ filters: { ipv4: { F: { implicitAction: 'discard', terms: entries } } } }, context).diagnostics.map((d) => d.code)
+    expect(codes({ '1': unwritable })).toEqual(['junos.filter-implicit-action'])
+    expect(codes({ '1': { matches: { protocols: [6] }, actions: { action: 'accept' } }, '2': unwritable })).toEqual(['junos.filter-implicit-action'])
+    expect(codes({ '1': { matches: { protocols: [6] }, actions: { action: 'accept' } }, '2': { actions: { action: 'discard' } } })).toEqual([])
   })
 
   it('names no filter, counter or prefix list in a message', () => {

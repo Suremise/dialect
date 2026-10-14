@@ -141,6 +141,17 @@ describe('a last entry left out, and the interfaces applying the list', () => {
     expect(left.text).not.toContain('access-group')
     expect(left.dispositions['interfaces["GigabitEthernet0/0/0/0"].subinterfaces["0"].filters.ipv4.input'].kind).toBe('unsupported')
   })
+
+  it('warns that the list relies on its end when the catch-all it ended with is the entry left out', () => {
+    const codes = (entries: Record<string, { matches?: { protocols: number[] }; actions: { action: 'accept' | 'discard'; count?: string } }>) =>
+      renderModel({ interfaces: { 'GigabitEthernet0/0/0/0': { subinterfaces: { '0': { filters: { ipv4: { input: 'F' } } } } } }, filters: { ipv4: { F: { implicitAction: 'deny', terms: entries } } } }, context).diagnostics.map((d) => d.code)
+    // A counter name IOS-XR can't take: the entry is left out (a last discard, safely), and the end decides instead.
+    const unwritable = { actions: { action: 'discard' as const, count: 'c'.repeat(65) } }
+    expect(codes({ '1': unwritable })).toEqual(['iosxr.filter-implicit-action'])
+    expect(codes({ '1': { matches: { protocols: [6] }, actions: { action: 'accept' } }, '2': unwritable })).toEqual(['iosxr.filter-implicit-action'])
+    // Written, the catch-all decides every packet the entries before it don't: nothing to warn about.
+    expect(codes({ '1': { matches: { protocols: [6] }, actions: { action: 'accept' } }, '2': { actions: { action: 'discard' } } })).toEqual([])
+  })
 })
 
 /** An access list F with one entry, numbered 10, on line 2. */
