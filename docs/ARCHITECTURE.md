@@ -535,7 +535,8 @@ Model 0.5.0 also adds cases to the probes above: negation of a policy term and o
 prefix and prefix length; 0.5.1, negation of a filter term and of a filter's attachment, and a malformed port, filter
 prefix and non-contiguous wildcard (the term flagged, never approximated); 0.5.4 (#107), negation of a member link's
 membership (`delete … 802.3ad`, `no bundle id`, `no channel-group`) and a malformed minimum links, beside the aggregate
-reference.
+reference; and (#110) a malformed aggregate number, a channel group, bundle or `ae` number the platform doesn't have
+(`channel-group 4097`, `bundle id 65536`, `802.3ad ae-1`), checked as other malformed values are.
 
 Every probe source also goes through the five fixture checks, the secrets check with the community names its parse
 has (and a cleared one's) among its secrets. Every probe and case is a choice in the adapter's types: given, or
@@ -546,8 +547,7 @@ probes), 0.5.1 added (the filter cases, the filter reference and the implicit-ac
 cases) are optional in the types, so an older adapter compiles and runs as it did: `runProbes()` leaves out the ones it
 doesn't give, `probesNotGiven()` lists them, and the suite shows them as a skipped test per model version (`not given
 yet (model 0.4.0)`, `(model 0.5.0)`, `(model 0.5.1)`, `(model 0.5.4)`, from `probesNotGivenByModel()`), until the
-plugin's card for that phase gives each or declares it not applicable. Junos and IOS-XR give the LAG cases; IOS-XE and
-NX-OS show them as not given yet.
+plugin's card for that phase gives each or declares it not applicable. Every plugin's adapter gives the LAG cases (#110).
 A plugin with no adapter shows its probes as one skipped test, never as passing; each existing plugin's adapter is its
 own lane's follow-up card, which fixes what its probes find in the plugin (that lane owns it), so the probes have no
 allowances of their own; a probe source's secrets go through the secrets allowances like any fixture's.
@@ -572,7 +572,8 @@ checks catch careless plugins:
   non-contiguous wildcard taken as one, a filter whose implicit action differs written with no word, and one relying
   on the stub's own implicit action written with no word; since 0.5.4, a member link naming an aggregate it doesn't
   make (`interface e1 member agg1`; the stub makes it, as IOS does, and `agg…` names an aggregate), with the
-  existing switches for a membership `no` that removes nothing and a minimum links out of range, and one that bounds
+  existing switches for a membership `no` that removes nothing and a minimum links or aggregate number out of range
+  (the stub numbers aggregates `agg1` to `agg4096`), and one that bounds
   minimum links above but takes 0 (the adapters' case is 0, the bound a careless reader misses). Each fails its probe; the
   careful stub, which keeps the per-term rule itself, passes them all (`tests/probes.test.ts`);
 - a 0.4.1 renderer leaves every routing policy field unrendered; renders that convert part of a term, or leave out a

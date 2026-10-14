@@ -14,9 +14,9 @@
 //    and one of another dialect is never rendered as if it were the plugin's own;
 // 8. the implicit action (model 0.5.1): a filter that relies on its platform's default for an undecided packet, or
 //    whose default differs from the plugin's, is rendered with a semantic warning, never silently.
-// Model 0.5.4 adds LAG cases to three of them (#107): a member link's membership negated (3), a malformed minimum
-// links (4), and a member naming an aggregate the source never configures (6), which, unlike the other references,
-// configures it (every platform makes the aggregate a channel group or bundle names): the model it leaves has the
+// Model 0.5.4 adds LAG cases to three of them (#107, #110): a member link's membership negated (3), a malformed minimum
+// links and a malformed aggregate number (a channel group, bundle or ae number out of range) (4), and a member naming
+// an aggregate the source never configures (6), which, unlike the other references, configures it (every platform makes the aggregate a channel group or bundle names): the model it leaves has the
 // aggregate, so no `aggregate` resolves to nothing, after the parse and after render → reparse.
 // Every probe source also goes through the five fixture checks (checks.ts), the secrets check among them: a probe
 // source with a secret (a community, the prototype keys used as one) has it checked like any fixture's.
@@ -39,7 +39,7 @@ export type Probe<T> = T | NotApplicable
 /** Where a prototype key is used as a name. */
 export type NameUse = 'interface' | 'vrf' | 'community' | 'dns' | 'vlan' | 'bgp-group'
 export type NegationKind = 'address' | 'description' | 'name-server' | 'static-route' | 'community' | 'bgp-neighbor' | 'ospf-interface' | 'policy-term' | 'prefix-list-entry' | 'filter-term' | 'filter-attachment' | 'aggregate-member'
-export type MalformedKind = 'ipv4-address' | 'ipv6-address' | 'mask' | 'next-hop' | 'as-number' | 'vlan-id' | 'prefix' | 'prefix-length' | 'port' | 'filter-prefix' | 'wildcard' | 'min-links'
+export type MalformedKind = 'ipv4-address' | 'ipv6-address' | 'mask' | 'next-hop' | 'as-number' | 'vlan-id' | 'prefix' | 'prefix-length' | 'port' | 'filter-prefix' | 'wildcard' | 'min-links' | 'aggregate-number'
 export type ScopingKind = 'delete' | 'dns' | 'static-route' | 'ospf' | 'bgp'
 /**
  * What an unknown reference names: a term's prefix list, community set or AS-path set, a BGP peer's policy (model
@@ -60,7 +60,7 @@ export type NegationKind051 = 'filter-term' | 'filter-attachment'
 export type MalformedKind051 = 'port' | 'filter-prefix' | 'wildcard'
 /** The cases model 0.5.4 added (LAGs). */
 export type NegationKind054 = 'aggregate-member'
-export type MalformedKind054 = 'min-links'
+export type MalformedKind054 = 'min-links' | 'aggregate-number'
 
 /** Every key of `K` given, except those of `Later`, which may be left out (`not given yet`). */
 type Choices<K extends string, Later extends K, V> = { readonly [P in Exclude<K, Later>]: V } & { readonly [P in Later]?: V }
@@ -68,14 +68,14 @@ type Choices<K extends string, Later extends K, V> = { readonly [P in Exclude<K,
 /** Each kind in the order the probes run and report them. */
 const NAME_USES: readonly NameUse[] = ['interface', 'vrf', 'community', 'dns', 'vlan', 'bgp-group']
 const NEGATION_KINDS: readonly NegationKind[] = ['address', 'description', 'name-server', 'static-route', 'community', 'bgp-neighbor', 'ospf-interface', 'policy-term', 'prefix-list-entry', 'filter-term', 'filter-attachment', 'aggregate-member']
-const MALFORMED_KINDS: readonly MalformedKind[] = ['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length', 'port', 'filter-prefix', 'wildcard', 'min-links']
+const MALFORMED_KINDS: readonly MalformedKind[] = ['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length', 'port', 'filter-prefix', 'wildcard', 'min-links', 'aggregate-number']
 const SCOPING_KINDS: readonly ScopingKind[] = ['delete', 'dns', 'static-route', 'ospf', 'bgp']
 const REFERENCE_KINDS: readonly ReferenceKind[] = ['prefix-list', 'community-set', 'as-path-set', 'policy', 'filter', 'aggregate']
 /** The model version each optional case came with, by the name probesNotGiven() gives it; one not here is 0.4.0's. */
 const SINCE: ReadonlyMap<string, string> = new Map([
   ...['negation: policy-term', 'negation: prefix-list-entry', 'malformed: prefix', 'malformed: prefix-length', 'unknown-reference: prefix-list', 'unknown-reference: community-set', 'unknown-reference: as-path-set', 'unknown-reference: policy', 'regex'].map((c): [string, string] => [c, '0.5.0']),
   ...['negation: filter-term', 'negation: filter-attachment', 'malformed: port', 'malformed: filter-prefix', 'malformed: wildcard', 'unknown-reference: filter', 'implicit-action'].map((c): [string, string] => [c, '0.5.1']),
-  ...['negation: aggregate-member', 'malformed: min-links', 'unknown-reference: aggregate'].map((c): [string, string] => [c, '0.5.4'])
+  ...['negation: aggregate-member', 'malformed: min-links', 'malformed: aggregate-number', 'unknown-reference: aggregate'].map((c): [string, string] => [c, '0.5.4'])
 ])
 /** Marks an optional case an adapter leaves out: not run, and listed by probesNotGiven(). */
 const NOT_GIVEN: NotApplicable = Object.freeze({ notApplicable: 'not given yet' })
