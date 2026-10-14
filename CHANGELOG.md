@@ -22,6 +22,11 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS-XR access lists convert:** `ipv4` and `ipv6 access-list` entries (addresses, contiguous wildcards,
+  protocols, ports, ICMP types, `established`, `fragments`, `dscp`, `log`, `counter`) and the interfaces' `access-group`
+  attachments. An entry that can't be converted leaves its whole access list out unless it is the last, and a
+  non-contiguous wildcard is never approximated. Converting to IOS-XR warns where its implicit deny differs from the
+  source's end (Junos discards silently) or a list relies on it.
 - **Cisco IOS-XR routing policy converts, in RPL's simple forms:** prefix sets, community sets, AS-path sets and route
   policies made of flat `if … then … else … endif` blocks, and BGP neighbors' and VRFs' route policies now carry the
   policy itself, not only its name. A set or policy converts whole or not at all: nested `if`, `elseif`, parameters,

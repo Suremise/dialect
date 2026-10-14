@@ -134,7 +134,8 @@ product decisions.
   whole filter when leaving one out could change what a later term decides, and a unit applying a filter that isn't
   converted applies nothing. A filter's end is kept with the model (Junos discards silently, a Cisco ACL denies) and
   a target says so when its own differs or the filter relies on it. Non-contiguous wildcard masks are never
-  approximated. Junos converts `firewall family inet|inet6` filters and their attachment to units (#86).
+  approximated. Junos converts `firewall family inet|inet6` filters and their attachment to units (#86), IOS-XR
+  `ipv4|ipv6 access-list` and `access-group … ingress|egress` (#88), an access list's remarks being comments.
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
   With all four plugins registered (#50), the CLI and the app convert from any of them to any other.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,
