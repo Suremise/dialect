@@ -10,6 +10,13 @@ type Segments = readonly (string | number)[]
 
 const IOS_SEVERITY: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(SEVERITIES).map(([ios, model]) => [model, ios]))
 
+/**
+ * An interface reference as IOS writes it. The model's references are `name` or `name.<subinterface>`, and IOS has no
+ * subinterface 0: its addresses are the main interface's (a Junos `ge-0/0/0.0` renamed to `Gi0/0/0.0`), so `.0` is the
+ * main interface.
+ */
+const ref = (name: string) => name.replace(/\.0$/, '')
+
 /** A word IOS reads back as one: quoted when it has a space in it. */
 const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
 
@@ -196,7 +203,7 @@ export function render(model: Device, _context: Context): RenderResult {
       } else {
         if (hop.drop !== undefined) skip([...h, 'drop'], 'unsupported', 'IOS has no reject route: Null0 discards')
         if (hop.interface !== undefined) {
-          parts.push(hop.interface)
+          parts.push(ref(hop.interface))
           fields.push([...h, 'interface'])
         }
         if (hop.address !== undefined) {
@@ -205,7 +212,8 @@ export function render(model: Device, _context: Context): RenderResult {
         }
       }
       if (!parts.length) {
-        skipAll(hop, h, 'a next hop with no address, interface or discard')
+        // A reject route says why above; its other leaves (a metric, a preference) go with it.
+        skipAll(hop, h, hop.drop === 'reject' ? 'IOS has no reject route: Null0 discards' : 'a next hop with no address, interface or discard')
         continue
       }
       if (hop.preference !== undefined) {
@@ -235,7 +243,7 @@ export function render(model: Device, _context: Context): RenderResult {
       separator()
       emptyContainer(ntp, ['system', 'ntp'])
       emptyContainer(ntp.servers, ['system', 'ntp', 'servers'])
-      if (ntp.sourceInterface !== undefined) emit(`ntp source ${ntp.sourceInterface}`, ['system', 'ntp', 'sourceInterface'])
+      if (ntp.sourceInterface !== undefined) emit(`ntp source ${ref(ntp.sourceInterface)}`, ['system', 'ntp', 'sourceInterface'])
       for (const [address, server] of Object.entries(ntp.servers ?? {})) {
         const at = ['system', 'ntp', 'servers', address]
         const fields: Segments[] = isEmpty(server) ? [at] : []
@@ -263,7 +271,7 @@ export function render(model: Device, _context: Context): RenderResult {
       emptyContainer(logging, ['system', 'logging'])
       emptyContainer(logging.remoteServers, ['system', 'logging', 'remoteServers'])
       const at = ['system', 'logging']
-      if (logging.sourceInterface !== undefined) emit(`logging source-interface ${logging.sourceInterface}`, [...at, 'sourceInterface'])
+      if (logging.sourceInterface !== undefined) emit(`logging source-interface ${ref(logging.sourceInterface)}`, [...at, 'sourceInterface'])
       const servers = Object.entries(logging.remoteServers ?? {})
       // IOS has one trap level and one facility for every host: write them when every host agrees.
       for (const field of ['facility', 'severity'] as const) {

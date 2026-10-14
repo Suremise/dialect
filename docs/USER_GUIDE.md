@@ -60,8 +60,40 @@ The output is what `show configuration | display set` prints on the device:
 
 ## Convert
 
-Translating a config from one platform to another: choosing the source and target, what is converted, and reading the
-warnings (unmapped lines, semantic warnings, input needed such as an interface map).
+Convert translates a config from one platform to another: for now, **Junos to Cisco IOS / IOS-XE**. Dialect reads the
+Junos config into a model of what it configures (system, DNS, interfaces, static routes, NTP, syslog and SNMP so far)
+and writes that model as IOS-XE.
+
+Nothing is dropped silently. Every line of the source is either converted, left out on purpose (with why), or marked
+as not converted, and every setting is either written or marked as one IOS-XE can't say (a `reject` route, say). These
+are listed as warnings, by line, with the reason.
+
+### Interface names
+
+Junos and IOS name interfaces differently, and only you know how the ports line up on the new device, so Dialect never
+renames an interface on its own. Every interface the config names, as an interface or in a next hop or a source
+interface, needs a name on the target. Dialect suggests one where the name makes it likely (`ge-0/0/0` →
+`GigabitEthernet0/0/0`, `xe-0/1/0` → `TenGigabitEthernet0/1/0`, `lo0` → `Loopback0`), but a suggestion is only used once
+you take it.
+
+On the command line, give the names in a map file, with `--map`. Either one `from,to` pair per line (`#` starts a
+comment, and blank lines are fine):
+
+```
+# Junos name,IOS-XE name
+ge-0/0/0,GigabitEthernet0/0/0
+ge-0/0/1,GigabitEthernet0/0/1
+lo0,Loopback0
+```
+
+or a JSON object:
+
+```json
+{ "ge-0/0/0": "GigabitEthernet0/0/0", "ge-0/0/1": "GigabitEthernet0/0/1", "lo0": "Loopback0" }
+```
+
+A Junos unit becomes a subinterface (`ge-0/0/1` unit 10 → `GigabitEthernet0/0/1.10`); unit 0 is the interface itself.
+Two interfaces can't be given one name.
 
 ## Supported platforms and features
 
@@ -99,7 +131,26 @@ router.conf:30:1: error: missing ';' after the statement at line 29, column 5
 Messages say what is wrong and where, but never quote your config's names, values or annotations, so a password
 hash or key can't end up in a terminal log or a CI log through them.
 
-A syntax error prints no set commands at all. `convert` comes later.
+A syntax error prints no set commands at all.
+
+### convert
+
+```
+dialect convert --from junos --to iosxe --map names.csv router.conf > router.ios
+dialect convert --from junos --to iosxe --map names.csv -          (reads stdin)
+```
+
+It prints the converted config to stdout, and to stderr what didn't carry over, by line, with the reason:
+
+```
+router.conf:66:9: warning: not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards
+router.conf:74:1: warning: not converted: routing protocols come later
+```
+
+`--map` gives the interfaces' names on the target (see [Interface names](#interface-names)). While an interface has no
+name, `convert` writes no config: it lists the unnamed interfaces, with suggestions, and exits 3. `--allow-incomplete`
+writes the config anyway, after a warning listing them; they keep their Junos names in the output, so it isn't ready
+for a device. Options can also be written `--from=junos`.
 
 ### Exit codes
 
@@ -107,7 +158,8 @@ A syntax error prints no set commands at all. `convert` comes later.
 |---|---|
 | 0 | Done. There may be warnings on stderr. |
 | 1 | The config has a syntax error (on stderr, with its line and column). |
-| 2 | A usage error (an unknown command or option, a missing or extra file), or the file can't be read. |
+| 2 | A usage error (an unknown command or option, a missing or extra file, a map file it can't read), or a file can't be read. |
+| 3 | `convert`: interfaces have no name on the target. Give them with `--map`, or use `--allow-incomplete`. |
 
 `dialect --help` lists the commands, and `dialect --version` prints the version.
 

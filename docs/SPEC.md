@@ -18,7 +18,7 @@ product decisions.
     allowed;
   - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout: results to stdout, warnings and errors
     to stderr with their line and column. Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
-    unreadable input.
+    unreadable input, 3 a conversion with interfaces left unnamed (unless `--allow-incomplete`).
 - **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
   content security policy blocks remote content in both shells. The web build's allows only its own inlined script
   and styles, by hash, and no network at all.
@@ -112,6 +112,13 @@ product decisions.
   ethernet-switching`, with VLANs in a later model version), not the older non-ELS syntax. Both the hierarchical and
   the set form are read, and `apply-groups` and `interface-range` are expanded before mapping. SRX security zones,
   policies and NAT come later: until then they show as `unsupported` in the ledger, never dropped.
+- **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
+- **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,
+  a source interface), needs a name on the target from the user: in the app's interface table, or a `--map` file on
+  the command line (`from,to` lines or a JSON object). A plugin may suggest names (Junos `ge-0/0/0` → IOS
+  `GigabitEthernet0/0/0`), shown as suggestions and used only once the user takes them. Until every interface is named,
+  the CLI writes no config and exits 3; `--allow-incomplete` writes it anyway, the unnamed interfaces keeping their
+  source names and listed on stderr.
 
 ## 5. Configs and test data
 
@@ -148,8 +155,7 @@ product decisions.
 
 From the spike report, still for the user to decide:
 
-1. Direction and first platform for Convert: Junos → Cisco or Cisco → Junos first, and which Cisco platform (IOS-XE
-   suggested)?
+1. ~~Direction and first platform for Convert~~: decided, Junos → IOS/IOS-XE first (§4).
 2. Sample configs: cleaned-up real configs (Junos and the chosen Cisco platform) for fixtures?
 3. ~~Junos families in scope~~: decided, MX/EX/QFX with SRX security as `unsupported` for now (§4).
 4. Reverse display set (set → hierarchical): needed?

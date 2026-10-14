@@ -1,7 +1,7 @@
 // Interface names as IOS writes them. The model keys interfaces by name as the source writes it, so names are kept as
 // written (`Gi0/1` stays `Gi0/1`), except that a space between type and number is closed up (`loopback 1` is
 // `loopback1`), as IOS itself shows it. Mapping names between platforms is the user's (B9's interface map).
-import type { InterfaceType } from '@dialect/core'
+import type { InterfaceType, PortName } from '@dialect/core'
 
 /**
  * The interface name starting at `words[i]`, and how many words it took: `Loopback0` (one), or `loopback 66` (two, a
@@ -33,5 +33,40 @@ export function interfaceType(name: string): InterfaceType | undefined {
   if (/^vl(?:an)?$/.test(kind)) return 'vlan'
   if (/^tu(?:nnel)?$/.test(kind)) return 'tunnel'
   if (ETHERNET.test(kind)) return 'ethernet'
+  return undefined
+}
+
+/** IOS's Ethernet names by speed in Mb/s. */
+const ETHERNET_NAMES: Readonly<Record<number, string>> = {
+  10: 'Ethernet',
+  100: 'FastEthernet',
+  1000: 'GigabitEthernet',
+  2500: 'TwoGigabitEthernet',
+  5000: 'FiveGigabitEthernet',
+  10000: 'TenGigabitEthernet',
+  25000: 'TwentyFiveGigE',
+  40000: 'FortyGigabitEthernet',
+  100000: 'HundredGigE'
+}
+
+/**
+ * IOS's name for a port another platform described, as a suggestion: Ethernet by its speed and numbers
+ * (`GigabitEthernet0/0/0`, a channel as `:n`), `Port-channel`, `Loopback`, `Tunnel` and `Vlan` by their number, and
+ * `GigabitEthernet0` for management port 0. Undefined when IOS has no likely name (an Ethernet port of unknown speed,
+ * Port-channel 0, which IOS doesn't have).
+ */
+export function nameInterface(port: PortName): string | undefined {
+  const n = port.numbers
+  if (port.type === 'ethernet') {
+    const base = port.speed !== undefined && Object.hasOwn(ETHERNET_NAMES, port.speed) ? ETHERNET_NAMES[port.speed] : undefined
+    if (!base || n.length < 1) return undefined
+    return n.length === 4 ? `${base}${n.slice(0, 3).join('/')}:${n[3]}` : `${base}${n.join('/')}`
+  }
+  if (n.length !== 1) return undefined
+  if (port.type === 'aggregate') return n[0] >= 1 ? `Port-channel${n[0]}` : undefined
+  if (port.type === 'loopback') return `Loopback${n[0]}`
+  if (port.type === 'tunnel') return `Tunnel${n[0]}`
+  if (port.type === 'vlan') return `Vlan${n[0]}`
+  if (port.type === 'management') return n[0] === 0 ? 'GigabitEthernet0' : undefined
   return undefined
 }

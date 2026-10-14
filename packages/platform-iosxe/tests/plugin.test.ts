@@ -280,3 +280,33 @@ describe('rendering a model from another platform', () => {
     expect(notRendered).toEqual(['interfaces["GigabitEthernet0/0/0"].type', 'interfaces["GigabitEthernet0/0/1"].type', 'interfaces["GigabitEthernet0/0/1"].vlanTagging', 'interfaces.Loopback0.type', 'interfaces["Port-channel1"].type', 'interfaces["GigabitEthernet0/0/2"].type'])
   })
 })
+
+describe('names for ports from another platform (convert mode suggestions)', () => {
+  it('names Ethernet by speed and numbers, a channel with a colon', () => {
+    expect(plugin.nameInterface?.({ type: 'ethernet', speed: 1000, numbers: [0, 0, 0] })).toBe('GigabitEthernet0/0/0')
+    expect(plugin.nameInterface?.({ type: 'ethernet', speed: 10000, numbers: [1, 2, 3, 4] })).toBe('TenGigabitEthernet1/2/3:4')
+    expect(plugin.nameInterface?.({ type: 'ethernet', speed: 100000, numbers: [0, 0] })).toBe('HundredGigE0/0')
+    expect(plugin.nameInterface?.({ type: 'ethernet', numbers: [0, 0, 0] })).toBeUndefined()
+    expect(plugin.nameInterface?.({ type: 'ethernet', speed: 1234, numbers: [0] })).toBeUndefined()
+  })
+
+  it('names loopbacks, port-channels, tunnels, VLANs and management port 0 by number', () => {
+    expect(plugin.nameInterface?.({ type: 'loopback', numbers: [0] })).toBe('Loopback0')
+    expect(plugin.nameInterface?.({ type: 'aggregate', numbers: [2] })).toBe('Port-channel2')
+    expect(plugin.nameInterface?.({ type: 'aggregate', numbers: [0] })).toBeUndefined()
+    expect(plugin.nameInterface?.({ type: 'tunnel', numbers: [5] })).toBe('Tunnel5')
+    expect(plugin.nameInterface?.({ type: 'vlan', numbers: [100] })).toBe('Vlan100')
+    expect(plugin.nameInterface?.({ type: 'management', numbers: [0] })).toBe('GigabitEthernet0')
+    expect(plugin.nameInterface?.({ type: 'management', numbers: [1] })).toBeUndefined()
+    expect(plugin.nameInterface?.({ type: 'other', numbers: [1] })).toBeUndefined()
+  })
+
+  it('writes a reference to subinterface 0 as the main interface', () => {
+    const route = { nextHops: { '0': { address: '192.0.2.2', interface: 'Gi0/0/0.0' } } }
+    const model: Device = { system: { ntp: { sourceInterface: 'Gi0/0/1.0' }, logging: { sourceInterface: 'Gi0/0/1.20' } }, networkInstances: { default: { staticRoutes: { '0.0.0.0/0': route } } } }
+    const { text } = plugin.render!(model, { modelVersion: MODEL_VERSION })
+    expect(text).toContain('ip route 0.0.0.0 0.0.0.0 Gi0/0/0 192.0.2.2\n')
+    expect(text).toContain('ntp source Gi0/0/1\n')
+    expect(text).toContain('logging source-interface Gi0/0/1.20\n')
+  })
+})

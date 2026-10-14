@@ -2,7 +2,7 @@
 
 How the code fits together. Product decisions are in [SPEC.md](SPEC.md); the reasoning behind the design is in the
 spike report ([spike-desktop-app.md](spike-desktop-app.md)). This describes the repo as built so far: B1's scaffold, B2's core contracts,
-B3 and B4's Junos plugin and B8's IOS / IOS-XE plugin.
+B3 and B4's Junos plugin, B8's IOS / IOS-XE plugin and B9's convert mode.
 Each card that adds code updates the part it changes.
 
 ## Packages
@@ -104,6 +104,8 @@ A platform package's default export is a `PlatformPlugin`:
 | `detect?(text)` | 0..1, for auto-detect |
 | `parse?(text, context)` | → `ParseResult`: the syntax tree, the model, a `StatementDisposition` per statement id, diagnostics, needs-input items |
 | `render?(model, context)` | → `RenderResult`: the text, a `FieldDisposition` per populated field path, diagnostics, needs-input items |
+| `describeInterface?(name)` | what an interface name says, as a `PortName` (type, Ethernet speed, numbers), for convert's suggestions |
+| `nameInterface?(port)` | the plugin's own name for a port another plugin described, as a suggestion |
 | `tools?()` | platform-only `Tool`s that don't go through the model, such as Junos display set: `run(input) → { text, diagnostics, sourceLines? }`, where `sourceLines` is the 1-based source line of each line of `text`, for linking output to source |
 
 `parse`, `render`, `detect` and `tools` are optional, so a plugin can ship its tools before its mapping (B3 before
@@ -131,6 +133,28 @@ The core checks completeness itself; it doesn't trust the plugin's count:
   true only when nothing is unmapped or unrendered; `ledgerProblems()` says what isn't, a line each.
 
 Spans are for display only: the ledger never uses them, because one line can hold several statements.
+
+### Convert (`convert.ts`)
+
+`convert(source, target, text, { modelVersion, inputs })` is convert mode for every shell: the source's parse, the
+interfaces renamed by the user's answers, the target's render, and the ledger over both (no render after a parse
+error). Interface names are the core's job, not a plugin's, so they never map silently:
+- every interface the model names, as a key or by reference (`ntp`/`logging` `sourceInterface`, a next hop's
+  `interface`, written `name` or `name.<subinterface>`), is a needs-input item (`kind: 'interface-name'`, id
+  `interface:<name>`, `interfaceInputId()`), first in the ledger's `needsInput`, with its field and the source statement
+  that configures it (the outermost whose mapped fields are all that interface's), or the one that references it;
+- a suggestion comes from the source's `describeInterface` and the target's `nameInterface`, and is only offered
+  (`suggestions`): an unanswered interface keeps its source name and stays in `unanswered`;
+- `renameInterfaces(model, map)` renames keys and references (`ge-0/0/0.0` → `GigabitEthernet0/0/0.0`; the IOS-XE
+  renderer writes a `.0` reference as the main interface), with null-prototype maps;
+- two interfaces given one name are refused (an error diagnostic, `convert.interface-name-taken`) and left unanswered.
+
+`issues` lists, by source statement in tree order, what didn't carry over: `unmapped`, `unsupported` (the source's
+reason), or `not-rendered` (a field the statement filled that the target marked unsupported or left without a
+disposition, found by mapping the render's paths back to the source's names). Shells show them in the source gutter
+and as warnings; a reason is the plugin's words, never the statement's text. `parseInterfaceMap()` reads a map file
+(`from,to` lines with `#` comments, or a JSON object) and says what's wrong by line; `formatInterfaceMap()` writes the
+line form. `interfaceInputs(map)` turns a map into answers.
 
 ### The registry (`registry.ts`)
 
@@ -405,17 +429,21 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 
 ## The command line (`packages/cli`)
 
-- `src/cli.ts`: `run(argv, io, version)` parses the arguments, reads the input through `io`, runs display set through
-  the core's registry (`createRegistry([junos]).tools()`, the Junos plugin's `display-set` tool) and returns the exit
-  code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input). Diagnostics print as
-  `name:line:column: severity: message`. It never touches `process`, so it can be called directly.
+- `src/cli.ts`: `run(argv, io, version)` parses the arguments, reads the input through `io`, and runs the command
+  through the core's registry (`createRegistry([junos, iosxe])`): `display-set` as the Junos plugin's tool, `convert`
+  through the core's `convert()` with the plugins `--from` and `--to` name and the `--map` file's answers. It returns the
+  exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 interfaces unnamed without
+  `--allow-incomplete`). Diagnostics and convert's issues print as `name:line:column: severity: message`, an issue with
+  its plugin's reason only. It never touches `process`, so it can be called directly.
 - `src/bin.ts`: the entry. It wires `run()` to Node's file system, stdin, stdout and stderr, sets `process.exitCode`,
   and ignores a closed stdout pipe.
 - `vite.config.ts`: `npm run build -w @dialect/cli` bundles `bin.ts` and the workspace packages it imports into one ES
   module, `dist/dialect.mjs`, for Node 24, with a `#!/usr/bin/env node` line. Only Node's own modules stay imports.
   Vite is build-only.
 - `tests/cli.test.ts` builds into a temp folder with Vite's API and runs the built file with Node: the 22 display set
-  fixtures, stdin, invalid input, warnings, unreadable files and usage errors.
+  fixtures, stdin, invalid input, warnings, unreadable files and usage errors; and convert on
+  `tests/fixtures/convert/phase1.conf` (a Junos phase 1 config, its map `phase1.map.csv` and the IOS-XE it gives,
+  `phase1.iosxe`, also used by the web and desktop tests), other maps, exit 3 and `--allow-incomplete`.
 
 ## The UI (`packages/ui`)
 

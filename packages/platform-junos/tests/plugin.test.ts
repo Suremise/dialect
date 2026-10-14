@@ -82,3 +82,20 @@ describe('the Junos plugin', () => {
     expect(displaySetFromRegistry('')).toEqual({ text: '', diagnostics: [], sourceLines: [] })
   })
 })
+
+describe('what an interface name says (convert mode suggestions)', () => {
+  it('describes Ethernet ports by speed and numbers, channels included', () => {
+    expect(junos.describeInterface?.('ge-1/0/3')).toEqual({ type: 'ethernet', speed: 1000, numbers: [1, 0, 3] })
+    expect(junos.describeInterface?.('xe-0/0/0:2')).toEqual({ type: 'ethernet', speed: 10000, numbers: [0, 0, 0, 2] })
+    expect(junos.describeInterface?.('et-0/0/48')).toEqual({ type: 'ethernet', speed: 100000, numbers: [0, 0, 48] })
+    expect(junos.describeInterface?.('mge-0/0/1')).toEqual({ type: 'ethernet', numbers: [0, 0, 1] })
+  })
+
+  it('describes aggregates, loopbacks and management ports by number, and not the rest', () => {
+    expect(junos.describeInterface?.('ae1')).toEqual({ type: 'aggregate', numbers: [1] })
+    expect(junos.describeInterface?.('lo0')).toEqual({ type: 'loopback', numbers: [0] })
+    expect(junos.describeInterface?.('fxp0')).toEqual({ type: 'management', numbers: [0] })
+    expect(junos.describeInterface?.('em1')).toEqual({ type: 'management', numbers: [1] })
+    for (const name of ['irb', 'vlan', 'gr-0/0/0', 'st0', 'ge-0/0', 'ge-0/0/0.0', '__proto__']) expect(junos.describeInterface?.(name)).toBeUndefined()
+  })
+})
