@@ -49,6 +49,7 @@
           "implicitAction": "deny",
           "terms": {
             "20": {
+              "description": "management",
               "matches": {
                 "protocols": [
                   6
