@@ -47,6 +47,17 @@ describe('loadFixtures', () => {
     expect(() => loadFixtures(dir)).toThrow(/system\/a\.cfg has no a\.model\.json\nsystem\/b\.model\.json has no source file/)
   })
 
+  it('reads a fixture\'s secrets file, and fails on one with no source or that isn\'t a list of strings', () => {
+    const model = serializeModel({})
+    expect(loadFixtures(folder({ 'system/a.cfg': 'a', 'system/a.model.json': model, 'system/a.secrets.json': '["PLACEHOLDER"]', 'system/b.cfg': 'b', 'system/b.model.json': model })).map((f) => [f.name, f.secrets ?? null])).toEqual([
+      ['system/a', ['PLACEHOLDER']],
+      ['system/b', null]
+    ])
+    expect(() => loadFixtures(folder({ 'system/b.secrets.json': '[]' }))).toThrow(/system\/b\.secrets\.json has no source file/)
+    for (const bad of ['{"a": 1}', '[1]', '[""]']) expect(() => loadFixtures(folder({ 'system/a.cfg': 'a', 'system/a.model.json': model, 'system/a.secrets.json': bad }))).toThrow(/system\/a\.secrets\.json isn't a list of secret values/)
+    expect(() => loadFixtures(folder({ 'system/a.cfg': 'a', 'system/a.model.json': model, 'system/a.secrets.json': 'nope' }))).toThrow(/system\/a\.secrets\.json isn't JSON/)
+  })
+
   it('fails on a model file made with a newer model than the core reads', () => {
     const dir = folder({ 'system/a.cfg': 'a', 'system/a.model.json': serializeModel({}, '0.9.0') })
     expect(() => loadFixtures(dir, { modelVersion: '0.1.0' })).toThrow(/made with model 0\.9\.0, newer than this core's 0\.1\.0/)
