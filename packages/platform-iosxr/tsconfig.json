@@ -1,0 +1,10 @@
+// Platform-neutral: no Node or DOM types, so the code runs unchanged in Node, the desktop app's webview and a browser.
+// Its tests run on Node, with their own config (tsconfig.test.json).
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": []
+  },
+  "include": ["src/**/*"]
+}

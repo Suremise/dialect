@@ -1,0 +1,38 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "xr-interface-address"
+    },
+    "interfaces": {
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.0.1": {
+                  "prefixLength": 31,
+                  "primary": true
+                },
+                "10.0.0.3": {
+                  "prefixLength": 31
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "dead:beef::1": {
+                  "prefixLength": 126
+                },
+                "deee:beef::1": {
+                  "prefixLength": 127
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

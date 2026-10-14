@@ -1,0 +1,83 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "interfaces": {
+      "Loopback0": {
+        "type": "loopback",
+        "description": "router id",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "description": "uplink",
+        "mtu": 9000,
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.10": {
+                  "prefixLength": 24,
+                  "primary": true
+                },
+                "198.51.100.10": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8::10": {
+                  "prefixLength": 64
+                },
+                "2001:db8:1::10": {
+                  "prefixLength": 64
+                }
+              }
+            }
+          },
+          "100": {
+            "description": "customer",
+            "ipv4": {
+              "addresses": {
+                "203.0.113.1": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "vlanId": 100
+          }
+        },
+        "enabled": true,
+        "vlanTagging": true
+      },
+      "TenGigE0/0/0/1": {
+        "type": "ethernet",
+        "enabled": false
+      },
+      "Bundle-Ether1": {
+        "type": "aggregate",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.129": {
+                  "prefixLength": 25
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

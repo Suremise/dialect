@@ -1,0 +1,41 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "xr-vrf-route-target"
+    },
+    "networkInstances": {
+      "none": {
+        "type": "vrf"
+      },
+      "single-oneline": {
+        "type": "vrf",
+        "routeTargets": {
+          "import": [
+            "2:2"
+          ],
+          "export": [
+            "1:1"
+          ]
+        }
+      },
+      "single-block": {
+        "type": "vrf",
+        "routeTargets": {
+          "import": [
+            "4:4"
+          ],
+          "export": [
+            "3:3"
+          ]
+        }
+      },
+      "multiple": {
+        "type": "vrf"
+      },
+      "multiple-af": {
+        "type": "vrf"
+      }
+    }
+  }
+}

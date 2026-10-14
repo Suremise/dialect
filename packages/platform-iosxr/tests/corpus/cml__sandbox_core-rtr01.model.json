@@ -1,0 +1,122 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "core-rtr01",
+      "domainName": "virl.info"
+    },
+    "networkInstances": {
+      "Mgmt-intf": {
+        "type": "vrf",
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "10.10.20.254"
+              }
+            }
+          }
+        }
+      },
+      "default": {
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": {
+                "address": "172.16.253.4"
+              }
+            }
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "Loopback0": {
+        "type": "loopback",
+        "description": "to",
+        "enabled": false
+      },
+      "MgmtEth0/0/CPU0/0": {
+        "type": "management",
+        "description": "to port4.sandbox-backend",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "Mgmt-intf",
+            "ipv4": {
+              "addresses": {
+                "10.10.20.173": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "description": "L3 Link to core-rtr02",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.252.37": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "GigabitEthernet0/0/0/1": {
+        "type": "ethernet",
+        "description": "L3 Link to edge-sw01",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.253.2": {
+                  "prefixLength": 29
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "GigabitEthernet0/0/0/2": {
+        "type": "ethernet",
+        "description": "L3 Link to dist-rtr01",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.252.22": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "GigabitEthernet0/0/0/3": {
+        "type": "ethernet",
+        "description": "L3 Link to dist-rtr02",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "172.16.252.30": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      }
+    }
+  }
+}

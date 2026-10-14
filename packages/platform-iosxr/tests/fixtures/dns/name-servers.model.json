@@ -1,0 +1,27 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "pe1",
+      "domainName": "example.net",
+      "dns": {
+        "search": [
+          "example.net",
+          "example.org"
+        ],
+        "servers": {
+          "192.0.2.53": {},
+          "2001:db8::53": {},
+          "198.51.100.53": {
+            "networkInstance": "MGMT"
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "MGMT": {
+        "type": "vrf"
+      }
+    }
+  }
+}

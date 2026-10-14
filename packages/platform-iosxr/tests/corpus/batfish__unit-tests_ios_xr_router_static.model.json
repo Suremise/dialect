@@ -1,0 +1,122 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "ios_xr_router_static"
+    },
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "1.2.16.255/32": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "1.2.220.0/24": {
+            "nextHops": {
+              "0": {
+                "interface": "TenGigE0/0/2/3",
+                "address": "1.2.220.245",
+                "tag": 64666
+              }
+            }
+          },
+          "6.7.165.2/32": {
+            "nextHops": {
+              "0": {
+                "address": "198.188.255.22"
+              }
+            }
+          },
+          "4.5.0.0/16": {
+            "nextHops": {
+              "0": {
+                "drop": "discard",
+                "tag": 64725
+              }
+            }
+          },
+          "2.3.0.0/16": {
+            "nextHops": {
+              "0": {
+                "drop": "discard",
+                "tag": 64725
+              }
+            }
+          },
+          "1.2.0.0/16": {
+            "nextHops": {
+              "0": {
+                "drop": "discard",
+                "tag": 64725
+              }
+            }
+          },
+          "1.2.11.251/32": {
+            "description": "Check for Default-Originate",
+            "nextHops": {
+              "0": {
+                "drop": "discard",
+                "tag": 64725
+              }
+            }
+          },
+          "1.2.16.0/24": {
+            "nextHops": {
+              "0": {
+                "drop": "discard",
+                "tag": 64725
+              }
+            }
+          },
+          "9.8.192.32/29": {
+            "nextHops": {
+              "0": {
+                "interface": "GigabitEthernet0/2/1/5.290",
+                "address": "1.2.24.98",
+                "tag": 64906
+              }
+            }
+          },
+          "2607:0000::/32": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "2607:0000::10:0:0/92": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "2607:0000::110:0:0/92": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "2607:0000::118:9a41:ff0/128": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          },
+          "2607:0000:1::/54": {
+            "nextHops": {
+              "0": {
+                "drop": "discard"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
