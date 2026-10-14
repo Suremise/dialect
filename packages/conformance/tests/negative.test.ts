@@ -347,6 +347,82 @@ describe('the per-term rule: a term whole or not at all, and the whole policy wh
   })
 })
 
+describe('a renderer built for model 0.5.0 meeting 0.5.1\'s filters and their attachments', () => {
+  const old = stubPlugin({ modelApi: '>=0.5.0 <1.0.0' })
+  const model: Device = {
+    interfaces: { 'ge-0/0/0': { subinterfaces: { '0': { ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } }, filters: { ipv4: { input: 'EDGE' }, ipv6: { output: 'EDGE6' } } } } } },
+    filters: {
+      ipv4: { EDGE: { description: 'edge', implicitAction: 'discard', terms: { '1': { name: 'ssh', matches: { sourcePrefixes: ['192.0.2.0/24'], protocols: [6], destinationPorts: ['22'], tcpFlags: { set: ['syn'], clear: ['ack'] }, fragment: 'initial', dscp: [46] }, actions: { action: 'accept', count: 'ssh', log: true } } } } },
+      ipv6: { EDGE6: { implicitAction: 'deny', terms: { '10': { matches: { protocols: [58], icmpTypes: [128] }, actions: { action: 'discard' } } } } }
+    }
+  }
+
+  it('loads, and the ledger reports every filter and attachment field as unrendered, not dropped', () => {
+    expect(() => createRegistry([old], { modelVersion: '0.5.1' })).not.toThrow()
+    expect(modelProblems(model)).toEqual([])
+    const rendered = old.render!(model, { modelVersion: '0.5.1' })
+    const ledger = buildLedger(old.parse!('', { modelVersion: '0.5.1' }), rendered, model)
+    const added = [...populatedLeaves(model.filters, ['filters']).map((l) => l.path), fieldPath('interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input'), fieldPath('interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'filters', 'ipv6', 'output')]
+    expect(added).toHaveLength(19)
+    expect(ledger.target?.unrendered.map((f) => f.path).sort()).toEqual(added.sort())
+  })
+})
+
+describe('the per-term rule on filters: a term whole or not at all, and the whole filter when leaving a term out isn\'t safe', () => {
+  /** Two filters: COUNT's first term only counts (next-term); DROP's first discards. */
+  const model: Device = {
+    filters: {
+      ipv4: {
+        COUNT: { implicitAction: 'deny', terms: { '10': { matches: { protocols: [6] }, actions: { action: 'next-term', count: 'tcp' } }, '20': { actions: { action: 'accept' } } } },
+        DROP: { implicitAction: 'discard', terms: { '10': { matches: { sourcePrefixes: ['10.0.0.0/8'] }, actions: { action: 'discard' } }, '20': { actions: { action: 'accept' } } } }
+      }
+    }
+  }
+  const parsed: ParseResult = { tree: [], model, dispositions: {}, diagnostics: [] }
+  const under = (...path: string[]) => fieldPath('filters', 'ipv4', ...path)
+  const render = (unsupported: (path: string) => boolean): RenderResult => ({
+    text: '',
+    diagnostics: [],
+    dispositions: Object.fromEntries(
+      populatedLeaves(model).map((l): [string, FieldDisposition] => [l.path, unsupported(l.path) ? { kind: 'unsupported', reason: 'can\'t' } : l.path.endsWith('.implicitAction') ? { kind: 'not-applicable', reason: 'the same' } : { kind: 'rendered' }])
+    )
+  })
+
+  it('passes every term converted, a counting term left out whole, and a deciding term left out with its whole filter', () => {
+    expect(termProblems(parsed, render(() => false))).toEqual([])
+    expect(termProblems(parsed, render((p) => p.startsWith(under('COUNT', 'terms', '10'))))).toEqual([])
+    expect(termProblems(parsed, render((p) => p.startsWith(under('DROP', 'terms'))))).toEqual([])
+    expect(termProblems(parsed, render((p) => p.startsWith(under('DROP'))))).toEqual([])
+  })
+
+  it('fails a term converted in part', () => {
+    expect(termProblems(parsed, render((p) => p === under('COUNT', 'terms', '10', 'actions', 'count')))).toEqual([`render converted part of a term: some of ${under('COUNT', 'terms', '10')}'s fields are unsupported and some aren't`])
+  })
+
+  it('fails a term that discards left out while the rest of its filter is converted', () => {
+    expect(termProblems(parsed, render((p) => p.startsWith(under('DROP', 'terms', '10'))))).toEqual([
+      `render left out ${under('DROP', 'terms', '10')}, which later terms would see packets differently without, but converted the rest of the filter: the whole filter is unsupported instead (${under('DROP', 'terms', '20', 'actions', 'action')})`
+    ])
+  })
+
+  it('fails a filter term whose statements are partly unsupported on the parse, as a policy term\'s', () => {
+    // firewall { filter F { term t { from { protocol tcp; ttl 1; } then accept; } } }
+    const node = (id: string, children?: SyntaxNode[]): SyntaxNode => ({ id, label: id, ...(children ? { children } : {}) })
+    const tree = [node('firewall', [node('F', [node('t', [node('t from protocol'), node('t from ttl'), node('t then')])])])]
+    const filterModel: Device = { filters: { ipv4: { F: { implicitAction: 'discard', terms: { '1': { name: 't', matches: { protocols: [6] }, actions: { action: 'accept' } } } } } } }
+    const term = (...leaf: string[]) => fieldPath('filters', 'ipv4', 'F', 'terms', '1', ...leaf)
+    const dispositions: Record<string, StatementDisposition> = {
+      firewall: { kind: 'mapped', fields: [] },
+      F: { kind: 'mapped', fields: [fieldPath('filters', 'ipv4', 'F', 'implicitAction')] },
+      t: { kind: 'mapped', fields: [term('name')] },
+      't from protocol': { kind: 'mapped', fields: [term('matches', 'protocols')] },
+      't from ttl': { kind: 'unsupported', reason: 'no TTL' },
+      't then': { kind: 'mapped', fields: [term('actions', 'action')] }
+    }
+    expect(termProblems({ tree, model: filterModel, dispositions, diagnostics: [] })).toEqual([`parse converted part of a term: t from ttl is unsupported, but the term's other statements are mapped (${term()})`])
+  })
+})
+
 describe('a BGP policy name that resolves to nothing: checked for a plugin that parses routing policy', () => {
   const model: Device = { networkInstances: { default: { bgp: { neighbors: { '10.0.0.2': { peerAs: 65001, importPolicies: ['IN'] } } } } } }
   const giving = (capabilities: PlatformPlugin['capabilities']): PlatformPlugin => ({ ...stubPlugin(), capabilities, parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }) })

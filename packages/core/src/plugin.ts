@@ -8,10 +8,10 @@ import type { Context, Diagnostic, ParseResult, RenderResult } from './results'
 /**
  * The model's feature areas, as capabilities name them. Minor model versions add areas (0.2.0: `dns`; 0.4.0: `vlans`,
  * with switch ports and IRB/SVI interfaces, `ospf` and `bgp`; 0.5.0: `routing-policy`, prefix lists, community and
- * AS-path sets and policies). A plugin that parses `routing-policy` has every BGP policy name resolve to a policy of
- * its model (the conformance kit checks).
+ * AS-path sets and policies; 0.5.1: `filters`, firewall filters and ACLs and their attachments). A plugin that parses
+ * `routing-policy` has every BGP policy name resolve to a policy of its model (the conformance kit checks).
  */
-export type FeatureArea = 'system' | 'interfaces' | 'static-routes' | 'dns' | 'ntp' | 'syslog' | 'snmp' | 'vlans' | 'ospf' | 'bgp' | 'routing-policy'
+export type FeatureArea = 'system' | 'interfaces' | 'static-routes' | 'dns' | 'ntp' | 'syslog' | 'snmp' | 'vlans' | 'ospf' | 'bgp' | 'routing-policy' | 'filters'
 
 /** How much of an area a plugin handles. */
 export type Support = 'full' | 'partial' | 'none'

@@ -1,7 +1,7 @@
-// termSkipSafe() (policy.ts): whether a policy term can be left out while the rest of its policy is converted, the
-// per-term rule's question (docs/ARCHITECTURE.md).
+// termSkipSafe() and filterTermSkipSafe() (policy.ts): whether a policy's or filter's term can be left out while the
+// rest is converted, the per-term rule's question (docs/ARCHITECTURE.md).
 import { describe, expect, it } from 'vitest'
-import { termSkipSafe, type Policy, type PolicyTerm } from '../src'
+import { filterTermSkipSafe, termSkipSafe, type Filter, type FilterAction, type Policy, type PolicyTerm } from '../src'
 
 /** A policy of `terms`, keyed 10, 20, 30… in order. */
 const policy = (...terms: PolicyTerm[]): Policy => ({ fallThrough: 'reject', terms: Object.fromEntries(terms.map((t, i) => [String((i + 1) * 10), t])) })
@@ -49,5 +49,20 @@ describe('termSkipSafe', () => {
     terms['10'] = { actions: { tag: 7 } }
     expect(termSkipSafe({ fallThrough: 'reject', terms }, '10')).toBe(false)
     expect(termSkipSafe({ fallThrough: 'reject', terms }, '20')).toBe(true)
+  })
+})
+
+describe('filterTermSkipSafe', () => {
+  const filter = (...actions: FilterAction[]): Filter => ({ implicitAction: 'discard', terms: Object.fromEntries(actions.map((action, i) => [String(i + 1), { matches: { protocols: [6] }, actions: { action, count: `c${i}` } }])) })
+
+  it('is safe for the last term, and for a key the filter doesn\'t have', () => {
+    expect(filterTermSkipSafe(filter('accept', 'discard'), '2')).toBe(true)
+    expect(filterTermSkipSafe(filter('accept'), 'toString')).toBe(true)
+    expect(filterTermSkipSafe({ implicitAction: 'deny' }, '1')).toBe(true)
+  })
+
+  it('is safe only for a term that decides nothing (next-term: it counts or logs) before later terms', () => {
+    expect(filterTermSkipSafe(filter('next-term', 'accept'), '1')).toBe(true)
+    for (const action of ['accept', 'discard', 'reject'] as const) expect(filterTermSkipSafe(filter(action, 'accept'), '1'), action).toBe(false)
   })
 })

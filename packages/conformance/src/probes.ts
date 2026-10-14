@@ -11,12 +11,15 @@
 // 6. unknown references (model 0.5.0): a policy term naming a prefix list or set the source never defines, or a BGP
 //    peer naming a missing policy, maps no statement and leaves no name that resolves to nothing;
 // 7. regexes kept as written (model 0.5.0): a community or AS-path regex reaches the model verbatim with its dialect,
-//    and one of another dialect is never rendered as if it were the plugin's own.
+//    and one of another dialect is never rendered as if it were the plugin's own;
+// 8. the implicit action (model 0.5.1): a filter whose platform default for an undecided packet differs from the
+//    plugin's is rendered with a semantic warning, never silently.
 // Every probe source also goes through the five fixture checks (checks.ts), the secrets check among them: a probe
 // source with a secret (a community, the prototype keys used as one) has it checked like any fixture's.
 // A probe a plugin can't run yet (an area it doesn't support) is declared `notApplicable` with why, never left out:
-// the adapter's types make every probe and case a choice. The cases model 0.4.0 added (VLANs, OSPF, BGP) and 0.5.0
-// added (routing policy) are optional in the types until each plugin's card for that phase gives them: one left out
+// the adapter's types make every probe and case a choice. The cases model 0.4.0 added (VLANs, OSPF, BGP), 0.5.0 added
+// (routing policy) and 0.5.1 added (filters) are optional in the types until each plugin's card for that phase gives
+// them: one left out
 // isn't run (probesNotGiven() lists it, and describeConformance() shows it as a skipped test), so an older adapter runs
 // as it did.
 import { fieldPath, MODEL_VERSION, modelProblems, statementsOf, type Context, type Device, type PathSegment, type PlatformPlugin, type RegexDialect } from '@dialect/core'
@@ -31,11 +34,14 @@ export type Probe<T> = T | NotApplicable
 
 /** Where a prototype key is used as a name. */
 export type NameUse = 'interface' | 'vrf' | 'community' | 'dns' | 'vlan' | 'bgp-group'
-export type NegationKind = 'address' | 'description' | 'name-server' | 'static-route' | 'community' | 'bgp-neighbor' | 'ospf-interface' | 'policy-term' | 'prefix-list-entry'
-export type MalformedKind = 'ipv4-address' | 'ipv6-address' | 'mask' | 'next-hop' | 'as-number' | 'vlan-id' | 'prefix' | 'prefix-length'
+export type NegationKind = 'address' | 'description' | 'name-server' | 'static-route' | 'community' | 'bgp-neighbor' | 'ospf-interface' | 'policy-term' | 'prefix-list-entry' | 'filter-term' | 'filter-attachment'
+export type MalformedKind = 'ipv4-address' | 'ipv6-address' | 'mask' | 'next-hop' | 'as-number' | 'vlan-id' | 'prefix' | 'prefix-length' | 'port' | 'filter-prefix' | 'wildcard'
 export type ScopingKind = 'delete' | 'dns' | 'static-route' | 'ospf' | 'bgp'
-/** What an unknown reference names (model 0.5.0): a term's prefix list, community set or AS-path set, a BGP peer's policy. */
-export type ReferenceKind = 'prefix-list' | 'community-set' | 'as-path-set' | 'policy'
+/**
+ * What an unknown reference names: a term's prefix list, community set or AS-path set, a BGP peer's policy (model
+ * 0.5.0), a subinterface's filter (0.5.1).
+ */
+export type ReferenceKind = 'prefix-list' | 'community-set' | 'as-path-set' | 'policy' | 'filter'
 
 /** The name uses and cases model 0.4.0 added: optional in an adapter until its plugin's phase 2 card gives them. */
 export type NameUse04 = 'vlan' | 'bgp-group'
@@ -45,26 +51,32 @@ export type ScopingKind04 = 'ospf' | 'bgp'
 /** The cases model 0.5.0 added: optional until its plugin's phase 3 card gives them, as are the reference and regex probes. */
 export type NegationKind05 = 'policy-term' | 'prefix-list-entry'
 export type MalformedKind05 = 'prefix' | 'prefix-length'
+/** The cases model 0.5.1 added (filters), as are the filter reference and the implicit-action probe. */
+export type NegationKind051 = 'filter-term' | 'filter-attachment'
+export type MalformedKind051 = 'port' | 'filter-prefix' | 'wildcard'
 
 /** Every key of `K` given, except those of `Later`, which may be left out (`not given yet`). */
 type Choices<K extends string, Later extends K, V> = { readonly [P in Exclude<K, Later>]: V } & { readonly [P in Later]?: V }
 
 /** Each kind in the order the probes run and report them. */
 const NAME_USES: readonly NameUse[] = ['interface', 'vrf', 'community', 'dns', 'vlan', 'bgp-group']
-const NEGATION_KINDS: readonly NegationKind[] = ['address', 'description', 'name-server', 'static-route', 'community', 'bgp-neighbor', 'ospf-interface', 'policy-term', 'prefix-list-entry']
-const MALFORMED_KINDS: readonly MalformedKind[] = ['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length']
+const NEGATION_KINDS: readonly NegationKind[] = ['address', 'description', 'name-server', 'static-route', 'community', 'bgp-neighbor', 'ospf-interface', 'policy-term', 'prefix-list-entry', 'filter-term', 'filter-attachment']
+const MALFORMED_KINDS: readonly MalformedKind[] = ['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length', 'port', 'filter-prefix', 'wildcard']
 const SCOPING_KINDS: readonly ScopingKind[] = ['delete', 'dns', 'static-route', 'ospf', 'bgp']
-const REFERENCE_KINDS: readonly ReferenceKind[] = ['prefix-list', 'community-set', 'as-path-set', 'policy']
-/** The optional cases model 0.5.0 added, by the names probesNotGiven() gives them; the others it lists are 0.4.0's. */
-const SINCE_05: ReadonlySet<string> = new Set(['negation: policy-term', 'negation: prefix-list-entry', 'malformed: prefix', 'malformed: prefix-length', ...REFERENCE_KINDS.map((k) => `unknown-reference: ${k}`), 'regex'])
-/** Marks a model 0.4.0 or 0.5.0 case an adapter leaves out: not run, and listed by probesNotGiven(). */
+const REFERENCE_KINDS: readonly ReferenceKind[] = ['prefix-list', 'community-set', 'as-path-set', 'policy', 'filter']
+/** The model version each optional case came with, by the name probesNotGiven() gives it; one not here is 0.4.0's. */
+const SINCE: ReadonlyMap<string, string> = new Map([
+  ...['negation: policy-term', 'negation: prefix-list-entry', 'malformed: prefix', 'malformed: prefix-length', 'unknown-reference: prefix-list', 'unknown-reference: community-set', 'unknown-reference: as-path-set', 'unknown-reference: policy', 'regex'].map((c): [string, string] => [c, '0.5.0']),
+  ...['negation: filter-term', 'negation: filter-attachment', 'malformed: port', 'malformed: filter-prefix', 'malformed: wildcard', 'unknown-reference: filter', 'implicit-action'].map((c): [string, string] => [c, '0.5.1'])
+])
+/** Marks an optional case an adapter leaves out: not run, and listed by probesNotGiven(). */
 const NOT_GIVEN: NotApplicable = Object.freeze({ notApplicable: 'not given yet' })
 /** An adapter's case or use of `kind`, or NOT_GIVEN when it leaves an optional one out. */
 const choice = <V>(cases: object | undefined, kind: string): V | NotApplicable => (cases as Partial<Record<string, V>> | undefined)?.[kind] ?? NOT_GIVEN
 
 /**
- * The model 0.4.0 and 0.5.0 cases `adapter` leaves out (`negation: bgp-neighbor`, `prototype-keys: as a VLAN name`,
- * `unknown-reference: policy`, `regex`): runProbes() doesn't run them, and the suite shows them as a skipped test per
+ * The optional cases (models 0.4.0 to 0.5.1) `adapter` leaves out (`negation: bgp-neighbor`, `prototype-keys: as a VLAN
+ * name`, `unknown-reference: policy`, `regex`, `implicit-action`): runProbes() doesn't run them, and the suite shows them as a skipped test per
  * model version (probesNotGivenByModel()) until the plugin's card for that phase gives each, or declares it not
  * applicable.
  */
@@ -79,17 +91,14 @@ export function probesNotGiven(adapter: ProbeAdapter): string[] {
   ] as const)
     for (const kind of kinds) if (choice(cases, kind) === NOT_GIVEN) out.push(`${probe}: ${kind}`)
   if (adapter.regex === undefined) out.push('regex')
+  if (adapter.implicitAction === undefined) out.push('implicit-action')
   return out
 }
 
-/** probesNotGiven() by the model version that added each case (`0.4.0`, `0.5.0`), leaving out a version with none. */
+/** probesNotGiven() by the model version that added each case (`0.4.0`, `0.5.0`, `0.5.1`), leaving out a version with none. */
 export function probesNotGivenByModel(adapter: ProbeAdapter): [string, string[]][] {
   const notGiven = probesNotGiven(adapter)
-  const byModel: [string, string[]][] = [
-    ['0.4.0', notGiven.filter((c) => !SINCE_05.has(c))],
-    ['0.5.0', notGiven.filter((c) => SINCE_05.has(c))]
-  ]
-  return byModel.filter(([, cases]) => cases.length)
+  return ['0.4.0', '0.5.0', '0.5.1'].map((version): [string, string[]] => [version, notGiven.filter((c) => (SINCE.get(c) ?? '0.4.0') === version)]).filter(([, cases]) => cases.length)
 }
 
 const USE_NAMES: Record<NameUse, string> = { interface: 'an interface', vrf: 'a VRF', community: 'an SNMP community', dns: 'a DNS name', vlan: 'a VLAN name', 'bgp-group': 'a BGP group' }
@@ -144,22 +153,24 @@ export interface ProbeAdapter {
   /** A source with one SNMP community limited to some clients (an access list, a client list), per access. */
   readonly snmpAccess: Probe<{ readonly 'read-only': string; readonly 'read-write': string }>
   /** Negating a BGP neighbor or an OSPF interface clears it, as negating an address does. */
-  readonly negation: Choices<NegationKind, NegationKind04 | NegationKind05, Probe<NegationCase>>
+  readonly negation: Choices<NegationKind, NegationKind04 | NegationKind05 | NegationKind051, Probe<NegationCase>>
   /** An AS number out of range (`4294967296`), a VLAN ID out of range (`4095`), as an address is. */
-  readonly malformed: Choices<MalformedKind, MalformedKind04 | MalformedKind05, Probe<MalformedCase>>
+  readonly malformed: Choices<MalformedKind, MalformedKind04 | MalformedKind05 | MalformedKind051, Probe<MalformedCase>>
   /** A change to the VRF's OSPF or BGP stays in it, as a static route change does. */
   readonly vrfScoping: Choices<ScopingKind, ScopingKind04, Probe<ScopingCase>>
   /**
    * Model 0.5.0: a source naming what it never defines (a term's prefix list, community set or AS-path set, a BGP
-   * peer's policy), with `value` the missing name: checked as a malformed value is (in no model, no statement on its
-   * line mapped, flagged), and the model has no name that resolves to nothing.
+   * peer's policy; 0.5.1: a subinterface's filter), with `value` the missing name: checked as a malformed value is (in
+   * no model, no statement on its line mapped, flagged), and the model has no name that resolves to nothing.
    */
   readonly unknownReference?: Choices<ReferenceKind, ReferenceKind, Probe<MalformedCase>>
   /** Model 0.5.0: regexes kept as written, and another dialect's never rendered as the plugin's own. */
   readonly regex?: Probe<RegexCase>
+  /** Model 0.5.1: a source with one filter, whose implicit action is the plugin's own. */
+  readonly implicitAction?: Probe<{ readonly source: string }>
 }
 
-export type ProbeName = 'prototype-keys' | 'snmp-access' | 'negation' | 'malformed' | 'vrf-scoping' | 'unknown-reference' | 'regex'
+export type ProbeName = 'prototype-keys' | 'snmp-access' | 'negation' | 'malformed' | 'vrf-scoping' | 'unknown-reference' | 'regex' | 'implicit-action'
 
 export interface ProbeResult {
   readonly probe: ProbeName
@@ -186,6 +197,8 @@ const PROBE_REGEXES: Readonly<Record<RegexDialect, { readonly asPath: string; re
 /** The sets the regex probe renders from the kit's own model. */
 export const PROBE_AS_PATH_SET = 'PROBE-AS-PATH'
 export const PROBE_COMMUNITY_SET = 'PROBE-COMMUNITY-SET'
+/** The filter the implicit-action probe renders from the kit's own model. */
+export const PROBE_FILTER = 'PROBE-FILTER'
 
 const isNotApplicable = (p: unknown): p is NotApplicable => typeof p === 'object' && p !== null && Object.hasOwn(p, 'notApplicable')
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -267,7 +280,7 @@ export function runProbes(plugin: PlatformPlugin, adapter: ProbeAdapter, { model
   const notApplicable = (probe: ProbeName, name: string, p: NotApplicable) => results.push({ probe, case: name, status: 'not-applicable', problems: [p.notApplicable] })
 
   if (!plugin.parse || !plugin.render) {
-    for (const probe of ['prototype-keys', 'snmp-access', 'negation', 'malformed', 'vrf-scoping', 'unknown-reference', 'regex'] as const) add(probe, 'all', [`the plugin has no ${!plugin.parse ? 'parse' : 'render'}()`])
+    for (const probe of ['prototype-keys', 'snmp-access', 'negation', 'malformed', 'vrf-scoping', 'unknown-reference', 'regex', 'implicit-action'] as const) add(probe, 'all', [`the plugin has no ${!plugin.parse ? 'parse' : 'render'}()`])
     return results
   }
   const parse = (text: string) => plugin.parse!(text, context)
@@ -522,6 +535,29 @@ export function runProbes(plugin: PlatformPlugin, adapter: ProbeAdapter, { model
     }
     problems.push(...fixtureChecks('regex', regex.source))
     add('regex', 'all', problems)
+  }
+
+  // ---- 8. the implicit action
+  const implicit = adapter.implicitAction
+  if (implicit !== undefined && isNotApplicable(implicit)) notApplicable('implicit-action', 'all', implicit)
+  else if (implicit !== undefined) {
+    const parsed = parse(implicit.source)
+    const problems = [...errors('parse', parsed)]
+    const own = new Set((['ipv4', 'ipv6'] as const).flatMap((family) => Object.values(parsed.model.filters?.[family] ?? {}).map((f) => f?.implicitAction)))
+    if (own.size !== 1 || ![...own].every((a) => a === 'discard' || a === 'deny')) problems.push(`parse: the source's filters say ${own.size} implicit actions of the model's, not the plugin's one`)
+    else {
+      // From the kit's own model, with the other platform's default: the render says the two differ.
+      const other = own.has('discard') ? 'deny' : 'discard'
+      const model: Device = { filters: { ipv4: { [PROBE_FILTER]: { implicitAction: other, terms: { '10': { matches: { protocols: [6], destinationPorts: ['22'] }, actions: { action: 'accept' } } } } } } }
+      const rendered = render(model)
+      const filter = fieldPath('filters', 'ipv4', PROBE_FILTER)
+      const field = fieldPath('filters', 'ipv4', PROBE_FILTER, 'implicitAction')
+      if (!Object.hasOwn(rendered.dispositions, field)) problems.push(`render of a filter whose implicit action is ${other}: ${field} has no disposition`)
+      if (!rendered.diagnostics.some((x) => x.category === 'semantic' && x.severity !== 'info' && x.field !== undefined && (x.field === filter || x.field.startsWith(`${filter}.`))))
+        problems.push(`render of a filter whose implicit action is ${other}: no semantic warning on the filter, though the plugin's platform does otherwise with a packet no term decides`)
+    }
+    problems.push(...fixtureChecks('implicit-action', implicit.source))
+    add('implicit-action', 'all', problems)
   }
   return results
 }

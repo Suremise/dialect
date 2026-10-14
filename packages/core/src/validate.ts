@@ -3,7 +3,7 @@
 // that names a VRF, VLAN, interface or BGP group it never declared, or writes a route distinguisher, VLAN ID or AS number
 // in a form no other plugin can read, fails there instead of in a conversion. Messages never quote the config (AGENTS.md, No secrets in diagnostics): a VRF can share
 // its name with a secret, so they say what is wrong, and `field` says where.
-import type { BgpPeer, CommunityType, Device, Interface, Keyed, PrefixMatch, RoutingPolicy } from './model'
+import type { BgpPeer, CommunityType, Device, Filters, Interface, Keyed, PrefixMatch, RoutingPolicy } from './model'
 import { fieldPath, type PathSegment } from './paths'
 import type { Diagnostic } from './results'
 
@@ -185,7 +185,9 @@ const entries = <T>(map: Readonly<Record<string, T>> | undefined): [string, T][]
  *   one of its instance's (`model.unknown-bgp-group`);
  * - since 0.5.0, routing policy (routingPolicyProblems()): positions, prefixes and their lengths, communities, regex
  *   dialects and numbers in the model's forms, and every prefix list, community set and AS-path set a term names, and
- *   with `policyReferences` (the default), every policy a BGP peer or family names, exists.
+ *   with `policyReferences` (the default), every policy a BGP peer or family names, exists;
+ * - since 0.5.1, filters (filterProblems()): their terms in the model's forms, and every filter a subinterface applies
+ *   exists in its family (`model.unknown-filter`).
  */
 export function modelProblems(device: Device, { policyReferences = true }: ModelProblemsOptions = {}): Diagnostic[] {
   const out: Diagnostic[] = []
@@ -204,6 +206,14 @@ export function modelProblems(device: Device, { policyReferences = true }: Model
       const at = (leaf: string) => fieldPath('interfaces', name, 'subinterfaces', index, leaf)
       if (vrf === 'default') problem('default-network-instance', 'A subinterface in the default network instance leaves networkInstance out.', at('networkInstance'))
       else if (vrf !== undefined && (typeof vrf !== 'string' || !instances || !Object.hasOwn(instances, vrf))) problem('unknown-network-instance', 'A subinterface names a network instance the model doesn\'t have.', at('networkInstance'))
+      // Since 0.5.1: each filter applied is one of the model's, of the same family.
+      for (const family of ['ipv4', 'ipv6'] as const)
+        for (const direction of ['input', 'output'] as const) {
+          const filter = sub?.filters?.[family]?.[direction]
+          const declared = device.filters?.[family]
+          if (filter !== undefined && (typeof filter !== 'string' || !declared || !Object.hasOwn(declared, filter)))
+            problem('unknown-filter', 'A subinterface applies a filter the model doesn\'t have in that family.', fieldPath('interfaces', name, 'subinterfaces', index, 'filters', family, direction))
+        }
       if (sub?.routedVlan === undefined) continue
       routes = true
       if (ifc.type !== 'irb-or-svi') problem('routed-vlan-interface', 'A subinterface routes for a VLAN, but its interface isn\'t of type irb-or-svi.', at('routedVlan'))
@@ -276,6 +286,61 @@ export function modelProblems(device: Device, { policyReferences = true }: Model
     for (const [address, n] of entries(bgp?.neighbors)) peerPolicies(n, 'neighbors', address)
   }
   out.push(...routingPolicyProblems(device.routingPolicy))
+  out.push(...filterProblems(device.filters, device.routingPolicy))
+  return out
+}
+
+/** A port range (model.ts, PortRange): `"22"` or `"1024-65535"`, first below last, from 0 to 65535. */
+export function isPortRange(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  const m = /^([^-]+)(?:-([^-]+))?$/.exec(value)
+  const first = m ? number(m[1], UINT16) : null
+  const last = m?.[2] !== undefined ? number(m[2], UINT16) : first
+  return first !== null && last !== null && (m?.[2] === undefined || first < last)
+}
+
+const TCP_FLAGS: ReadonlySet<unknown> = new Set(['fin', 'syn', 'rst', 'psh', 'ack', 'urg', 'ece', 'cwr'])
+
+/**
+ * What is wrong with a model's filters (since 0.5.1), as modelProblems() reports it:
+ * - a filter's `implicitAction` is missing or isn't `discard` or `deny` (`model.implicit-action`); a term's key isn't a
+ *   position (`model.position`), and its action is missing or isn't one of the model's (`model.filter-action`);
+ * - a prefix isn't in CIDR form with no host bits set, of the filter's family (`model.prefix`); a prefix list isn't one
+ *   of the model's in that family (`model.unknown-prefix-list`);
+ * - a protocol isn't from 0 to 255, an ICMP type or code from 0 to 255, a DSCP value from 0 to 63 (`model.number`); a
+ *   port isn't a port or a range of them (`model.port-range`); a TCP flag isn't one of the model's
+ *   (`model.tcp-flags`); a fragment match isn't `initial` or `non-initial` (`model.fragment`).
+ * A leaf-list's problem is reported on the list, once.
+ */
+export function filterProblems(filters: Filters | undefined, policy?: RoutingPolicy): Diagnostic[] {
+  const out: Diagnostic[] = []
+  if (!filters) return out
+  const problem = (code: string, message: string, ...path: PathSegment[]) => out.push({ severity: 'error', category: 'semantic', code: `model.${code}`, message, field: fieldPath('filters', ...path) })
+  const list = (value: unknown): unknown[] => (value === undefined ? [] : Array.isArray(value) ? value : [value])
+  const inRange = (max: number) => (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= max
+  for (const family of ['ipv4', 'ipv6'] as const)
+    for (const [name, filter] of entries(filters[family])) {
+      const at = [family, name]
+      if (filter?.implicitAction !== 'discard' && filter?.implicitAction !== 'deny') problem('implicit-action', 'A filter doesn\'t say what happens to a packet no term decides (discard or deny).', ...at, 'implicitAction')
+      for (const [key] of entries(filter?.terms)) if (!isPositionKey(key)) problem('position', 'A filter term is keyed by something other than its position, a number from 0 to 4294967294.', ...at, 'terms', key)
+      for (const [key, term] of entries(filter?.terms)) {
+        const t = [...at, 'terms', key]
+        if (!['accept', 'discard', 'reject', 'next-term'].includes(term?.actions?.action as string)) problem('filter-action', 'A filter term\'s action is missing, or isn\'t accept, discard, reject or next-term.', ...t, 'actions', 'action')
+        const m = term?.matches
+        for (const leaf of ['sourcePrefixes', 'destinationPrefixes', 'prefixes'] as const)
+          if (!list(m?.[leaf]).every((p) => parsePrefix(p)?.family === family)) problem('prefix', `A prefix isn't in CIDR form with no host bits set, or isn't an ${family === 'ipv4' ? 'IPv4' : 'IPv6'} prefix in an ${family === 'ipv4' ? 'IPv4' : 'IPv6'} filter.`, ...t, 'matches', leaf)
+        const lists = policy?.prefixLists?.[family]
+        for (const leaf of ['sourcePrefixLists', 'destinationPrefixLists', 'prefixLists'] as const)
+          if (!list(m?.[leaf]).every((n) => typeof n === 'string' && lists !== undefined && Object.hasOwn(lists, n))) problem('unknown-prefix-list', 'A filter term names a prefix list the model doesn\'t have in its family.', ...t, 'matches', leaf)
+        if (!list(m?.protocols).every(inRange(255))) problem('number', 'A protocol isn\'t a number from 0 to 255.', ...t, 'matches', 'protocols')
+        for (const leaf of ['sourcePorts', 'destinationPorts', 'ports'] as const)
+          if (!list(m?.[leaf]).every(isPortRange)) problem('port-range', 'A port isn\'t a port or a range of them (first-last), from 0 to 65535.', ...t, 'matches', leaf)
+        for (const leaf of ['icmpTypes', 'icmpCodes'] as const) if (!list(m?.[leaf]).every(inRange(255))) problem('number', `An ICMP ${leaf === 'icmpTypes' ? 'type' : 'code'} isn't a number from 0 to 255.`, ...t, 'matches', leaf)
+        if (!list(m?.dscp).every(inRange(63))) problem('number', 'A DSCP value isn\'t a number from 0 to 63.', ...t, 'matches', 'dscp')
+        for (const leaf of ['set', 'clear'] as const) if (!list(m?.tcpFlags?.[leaf]).every((f) => TCP_FLAGS.has(f))) problem('tcp-flags', 'A TCP flag isn\'t one of fin, syn, rst, psh, ack, urg, ece and cwr.', ...t, 'matches', 'tcpFlags', leaf)
+        if (m?.fragment !== undefined && m.fragment !== 'initial' && m.fragment !== 'non-initial') problem('fragment', 'A fragment match isn\'t initial or non-initial.', ...t, 'matches', 'fragment')
+      }
+    }
   return out
 }
 

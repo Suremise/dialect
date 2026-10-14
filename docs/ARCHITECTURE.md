@@ -44,7 +44,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.5.0)
+## Core contracts (`@dialect/core`, model 0.5.1)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -66,6 +66,9 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
   - a routed VLAN interface (IRB/SVI) is of type `irb-or-svi`, and the subinterface that routes for a VLAN says which
     in `routedVlan`: Junos `irb` unit 10 (`vlans V l3-interface irb.10`), Cisco `interface Vlan10` on subinterface `0`.
     Plugins built before 0.4 call these interfaces `vlan`, which stays;
+  - since 0.5.1, the `filters` a subinterface applies, per family (`ipv4`, `ipv6`) and direction (`input`, `output`),
+    by name: Junos `family inet filter input F`, Cisco `ip access-group F in` (on subinterface `0` for a main
+    interface);
 - `vlans`, keyed by VLAN ID (`"10"`), with a `name` (Junos's key for it) and `description`;
 - `networkInstances`: `default` for the global table, each with a `type` (`default`, `vrf`, `virtual-router`),
   `staticRoutes` and their next hops, and for a VRF its `routeDistinguisher` and `routeTargets` (`import` and `export`
@@ -87,7 +90,9 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
     warning when its own default differs, naming the line, never a peer's address. Since 0.5.0 the policy names
     resolve to `routingPolicy.policies`;
 - `routingPolicy` (since 0.5.0, after OpenConfig `routing-policy` and `bgp-policy`, simplified; below): prefix lists
-  per family, community sets, AS-path sets and policies with ordered terms.
+  per family, community sets, AS-path sets and policies with ordered terms;
+- `filters` (since 0.5.1, after OpenConfig `acl`, simplified; below): firewall filters and ACLs per family, with
+  ordered terms.
 
 **Secrets are flags, never values:** OSPF `authentication` (`simple`, `md5`, `key-chain`, on an area or an interface)
 and a BGP peer's `authentication: true` say the source had a key; the key never reaches the model, so the target asks
@@ -95,7 +100,7 @@ for it (a needs-input item of kind `secret`, whose `field` is the flag's path) a
 renderer never writes a placeholder key**: unanswered, the key is left out, and the conformance kit's round trip
 excuses that leaf (below).
 
-These are the phase 1 and phase 2 areas and phase 3's routing policy; a later minor version adds filters and ACLs.
+These are the phase 1 and phase 2 areas and phase 3's routing policy and filters.
 
 Three conventions keep the model walkable by the ledger:
 - **collections are maps keyed by their natural key** (interface name, address, prefix), never arrays of objects, so
@@ -124,11 +129,12 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 | 0.4.0 | `Device.vlans`, `Interface.switching`, the `irb-or-svi` type and `Subinterface.routedVlan`, `NetworkInstance.ospf` and `bgp`, and the `vlans`, `ospf` and `bgp` feature areas (#59, phase 2) |
 | 0.4.1 | `Bgp.ebgpDefaultPolicy` (`BgpDefaultPolicy`), the source's default for eBGP peers without a policy (#68) |
 | 0.5.0 | `Device.routingPolicy` (`RoutingPolicy`): prefix lists, community and AS-path sets, policies and their terms, and the `routing-policy` feature area (#72, phase 3) |
+| 0.5.1 | `Device.filters` (`Filters`): firewall filters and ACLs and their terms, `Subinterface.filters` (`FilterAttachments`), and the `filters` feature area (#73) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
 renderer, a subinterface's `networkInstance` for a 0.2 one or any of 0.4's VLAN, switch port, routed VLAN, OSPF and BGP
-fields for a 0.3 one, or any routing policy field for a 0.4 one, shows in the ledger as unrendered rather than being
-dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
+fields for a 0.3 one, any routing policy field for a 0.4 one or any filter field for a 0.5.0 one, shows in the ledger
+as unrendered rather than being dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
 
 ### Routing policy (model 0.5.0)
 
@@ -173,6 +179,30 @@ number where it has one (`route-map M permit 10`, `seq 5`), else their place fro
 with no sign or leading zero, up to 4294967294, which JavaScript and JSON keep in numeric order however the keys were
 added, so a field's path is stable and the model's order is its keys' order without a separate order list.
 
+### Filters and ACLs (model 0.5.1)
+
+`Device.filters.ipv4` and `.ipv6`, by name: Junos `firewall family inet|inet6 filter`, Cisco `ip access-list` and
+`ipv6 access-list` (standard and extended, named or numbered), IOS-XR's ACLs. After OpenConfig `acl`, simplified, with
+ideas from Capirca and Aerleon's term model (ideas only).
+- A filter has a `description`, ordered `terms` (keyed by position, as a policy's: an ACL entry's sequence number, a
+  Junos term's place from 1, with the Junos `name` a leaf) and its **`implicitAction`**: what the platform does with a
+  packet no term decides, kept with the data as a policy's `fallThrough` is and required the same way. `discard` for
+  Junos (dropped silently), `deny` for a Cisco ACL's implicit deny (dropped, with an ICMP unreachable as the
+  interface's `ip unreachables` says). A renderer gives it `not-applicable` and raises a semantic warning when its
+  platform's differs, or when the source relied on it (no final term decides every packet).
+- A term's `matches` all hold for a packet to match (within a list, any entry): `sourcePrefixes`,
+  `destinationPrefixes` and `prefixes` (either; Junos `address`), in CIDR form of the filter's family (a Cisco `host`
+  is a /32 or /128); `sourcePrefixLists`, `destinationPrefixLists` and `prefixLists` (either), naming
+  `routingPolicy.prefixLists` of the family; `protocols` as IP protocol numbers (`tcp` is 6); `sourcePorts`,
+  `destinationPorts` and `ports` (either) as ports or ranges (`"22"`, `"1024-65535"`: Cisco's `eq`, `range`, `gt` and
+  `lt` come down to these, `neq` to two ranges); `icmpTypes` and `icmpCodes`; `tcpEstablished` (ACK or RST); `tcpFlags`
+  (flags that must all be `set` and all be `clear`); `fragment` (`initial`, `non-initial`); `dscp` (0 to 63).
+- Its `actions`: the `action`, always given (`accept`, `discard` silently, `reject` with an ICMP unreachable, or
+  `next-term`; a Junos term that only counts accepts, and the parser says so; a Cisco `deny` is `discard`), a `count`
+  (a counter's name) and `log`.
+- **Wildcards:** the model holds prefixes, never wildcard masks. A contiguous Cisco wildcard is a prefix; a term with a
+  non-contiguous one is `unsupported` whole, never approximated.
+
 **The per-term rule.** A policy is converted term by term, each term **whole or not at all**: a term the plugin can't
 parse or render in full is `unsupported` as a whole (all its statements, or all its fields), never partly converted.
 The rest of the policy is still converted only when that is semantically safe, which `termSkipSafe(policy, key)`
@@ -180,7 +210,10 @@ decides: leaving a term out is safe when later terms see the same routes the sam
 decides nothing (no `flow`, or `next-term`) and changes nothing a later term matches on (communities for a
 community-set match, the AS path for an AS-path match, the tag for a tag match). The last term always is. Anything it
 doesn't know (a later version's action, or a later term's match) counts against it. When leaving a term out isn't
-safe, the **whole policy** is `unsupported` instead. The conformance kit checks the rule (below).
+safe, the **whole policy** is `unsupported` instead. A filter keeps the same rule (since 0.5.1), with
+`filterTermSkipSafe(filter, key)`: leaving a filter's term out is safe when it is the last, or decides nothing
+(`next-term`: it only counts or logs); otherwise the **whole filter** is `unsupported`, and a subinterface applying it
+can't apply it either. The conformance kit checks the rule (below).
 
 ### Validation (`validate.ts`)
 
@@ -217,6 +250,14 @@ From 0.5.0, routing policy (`routingPolicyProblems()`, which modelProblems() run
   peer's or family's import and export policies (`model.unknown-policy`). The last is turned off by
   `modelProblems(device, { policyReferences: false })`, which the kit uses for a plugin that doesn't parse routing
   policy: it keeps the names alone, as phase 2 did.
+
+From 0.5.1, filters (`filterProblems()`, which modelProblems() runs): every filter has an `implicitAction` of the
+model's (`model.implicit-action`) and every term an `action` of the model's (`model.filter-action`), keyed by position
+(`model.position`); prefixes are in CIDR form of the filter's family (`model.prefix`) and prefix lists of that family
+exist (`model.unknown-prefix-list`); protocols, ICMP types and codes are from 0 to 255 and DSCP from 0 to 63
+(`model.number`); ports are ports or ranges (`isPortRange()`, `model.port-range`); TCP flags (`model.tcp-flags`) and
+fragment matches (`model.fragment`) are the model's; and every filter a subinterface applies is one of the model's in
+that family (`model.unknown-filter`).
 
 Messages never quote the value, which can share its text with a secret. The conformance kit runs it on every parse and
 reparse.
@@ -304,13 +345,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.5.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.5.1.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.5.0", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.5.1", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
@@ -342,12 +383,12 @@ Each fixture goes through five checks (`checkFixture()`):
    the model has empty still counts. The result lists them (`deferred`), and the
    suite puts them in the test's name, so none is left out unseen. A leaf dropped without such an item, or left to an
    item of another kind, still fails;
-4. the coverage ledger is complete for the parse and the render, and policy terms keep the per-term rule
+4. the coverage ledger is complete for the parse and the render, and policy and filter terms keep the per-term rule
    (`termProblems()`): on the parse, the statements a term is made of (the smallest subtree holding every statement
    that maps into it, widened while its parent maps nothing outside the term) are none of them `unsupported` once
    any maps into the model; on the render, a term's fields are all `unsupported` or none is, and a term left out whose
-   skip isn't safe (`termSkipSafe()`) leaves every field of its policy `unsupported` (its `fallThrough` may be
-   `not-applicable`). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
+   skip isn't safe (`termSkipSafe()`, `filterTermSkipSafe()`) leaves every field of its policy or filter `unsupported`
+   (its `fallThrough` or `implicitAction` may be `not-applicable`). A term the parse leaves out whole isn't in the model, so whether that was safe is the parser's to
    judge, from the term's actions, and its own tests show it; so is a partial term in a flat syntax with no
    containers (one statement per line), whose statements the kit can't group;
 5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
@@ -399,25 +440,31 @@ what comes out the same way for every platform (`runProbes()`):
    `changed` is the VRF's, and the case changes something. A leaf is the VRF's under its network instance, or under an
    entry that belongs to it: where `base` puts an entry it already has (no `networkInstance`: the global table), and
    where `changed` puts a new one, so a change can't move another VRF's entry in and make its edits look in scope;
-6. **unknown references** (model 0.5.0: a term's prefix list, community set or AS-path set, a BGP peer's policy, none
-   of them defined): checked as a malformed value is, with the missing name as the value, and the parse's model has no
-   `modelProblems()`, BGP policy names included whatever the capabilities say;
+6. **unknown references** (model 0.5.0: a term's prefix list, community set or AS-path set, a BGP peer's policy; 0.5.1:
+   a subinterface's filter; none of them defined): checked as a malformed value is, with the missing name as the
+   value, and the parse's model has no `modelProblems()`, BGP policy names included whatever the capabilities say;
 7. **regexes kept as written** (model 0.5.0): a source with AS-path and community regexes in the plugin's dialect, and
    each regex as written. The parse keeps each verbatim in a set that says the dialect, all in one; a render of the
    kit's own sets (`PROBE-AS-PATH`, `PROBE-COMMUNITY-SET`) in each other dialect leaves each regex `unsupported`, or
-   `rendered` with a semantic warning (not info) on the regex or its set, and never `not-applicable`.
+   `rendered` with a semantic warning (not info) on the regex or its set, and never `not-applicable`;
+8. **the implicit action** (model 0.5.1): a source with one filter, whose `implicitAction` the parse gives (the
+   plugin's own). A render of the kit's own filter (`PROBE-FILTER`, accepting TCP port 22) with the other platform's
+   implicit action gives that leaf a disposition and raises a semantic warning (not info) on the filter or one of its
+   fields.
 
 Model 0.5.0 also adds cases to the probes above: negation of a policy term and of a prefix list entry, and a malformed
-prefix and prefix length.
+prefix and prefix length; 0.5.1, negation of a filter term and of a filter's attachment, and a malformed port, filter
+prefix and non-contiguous wildcard (the term flagged, never approximated).
 
 Every probe source also goes through the five fixture checks, the secrets check with the community names its parse
 has (and a cleared one's) among its secrets. Every probe and case is a choice in the adapter's types: given, or
 `{ notApplicable: 'why' }` for an area the plugin doesn't have, which the suite shows as a skipped test with its reason.
 The cases model 0.4.0 added (the VLAN and BGP group uses, BGP and OSPF negation, AS and VLAN malformed values, OSPF and
-BGP scoping) and 0.5.0 added (term and entry negation, prefix and length malformed values, the reference and regex
-probes) are optional in the types, so an older adapter compiles and runs as it did: `runProbes()` leaves out the ones
-it doesn't give, `probesNotGiven()` lists them, and the suite shows them as a skipped test per model version (`not
-given yet (model 0.4.0)`, `(model 0.5.0)`, from `probesNotGivenByModel()`), until the plugin's card for that phase
+BGP scoping), 0.5.0 added (term and entry negation, prefix and length malformed values, the reference and regex
+probes) and 0.5.1 added (the filter cases, the filter reference and the implicit-action probe) are optional in the
+types, so an older adapter compiles and runs as it did: `runProbes()` leaves out the ones it doesn't give,
+`probesNotGiven()` lists them, and the suite shows them as a skipped test per model version (`not given yet (model
+0.4.0)`, `(model 0.5.0)`, `(model 0.5.1)`, from `probesNotGivenByModel()`), until the plugin's card for that phase
 gives each or declares it not applicable.
 A plugin with no adapter shows its probes as one skipped test, never as passing; each existing plugin's adapter is its
 own lane's follow-up card, which fixes what its probes find in the plugin (that lane owns it), so the probes have no
@@ -439,13 +486,17 @@ checks catch careless plugins:
   turn `__proto__` into a prototype, a client list dropped on parse or on render, `no` forms that remove nothing, any
   address, AS number or VLAN ID taken as one, and a `no` in one VRF that removes the same thing (a route, a BGP
   neighbor, an OSPF interface) everywhere; since 0.5.0, a prefix or length out of range taken as one, a name kept
-  that nothing defines, and another dialect's regex written as its own. Each fails its probe; the
+  that nothing defines, and another dialect's regex written as its own; since 0.5.1, a port, filter prefix or
+  non-contiguous wildcard taken as one, and a filter whose implicit action differs written with no word. Each fails its probe; the
   careful stub, which keeps the per-term rule itself, passes them all (`tests/probes.test.ts`);
 - a 0.4.1 renderer leaves every routing policy field unrendered; renders that convert part of a term, or leave out a
   term that rejects while converting the rest of its policy, fail the ledger check, and leaving out a term that changes
   nothing later terms see, or the whole policy, passes; parses with a term partly unsupported fail it, and one left out
   whole passes; a BGP policy name that resolves to nothing fails the parse check only for a plugin that parses
-  routing policy, and a policy without a fall-through, or with one the model doesn't have, fails it too.
+  routing policy, and a policy without a fall-through, or with one the model doesn't have, fails it too;
+- a 0.5.0 renderer leaves every filter and attachment field unrendered; the per-term rule holds for filters as for
+  policies: a counting term left out whole passes, a discarding one left out while the rest of its filter is converted
+  fails, and a filter term partly unsupported on the parse fails.
 
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 

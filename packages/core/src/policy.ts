@@ -1,6 +1,7 @@
-// Routing policy semantics the plugins and the conformance kit share (since model 0.5.0): the per-term rule's question,
-// whether a term can be left out while the rest of its policy is converted (docs/ARCHITECTURE.md, the per-term rule).
-import type { Policy, PolicyTerm } from './model'
+// Routing policy and filter semantics the plugins and the conformance kit share (since model 0.5.0): the per-term
+// rule's question, whether a term can be left out while the rest of its policy or filter is converted
+// (docs/ARCHITECTURE.md, the per-term rule).
+import type { Filter, Policy, PolicyTerm } from './model'
 
 /** The match conditions model 0.5.0 has: a later term matching on anything else is taken to see every change. */
 const KNOWN_MATCHES: ReadonlySet<string> = new Set(['prefixLists', 'prefixListMatch', 'routeFilters', 'communitySets', 'asPathSets', 'protocols', 'neighbors', 'tags', 'family'])
@@ -37,4 +38,17 @@ export function termSkipSafe(policy: Policy, key: string): boolean {
   const laterMatches = later.flatMap((t) => own(t?.matches))
   if (laterMatches.some((m) => !KNOWN_MATCHES.has(m))) return false
   return changes.every((action) => Object.hasOwn(SEEN_BY, action) && !laterMatches.includes(SEEN_BY[action]))
+}
+
+/**
+ * Whether leaving term `key` of `filter` out (as `unsupported`, whole) and converting the rest still has every later
+ * term see the same packets (since model 0.5.1): the term decides nothing (`next-term`: it only counts or logs). A last
+ * term always can be. When it can't be, the whole filter is `unsupported` instead.
+ */
+export function filterTermSkipSafe(filter: Filter, key: string): boolean {
+  const terms = filter.terms
+  if (!terms || !Object.hasOwn(terms, key)) return true
+  const keys = Object.keys(terms)
+  if (keys.indexOf(key) === keys.length - 1) return true
+  return terms[key]?.actions?.action === 'next-term'
 }
