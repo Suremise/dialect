@@ -61,7 +61,10 @@ export interface PlatformPlugin {
   parse?(text: string, context: Context): ParseResult
   /** Model → text and a disposition per populated field. Without it, the plugin can't convert to. */
   render?(model: Device, context: Context): RenderResult
-  /** What one of its interface names says (type, speed, numbers), so a target can suggest a name for it (convert.ts). */
+  /**
+   * What one of its interface names says (type, speed, numbers), so a target can suggest a name for it (convert.ts). An
+   * aggregate's number is counted from 1, as Cisco does: Junos `ae0` is [1].
+   */
   describeInterface?(name: string): PortName | undefined
   /** Its own name for a port another plugin described, as a suggestion only; undefined when it has none. */
   nameInterface?(port: PortName): string | undefined
