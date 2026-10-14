@@ -162,12 +162,52 @@ const SNMP: Readonly<Record<string, string>> = {
   vrf: 'SNMP in a VRF comes later'
 }
 
-/** Why a statement inside the top-level statement whose lowercased words are `top` isn't converted, from keywords alone. */
-export function unconvertedReason(top: readonly string[]): string {
+const GENERIC = "a statement this converter doesn't read"
+/**
+ * The reason of last resort, when a secret of the configuration is a word of every other (an SNMP community named
+ * `multicast`, say): a value one character long, which no secret of the conformance kit's (four characters or more) is.
+ */
+const LAST_RESORT = '—'
+
+/** The keyword table's reason for a statement inside the top-level statement whose lowercased words are `top`. */
+function tableReason(top: readonly string[]): string {
   const [first, second] = top[0] === 'no' || top[0] === 'default' ? top.slice(1) : top
   const pick = (table: Readonly<Record<string, string>>, key: string | undefined) => (key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined)
   if (first === 'router') return pick(ROUTER, second) ?? 'routing protocols other than OSPF and BGP come later'
   if (first === 'snmp-server') return pick(SNMP, second) ?? TOP[first]
   if (first === 'ip') return pick(IP, second) ?? TOP[first]
-  return pick(TOP, first) ?? "a statement this converter doesn't read"
+  return pick(TOP, first) ?? GENERIC
+}
+
+/**
+ * Why a statement inside the top-level statement whose lowercased words are `top` isn't converted, from keywords
+ * alone, and never containing one of `secrets` (secretValues()): a fixed text is a value of the config too when a
+ * secret is one of its words.
+ */
+export function unconvertedReason(top: readonly string[], secrets: readonly string[] = []): string {
+  const safe = (reason: string) => !secrets.some((s) => reason.includes(s))
+  return [tableReason(top), GENERIC].find(safe) ?? LAST_RESORT
+}
+
+// The secret values of an IOS configuration, as the conformance kit's patterns find them: SNMP communities, passwords
+// and secrets (`enable`, `username`, a line's), keys with a type (`key 7 …`, `key-string 7 …`), TACACS+/RADIUS keys and
+// NTP authentication keys.
+const SECRETS: readonly RegExp[] = [
+  /\bsnmp-server[ \t]+community[ \t]+(\S+)/gi,
+  /(?<![\w-])(?:password|secret|key|key-string)[ \t]+\d[ \t]+(\S+)[ \t]*$/gim,
+  /\benable[ \t]+(?:secret|password)[ \t]+(?:level[ \t]+\d+[ \t]+)?(?:\d[ \t]+)?(\S+)/gi,
+  /\busername[ \t]+\S+(?:[ \t]+privilege[ \t]+\d+)?[ \t]+(?:secret|password)[ \t]+(?:\d[ \t]+)?(\S+)/gi,
+  /^[ \t]*password[ \t]+(?:\d[ \t]+)?(?:encrypted[ \t]+)?(\S+)/gim,
+  /\b(?:tacacs-server|radius-server)\b[^\n]*?\bkey[ \t]+(?:\d[ \t]+)?(\S+)/gi,
+  /\bntp[ \t]+authentication-key[ \t]+\d+[ \t]+\S+[ \t]+(\S+)/gi
+]
+
+/**
+ * The secret values in `text`, for unconvertedReason() to keep out of a reason: four characters or more, as the kit
+ * takes them (a shorter one, `RO` or a key number, is a word of many reasons and no secret).
+ */
+export function secretValues(text: string): string[] {
+  const out = new Set<string>()
+  for (const pattern of SECRETS) for (const m of text.matchAll(pattern)) if (m[m.length - 1].length >= 4) out.add(m[m.length - 1])
+  return [...out]
 }

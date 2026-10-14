@@ -871,8 +871,11 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
 - **Every statement left out says why (#111):** one the mapper has nothing more particular to say about gets a reason
   from the keywords of the top-level statement it is in, as IOS-XR's does (`unconverted.ts`: by the first keyword, and
   the one after `ip`, `router` and `snmp-server`: terminal lines, crypto, QoS, AAA, NAT and zone-based firewall,
-  EIGRP…, else "a statement this converter doesn't read"), each a fixed text, never a word of the configuration. The
-  kit's ledger check holds every fixture and corpus file to it.
+  EIGRP…, else "a statement this converter doesn't read"), each a fixed text, never a word of the configuration. Nor
+  one a secret of it is: a community named like a keyword (`multicast`) would make the fixed text leak it, so the
+  parse finds the configuration's secrets as the kit does (`secretValues()`: communities, passwords, typed keys,
+  TACACS+/RADIUS and NTP keys, four characters or more) and takes the next reason that holds none, the generic one, or
+  else `—`. The kit's ledger check holds every fixture and corpus file to it.
 - **Detect (`detect.ts`):** counts IOS's own signs (a dotted mask on `ip address`, `ip route`, `service timestamps`, a
   `^C` banner, `ip access-list standard|extended NAME`, numbered `access-list N`, an entry's address and wildcard) and
   discounts NX-OS's (`feature`, `vrf context`), IOS-XR's (`ipv4 address`, `ipv4 access-list`, four-part interface

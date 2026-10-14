@@ -13,7 +13,7 @@ import { createAclReader } from './acl'
 import { createPolicyReader } from './policy'
 import { interfaceName, interfaceType, isInterfaceName, isSwitchable, splitSubinterface } from './names'
 import { BANNER_TYPES, parseTree, unquote, type NxNode } from './tree'
-import { unconvertedReason } from './unconverted'
+import { secretValues, unconvertedReason } from './unconverted'
 import { ALL_VLANS, compactVlans, vlanEntries, vlanIds } from './vlans'
 
 type Obj = { [key: string]: unknown }
@@ -2157,10 +2157,11 @@ export function parse(text: string, _context: Context): ParseResult {
   }
 
   // Every statement left out says why: one its mapper had nothing more to say about, by the keywords of the top-level
-  // statement it is in (unconverted.ts).
+  // statement it is in (unconverted.ts), in words no secret of the configuration is in.
+  const secrets = secretValues(text)
   const explain = (node: NxNode, top: readonly string[]) => {
     const d = dispositions[node.id]
-    if (d?.kind === 'unsupported' && !d.reason) set(node, unsupported(unconvertedReason(top)))
+    if (d?.kind === 'unsupported' && !d.reason) set(node, unsupported(unconvertedReason(top, secrets)))
     for (const child of node.children) explain(child, top)
   }
   for (const node of nodes) explain(node, node.words.map((x) => x.toLowerCase()))
