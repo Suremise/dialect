@@ -1,6 +1,7 @@
 // The model's filters (model 0.5.1) → IOS-XR access lists, in the form the parse reads back (filters.ts):
-// `ipv4|ipv6 access-list NAME` with an entry a term, keyed by its sequence number. Planned before the interfaces,
-// which apply a list only when it is written.
+// `ipv4|ipv6 access-list NAME` with an entry a term, keyed by its sequence number, and a term's description (model
+// 0.5.3) a `remark` at the number before the entry's. Planned before the interfaces, which apply a list only when it is
+// written.
 //
 // A filter is written term by term, each whole or not at all (the per-term rule): a term IOS-XR can't write is left
 // out whole, and the whole filter with it when that isn't safe (filterTermSkipSafe()). An IOS-XR access list denies
@@ -57,9 +58,26 @@ export function planFilters(filters: Filters | undefined, skip: (field: Segments
       }
       if (filter.description !== undefined) skip([...at, 'description'], 'unsupported', 'IOS-XR access lists have remarks, not a description')
       const out: FilterLine[] = [{ text: `${family} access-list ${name}`, fields: [] }]
+      let previous = 0
       for (const t of planned) {
-        if (typeof t.plan === 'string') skipAll(t.term, [...at, 'terms', t.key], t.plan)
-        else out.push(t.plan)
+        const seq = isSeq(t.key) ? Number(t.key) : null
+        const after = previous
+        if (seq !== null) previous = seq
+        if (typeof t.plan === 'string') {
+          skipAll(t.term, [...at, 'terms', t.key], t.plan)
+          continue
+        }
+        // A description is a remark before the entry, at the number before its own, which must be free (IOS-XR numbers
+        // remarks too); else it alone is left out, as a remark says nothing about what the entry decides (#102).
+        const description = t.term.description
+        const descriptionAt = [...at, 'terms', t.key, 'description']
+        if (description !== undefined) {
+          // Read back as written: the parse takes a remark's text without the spaces at its ends.
+          if (typeof description !== 'string' || !/^\S(?:[^\r\n]{0,253}\S)?$/.test(description)) skip(descriptionAt, 'unsupported', 'not a remark IOS-XR takes: one line of 1 to 255 characters, with no space at either end')
+          else if (seq === null || seq - 1 <= after) skip(descriptionAt, 'unsupported', 'no sequence number free before the entry for its remark')
+          else out.push({ text: ` ${seq - 1} remark ${description}`, fields: [descriptionAt] })
+        }
+        out.push(t.plan)
       }
       // What happens to a packet no entry decides: IOS-XR denies it.
       const implicit = [...at, 'implicitAction']

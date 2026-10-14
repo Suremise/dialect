@@ -1863,8 +1863,8 @@ export function parse(text: string, _context: Context): ParseResult {
   // ---- access lists (model 0.5.1, filters.ts)
 
   type Family = 'ipv4' | 'ipv6'
-  /** An access list entry: its sequence number, statement and words after the number; a remark only takes its number. */
-  type AclEntry = { readonly seq: number; readonly node: XrNode; readonly words: readonly string[]; readonly remark: boolean }
+  /** An access list entry: its sequence number, statement and words after the number; a remark's text, for a remark. */
+  type AclEntry = { readonly seq: number; readonly node: XrNode; readonly words: readonly string[]; readonly remark?: string }
   /** Each access list by family and name: the statements that open it, and its entries by sequence number. */
   type Acl = { readonly headers: XrNode[]; readonly entries: Map<number, AclEntry> }
   const acls = new Map<string, Acl>()
@@ -1882,9 +1882,12 @@ export function parse(text: string, _context: Context): ParseResult {
     if (!rest.length) return unsupported('an entry with nothing in it')
     const earlier = acl.entries.get(seq)
     if (earlier) set(earlier.node, ignored(`replaced by line ${line(node)}`))
-    const remark = rest[0].toLowerCase() === 'remark'
-    acl.entries.set(seq, { seq, node, words: rest, remark })
-    return remark ? ignored('a remark: a comment the model doesn\'t keep') : mapped([])
+    // A remark describes the entry after it (model 0.5.3): its text is everything after `remark`, as written, settled
+    // with the list's entries (buildFilters()).
+    const before = node.words.length - rest.length
+    const remark = rest[0].toLowerCase() === 'remark' ? node.text.trim().replace(new RegExp(`^(?:\\S+\\s+){${before}}remark\\b`, 'i'), '').trim() : undefined
+    acl.entries.set(seq, { seq, node, words: rest, ...(remark !== undefined ? { remark } : {}) })
+    return remark !== undefined ? ignored('a remark: it describes the entry after it') : mapped([])
   }
 
   /** `ipv4|ipv6 access-list NAME`, with its entries in the block, or an entry on the same line. */
@@ -1959,8 +1962,23 @@ export function parse(text: string, _context: Context): ParseResult {
   const buildFilters = (): void => {
     for (const [key, acl] of acls) {
       const [family, name] = JSON.parse(key) as [Family, string]
-      const entries = [...acl.entries.values()].filter((e) => !e.remark).sort((a, b) => a.seq - b.seq)
-      const read = entries.map((e) => ({ e, term: readEntry(e.words, family) }))
+      // Remarks, in order, describe the entry after them: several are its description, joined by a space.
+      const remarks = new Map<AclEntry, AclEntry[]>()
+      let pending: AclEntry[] = []
+      for (const e of [...acl.entries.values()].sort((a, b) => a.seq - b.seq)) {
+        if (e.remark === undefined) {
+          remarks.set(e, pending)
+          pending = []
+        } else pending.push(e)
+      }
+      for (const r of pending) set(r.node, ignored('a remark after the last entry: there is no entry for it to describe'))
+      const entries = [...remarks.keys()]
+      const remarkNodes = (e: AclEntry) => (remarks.get(e) ?? []).map((r) => r.node)
+      const read = entries.map((e) => {
+        const term = readEntry(e.words, family)
+        const description = (remarks.get(e) ?? []).map((r) => r.remark).filter((t) => t !== '').join(' ')
+        return { e, term: typeof term !== 'string' && description ? { description, ...term } : term }
+      })
       const terms: Record<string, FilterTerm> = Object.create(null)
       for (const r of read) if (typeof r.term !== 'string') terms[String(r.e.seq)] = r.term
       const at = ['filters', family, name]
@@ -1969,7 +1987,7 @@ export function parse(text: string, _context: Context): ParseResult {
       const unsafe = read.find((r) => typeof r.term === 'string' && !filterTermSkipSafe(probe, String(r.e.seq)))
       if (unsafe) {
         const why = unsupported(`left out whole: the entry on line ${line(unsafe.e.node)} isn't converted (${unsafe.term as string}), and leaving it out would change what the entries after it see`)
-        for (const n of [...acl.headers, ...entries.map((e) => e.node)]) set(n, why)
+        for (const n of [...acl.headers, ...entries.flatMap((e) => [...remarkNodes(e), e.node])]) set(n, why)
         continue
       }
       const implicit = model.set([...at, 'implicitAction'], 'deny')
@@ -1977,11 +1995,15 @@ export function parse(text: string, _context: Context): ParseResult {
       for (const r of read) {
         if (typeof r.term === 'string') {
           set(r.e.node, unsupported(r.term))
+          for (const n of remarkNodes(r.e)) set(n, unsupported(`describes the entry on line ${line(r.e.node)}, which isn't converted`))
           continue
         }
         const termAt = [...at, 'terms', String(r.e.seq)]
         model.set(termAt, r.term)
+        // The entry maps its description too: a term's statements are its entry's alone, as its remarks sit beside the
+        // other entries in the list.
         set(r.e.node, mapped([implicit, ...populatedLeaves(r.term, termAt).map((l) => l.path)]))
+        for (const n of remarkNodes(r.e)) set(n, ignored(r.term.description !== undefined ? `carried as the description of the entry on line ${line(r.e.node)}` : 'an empty remark: nothing to convert'))
       }
       convertedFilters[family].add(name)
     }

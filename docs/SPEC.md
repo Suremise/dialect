@@ -20,7 +20,8 @@ product decisions.
   - the **offline web build**, one self-contained HTML file opened from disk, for laptops where installing isn't
     allowed;
   - the **command-line tool** `dialect` (Node 24), on files or stdin/stdout: results to stdout, warnings and errors
-    to stderr with their line and column. Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
+    to stderr with their line and column in the config (a warning about a line of the converted output gives that
+    line too, after its message). Exit codes: 0 done, 1 a syntax error in the config, 2 a usage error or
     unreadable input, 3 a conversion with interfaces left unnamed or other needs-input items unanswered (unless
     `--allow-incomplete`).
 - **Offline and private:** no network access, no telemetry, and secrets in configs are never written to logs. A strict
@@ -160,7 +161,7 @@ product decisions.
   converted applies nothing. A filter's end is kept with the model (Junos discards silently, a Cisco ACL denies) and
   a target says so when its own differs or the filter relies on it. Non-contiguous wildcard masks are never
   approximated. Junos converts `firewall family inet|inet6` filters and their attachment to units (#86), IOS-XR
-  `ipv4|ipv6 access-list` and `access-group … ingress|egress` (#88), an access list's remarks being comments.
+  `ipv4|ipv6 access-list` and `access-group … ingress|egress` (#88), an access list's remarks being its entries' descriptions (#113).
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
   With all four plugins registered (#50), the CLI and the app convert from any of them to any other.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,

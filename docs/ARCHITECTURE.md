@@ -334,7 +334,8 @@ B4). Plugins take and return strings and plain objects only.
   `ignored-by-design` (with a reason) or `unsupported`.
 - **Field dispositions:** `rendered` (with its output span), `unsupported`, or `not-applicable` (with a reason).
 - **Diagnostics** have a severity, and optionally a category (`syntax`, `semantic`), a code, a span, a statement and a
-  field. Semantic warnings are diagnostics with `category: 'semantic'`.
+  field. Semantic warnings are diagnostics with `category: 'semantic'`. A parse's span is in the source and a
+  render's in its output; in a conversion, convert() moves the render's to `outputSpan` (#112), below.
 - **Needs-input items** are what the user must supply (an interface's name on the target, a secret that won't carry
   over), answered through `context.inputs` by id.
 
@@ -395,7 +396,16 @@ needs-input items (a key, a password, IOS-XR's eBGP policy, a Junos VRF's RD and
 a field with no span carry only a `field` of the renamed model. `convert()` maps that back to the source's names
 (`sourcePathOf()`, as for issues) and sets `statement` to the first source statement, in tree order, that filled the
 field or a leaf under it, else its nearest ancestor's below the model's top level (`statementAt()`), so shells give
-the item's line. One the plugin placed itself, or a diagnostic with a span, is left as it is. `unanswered` holds every
+the item's line. One the plugin placed itself is left as it is.
+
+**A render's span is the output's** (#112). A renderer gives a diagnostic about a line it wrote (IOS-XE's and NX-OS's
+policy and ACL warnings, IOS-XR's) that line as its `span`, but shells read a diagnostic's `span` as a place in the
+source. So `convert()` moves it to `outputSpan`, in `render.diagnostics` and the ledger alike, and finds the
+diagnostic's statement from its `field` as for a placeless one: in a conversion, every `span` is the source's. The CLI
+prints such a warning at its statement's line with `(output line N)` after the message; the app puts it at its
+statement's line, gives `output line N` beside it, and marks that line in the output's issue gutter (clicking a
+problem with no source line goes to its output line). Placing the warning in the shells by `render.diagnostics` instead
+was turned down: it leaves `span` meaning two things in one ledger, and a warning would lose its source line. `unanswered` holds every
 item the render raised, answered or not: a plugin raises one only while it has no answer it can use, so an answer in a
 form it doesn't take leaves the item asked (and shells say the answer wasn't taken).
 
@@ -535,7 +545,8 @@ Model 0.5.0 also adds cases to the probes above: negation of a policy term and o
 prefix and prefix length; 0.5.1, negation of a filter term and of a filter's attachment, and a malformed port, filter
 prefix and non-contiguous wildcard (the term flagged, never approximated); 0.5.4 (#107), negation of a member link's
 membership (`delete … 802.3ad`, `no bundle id`, `no channel-group`) and a malformed minimum links, beside the aggregate
-reference.
+reference; and (#110) a malformed aggregate number, a channel group, bundle or `ae` number the platform doesn't have
+(`channel-group 4097`, `bundle id 65536`, `802.3ad ae-1`), checked as other malformed values are.
 
 Every probe source also goes through the five fixture checks, the secrets check with the community names its parse
 has (and a cleared one's) among its secrets. Every probe and case is a choice in the adapter's types: given, or
@@ -546,8 +557,7 @@ probes), 0.5.1 added (the filter cases, the filter reference and the implicit-ac
 cases) are optional in the types, so an older adapter compiles and runs as it did: `runProbes()` leaves out the ones it
 doesn't give, `probesNotGiven()` lists them, and the suite shows them as a skipped test per model version (`not given
 yet (model 0.4.0)`, `(model 0.5.0)`, `(model 0.5.1)`, `(model 0.5.4)`, from `probesNotGivenByModel()`), until the
-plugin's card for that phase gives each or declares it not applicable. Junos and IOS-XR give the LAG cases; IOS-XE and
-NX-OS show them as not given yet.
+plugin's card for that phase gives each or declares it not applicable. Every plugin's adapter gives the LAG cases (#110).
 A plugin with no adapter shows its probes as one skipped test, never as passing; each existing plugin's adapter is its
 own lane's follow-up card, which fixes what its probes find in the plugin (that lane owns it), so the probes have no
 allowances of their own; a probe source's secrets go through the secrets allowances like any fixture's.
@@ -572,7 +582,8 @@ checks catch careless plugins:
   non-contiguous wildcard taken as one, a filter whose implicit action differs written with no word, and one relying
   on the stub's own implicit action written with no word; since 0.5.4, a member link naming an aggregate it doesn't
   make (`interface e1 member agg1`; the stub makes it, as IOS does, and `agg…` names an aggregate), with the
-  existing switches for a membership `no` that removes nothing and a minimum links out of range, and one that bounds
+  existing switches for a membership `no` that removes nothing and a minimum links or aggregate number out of range
+  (the stub numbers aggregates `agg1` to `agg4096`), and one that bounds
   minimum links above but takes 0 (the adapters' case is 0, the bound a careless reader misses). Each fails its probe; the
   careful stub, which keeps the per-term rule itself, passes them all (`tests/probes.test.ts`);
 - a 0.4.1 renderer leaves every routing policy field unrendered; renders that convert part of a term, or leave out a
@@ -1269,8 +1280,10 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     what the device keeps of them isn't certain.
   - **Access lists (#88, model 0.5.1, `filters.ts`):** `ipv4|ipv6 access-list NAME` is `filters.ipv4|ipv6.NAME`,
     `implicitAction: 'deny'` (IOS-XR denies what no entry decides), each entry a term keyed by its sequence number:
-    given, or (as IOS-XR does) 10 more than the highest so far, a remark's included; a remark is `ignored-by-design`
-    (a comment the model doesn't keep). The one-line form (`ipv4 access-list NAME [N] permit …`) and later blocks add to
+    given, or (as IOS-XR does) 10 more than the highest so far, a remark's included. **Remarks** before an entry, by
+    number, joined by a space, are its `description` (model 0.5.3, #113): the entry maps it, and the remarks are
+    `ignored-by-design` as carried by it; a remark is `unsupported` with an entry that isn't converted, and one after
+    the last entry describes nothing. The one-line form (`ipv4 access-list NAME [N] permit …`) and later blocks add to
     the list; an entry with a number used before replaces it, `no N` in the list removes one, and `no ipv4|ipv6
     access-list NAME` removes the list. An entry: `permit` (`accept`) or `deny` (`discard`: the ICMP unreachable is the
     interface's), a protocol (`ipv4`/`ipv6` any, else by name or number), source and destination (`any`, `host A`,
@@ -1362,7 +1375,10 @@ policy, 0.5.0's routing policy, 0.5.1's filters, 0.5.2's VRF policies and 0.5.4'
     per-term rule:** a term IOS-XR can't write (a `reject`, which IOS-XR leaves to the interface, a `next-term`, a
     match on either direction, a prefix list or TCP flags, more than one of anything, a first fragment, a key that
     isn't a sequence number) is `unsupported` whole, and the whole filter when leaving it out isn't safe
-    (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. `implicitAction`
+    (`filterTermSkipSafe()`). A term's name is `not-applicable`, a filter's description `unsupported`. A term's
+    `description` is a ` SEQ remark TEXT` at the number before the entry's (#113); where that number isn't free (the
+    term before is at it), or the text isn't one line of 1 to 255 characters with no space at either end, it alone is
+    `unsupported`, as a remark decides nothing (#102). `implicitAction`
     is `not-applicable` (IOS-XR denies), with the warning `iosxr.filter-implicit-action` on the field when the
     source's differs (Junos `discard`) or the entries written rely on it (`filterReliesOnImplicitAction()`). An interface's
     `access-group` is written for a list that is written, else `unsupported`.
@@ -1849,7 +1865,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   writes every interface to a map file to fill in, through `io.writeFile`). It returns the
   exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 needs-input items unanswered without
   `--allow-incomplete`). Diagnostics and convert's issues print as `name:line:column: severity: message`, an issue with
-  its plugin's reason only, and a diagnostic with no span at its `statement`'s. It never touches `process`, so it can
+  its plugin's reason only, a diagnostic with no span at its `statement`'s, and a render's with `(output line N)` after
+  the message (#112). It never touches `process`, so it can
   be called directly.
 - `src/answers.ts` (#105): the answers file, for every needs-input item but interface names. `parseAnswers()` reads
   `"id" = answer` lines (the id a JSON string, as ids hold any character; the answer the rest of the line, trimmed) or

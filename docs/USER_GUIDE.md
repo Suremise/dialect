@@ -139,7 +139,9 @@ converted says why, even one Dialect doesn't read at all ("logical systems come 
 In the app, open a convert tab (**File → New Tab…**, then **Convert**, with the platform to convert from and the one
 to convert to); both can be changed at the top of the tab. Then open, drop or paste the config as in display set. The target platform's config appears on the right as you type. Below, the **Problems**
 panel lists what didn't carry over. The same lines are marked in the source's gutter, with the reason on hover, and
-clicking a problem shows its line. The **Interfaces** table lists every interface to name (see below). Moving the
+clicking a problem shows its line. A warning about the converted config itself (a filter term written as `deny` where
+the source rejected, say) is at the source line it came from, and also gives its line of the output, which is marked
+in the output's gutter. The **Interfaces** table lists every interface to name (see below). Moving the
 cursor in one pane marks the matching lines in the other. Copy output and Save output work as in display set; a saved
 conversion is named after the source with the target's name (`edge-1.conf` → `edge-1.iosxe`).
 
@@ -296,8 +298,9 @@ export policy, which on Junos replaces the VRF's route targets and on IOS-XR fil
 Cisco IOS-XR also converts access lists: `ipv4 access-list` and `ipv6 access-list`, numbered as IOS-XR numbers them (an
 entry with no number gets 10 more than the highest, a remark's included), with `any`, `host`, prefixes and contiguous
 wildcards, protocols, ports (`eq`, `gt`, `lt`, `range`, by number or name), ICMP types, `established`, `fragments`,
-`dscp`, `log` and `counter`, and the interfaces' `ipv4|ipv6 access-group … ingress|egress`. Remarks are comments and
-aren't carried. An entry Dialect can't convert (a non-contiguous wildcard, which is never approximated, an object
+`dscp`, `log` and `counter`, and the interfaces' `ipv4|ipv6 access-group … ingress|egress`. The remarks before an
+entry are kept as its description, and converting to IOS-XR writes a description as a remark just before its entry
+(listed as not written when that number is taken). An entry Dialect can't convert (a non-contiguous wildcard, which is never approximated, an object
 group, `neq`, ABF and other options) is listed, alone when it is the last entry and denies, as the list's end does,
 and otherwise with its whole access list, as the list would decide other packets without it; an interface applying a
 list that isn't converted is listed too. An IOS-XR access list denies what no entry decides: converting to IOS-XR warns when the source discards instead
@@ -376,6 +379,9 @@ It prints the converted config to stdout, and to stderr what didn't carry over, 
 router.conf:66:9: warning: not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards
 router.conf:74:1: warning: not converted: routing protocols come later
 ```
+
+A warning about the converted config itself is at the source line it came from, with its line of the output after
+the message: `router.conf:8:17: warning: A term that rejects … (output line 2)`.
 
 `--map` gives the interfaces' names on the target (see [Interface names](#interface-names)), and `--answers` the rest
 of what the target needs: keys, passwords, an IOS-XR route policy for an eBGP neighbor, a Junos VRF's route

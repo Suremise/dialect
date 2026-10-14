@@ -99,6 +99,45 @@ describe('what an interface applies', () => {
   })
 })
 
+// #113: a remark describes the entry after it (model 0.5.3), written back at the number before the entry's.
+describe('remarks as term descriptions', () => {
+  it('reads the remarks before an entry as its description, several joined by a space, as written', () => {
+    const r = parse(lines('ipv4 access-list F', ' 10 remark  first  part ', ' 15 remark second', ' 20 permit tcp any any eq 22', ' 30 remark', ' 40 deny ipv4 any any', 'ipv4 access-list F 50 remark after the end'))
+    expect(r.model.filters?.ipv4?.F.terms?.['20'].description).toBe('first  part second')
+    expect(r.model.filters?.ipv4?.F.terms?.['40'].description).toBeUndefined()
+    for (const id of ['L2', 'L3']) expect(r.dispositions[id]).toEqual({ kind: 'ignored-by-design', reason: 'carried as the description of the entry on line 4' })
+    expect(r.dispositions.L5).toEqual({ kind: 'ignored-by-design', reason: 'an empty remark: nothing to convert' })
+    expect(r.dispositions.L7).toEqual({ kind: 'ignored-by-design', reason: 'a remark after the last entry: there is no entry for it to describe' })
+    expect(r.dispositions.L4).toEqual({ kind: 'mapped', fields: expect.arrayContaining(['filters.ipv4.F.terms["20"].description']) })
+  })
+
+  it('leaves a remark out with the entry it describes', () => {
+    const alone = parse(lines('ipv4 access-list F', ' 10 permit tcp any any eq 22', ' 15 remark odd', ' 20 deny tcp any any neq 23'))
+    expect(alone.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'describes the entry on line 4, which isn\'t converted' })
+    const whole = parse(lines('ipv4 access-list F', ' 5 remark odd', ' 10 permit tcp any any neq 23'))
+    expect(whole.dispositions.L2.kind).toBe('unsupported')
+  })
+
+  it('writes a description as a remark at the number before the entry\'s, and reads it back', () => {
+    const model = { filters: { ipv4: { F: { implicitAction: 'deny' as const, terms: { '10': { description: 'ssh  in', matches: { protocols: [6], destinationPorts: ['22'] }, actions: { action: 'accept' as const } }, '20': { actions: { action: 'discard' as const } } } } } } }
+    const out = renderModel(model, context)
+    expect(out.text).toContain('ipv4 access-list F\n 9 remark ssh  in\n 10 permit tcp any any eq 22\n 20 deny ipv4 any any\n!')
+    expect(out.dispositions['filters.ipv4.F.terms["10"].description'].kind).toBe('rendered')
+    expect(parse(out.text).model.filters?.ipv4?.F.terms?.['10'].description).toBe('ssh  in')
+  })
+
+  it('leaves a description out alone, with why, where IOS-XR can\'t write it; the entry is still written', () => {
+    const term = (description: string) => ({ description, matches: { protocols: [6] }, actions: { action: 'accept' as const } })
+    const out = renderModel({ filters: { ipv4: { F: { implicitAction: 'deny', terms: { '1': term('first'), '5': term('next'), '6': term('taken'), '7': term(' spaced'), '8': term('two\nlines'), '9': term('x'.repeat(256)) } } } } }, context)
+    const why = (key: string) => out.dispositions[`filters.ipv4.F.terms["${key}"].description`]
+    expect(why('1')).toEqual({ kind: 'unsupported', reason: 'no sequence number free before the entry for its remark' })
+    expect(why('6')).toEqual(why('1'))
+    expect(why('5').kind).toBe('rendered')
+    for (const key of ['7', '8', '9']) expect(why(key)).toEqual({ kind: 'unsupported', reason: 'not a remark IOS-XR takes: one line of 1 to 255 characters, with no space at either end' })
+    expect(out.text).toContain(' 1 permit tcp any any\n 4 remark next\n 5 permit tcp any any\n 6 permit tcp any any\n 7 permit')
+  })
+})
+
 describe('the render', () => {
   it('denies what no entry decides: a warning where the source discards, or where the list relies on it', () => {
     const filter = { implicitAction: 'deny' as const, terms: { '10': { matches: { protocols: [6] }, actions: { action: 'accept' as const } } } }
