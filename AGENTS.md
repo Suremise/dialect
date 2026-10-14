@@ -94,4 +94,3 @@ only when the package doesn't work without it, and say why on the card.
 | `scripts/licenses.mjs`, `thirdPartyNotices.mjs`, `licensePolicy.mjs`, `licenseText.mjs`, `notices/` | The generated notices, the build-only list and the license check |
 | `scripts/build-icons.mjs`, `check-contrast.mjs`, `branding/` | The icon pipeline and the theme tokens |
 | `tests/` | Repo-wide tests: licenses, install scripts, line endings, temp folders |
-| `spike/` | Throwaway prototype code from the spike; the reference for B3's port, deleted after it |

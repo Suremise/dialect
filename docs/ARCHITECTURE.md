@@ -76,6 +76,23 @@ each workspace's `typecheck` script.
 
 `--check` writes nothing and fails on a stale file or a broken rule; `tests/licenses.test.ts` checks the same.
 
+## The Junos plugin (`packages/platform-junos`)
+
+B3's parser and display set, ported from the spike prototype (B4 adds the mapping to and from the model).
+
+- `tokenizer.ts`: words (quoted strings kept as written, escapes included), braces, brackets, `;` and
+  `/* annotations */`; `#` comments to the end of the line. Each token has a 1-based line and column.
+- `tree.ts`: `parseConfig()` builds a generic syntax tree from the curly-brace syntax alone, without the Junos schema.
+  A `ConfigNode` is its words, then children (a container), a `[ ]` list (a leaf with values) or neither (a leaf), the
+  `inactive:`/`protect:`/`replace:` tags and the annotation before it. A syntax error throws `JunosParseError` with
+  its line and column; unknown `word:` tags, annotations with no statement after them and empty lists are warnings.
+- `displaySet.ts`: `flatten()` turns the tree into `set` lines, each with the source line it comes from (for the UI's
+  source and output highlighting). A statement's `deactivate` and `protect` lines come after the `set` lines of its
+  subtree, Juniper's documented order. `displaySet()` wraps both: the lines and warnings, or the first error.
+- Tests: the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
+  cleaned up by `tests/cleanFixtures.ts` into `tests/fixtures/display-set/` (`tests/displaySetFixtures.test.ts`). The
+  tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
+
 ## Branding
 
 `branding/` holds the SVG icon masters, the rendered icons in `branding/out/` and the theme tokens

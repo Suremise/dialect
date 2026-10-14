@@ -1,0 +1,10 @@
+// The package's tests run on Node and read their fixtures with fs, so they get Node's types; src stays platform-neutral
+// (../tsconfig.json gives it neither Node's nor the DOM's).
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["**/*"],
+  "exclude": ["fixtures/**"]
+}

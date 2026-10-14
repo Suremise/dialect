@@ -20,6 +20,19 @@ Dialect works offline: it sends nothing anywhere and keeps no logs of your confi
 Turning a hierarchical Junos config into `set` commands: opening or pasting a config, reading the output, inactive
 statements and annotations, saving and copying.
 
+The output is what `show configuration | display set` prints on the device:
+
+- One `set` line for each statement, and one for each value of a `[ ]` list. An empty container gives a `set` line
+  of its own.
+- An `inactive:` statement gives a `deactivate` line, and a `protect:` statement a `protect` line, **after** the `set`
+  lines it covers (Juniper's documented order, which loads into an empty config). `replace:` gives no line.
+- Quoted strings stay exactly as written. `## comments` are left out. A redacted secret (`/* SECRET-DATA */`) stays
+  in its line.
+- `/* annotations */` have no `set` form: they are left out, and each one is listed as a warning, with its line.
+- An unknown tag such as `deleted:` is kept as a word, with a warning.
+- A syntax error (an unterminated quote or annotation, a missing or extra brace, a missing `;` or `]`) gives no output,
+  only the error, with its line and column.
+
 ## Convert
 
 Translating a config from one platform to another: choosing the source and target, what is converted, and reading the

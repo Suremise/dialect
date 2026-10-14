@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Display set
+- **Junos display set**, in the Junos plugin: hierarchical config to the `set` lines Junos prints, with
+  `deactivate` and `protect` lines after the statements they cover, as Juniper documents. Annotations and unknown tags
+  are reported as warnings, and syntax errors with their line and column. Fixes the bugs found in jcc (the earlier
+  open-source converter) during research: words containing `set`, annotations in the output, words starting with `_`
+  or `@`, a last line without a newline, and an unterminated quote. The command line and the app use it from later
+  cards.
+
 ### Repository
 - **The monorepo is in place.** npm workspaces for the core, the conformance kit, the Junos plugin, the CLI, the UI and
   the web and desktop shells (all stubs for now), with Hive's TypeScript settings, oxlint, Vitest and Windows CI, on

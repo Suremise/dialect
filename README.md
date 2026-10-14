@@ -4,7 +4,7 @@ Dialect (working name) is a desktop app that translates network configs between 
 
 - Product decisions: [docs/SPEC.md](docs/SPEC.md)
 - How the code fits together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- The research behind the design, and the build plan: [docs/spike-desktop-app.md](docs/spike-desktop-app.md). `spike/` holds throwaway prototype code only.
+- The research behind the design, and the build plan: [docs/spike-desktop-app.md](docs/spike-desktop-app.md)
 - For agents working on the repo: [AGENTS.md](AGENTS.md)
 
 ## Building
