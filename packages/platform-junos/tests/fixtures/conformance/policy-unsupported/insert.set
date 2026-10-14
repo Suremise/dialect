@@ -1,0 +1,3 @@
+set policy-options policy-statement P term A then accept
+set policy-options policy-statement P term B then reject
+insert policy-options policy-statement P term B before term A

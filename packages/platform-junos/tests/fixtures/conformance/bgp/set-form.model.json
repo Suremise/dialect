@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.1",
+  "modelVersion": "0.5.1",
   "device": {
     "networkInstances": {
       "default": {
@@ -29,6 +29,22 @@
           }
         }
       }
+    },
+    "routingPolicy": {
+      "policies": {
+        "IN": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "ALL",
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
+

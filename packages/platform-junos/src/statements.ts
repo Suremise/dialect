@@ -31,6 +31,11 @@ export interface ReadConfig {
   /** Dispositions settled while reading: inactive, deleted and comment-like statements, and set-form commands. */
   readonly dispositions: Record<string, StatementDisposition>
   readonly diagnostics: Diagnostic[]
+  /**
+   * Set-form commands that reorder, rename or copy what is under their path (`insert`, `rename`, `copy`): not converted,
+   * so what they change (a policy's term order) can't be converted either.
+   */
+  readonly reshaped?: readonly { readonly path: readonly string[]; readonly line: number }[]
 }
 
 const SET_COMMANDS = new Set(['set', 'deactivate', 'activate', 'delete', 'protect', 'unprotect', 'insert', 'rename', 'annotate', 'copy', 'edit', 'up', 'top'])
@@ -222,6 +227,7 @@ function readSetForm(text: string): ReadConfig {
 
   // `delete` takes away what came before it; `deactivate` makes every statement under its path inactive.
   const statements: (Statement & { deleted?: number; inactive?: number })[] = []
+  const reshaped: { path: readonly string[]; line: number }[] = []
   const deactivated: { path: readonly string[]; line: number; node: string }[] = []
   for (const command of commands) {
     const { node, line, verb, paths } = command
@@ -236,7 +242,10 @@ function readSetForm(text: string): ReadConfig {
       dispositions[node.id] = ignored(hits.length ? 'deletes the statements before it under its path' : 'deletes nothing in this configuration')
     } else if (verb === 'deactivate' && path.length) deactivated.push({ path, line, node: node.id })
     else if ((verb === 'protect' || verb === 'unprotect') && path.length) dispositions[node.id] = ignored(`${verb}s the statements under its path from changes: no effect on the configuration`)
-    else dispositions[node.id] = unsupported(SET_COMMANDS.has(verb) ? `the ${verb} command isn't converted yet` : 'not a set command')
+    else {
+      if ((verb === 'insert' || verb === 'rename' || verb === 'copy') && path.length) reshaped.push({ path, line })
+      dispositions[node.id] = unsupported(SET_COMMANDS.has(verb) ? `the ${verb} command isn't converted yet` : 'not a set command')
+    }
   }
   for (const d of deactivated) {
     const hits = statements.filter((s) => s.deleted === undefined && startsWith(s.words, d.path))
@@ -251,5 +260,5 @@ function readSetForm(text: string): ReadConfig {
     else if (s.inactive !== undefined) dispositions[s.node] = ignored(`deactivated by line ${s.inactive}: Junos doesn't apply it`)
     else active.push({ node: s.node, line: s.line, words: s.words })
   }
-  return { form: 'set', tree, statements: active, dispositions, diagnostics }
+  return { form: 'set', tree, statements: active, dispositions, diagnostics, reshaped }
 }

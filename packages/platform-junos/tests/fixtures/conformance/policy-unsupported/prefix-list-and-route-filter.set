@@ -1,0 +1,4 @@
+set policy-options prefix-list L 192.0.2.0/24
+set policy-options policy-statement P term T from prefix-list L
+set policy-options policy-statement P term T from route-filter 10.0.0.0/8 exact
+set policy-options policy-statement P term T then accept

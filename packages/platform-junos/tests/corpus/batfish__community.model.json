@@ -1,0 +1,168 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "community"
+    },
+    "routingPolicy": {
+      "communitySets": {
+        "well-known": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "no-advertise",
+                "no-export",
+                "no-export-subconfed"
+              ]
+            }
+          }
+        },
+        "mixed": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "0:2",
+                "0:3"
+              ],
+              "regexes": [
+                "^0:1$",
+                "^1:1$"
+              ]
+            }
+          },
+          "type": "standard",
+          "regexDialect": "junos"
+        },
+        "regex": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "^0:1$"
+              ]
+            }
+          },
+          "type": "standard",
+          "regexDialect": "junos"
+        }
+      },
+      "policies": {
+        "p1": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "t1",
+              "actions": {
+                "communitySet": {
+                  "sets": [
+                    "well-known"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "p2": {
+          "fallThrough": "next-policy"
+        },
+        "p3": {
+          "fallThrough": "next-policy"
+        },
+        "p4": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "t1",
+              "actions": {
+                "communityAdd": {
+                  "sets": [
+                    "well-known"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "p5": {
+          "fallThrough": "next-policy"
+        },
+        "p6": {
+          "fallThrough": "next-policy"
+        },
+        "p7": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "t1",
+              "actions": {
+                "communityDelete": {
+                  "sets": [
+                    "well-known"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "p8": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "t1",
+              "actions": {
+                "communityDelete": {
+                  "sets": [
+                    "mixed"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "p9": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "t1",
+              "actions": {
+                "communityDelete": {
+                  "sets": [
+                    "regex"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "p10": {
+          "fallThrough": "next-policy"
+        },
+        "match": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "t1",
+              "matches": {
+                "communitySets": [
+                  "mixed"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "name": "t2",
+              "actions": {
+                "flow": "reject"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

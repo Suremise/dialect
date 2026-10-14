@@ -29,7 +29,7 @@ describe('semantic warnings, each from a saved model', () => {
   const files = readdirSync(dir).filter((f) => f.endsWith('.model.json'))
 
   it('has one for each semantic warning the render raises', () => {
-    expect(files.map((f) => f.replace('.model.json', '')).sort()).toEqual(['ebgp-default-policy', 'ospf-enabled-by-network'])
+    expect(files.map((f) => f.replace('.model.json', '')).sort()).toEqual(['ebgp-default-policy', 'ospf-enabled-by-network', 'policy-fall-through'])
   })
   for (const file of files) {
     const code = `junos.${file.replace('.model.json', '')}`
@@ -57,16 +57,20 @@ describe('semantic warnings, each from a saved model', () => {
   })
 
   it('a Junos parse gives its own default, accept, for the sides an eBGP peer without a policy has', () => {
-    const p = parse(set('set routing-options autonomous-system 65000', 'set protocols bgp group I type internal', 'set protocols bgp group I neighbor 192.0.2.1', 'set protocols bgp group E peer-as 64500', 'set protocols bgp group E import IN', 'set protocols bgp group E neighbor 192.0.2.2', 'set protocols bgp group E neighbor 192.0.2.3 export OUT'), context)
+    const p = parse(set('set routing-options autonomous-system 65000', 'set protocols bgp group I type internal', 'set protocols bgp group I neighbor 192.0.2.1', 'set protocols bgp group E peer-as 64500', 'set protocols bgp group E import IN', 'set protocols bgp group E neighbor 192.0.2.2', 'set protocols bgp group E neighbor 192.0.2.3 export OUT', 'set policy-options policy-statement IN then accept', 'set policy-options policy-statement OUT then accept'), context)
     expect(p.model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toEqual({ export: 'accept' })
     const internal = parse(set('set routing-options autonomous-system 65000', 'set protocols bgp group I peer-as 65000', 'set protocols bgp group I neighbor 192.0.2.1'), context)
     expect(internal.model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toBeUndefined()
   })
 
-  it('import and export policies by name raise a warning that their bodies are not converted, naming lines only', () => {
-    const p = parse(set('set protocols bgp group E import IN', 'set protocols bgp group E export OUT'), context)
-    expect(p.diagnostics.map((d) => [d.code, d.message])).toEqual([['junos.policy-by-name', "BGP import and export policies are converted by name only: their bodies aren't converted yet (lines 1, 2)."]])
-    expect(render(p.model, context).diagnostics.map((d) => d.code)).toEqual(['junos.policy-by-name'])
+  it('import and export policies resolve to the policies converted; names alone, from a model without their bodies, raise a warning', () => {
+    const p = parse(set('set protocols bgp group E import IN', 'set protocols bgp group E export OUT', 'set policy-options policy-statement IN then accept'), context)
+    expect(p.model.networkInstances?.default.bgp?.groups?.E).toEqual({ importPolicies: ['IN'] })
+    expect(p.dispositions.L2).toMatchObject({ kind: 'unsupported', reason: expect.stringContaining("names a policy the configuration doesn't define") })
+    expect(p.diagnostics).toEqual([])
+    expect(render(p.model, context).diagnostics).toEqual([])
+    const named = { networkInstances: { default: { bgp: { groups: { E: { importPolicies: ['IN'] } } } } } }
+    expect(render(named, context).diagnostics.map((d) => d.code)).toEqual(['junos.policy-by-name'])
   })
 })
 

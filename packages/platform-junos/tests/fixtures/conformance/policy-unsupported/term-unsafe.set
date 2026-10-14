@@ -1,0 +1,4 @@
+set policy-options policy-statement P term LOOPBACK from interface lo0.0
+set policy-options policy-statement P term LOOPBACK then accept
+set policy-options policy-statement P term REST then reject
+set policy-options policy-statement Q term ALL then accept

@@ -1,0 +1,39 @@
+{
+  "modelVersion": "0.5.0",
+  "device": {
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "CUSTOMERS": {
+            "entries": {
+              "5": {
+                "action": "permit",
+                "prefix": "198.51.100.0/24",
+                "minLength": 24,
+                "maxLength": 24
+              }
+            }
+          }
+        }
+      },
+      "policies": {
+        "FROM-CUSTOMERS": {
+          "fallThrough": "reject",
+          "terms": {
+            "10": {
+              "matches": {
+                "prefixLists": {
+                  "ipv4": ["CUSTOMERS"]
+                }
+              },
+              "actions": {
+                "localPreference": 200,
+                "flow": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

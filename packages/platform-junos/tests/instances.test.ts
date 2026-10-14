@@ -123,7 +123,7 @@ describe('vrf-target', () => {
     ['set routing-instances A vrf-target 65000:1', 'not a route target in a form the model has (target:ASN:nn or target:IP:nn)'],
     ['set routing-instances A route-distinguisher 100L:1', 'not a route distinguisher in a form the model has (ASN:nn, IP:nn or a 4-byte AS with L)'],
     ['set routing-instances A route-distinguisher 65000:99999999999', 'not a route distinguisher in a form the model has (ASN:nn, IP:nn or a 4-byte AS with L)'],
-    ['set routing-instances A vrf-import IMPORT-POLICY', 'VRF import and export policies come later, with routing policy']
+    ['set routing-instances A vrf-import IMPORT-POLICY', "a VRF's import and export policies: the model has no place for them yet"]
   ])('leaves %s unsupported', (line, reason) => {
     const p = parse(set(line), context)
     expect(Object.values(p.dispositions)).toEqual([{ kind: 'unsupported', reason }])

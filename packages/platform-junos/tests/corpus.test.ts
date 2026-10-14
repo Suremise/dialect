@@ -35,7 +35,10 @@ const CASES: readonly (readonly [area: string, path: string])[] = [
   ['ospf', 'ospf/batfish__ospf-intervals.set'],
   ['ospf', 'ospf/batfish__ospf-interface-network-type.set'],
   ['bgp', 'bgp/batfish__bgp-description.set'],
-  ['bgp', 'bgp/batfish__bgp-type-internal.set']
+  ['bgp', 'bgp/batfish__bgp-type-internal.set'],
+  ['routing-policy', 'policy/batfish__juniper-from-prefix-list.set'],
+  ['routing-policy', 'policy/batfish__community.set'],
+  ['routing-policy', 'policy/batfish__unit-tests_juniper_extended_community.set']
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
@@ -44,7 +47,7 @@ const OPTIONS = { configTools: ['display-set'] }
 
 describe('corpus files with an expected model', () => {
   it('cover every area the plugin converts', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'static-routes', 'ntp', 'syslog', 'snmp', 'vlans', 'ospf', 'bgp']))
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'static-routes', 'ntp', 'syslog', 'snmp', 'vlans', 'ospf', 'bgp', 'routing-policy']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {

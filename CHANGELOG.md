@@ -18,6 +18,16 @@
   keyboard focus shows.
 
 ### Convert
+- **Junos routing policy converts:** prefix lists, communities (literal, extended and large members, and regular
+  expressions, marked as Junos's), AS paths and policy-statements, with their terms' conditions (prefix lists and
+  `prefix-list-filter`, route filters, communities, AS paths, protocol, neighbor, tag, family) and actions (accept,
+  reject, next term, next policy, local preference, metric, community add, set and delete, AS-path prepend, next hop,
+  tag). BGP `import` and `export` now name the converted policies, and the "policies by name only" warning is gone where
+  they convert. A term converts whole or not at all; when leaving one out could change what a later term sees, the
+  whole policy is listed as not converted. Junos's own readings are respected: route filters match by longest prefix,
+  so nested ones that would match differently aren't converted, nor a term with both route filters and prefix lists.
+  Converting to Junos warns when the source rejects routes no term decides (a Cisco route map), as Junos passes them
+  to the next policy. `vrf-import` and `vrf-export` aren't converted yet.
 - **Cisco NX-OS and IOS-XR join convert**, in the app and on the command line: convert from any of Junos, IOS / IOS-XE,
   NX-OS and IOS-XR to any other (`dialect convert --from nxos --to iosxr …`). In the app, a new tab's Convert row has
   the platform to convert from and the one to convert to, and a convert tab can change either.

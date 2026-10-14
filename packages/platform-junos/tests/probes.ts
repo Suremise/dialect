@@ -46,6 +46,11 @@ const dns = lines(
   'set system name-server 192.0.2.55'
 )
 
+/** A policy of two terms, for negating the second. */
+const terms = ['set policy-options policy-statement P term A from protocol static', 'set policy-options policy-statement P term A then accept', 'set policy-options policy-statement P term B then reject']
+/** A prefix list of two entries, for negating the second. */
+const entries = ['set policy-options prefix-list L 10.0.0.0/8', 'set policy-options prefix-list L 192.0.2.0/24']
+
 export const probes: ProbeAdapter = {
   prototypeKeys: {
     source: (key) =>
@@ -63,7 +68,15 @@ export const probes: ProbeAdapter = {
         `set vlans ${key} vlan-id 10`,
         `set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members ${key}`,
         `set protocols bgp group ${key} type external`,
-        `set protocols bgp group ${key} neighbor 192.0.2.2 peer-as 65001`
+        `set protocols bgp group ${key} neighbor 192.0.2.2 peer-as 65001`,
+        `set protocols bgp group ${key} import ${key}`,
+        `set policy-options prefix-list ${key} 10.0.0.0/8`,
+        `set policy-options community ${key} members 65000:1`,
+        `set policy-options as-path ${key} "65000 .*"`,
+        `set policy-options policy-statement ${key} term ${key} from prefix-list ${key}`,
+        `set policy-options policy-statement ${key} term ${key} from community ${key}`,
+        `set policy-options policy-statement ${key} term ${key} from as-path ${key}`,
+        `set policy-options policy-statement ${key} term ${key} then accept`
       ),
     uses: { interface: true, vrf: true, community: true, dns: true, vlan: true, 'bgp-group': true }
   },
@@ -106,9 +119,21 @@ export const probes: ProbeAdapter = {
       set: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24', 'set interfaces lo0 unit 0 family inet address 192.0.2.9/32', 'set protocols ospf area 0.0.0.0 interface ge-0/0/0.0', 'set protocols ospf area 0.0.0.0 interface lo0.0 passive'),
       negated: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24', 'set interfaces lo0 unit 0 family inet address 192.0.2.9/32', 'set protocols ospf area 0.0.0.0 interface ge-0/0/0.0', 'set protocols ospf area 0.0.0.0 interface lo0.0 passive', 'delete protocols ospf area 0.0.0.0 interface ge-0/0/0.0'),
       path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'ge-0/0/0.0']
+    },
+    'policy-term': {
+      set: lines(...terms),
+      negated: lines(...terms, 'delete policy-options policy-statement P term B'),
+      path: ['routingPolicy', 'policies', 'P', 'terms', '2']
+    },
+    'prefix-list-entry': {
+      set: lines(...entries),
+      negated: lines(...entries, 'delete policy-options prefix-list L 192.0.2.0/24'),
+      path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '2']
     }
   },
   malformed: {
+    prefix: { source: lines('set policy-options prefix-list L 10.0.0.256/24'), value: '10.0.0.256/24' },
+    'prefix-length': { source: lines('set policy-options prefix-list L 10.0.0.0/33'), value: '10.0.0.0/33' },
     'ipv4-address': { source: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.256/24'), value: '192.0.2.256/24' },
     'ipv6-address': { source: lines('set interfaces ge-0/0/0 unit 0 family inet6 address 2001:db8:::1/64'), value: '2001:db8:::1/64' },
     // Junos gives a prefix length, not a mask: one too long for the family is the malformed one.
@@ -123,6 +148,16 @@ export const probes: ProbeAdapter = {
     bgp: { base: bgp, changed: bgp + lines('delete routing-instances A protocols bgp group G neighbor 192.0.2.2'), vrf: 'A' },
     dns: { base: dns, changed: dns + lines('delete system name-server 192.0.2.53'), vrf: 'A' },
     'static-route': { base: routes, changed: routes + lines('delete routing-instances A routing-options static route 10.0.0.0/8'), vrf: 'A' }
+  },
+  unknownReference: {
+    'prefix-list': { source: lines('set policy-options policy-statement P term T from prefix-list MISSING-LIST', 'set policy-options policy-statement P term T then accept'), value: 'MISSING-LIST', line: 1 },
+    'community-set': { source: lines('set policy-options policy-statement P term T from community MISSING-COMMUNITY', 'set policy-options policy-statement P term T then accept'), value: 'MISSING-COMMUNITY', line: 1 },
+    'as-path-set': { source: lines('set policy-options policy-statement P term T from as-path MISSING-PATH', 'set policy-options policy-statement P term T then accept'), value: 'MISSING-PATH', line: 1 },
+    policy: { source: lines('set routing-options autonomous-system 65000', 'set protocols bgp group G neighbor 192.0.2.2 peer-as 65001', 'set protocols bgp group G import MISSING-POLICY'), value: 'MISSING-POLICY', line: 3 }
+  },
+  regex: {
+    source: lines('set policy-options as-path PATH ".* 65000 .*"', 'set policy-options community COMM members "^65000:.*$"'),
+    regexes: ['.* 65000 .*', '^65000:.*$']
   }
 }
 
@@ -148,6 +183,9 @@ const route = (...hops: Node[]): Node => ['routing-options', [['static', ['route
 const units: Node[] = [0, 1, 2].map((i) => [`ge-0/0/${i}`, [unit0(`address 192.0.2.${i + 1}/24`)]])
 const ospfIn = (i: number, metric = 'metric 10'): Node => ['protocols', [['ospf', [['area 0.0.0.0', [[`interface ge-0/0/${i}.0`, [metric]]]]]]]]
 const bgpIn = (peerAs = 'peer-as 65001'): Node[] => [['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', [['neighbor 192.0.2.2', [peerAs]]]]]]]]]
+const termA: Node = ['term A', [['from', ['protocol static']], ['then', ['accept']]]]
+/** A policy whose one term names `condition`, which nothing defines. */
+const missing = (condition: string): Node => ['policy-options', [['policy-statement P', [['term T', [['from', [condition]], ['then', ['accept']]]]]]]]
 const community = (access: string): Node => ['snmp', [['community PLACEHOLDER', [`authorization ${access}`, ['clients', ['192.0.2.0/24']]]]]]
 
 /**
@@ -164,7 +202,16 @@ export const hierarchicalProbes: ProbeAdapter = {
         ['snmp', [[`community ${key}`, ['authorization read-only', ['clients', ['192.0.2.0/24']]]]]],
         ['system', [`domain-search ${key}`, ['name-server', [`192.0.2.53 routing-instance ${key}`]]]],
         ['vlans', [[key, ['vlan-id 10']]]],
-        ['protocols', [['bgp', [[`group ${key}`, ['type external', ['neighbor 192.0.2.2', ['peer-as 65001']]]]]]]]
+        ['protocols', [['bgp', [[`group ${key}`, ['type external', `import ${key}`, ['neighbor 192.0.2.2', ['peer-as 65001']]]]]]]],
+        [
+          'policy-options',
+          [
+            [`prefix-list ${key}`, ['10.0.0.0/8']],
+            [`policy-statement ${key}`, [[`term ${key}`, [['from', [`prefix-list ${key}`, `community ${key}`, `as-path ${key}`]], ['then', ['accept']]]]]],
+            `community ${key} members 65000:1`,
+            `as-path ${key} "65000 .*"`
+          ]
+        ]
       ),
     uses: { interface: true, vrf: true, community: true, dns: true, vlan: true, 'bgp-group': true }
   },
@@ -204,9 +251,21 @@ export const hierarchicalProbes: ProbeAdapter = {
       set: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24')]], ['lo0', [unit0('address 192.0.2.9/32')]]]], ['protocols', [['ospf', [['area 0.0.0.0', ['interface ge-0/0/0.0', ['interface lo0.0', ['passive']]]]]]]]),
       negated: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24')]], ['lo0', [unit0('address 192.0.2.9/32')]]]], ['protocols', [['ospf', [['area 0.0.0.0', [['interface lo0.0', ['passive']]]]]]]]),
       path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'ge-0/0/0.0']
+    },
+    'policy-term': {
+      set: tree(['policy-options', [['policy-statement P', [termA, ['term B', [['then', ['reject']]]]]]]]),
+      negated: tree(['policy-options', [['policy-statement P', [termA]]]]),
+      path: ['routingPolicy', 'policies', 'P', 'terms', '2']
+    },
+    'prefix-list-entry': {
+      set: tree(['policy-options', [['prefix-list L', ['10.0.0.0/8', '192.0.2.0/24']]]]),
+      negated: tree(['policy-options', [['prefix-list L', ['10.0.0.0/8']]]]),
+      path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '2']
     }
   },
   malformed: {
+    prefix: { source: tree(['policy-options', [['prefix-list L', ['10.0.0.256/24']]]]), value: '10.0.0.256/24' },
+    'prefix-length': { source: tree(['policy-options', [['prefix-list L', ['10.0.0.0/33']]]]), value: '10.0.0.0/33' },
     'ipv4-address': { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.256/24')]]]]), value: '192.0.2.256/24' },
     'ipv6-address': { source: tree(['interfaces', [['ge-0/0/0', [['unit 0', [['family inet6', ['address 2001:db8:::1/64']]]]]]]]), value: '2001:db8:::1/64' },
     mask: { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/33')]]]]), value: '192.0.2.1/33' },
@@ -240,5 +299,15 @@ export const hierarchicalProbes: ProbeAdapter = {
       changed: tree(...bgpIn(), ['routing-instances', [vrf('A', 1, ...bgpIn('peer-as 65009')), vrf('B', 2, ...bgpIn())]]),
       vrf: 'A'
     }
+  },
+  unknownReference: {
+    'prefix-list': { source: tree(missing('prefix-list MISSING-LIST')), value: 'MISSING-LIST' },
+    'community-set': { source: tree(missing('community MISSING-COMMUNITY')), value: 'MISSING-COMMUNITY' },
+    'as-path-set': { source: tree(missing('as-path MISSING-PATH')), value: 'MISSING-PATH' },
+    policy: { source: tree(['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', ['import MISSING-POLICY', ['neighbor 192.0.2.2', ['peer-as 65001']]]]]]]]), value: 'MISSING-POLICY' }
+  },
+  regex: {
+    source: tree(['policy-options', ['community COMM members "^65000:.*$"', 'as-path PATH ".* 65000 .*"']]),
+    regexes: ['.* 65000 .*', '^65000:.*$']
   }
 }

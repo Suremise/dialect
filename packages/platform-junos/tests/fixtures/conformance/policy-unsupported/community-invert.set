@@ -1,0 +1,4 @@
+set policy-options community I invert-match
+set policy-options community I members 65000:1
+set policy-options policy-statement P term T from community I
+set policy-options policy-statement P term T then reject

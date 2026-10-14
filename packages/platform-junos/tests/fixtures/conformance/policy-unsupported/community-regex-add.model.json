@@ -1,0 +1,27 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "routingPolicy": {
+      "communitySets": {
+        "R": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "^65000:.*$"
+              ]
+            }
+          },
+          "type": "standard",
+          "regexDialect": "junos"
+        }
+      },
+      "policies": {
+        "P": {
+          "fallThrough": "next-policy"
+        }
+      }
+    }
+  }
+}
+
