@@ -1,0 +1,132 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "access-sw1"
+    },
+    "vlans": {
+      "1": {},
+      "10": {
+        "name": "USERS"
+      },
+      "20": {
+        "name": "SERVERS-A"
+      },
+      "30": {},
+      "40": {},
+      "42": {},
+      "60": {}
+    },
+    "interfaces": {
+      "GigabitEthernet1/0/1": {
+        "type": "ethernet",
+        "description": "User port",
+        "switching": {
+          "mode": "access",
+          "accessVlan": 10
+        }
+      },
+      "GigabitEthernet1/0/2": {
+        "type": "ethernet",
+        "description": "Uplink trunk",
+        "switching": {
+          "nativeVlan": 10,
+          "allowedVlans": [
+            "10",
+            "20",
+            "30",
+            "100-149"
+          ],
+          "mode": "trunk"
+        }
+      },
+      "GigabitEthernet1/0/3": {
+        "type": "ethernet",
+        "switching": {
+          "allowedVlans": [
+            "10"
+          ],
+          "mode": "trunk"
+        }
+      },
+      "GigabitEthernet1/0/4": {
+        "type": "ethernet",
+        "switching": {
+          "allowedVlans": [
+            "1"
+          ],
+          "mode": "trunk"
+        }
+      },
+      "GigabitEthernet1/0/5": {
+        "type": "ethernet",
+        "switching": {
+          "allowedVlans": [],
+          "mode": "trunk"
+        }
+      },
+      "GigabitEthernet1/0/6": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "1-4094"
+          ]
+        }
+      },
+      "GigabitEthernet1/0/7": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet1/0/8": {
+        "type": "ethernet",
+        "switching": {
+          "accessVlan": 60
+        }
+      },
+      "Vlan10": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 10,
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "description": "Users gateway"
+      },
+      "Vlan20": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 20,
+            "ipv4": {
+              "addresses": {
+                "198.51.100.129": {
+                  "prefixLength": 25
+                }
+              }
+            }
+          }
+        },
+        "enabled": false
+      }
+    }
+  }
+}
+

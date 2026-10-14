@@ -1,0 +1,61 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "ios_switchport_mode"
+    },
+    "interfaces": {
+      "Ethernet0/0": {
+        "type": "ethernet",
+        "enabled": true
+      },
+      "Ethernet0/1": {
+        "type": "ethernet",
+        "switching": {},
+        "enabled": true
+      },
+      "Ethernet0/2": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "access"
+        },
+        "enabled": true
+      },
+      "Ethernet0/3": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk"
+        },
+        "enabled": true
+      },
+      "Ethernet0/4": {
+        "type": "ethernet",
+        "switching": {
+          "allowedVlans": [
+            "1-2"
+          ]
+        },
+        "enabled": true
+      },
+      "Ethernet0/5": {
+        "type": "ethernet",
+        "switching": {
+          "allowedVlans": [
+            "3-4"
+          ]
+        },
+        "enabled": true
+      },
+      "Ethernet0/6": {
+        "type": "ethernet",
+        "switching": {
+          "allowedVlans": [
+            "5-6"
+          ]
+        },
+        "enabled": true
+      }
+    }
+  }
+}
+

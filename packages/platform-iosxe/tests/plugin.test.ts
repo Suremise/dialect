@@ -646,6 +646,108 @@ describe('rendering a model from another platform', () => {
   })
 })
 
+describe('VLANs, switch ports and VLAN interfaces (model 0.4.0)', () => {
+  const byText = (text: string) => {
+    const result = parse(text)
+    return { result, at: (t: string) => result.dispositions[statementsOf(result.tree).find((n) => (n as IosNode).text === t)!.id] }
+  }
+  const iface = (...children: string[]) => ['vlan 10', 'interface Gi1', ...children].join('\n')
+  const switching = (text: string) => parse(text).model.interfaces?.Gi1?.switching
+
+  it('reads a trunk\'s allowed list as IOS does: replaced by a list, all, none or except, changed by add and remove', () => {
+    expect(switching(iface(' switchport trunk allowed vlan 10, 20-22,5'))?.allowedVlans).toEqual(['5', '10', '20-22'])
+    expect(switching(iface(' switchport trunk allowed vlan all'))?.allowedVlans).toEqual(['1-4094'])
+    expect(switching(iface(' switchport trunk allowed vlan none'))?.allowedVlans).toEqual([])
+    expect(switching(iface(' switchport trunk allowed vlan except 2-4094'))?.allowedVlans).toEqual(['1'])
+    // From every VLAN, IOS's default, when no list came before.
+    expect(switching(iface(' switchport trunk allowed vlan remove 1-9,11-4094'))?.allowedVlans).toEqual(['10'])
+    expect(switching(iface(' switchport trunk allowed vlan none', ' switchport trunk allowed vlan add 10'))?.allowedVlans).toEqual(['10'])
+    const { at } = byText(iface(' switchport trunk allowed vlan 10', ' switchport trunk allowed vlan add 20', ' switchport trunk allowed vlan 30'))
+    expect(at('switchport trunk allowed vlan 10')).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 5' })
+    expect(at('switchport trunk allowed vlan add 20')).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 5' })
+  })
+
+  it('flags a malformed VLAN ID or list rather than map it, and keeps the list it had', () => {
+    for (const bad of [' switchport access vlan 0', ' switchport trunk native vlan 4095', ' switchport trunk allowed vlan 10,5000', ' switchport trunk allowed vlan add 20-10', ' switchport trunk allowed vlan except']) {
+      const { result, at } = byText(iface(' switchport trunk allowed vlan 10', bad))
+      expect(at(bad.trim()), bad).toEqual({ kind: 'unsupported', reason: bad.includes('allowed') ? 'not a list of VLAN IDs from 1 to 4094' : 'not a VLAN ID from 1 to 4094' })
+      expect(result.model.interfaces?.Gi1?.switching, bad).toEqual({ allowedVlans: ['10'] })
+    }
+    for (const bad of ['vlan 4095', 'vlan 10-5', 'interface Vlan4095', 'interface Vlan10.5']) expect(parse(bad).dispositions.L1, bad).toEqual({ kind: 'unsupported' })
+    // IOS VLAN names are one word.
+    expect(parse('vlan 10\n name a b').dispositions.L2).toEqual({ kind: 'unsupported' })
+  })
+
+  it('"no" forms remove what they name, and "no switchport" every switch port setting before it', () => {
+    expect(switching(iface(' switchport mode trunk', ' switchport trunk native vlan 10', ' no switchport trunk native vlan', ' no switchport mode'))).toEqual({})
+    expect(switching(iface(' switchport trunk allowed vlan 10', ' no switchport trunk allowed vlan'))).toEqual({})
+    const { result, at } = byText(iface(' switchport mode access', ' switchport access vlan 10', ' no switchport', ' ip address 192.0.2.1 255.255.255.0'))
+    expect(result.model.interfaces?.Gi1?.switching).toBeUndefined()
+    expect(at('switchport access vlan 10')).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 5, which makes the interface a routed port' })
+    expect(at('no switchport')).toEqual({ kind: 'unsupported', reason: 'a routed port: the model has no setting for it' })
+  })
+
+  it('removes VLANs with "no vlan", but never a default one', () => {
+    const { result, at } = byText(['vlan 10,20', 'vlan 30', ' name THIRTY', 'no vlan 20,30', 'no vlan 1'].join('\n'))
+    expect(result.model.vlans).toEqual({ '10': {} })
+    expect(at('vlan 10,20')).toEqual({ kind: 'mapped', fields: ['vlans["10"]'] })
+    expect(at('name THIRTY')).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 4' })
+    expect(at('no vlan 1')).toEqual({ kind: 'ignored-by-design', reason: 'IOS can\'t delete a default VLAN: nothing to convert' })
+  })
+
+  it('keeps a VLAN a port or VLAN interface uses but the text doesn\'t define, with a warning that names no value', () => {
+    const { result, at } = byText(['interface Gi1', ' switchport access vlan 30', 'interface Gi2', ' switchport trunk allowed vlan 1,40,50-60', 'interface Vlan70'].join('\n'))
+    expect(result.model.vlans).toEqual({ '1': {}, '30': {}, '40': {}, '70': {} })
+    expect(at('switchport access vlan 30')).toEqual({ kind: 'mapped', fields: ['interfaces.Gi1.switching.accessVlan', 'vlans["30"]'] })
+    // VLAN 1 is always there: no warning for it.
+    expect(result.diagnostics.map((d) => d.field)).toEqual(['vlans["30"]', 'vlans["40"]', 'vlans["70"]'])
+    for (const d of result.diagnostics) {
+      expect(d).toMatchObject({ severity: 'warning', category: 'semantic', code: 'iosxe.vlan-created' })
+      expect(d.message).not.toMatch(/30|40|70/)
+    }
+    expect(roundTrips(['interface Gi1', ' switchport access vlan 30'].join('\n'))).toEqual([])
+  })
+
+  it('makes a Vlan interface an irb-or-svi routing for its VLAN, and never a switch port', () => {
+    const { result, at } = byText(['vlan 10', 'interface Vlan10', ' switchport mode access', ' ip address 192.0.2.1 255.255.255.0'].join('\n'))
+    expect(result.model.interfaces?.Vlan10).toEqual({ type: 'irb-or-svi', subinterfaces: { '0': { routedVlan: 10, ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } })
+    expect(at('switchport mode access')).toEqual({ kind: 'unsupported', reason: 'a VLAN interface routes: it isn\'t a switch port' })
+  })
+
+  it('renders VLANs, switch ports and routed VLANs from another platform, or says why not', () => {
+    const model: Device = {
+      vlans: { '1': {}, '100': { name: 'v100', description: 'users' }, '200': { name: 'two words' } },
+      interfaces: {
+        Vlan100: { type: 'irb-or-svi', subinterfaces: { '0': { routedVlan: 100, ipv4: { addresses: { '192.0.2.1': { prefixLength: 24 } } } } } },
+        irb: { type: 'irb-or-svi', subinterfaces: { '200': { routedVlan: 200 } }, switching: { mode: 'access' } },
+        Vlan7: { type: 'irb-or-svi', subinterfaces: { '0': { routedVlan: 200 } } },
+        'ge-0/0/1': { type: 'ethernet', switching: { mode: 'trunk', nativeVlan: 100, allowedVlans: ['100', '200-300'] } }
+      }
+    }
+    const rendered = render(model)
+    const ledger = buildLedger({ tree: [], model, dispositions: {}, diagnostics: [] }, rendered)
+    expect(ledgerProblems(ledger)).toEqual([])
+    expect(ledger.target?.strayPaths).toEqual([])
+    const skipped = Object.entries(rendered.dispositions).filter(([, d]) => d.kind !== 'rendered').map(([path, d]) => `${d.kind} ${path}`)
+    expect(skipped.sort()).toEqual([
+      'not-applicable interfaces.Vlan100.type',
+      'not-applicable interfaces.Vlan7.type',
+      'not-applicable interfaces.irb.type',
+      'not-applicable interfaces["ge-0/0/1"].type',
+      'not-applicable vlans["1"]',
+      'unsupported interfaces.Vlan7.subinterfaces["0"].routedVlan',
+      'unsupported interfaces.irb.subinterfaces["200"].routedVlan',
+      'unsupported interfaces.irb.switching.mode',
+      'unsupported vlans["100"].description',
+      'unsupported vlans["200"].name'
+    ])
+    expect(rendered.text).toContain('vlan 100\n name v100\n!\nvlan 200\n!\n')
+    expect(rendered.text).toContain('interface Vlan100\n ip address 192.0.2.1 255.255.255.0\n')
+    expect(rendered.text).toContain('interface ge-0/0/1\n switchport\n switchport trunk native vlan 100\n switchport trunk allowed vlan 100,200-300\n switchport mode trunk\n')
+    expect(rendered.text).not.toMatch(/^vlan 1$/m)
+  })
+})
+
 describe('names for ports from another platform (convert mode suggestions)', () => {
   it('names Ethernet by speed and numbers, a channel with a colon', () => {
     expect(plugin.nameInterface?.({ type: 'ethernet', speed: 1000, numbers: [0, 0, 0] })).toBe('GigabitEthernet0/0/0')
@@ -661,6 +763,9 @@ describe('names for ports from another platform (convert mode suggestions)', () 
     expect(plugin.nameInterface?.({ type: 'aggregate', numbers: [0] })).toBeUndefined()
     expect(plugin.nameInterface?.({ type: 'tunnel', numbers: [5] })).toBe('Tunnel5')
     expect(plugin.nameInterface?.({ type: 'vlan', numbers: [100] })).toBe('Vlan100')
+    // A routed VLAN interface by its VLAN's ID (Junos irb.100 for VLAN 100), once convert describes it so.
+    expect(plugin.nameInterface?.({ type: 'irb-or-svi', numbers: [100] })).toBe('Vlan100')
+    expect(plugin.nameInterface?.({ type: 'irb-or-svi', numbers: [4095] })).toBeUndefined()
     expect(plugin.nameInterface?.({ type: 'management', numbers: [0] })).toBe('GigabitEthernet0')
     expect(plugin.nameInterface?.({ type: 'management', numbers: [1] })).toBeUndefined()
     expect(plugin.nameInterface?.({ type: 'other', numbers: [1] })).toBeUndefined()
