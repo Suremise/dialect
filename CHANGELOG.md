@@ -29,6 +29,10 @@
   keyboard focus shows.
 
 ### Convert
+- **No message repeats a secret, even by chance:** a message or a reason that would hold a secret of the config (an
+  SNMP community or a key that happens to be one of its words, such as a community named `come` in "which comes with
+  filters") is withheld instead, keeping its line: "This message is withheld, as it would repeat a value of this
+  configuration." This covers every platform, in Convert, Display set, the app and the command line.
 - **A warning about the converted config is at the right line:** a warning the target raises about a line it wrote
   (a term written as `deny` where the source rejected, a final permit added to a route map) was shown at that line
   number in the source. It is now at the source statement it came from, and gives its line of the output too: after

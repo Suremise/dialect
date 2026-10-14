@@ -419,11 +419,43 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 ### The registry (`registry.ts`)
 
-`createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
+`createRegistry(plugins)` hands out each plugin guarded (`guardPlugin()`, the secret safety net) and checks its `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
 model is 0.5.4.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
+
+### The secret safety net (`secrets.ts`, #115)
+
+No text leaving a plugin may hold a secret of the config (AGENTS.md, No secrets in diagnostics). Each plugin takes care
+of that itself, and the conformance kit checks it; core adds a net under that care, for what a plugin's fixed texts
+can't foresee: a secret that is also one of their words (an SNMP community named `come` in "which comes with filters",
+an OSPF key `" the "`).
+
+- `findSecrets(source)` is the shared finder, by pattern (the kit's, which takes a fixture's secrets from it): crypt-
+  style hashes and Junos `$9$`, IOS typed passwords and keys, SNMP communities (a Junos `community X` before its block
+  or where a cut-short text ends), TACACS+/RADIUS and NTP keys, Junos's `secret`, `authentication-key`,
+  `encrypted-password` and pre-shared keys (a quoted one also with its quote left open, to the end of its line),
+  unquoted, of 4 characters or more (`MIN_SECRET_LENGTH`).
+- `secretCandidates(source)` is what the net looks for: each of those as found and trimmed, if still 4 characters or
+  more, lowercased. A message is matched in any case, as a substring.
+- `guardPlugin(plugin)` wraps parse, render and each tool's run. A reason (statement or field disposition), a
+  diagnostic's message or a needs-input item's message that holds a candidate becomes `WITHHELD_REASON` ("a statement
+  whose reason is withheld, as it would repeat a value of this configuration", #114's words) or `WITHHELD_MESSAGE`
+  ("This message is withheld, as it would repeat a value of this configuration."), or `—` when that holds one too; a
+  suggestion that holds one is dropped; an error thrown with one in its message is thrown as a plain `Error` with the
+  withheld message. Codes, spans, statements and fields stay, so the user still sees what kind of message and where.
+  A parse's candidates are its source's; a render's are those of the source its model was parsed from by a guarded
+  parse, and of its own text (the config it wrote); a tool's are its input's. The render's text and a tool's text are
+  config and kept: a `Tool` doesn't say whether its text is config or a report, so a report tool's text isn't
+  guarded. Labels, field paths and interface names name the config's structure and stay too. A plugin is wrapped once:
+  `guardPlugin()` gives the same guard for a plugin each time, and returns a guard as it is.
+- **Where:** `createRegistry()` hands out every plugin guarded, so the CLI and the app (which take theirs from it) only
+  ever call guarded ones; `convert()` guards its plugins' results, the errors they throw (`guardThrown()`) and its own
+  needs-input items by the source text (and the render's), whatever plugins it is given: its render is of the renamed
+  model, which a guarded target can't trace to the source.
+
+The conformance kit checks a plugin as it is, not guarded: the net doesn't stand in for a plugin's own care.
 
 ### JSON (`serialize.ts`)
 
@@ -479,7 +511,7 @@ An error a step reports (a diagnostic with `severity: 'error'`) fails its check 
 warnings and info don't.
 
 The secrets check takes the fixture's secrets from its `secrets.json`, or else finds them in the source by pattern
-(`findSecrets()`: crypt-style hashes and Junos `$9$`, IOS typed passwords and keys, SNMP communities, TACACS+/RADIUS
+(`findSecrets()`, core's shared finder, which core's safety net uses too: crypt-style hashes and Junos `$9$`, IOS typed passwords and keys, SNMP communities, TACACS+/RADIUS
 and NTP keys, Junos's `secret`, `authentication-key`, `encrypted-password` and pre-shared keys). A value found as a
 secret stays one wherever else the source has it (a comment, a VRF of the same name). It runs the parse, the render of
 the parse's model and each of the plugin's tools on the fixture and on broken copies of it (cut just after a secret; a
@@ -488,7 +520,8 @@ messages, needs-input items' messages and suggestions, statement and field dispo
 the text of every tool not named in `configTools` (a report). It doesn't look in the render's text or a config tool's,
 the config itself: the core's `Tool` doesn't say what its text is, so the plugin's suite names its config tools
 (`describeConformance(plugin, dir, { configTools: ['display-set'] })`). It doesn't look in statement labels or field
-paths either, which name the config's own structure. A plugin with tools but no parse or render still gets it.
+paths either, which name the config's own structure. A plugin with tools but no parse or render still gets it. It
+checks the plugin as it is, not guarded by core's safety net (`guardPlugin()`), which is only under the plugin's care.
 
 A leak found when the check came in can have a temporary allowance (`SECRET_ALLOWANCES` in `allowances.ts`), keyed by
 plugin, site (`statement reason`, `tool diagnostic`, `tool text`, …) and optionally the diagnostic's code, the tool or

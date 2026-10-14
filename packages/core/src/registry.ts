@@ -1,10 +1,12 @@
 // The plugin registry. Plugins are built in at first: each shell imports the platform packages and hands the list to
 // createRegistry(). The registry refuses a plugin whose `modelApi` range doesn't include the core's MODEL_VERSION, with a
-// message naming both, so a plugin built for another model never runs against this one.
+// message naming both, so a plugin built for another model never runs against this one. It hands out each plugin
+// guarded (secrets.ts), so no reason or message a shell gets from a plugin holds a secret of the config.
 import satisfies from 'semver/functions/satisfies'
 import validRange from 'semver/ranges/valid'
 import { MODEL_VERSION } from './model'
 import type { PlatformPlugin, Tool } from './plugin'
+import { guardPlugin } from './secrets'
 
 /** Why a plugin was refused. */
 export class PluginRejectedError extends Error {
@@ -31,7 +33,7 @@ export function pluginProblem(plugin: PlatformPlugin, modelVersion: string = MOD
 export interface Registry {
   /** The core's model version the plugins were checked against. */
   readonly modelVersion: string
-  /** Every plugin, in the order given. */
+  /** Every plugin, in the order given, each guarded (guardPlugin()). */
   list(): readonly PlatformPlugin[]
   get(id: string): PlatformPlugin | undefined
   /** The plugins that can parse (sources) or render (targets). */
@@ -53,7 +55,7 @@ export function createRegistry(plugins: readonly PlatformPlugin[], { modelVersio
     const problem = pluginProblem(plugin, modelVersion)
     if (problem) throw new PluginRejectedError(plugin.id, problem)
     if (byId.has(plugin.id)) throw new PluginRejectedError(plugin.id, `Two plugins have the id "${plugin.id}".`)
-    byId.set(plugin.id, plugin)
+    byId.set(plugin.id, guardPlugin(plugin))
   }
   const all = [...byId.values()]
   return {
