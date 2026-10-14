@@ -18,6 +18,11 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS-XR routing policy converts, in RPL's simple forms:** prefix sets, community sets, AS-path sets and route
+  policies made of flat `if … then … else … endif` blocks, and BGP neighbors' and VRFs' route policies now carry the
+  policy itself, not only its name. A set or policy converts whole or not at all: nested `if`, `elseif`, parameters,
+  `apply` and the like are listed as not converted. Converting a Junos policy to IOS-XR adds a final `pass`, with a
+  warning, and a VRF's import or export policy warns where Junos and IOS-XR treat route targets differently.
 - **Cisco IOS / IOS-XE routing policy converts:** prefix lists (IPv4 and IPv6), community lists (standard, expanded and
   numbered), AS-path access lists and route maps, and BGP neighbors' route maps now carry the policy itself, not only
   its name. Regexes are kept as written and never translated between platforms. A route map converts sequence by

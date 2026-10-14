@@ -1,8 +1,45 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.5.2",
   "device": {
     "system": {
       "hostname": "pe1"
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "CUSTOMERS": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "192.0.2.0/24",
+                "minLength": 24,
+                "maxLength": 32,
+                "form": "le"
+              },
+              "2": {
+                "action": "permit",
+                "prefix": "198.51.100.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              }
+            }
+          }
+        }
+      },
+      "communitySets": {
+        "BLACKHOLE": {
+          "type": "standard",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65535:666"
+              ]
+            }
+          }
+        }
+      }
     }
   }
 }

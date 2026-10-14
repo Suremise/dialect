@@ -1,12 +1,14 @@
 // The shared model → IOS-XR text, in the shape `show running-config` gives: one-space indents, each block closed by
-// `!`. Every populated leaf of model 0.4 gets a disposition: `rendered` with the line it went to, `unsupported` with why
+// `!`. Every populated leaf of model 0.5.2 gets a disposition (routing policy in renderPolicy.ts): `rendered` with the line it went to, `unsupported` with why
 // (IOS-XR can't say it, or this renderer can't yet), or `not-applicable` (IOS-XR implies it). Fields of a later model
 // version are left without one, so the ledger reports them as unrendered rather than this renderer claiming them.
 // Secrets the model only flags (an OSPF key, a BGP password) and an eBGP neighbor's missing route policy (RFC 8212) are
 // needs-input items, written when answered (Context.inputs) and never made up.
-import { fieldPath, isAsNumber, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type RenderResult, type StaticRoute, type Subinterface, type SyslogSeverity } from '@dialect/core'
 import { isIpv4, isIpv6, lengthMask } from './addresses'
 import { inRange, MTU, PORT, ROUTE_TAG, VLAN_ID } from './parse'
+import { RPL_NAME } from './policy'
+import { planRoutingPolicy } from './renderPolicy'
 
 type Segments = readonly (string | number)[]
 
@@ -55,6 +57,15 @@ export function render(model: Device, context: Context): RenderResult {
   }
   /** `!` after a top-level block, as IOS-XR shows it. */
   const close = (indent = '') => emit(`${indent}!`)
+  // The routing policy, planned first: a VRF or a BGP peer names a route policy only when it is written.
+  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
+  /**
+   * How a route policy a VRF or peer names is written: by name when the policy is written, or when the model has no
+   * policy of that name at all (a source that keeps policy names alone), with a warning; not when the model's policy
+   * of that name can't be written.
+   */
+  const policyName = (name: string): 'written' | 'name-only' | 'not-written' =>
+    policyPlan.policies.has(name) ? 'written' : model.routingPolicy?.policies && Object.hasOwn(model.routingPolicy.policies, name) ? 'not-written' : 'name-only'
 
   const system = model.system
   if (system) {
@@ -95,10 +106,12 @@ export function render(model: Device, context: Context): RenderResult {
       if (isEmpty(instance)) skip(at, 'not-applicable', 'the global routing table, with nothing in it')
       if (instance.routeDistinguisher !== undefined) skip([...at, 'routeDistinguisher'], 'unsupported', 'the global routing table has no route distinguisher')
       if (instance.routeTargets !== undefined) skipAll(instance.routeTargets, [...at, 'routeTargets'], 'the global routing table has no route targets')
+      for (const leaf of ['importPolicies', 'exportPolicies'] as const) if (instance[leaf] !== undefined) skip([...at, leaf], 'unsupported', 'the global routing table has no VRF import or export policy')
+      if (instance.vrfPolicyMode !== undefined) skip([...at, 'vrfPolicyMode'], 'not-applicable', 'the global routing table has no VRF policies')
       continue
     }
     // An instance with only routes (`router static vrf V` with no `vrf V`): its routes say it, under router static.
-    if (instance.type === undefined && instance.routeDistinguisher === undefined && instance.routeTargets === undefined && !isEmpty(instance)) continue
+    if (instance.type === undefined && instance.routeDistinguisher === undefined && instance.routeTargets === undefined && instance.importPolicies === undefined && instance.exportPolicies === undefined && !isEmpty(instance)) continue
     renderVrf(name, instance, at)
   }
 
@@ -108,27 +121,56 @@ export function render(model: Device, context: Context): RenderResult {
     else if (instance.type !== undefined) skip([...at, 'type'], 'unsupported', 'IOS-XR\'s global table is "default": another instance is a VRF')
     // Its route distinguisher is BGP's on IOS-XR: written under router bgp.
     emit(`vrf ${name}`, ...fields)
-    if (instance.routeTargets !== undefined) renderRouteTargets(instance.routeTargets, [...at, 'routeTargets'])
+    renderVrfFamilies(instance, at)
     close()
   }
 
   /**
-   * A VRF's route targets: IOS-XR sets them per address family, and the model's are the VRF's, so they go under both
-   * IPv4 and IPv6 unicast, in the block form. Each list is one field (a leaf-list), marked on its first line.
+   * A VRF's route targets and its own import and export policies (model 0.5.2): IOS-XR sets them per address family, and
+   * the model's are the VRF's, so they go under both IPv4 and IPv6 unicast, the route targets in the block form. Each
+   * list is one field (a leaf-list), marked on its first line. IOS-XR's policy filters what the route targets import or
+   * export: a source whose policy replaces them (Junos) gets a warning.
    */
-  function renderRouteTargets(targets: RouteTargets, at: Segments) {
-    emptyContainer(targets, at)
+  function renderVrfFamilies(instance: NetworkInstance, vrfAt: Segments) {
+    const targets = instance.routeTargets
+    const at = [...vrfAt, 'routeTargets']
     const lists: [direction: 'import' | 'export', values: readonly string[]][] = []
-    for (const direction of ['import', 'export'] as const) {
-      const values = targets[direction]
-      if (values === undefined) continue
-      if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
-      else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
-      else lists.push([direction, values])
+    if (targets !== undefined) {
+      emptyContainer(targets, at)
+      for (const direction of ['import', 'export'] as const) {
+        const values = targets[direction]
+        if (values === undefined) continue
+        if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
+        else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
+        else lists.push([direction, values])
+      }
     }
-    if (!lists.length) return
+    const policies: [direction: 'import' | 'export', name: string][] = []
+    for (const direction of ['import', 'export'] as const) {
+      const list = instance[`${direction}Policies`]
+      const field = [...vrfAt, `${direction}Policies`]
+      if (list === undefined) continue
+      const how = list.length === 1 ? policyName(list[0]) : undefined
+      if (!list.length) skip(field, 'not-applicable', 'no policy: nothing to write')
+      else if (list.length > 1) skip(field, 'unsupported', 'IOS-XR applies one route policy each way to a VRF: a chain of policies isn\'t written')
+      else if (!RPL_NAME.test(list[0])) skip(field, 'unsupported', 'not a route policy name IOS-XR takes')
+      else if (how === 'not-written') skip(field, 'unsupported', 'names a policy IOS-XR can\'t write')
+      else policies.push([direction, list[0]])
+    }
+    const mode = instance.vrfPolicyMode
+    if (mode !== undefined) {
+      skip([...vrfAt, 'vrfPolicyMode'], 'not-applicable', 'the source platform\'s semantics: IOS-XR\'s VRF policy filters what the route targets import or export')
+      if (mode === 'replaces-route-targets' && policies.length)
+        diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.vrf-policy-mode', message: 'The source\'s VRF import or export policy replaces the VRF\'s route targets (it matches or adds them itself), where IOS-XR\'s filters what the route targets import or export: check the route targets and the policy together.', field: fieldPath(...vrfAt, 'vrfPolicyMode') })
+    }
+    if (!lists.length && !policies.length) return
     for (const family of ['ipv4', 'ipv6']) {
       emit(` address-family ${family} unicast`)
+      for (const [direction, name] of policies) {
+        emit(`  ${direction} route-policy ${name}`, ...(family === 'ipv4' ? [[...vrfAt, `${direction}Policies`]] : []))
+        if (family === 'ipv4' && policyName(name) === 'name-only')
+          diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.route-policy-name-only', message: 'A policy is written as a route policy by its name only: its body isn\'t in the model, so IOS-XR needs a route policy of that name.', field: fieldPath(...vrfAt, `${direction}Policies`) })
+      }
       for (const [direction, values] of lists) {
         emit(`  ${direction} route-target`)
         values.forEach((v, i) => emit(`   ${v}`, ...(family === 'ipv4' && i === 0 ? [[...at, direction]] : [])))
@@ -666,11 +708,12 @@ export function render(model: Device, context: Context): RenderResult {
           continue
         }
         if (list.length > 1) skip(where, 'unsupported', 'IOS-XR applies one route policy each way here: a chain of policies isn\'t written')
-        else if (!/^[\w.-]{1,64}$/.test(list[0])) skip(where, 'unsupported', 'not a route policy name IOS-XR takes')
+        else if (!RPL_NAME.test(list[0])) skip(where, 'unsupported', 'not a route policy name IOS-XR takes')
+        else if (policyName(list[0]) === 'not-written') skip(where, 'unsupported', 'names a policy IOS-XR can\'t write')
         else {
           emit(`${indent} route-policy ${list[0]} ${direction}`, ...(af?.[field] !== undefined || !peerLevel[field] ? [where] : []))
           if (af?.[field] === undefined) peerLevel[field] = true
-          named++
+          if (policyName(list[0]) === 'name-only') named++
         }
       }
       close(indent)
@@ -679,8 +722,14 @@ export function render(model: Device, context: Context): RenderResult {
       if (peer[field] === undefined || peerLevel[field] || Object.hasOwn(dispositions, fieldPath(...at, field))) continue
       skip([...at, field], 'unsupported', families.length ? 'every family the peer carries has its own policy' : 'IOS-XR applies a route policy per address family, and the peer carries none')
     }
-    if (named) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.route-policy-name-only', message: 'A policy is written as a route policy by its name only: its body isn\'t converted yet, so IOS-XR needs a route policy of that name.', field: fieldPath(...at) })
+    if (named) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.route-policy-name-only', message: 'A policy is written as a route policy by its name only: its body isn\'t in the model, so IOS-XR needs a route policy of that name.', field: fieldPath(...at) })
     if (local !== undefined && !carried.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxr.bgp-no-address-family', message: 'A BGP neighbor has no address family: on IOS-XR it carries no routes until one is configured.', field: fieldPath(...at) })
+  }
+
+  // ---- routing policy: sets and route policies, before the protocols that apply them
+  for (const l of policyPlan.lines) {
+    emit(l.text, ...l.fields)
+    if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: lines.length, startColumn: 1, endLine: lines.length, endColumn: l.text.length + 1 } })
   }
 
   renderOspf()

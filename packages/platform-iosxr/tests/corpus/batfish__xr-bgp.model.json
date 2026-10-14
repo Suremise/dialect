@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.1",
+  "modelVersion": "0.5.2",
   "device": {
     "system": {
       "hostname": "xr-bgp"
@@ -73,6 +73,90 @@
               "group": "ng1"
             }
           }
+        }
+      }
+    },
+    "routingPolicy": {
+      "policies": {
+        "rp2": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "rp3": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "rp4": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "rp5": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "rp6": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "rp7": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "rp8": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "rp9": {
+          "terms": {
+            "1": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
         }
       }
     }
