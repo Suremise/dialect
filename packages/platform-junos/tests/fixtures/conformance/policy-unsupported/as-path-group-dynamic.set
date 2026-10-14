@@ -1,0 +1,3 @@
+set policy-options as-path-group DYN dynamic-db
+set policy-options policy-statement P term T from as-path-group DYN
+set policy-options policy-statement P term T then accept

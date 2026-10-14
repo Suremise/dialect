@@ -36,7 +36,8 @@ describe('the per-term ledger of each negative fixture', () => {
     ['community-regex-add', [2], ['P'], 'adding a community given by a regex, which Junos refuses'],
     ['community-invert', [1, 2, 3, 4], ['P'], 'an invert-match community converts not at all, nor a term naming it'],
     ['community-regex-kind', [1], [], "a regex whose start doesn't say its kind of community"],
-    ['as-path-group', [1, 2, 3], ['P'], 'AS-path groups'],
+    ['as-path-name-clash', [1, 2, 3, 4], ['P'], 'an AS path and an AS-path group of one name: the model has one namespace, so neither converts'],
+    ['as-path-group-dynamic', [1, 2, 3], ['P'], 'an AS-path group from the dynamic database'],
     ['group-term-order', [1, 3], [], "terms from a group beside the policy's own: their order isn't converted"],
     ['insert', [1, 2, 3], [], 'insert reorders the terms'],
     ['bgp-chain', [4, 5], ['A'], 'an import chain naming a policy nothing defines is left out whole; the export chain converts']
@@ -139,7 +140,7 @@ describe('render from another platform’s model', () => {
     expect(ledgerProblems(buildLedger(parse('', context), r, changed))).toEqual([])
   })
 
-  it('never writes a Cisco regex as a Junos one, literal communities in an action, nor a list for one family Junos has for both', () => {
+  it('never writes a Cisco regex as a Junos one, nor a list for one family Junos has for both', () => {
     const model: Device = {
       routingPolicy: {
         prefixLists: { ipv4: { L: { entries: { '1': { action: 'permit', prefix: '192.0.2.0/24', minLength: 24, maxLength: 24 } } } }, ipv6: { L: { entries: { '1': { action: 'permit', prefix: '2001:db8::/32', minLength: 32, maxLength: 32 } } } } },
@@ -147,7 +148,6 @@ describe('render from another platform’s model', () => {
         asPathSets: { CISCO: { regexDialect: 'cisco', entries: { '1': { action: 'permit', regex: '_65000_' } } } },
         policies: {
           A: { fallThrough: 'next-policy', terms: { '1': { name: 'T', matches: { communitySets: ['CISCO'] }, actions: { flow: 'accept' } } } },
-          B: { fallThrough: 'next-policy', terms: { '1': { name: 'T', actions: { communityAdd: { values: ['65000:1'] } } } } },
           C: { fallThrough: 'next-policy', terms: { '1': { name: 'T', matches: { prefixLists: { ipv4: ['L'] } }, actions: { flow: 'accept' } } } }
         }
       }
@@ -155,7 +155,7 @@ describe('render from another platform’s model', () => {
     const r = render(model, context)
     expect(r.dispositions['routingPolicy.communitySets.CISCO.entries["1"].regexes']).toMatchObject({ kind: 'unsupported' })
     expect(r.dispositions['routingPolicy.asPathSets.CISCO.entries["1"].regex']).toMatchObject({ kind: 'unsupported' })
-    for (const policy of ['A', 'B', 'C']) expect(r.dispositions[`routingPolicy.policies.${policy}.terms["1"].name`]).toMatchObject({ kind: 'unsupported' })
+    for (const policy of ['A', 'C']) expect(r.dispositions[`routingPolicy.policies.${policy}.terms["1"].name`]).toMatchObject({ kind: 'unsupported' })
     expect(r.text).toContain('prefix-list L {\n        192.0.2.0/24;\n        2001:db8::/32;\n    }')
     expect(r.text).not.toContain('_65000')
     expect(ledgerProblems(buildLedger(parse('', context), r, model))).toEqual([])
@@ -205,5 +205,84 @@ describe("a VRF's import and export policies (model 0.5.2)", () => {
   it('a side with no policy still asks for its route target', () => {
     const p = parse(set('set policy-options policy-statement IN then accept', 'set routing-instances V instance-type vrf', 'set routing-instances V route-distinguisher 65000:9', 'set routing-instances V vrf-import IN'), context)
     expect(render(p.model, context).needsInput?.map((n) => n.id)).toEqual(['junos.vrf-target:V'])
+  })
+})
+
+describe('AS-path groups and literal communities in actions (#94)', () => {
+  it('writes an AS-path list of several permits (a Cisco as-path access-list) as an as-path-group, one of one as an as-path', () => {
+    const model: Device = {
+      routingPolicy: {
+        asPathSets: {
+          TRANSITS: { regexDialect: 'junos', entries: { '10': { action: 'permit', regex: '^64501 .*' }, '20': { action: 'permit', regex: '^64502 .*' } } },
+          ONE: { regexDialect: 'junos', entries: { '10': { action: 'permit', regex: '^64500$' } } },
+          DENIES: { regexDialect: 'junos', entries: { '10': { action: 'deny', regex: '^64999$' }, '20': { action: 'permit', regex: '.*' } } }
+        },
+        policies: {
+          P: { fallThrough: 'next-policy', terms: { '1': { name: 'T', matches: { asPathSets: ['TRANSITS'] }, actions: { flow: 'accept' } } } },
+          BOTH: { fallThrough: 'next-policy', terms: { '1': { name: 'T', matches: { asPathSets: ['TRANSITS', 'ONE'] }, actions: { flow: 'accept' } } } }
+        }
+      }
+    }
+    const r = render(model, context)
+    expect(r.text).toContain('    as-path-group TRANSITS {\n        as-path TRANSITS-10 "^64501 .*";\n        as-path TRANSITS-20 "^64502 .*";\n    }\n')
+    expect(r.text).toContain('    as-path ONE "^64500$";\n')
+    expect(r.text).toContain('                as-path-group TRANSITS;\n')
+    expect(r.dispositions['routingPolicy.asPathSets.DENIES.entries["10"].regex']).toMatchObject({ kind: 'unsupported' })
+    // How Junos takes an as-path beside an as-path-group in one term isn't something to guess.
+    expect(r.dispositions['routingPolicy.policies.BOTH.terms["1"].name']).toMatchObject({ kind: 'unsupported', reason: 'an AS path and an AS-path group in one term' })
+    expect(ledgerProblems(buildLedger(parse('', context), r, model))).toEqual([])
+    // Back from Junos, the group is the same set, its entries by position.
+    const back = parse(r.text, context).model.routingPolicy?.asPathSets?.TRANSITS
+    expect(back).toEqual({ regexDialect: 'junos', entries: { '1': { action: 'permit', regex: '^64501 .*' }, '2': { action: 'permit', regex: '^64502 .*' } } })
+  })
+
+  it('writes literal communities in an action (Cisco set community) as a community of the term’s own, named so no other has the name', () => {
+    const model: Device = {
+      routingPolicy: {
+        communitySets: { 'RM-10-add': { entries: { '1': { action: 'permit', members: ['65000:9'] } } } },
+        policies: {
+          RM: {
+            fallThrough: 'reject',
+            terms: {
+              '10': { actions: { communityAdd: { values: ['65000:1', 'target:4200000000:7'] }, flow: 'accept' } },
+              '20': { actions: { communitySet: { values: ['no-export'] }, flow: 'accept' } }
+            }
+          }
+        }
+      }
+    }
+    const r = render(model, context)
+    // RM-10-add is the model's own community, so the made-up one takes the next name.
+    expect(r.text).toContain('    community RM-10-add-2 members [ 65000:1 target:4200000000L:7 ];\n')
+    expect(r.text).toContain('    community RM-20-set members no-export;\n')
+    expect(r.text).toContain('                community add RM-10-add-2;\n')
+    expect(r.text).toContain('            community set RM-20-set;\n            accept;\n')
+    expect(r.dispositions['routingPolicy.policies.RM.terms["10"].actions.communityAdd.values']).toMatchObject({ kind: 'rendered' })
+    expect(ledgerProblems(buildLedger(parse('', context), r, model))).toEqual([])
+    // Back from Junos the values are a named set: the same communities.
+    const back = parse(r.text, context).model.routingPolicy
+    expect(back?.policies?.RM.terms?.['1'].actions?.communityAdd).toEqual({ sets: ['RM-10-add-2'] })
+    expect(back?.communitySets?.['RM-10-add-2'].entries?.['1'].members).toEqual(['65000:1', 'target:4200000000:7'])
+  })
+
+  it('reads a later community set as replacing an earlier one, as Junos applies them, and writes no set of two', () => {
+    const p = parse(set('set policy-options community A members 65000:1', 'set policy-options community B members 65000:2', 'set policy-options policy-statement P term T then community set A', 'set policy-options policy-statement P term T then community set B'), context)
+    expect(p.model.routingPolicy?.policies?.P.terms?.['1'].actions).toEqual({ communitySet: { sets: ['B'] } })
+    expect(p.dispositions.L3).toMatchObject({ kind: 'ignored-by-design', reason: 'superseded by line 4' })
+    const two: Device = { routingPolicy: { communitySets: { A: { entries: { '1': { action: 'permit', members: ['65000:1'] } } } }, policies: { P: { fallThrough: 'reject', terms: { '10': { actions: { communitySet: { values: ['65000:9'], sets: ['A'] }, flow: 'accept' } } } } } } }
+    expect(render(two, context).dispositions['routingPolicy.policies.P.terms["10"].actions.communitySet.values']).toMatchObject({ kind: 'unsupported', reason: expect.stringContaining('replaces the first') })
+  })
+
+  it('writes no community for a term left out, and leaves a literal Junos can’t write unsupported', () => {
+    const model: Device = {
+      routingPolicy: {
+        policies: {
+          RM: { fallThrough: 'reject', terms: { '10': { actions: { communityAdd: { values: ['accept-own'] }, flow: 'accept' } }, '20': { actions: { flow: 'accept' } } } }
+        }
+      }
+    }
+    const r = render(model, context)
+    expect(r.text).not.toContain('members')
+    expect(r.dispositions['routingPolicy.policies.RM.terms["10"].actions.communityAdd.values']).toMatchObject({ kind: 'unsupported' })
   })
 })
