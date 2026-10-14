@@ -270,7 +270,10 @@ export function render(model: Device, context: Context): RenderResult {
           if (authentication !== undefined) {
             const inputId = ospfKeyInputId(instance, reference)
             const key = answer(inputId)
-            if (key === undefined) needsInput.push({ id: inputId, kind: authentication === 'key-chain' ? 'other' : 'secret', message: authentication === 'key-chain' ? 'This OSPF interface authenticates with a key chain: give the name of the key chain to use.' : 'This OSPF interface authenticates: give its key, which the source never carries.', field: fieldPath(...iAt) })
+            // A secret item names the flag it is for (the interface's, or the area's it inherits), so the kit's round trip
+            // excuses a key-chain flag that waits for it.
+            const flag = i.authentication !== undefined ? [...iAt, 'authentication'] : [...areaAt, 'authentication']
+            if (key === undefined) needsInput.push({ id: inputId, kind: 'secret', message: authentication === 'key-chain' ? 'This OSPF interface authenticates with a key chain: give the name of the key chain that holds its keys.' : 'This OSPF interface authenticates: give its key, which the source never carries.', field: fieldPath(...flag) })
             else if (authentication === 'simple') ifLines.push({ text: ` ip ospf authentication-key ${key}`, fields: [] })
             else if (authentication === 'md5') ifLines.push({ text: ` ip ospf message-digest-key 1 md5 ${key}`, fields: [] })
           }
@@ -627,6 +630,7 @@ export function render(model: Device, context: Context): RenderResult {
     separator()
     const globalAs = model.networkInstances?.default?.bgp?.localAs
     emit(`router bgp ${as}`, ...(globalAs !== undefined ? [['networkInstances', 'default', 'bgp', 'localAs']] : []))
+    const bgpLine = lines.length
     /** A peer's settings (groups first, as IOS needs a peer group defined before a neighbor joins it). */
     const peerLines = (instance: string, bgp: Bgp, kind: 'groups' | 'neighbors', key: string, peer: BgpPeer & { type?: string; group?: string }, indent: string) => {
       const at = ['networkInstances', instance, 'bgp', kind, key]
@@ -705,6 +709,18 @@ export function render(model: Device, context: Context): RenderResult {
       if (bgp.localAs !== undefined && bgp.localAs !== as) {
         skipAll(bgp, at, 'IOS runs one BGP AS for the global table and every VRF, and this one differs')
         continue
+      }
+      // The source's default for an eBGP peer with no policy, not configuration (model 0.4.1). IOS-XE accepts the
+      // routes both ways: a source that drops them (IOS-XR, RFC 8212) gets a warning, by field and line, never by peer.
+      const defaults = bgp.ebgpDefaultPolicy
+      if (defaults !== undefined) {
+        emptyContainer(defaults, [...at, 'ebgpDefaultPolicy'])
+        for (const side of ['import', 'export'] as const) if (defaults[side] !== undefined) skip([...at, 'ebgpDefaultPolicy', side], 'not-applicable', 'the source\'s default for an eBGP peer with no policy, not configuration: IOS-XE accepts the routes')
+        const rejects = (['import', 'export'] as const).filter((side) => defaults[side] === 'reject')
+        if (rejects.length) {
+          const n = bgpLine
+          diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.ebgp-default-accept', message: `The source drops an eBGP peer's routes ${rejects.length === 2 ? 'both ways' : rejects[0] === 'import' ? 'received' : 'sent'} when no policy applies (RFC 8212); IOS-XE ${rejects.length === 2 ? 'exchanges' : rejects[0] === 'import' ? 'accepts' : 'advertises'} them: give such peers a route map to keep the source's behaviour.`, field: fieldPath(...at, 'ebgpDefaultPolicy'), span: { startLine: n, startColumn: 1, endLine: n, endColumn: lines[n - 1].length + 1 } })
+        }
       }
       if (instance === 'default') {
         if (bgp.routerId !== undefined) {

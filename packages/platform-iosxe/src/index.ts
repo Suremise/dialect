@@ -16,9 +16,9 @@ export { parseTree, type IosNode, type IosTree, type NodeKind } from './tree'
 const plugin: PlatformPlugin = {
   id: 'iosxe',
   name: 'Cisco IOS / IOS-XE',
-  // 0.4.0: its parse fills VLANs, switch ports, a VLAN interface's routed VLAN, OSPF and BGP, which a 0.3 core doesn't
-  // know.
-  modelApi: '>=0.4.0 <1.0.0',
+  // 0.4.1: its parse fills VLANs, switch ports, a VLAN interface's routed VLAN, OSPF and BGP (0.4.0), and BGP's
+  // default for eBGP peers with no policy (0.4.1), which an older core doesn't know.
+  modelApi: '>=0.4.1 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'full', render: 'full' },

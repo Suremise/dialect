@@ -1804,6 +1804,25 @@ export function parse(text: string, _context: Context): ParseResult {
       if (first && d?.kind === 'mapped') set(first, mapped([...d.fields, field]))
     }
   }
+  // What IOS does with an eBGP peer's routes when no policy applies (model 0.4.1): it accepts them, both ways. Set for
+  // the side(s) that apply, on an instance with an eBGP peer (its own or its group's peer AS, not the local one) that
+  // carries a family with no route map in that direction (its own, its group's, for the peer or the family).
+  for (const [instance, ni] of Object.entries(device.networkInstances ?? {})) {
+    const bgp = ni.bgp
+    if (!bgp) continue
+    const sides = new Set<'import' | 'export'>()
+    for (const n of Object.values(bgp.neighbors ?? {})) {
+      const group = n.group !== undefined && bgp.groups && Object.hasOwn(bgp.groups, n.group) ? bgp.groups[n.group] : undefined
+      const peerAs = n.peerAs ?? group?.peerAs
+      if (peerAs === undefined || peerAs === bgp.localAs) continue
+      const families = new Set([...Object.keys(n.addressFamilies ?? {}), ...Object.keys(group?.addressFamilies ?? {})]) as Set<'ipv4-unicast' | 'ipv6-unicast'>
+      for (const family of families)
+        for (const [side, leaf] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const)
+          if (!(n[leaf] ?? group?.[leaf] ?? n.addressFamilies?.[family]?.[leaf] ?? group?.addressFamilies?.[family]?.[leaf])) sides.add(side)
+    }
+    if (sides.size) model.set(['networkInstances', instance, 'bgp', 'ebgpDefaultPolicy'], { ...(sides.has('import') ? { import: 'accept' } : {}), ...(sides.has('export') ? { export: 'accept' } : {}) })
+  }
+
   for (const { field, node } of routeMaps) {
     if (dispositions[node.id]?.kind !== 'mapped') continue
     diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A route map is kept by name only: its body isn\'t converted, so a target needs a policy of that name.', field, statement: node.id })

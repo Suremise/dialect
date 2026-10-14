@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.0",
+  "modelVersion": "0.4.1",
   "device": {
     "system": {
       "hostname": "edge-r1"
@@ -19,6 +19,10 @@
               },
               "description": "Customer"
             }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "accept",
+            "export": "accept"
           }
         },
         "routeTargets": {
@@ -87,6 +91,9 @@
                 }
               }
             }
+          },
+          "ebgpDefaultPolicy": {
+            "export": "accept"
           }
         }
       }

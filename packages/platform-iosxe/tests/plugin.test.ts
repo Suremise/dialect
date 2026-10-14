@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { checkFixture, checkSecrets } from '@dialect/conformance'
-import { buildLedger, createRegistry, fieldPath, ledgerProblems, MODEL_VERSION, populatedLeaves, statementsOf, type Device } from '@dialect/core'
+import { buildLedger, createRegistry, deserializeModel, fieldPath, ledgerProblems, MODEL_VERSION, populatedLeaves, statementsOf, type Device } from '@dialect/core'
 import plugin from '../src'
 import { isIpv6, lengthMask, maskLength } from '../src/addresses'
 import type { IosNode } from '../src/tree'
@@ -959,7 +959,7 @@ describe('rendering OSPF and BGP from another platform', () => {
       'unsupported networkInstances.default.ospf.areas["0.0.0.0"].interfaces["Gi0/0/0.0"].authentication'
     ])
     expect(result.needsInput?.map((n) => [n.id, n.kind])).toEqual([
-      ['ospf-key:default:Gi0/0/0.0', 'other'],
+      ['ospf-key:default:Gi0/0/0.0', 'secret'],
       ['bgp-password:default:neighbors:192.0.2.2', 'secret']
     ])
     expect(result.diagnostics.map((d) => d.code)).toEqual(['iosxe.ospf-network-exact', 'iosxe.route-map-name-only'])
@@ -981,6 +981,39 @@ describe('rendering OSPF and BGP from another platform', () => {
     const rendered = render(two)
     expect(rendered.dispositions['networkInstances.A.bgp.localAs']).toMatchObject({ kind: 'unsupported' })
     expect(rendered.text).not.toContain('vrf A\n  bgp')
+  })
+})
+
+describe('the semantic warnings a render from another platform raises, each from a saved model (tests/models)', () => {
+  const models = new URL('./models/', import.meta.url)
+  const cases = readdirSync(models).filter((f) => f.endsWith('.model.json')).map((f) => f.replace(/\.model\.json$/, ''))
+
+  it('are there', () => {
+    expect(cases).toContain('iosxr-ebgp-reject')
+  })
+  for (const name of cases) {
+    it(`models/${name}: renders as expected, with its warnings and every field accounted for`, () => {
+      const model = deserializeModel(readFileSync(new URL(`${name}.model.json`, models), 'utf8')).device
+      const result = render(model)
+      expect(result.text).toBe(readFileSync(new URL(`${name}.rendered.cfg`, models), 'utf8'))
+      expect(result.diagnostics.map((d) => d.code)).toEqual(JSON.parse(readFileSync(new URL(`${name}.warnings.json`, models), 'utf8')))
+      const ledger = buildLedger({ tree: [], model, dispositions: {}, diagnostics: [] }, result)
+      expect(ledgerProblems(ledger)).toEqual([])
+      expect(ledger.target?.strayPaths).toEqual([])
+    })
+  }
+
+  it('warns of an RFC 8212 source by field and by the router bgp line, never by a peer\'s address', () => {
+    const warning = render(deserializeModel(readFileSync(new URL('iosxr-ebgp-reject.model.json', models), 'utf8')).device).diagnostics[0]
+    expect(warning).toMatchObject({ severity: 'warning', category: 'semantic', field: 'networkInstances.default.bgp.ebgpDefaultPolicy', span: { startLine: 4 } })
+    expect(warning.message).not.toMatch(/198\.51\.100\.2|65001/)
+  })
+
+  it('raises none for a source that accepts by default, as IOS-XE does', () => {
+    const accepts: Device = { networkInstances: { default: { bgp: { localAs: 65000, neighbors: { '198.51.100.2': { peerAs: 65001, addressFamilies: { 'ipv4-unicast': {} } } }, ebgpDefaultPolicy: { import: 'accept', export: 'accept' } } } } }
+    const result = render(accepts)
+    expect(result.diagnostics).toEqual([])
+    expect(result.dispositions['networkInstances.default.bgp.ebgpDefaultPolicy.import']).toMatchObject({ kind: 'not-applicable' })
   })
 })
 

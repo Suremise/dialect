@@ -350,7 +350,8 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.4.0 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP), with `detect`,
+`modelApi: '>=0.4.1 <1.0.0'`, for model 0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, and 0.4.1's eBGP
+default), with `detect`,
 `parse`, `render` and `nameInterface`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
@@ -450,7 +451,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     carries the family it is defined in. Under `bgp default ipv4-unicast`, IOS's default, a global neighbor carries
     IPv4 unless `no neighbor X activate` says otherwise; `no bgp default ipv4-unicast` leaves only the explicit ones.
     `no neighbor X` (or `… remote-as`) removes the peer, a peer group with its members; `no router bgp` removes BGP
-    everywhere.
+    everywhere. An instance with an eBGP peer (its own or its group's peer AS, not the local one) carrying a family
+    with no route map in a direction gets `ebgpDefaultPolicy` `accept` for that side (model 0.4.1): IOS's default.
 - **Render (`render.ts`):** gives every leaf of model 0.3 and of 0.4's areas a disposition (DNS as one
   `ip name-server` line per server) and leaves a later version's fields without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,
   and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then
@@ -467,10 +469,15 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   map a direction, so a list of several is `unsupported`; each written policy gets the name-only warning), then each
   VRF's `address-family … vrf V` with its peers. A group typed `internal` with no peer AS gets the local AS; a local
   address is `unsupported` (IOS sources a session from an interface); a VRF's BGP in another AS is left out. **Secrets
-  are needs-input items:** an OSPF key (or key chain's name) and a BGP password are written only once
-  `context.inputs` answers them (`ospfKeyInputId()`, `bgpPasswordInputId()`); until then the key line is left out,
-  and a BGP password's field is `unsupported` with why. The BGP default-policy warning (RFC 8212 targets) waits for
-  the model to say the source's default (#61). Each VRF is a `vrf definition` before
+  are needs-input items:** an OSPF key (or key chain's name) and a BGP password are `secret` items whose `field` is
+  the flag's path (the interface's authentication, or the area's it inherits), written only once `context.inputs`
+  answers them (`ospfKeyInputId()`, `bgpPasswordInputId()`), never as a placeholder; until then the key line is left
+  out (a key chain's `ip ospf authentication key-chain` and a BGP password with it, their fields `unsupported` with
+  why), and the kit's round trip excuses those leaves (`tests/fixtures/bgp/secrets`). `ebgpDefaultPolicy` is
+  `not-applicable` (a default, not configuration); a source that rejects (IOS-XR, RFC 8212) gets a semantic warning,
+  `iosxe.ebgp-default-accept`, by field and the `router bgp` line, never a peer, as IOS-XE accepts and advertises
+  routes a peer with no route map. `tests/models/` holds saved models from other platforms for what an IOS-XE parse
+  can't produce, each with its expected render and warnings. Each VRF is a `vrf definition` before
   the interfaces, with its `rd` and its route targets VRF-wide (the model's are the VRF's), and the address families
   its interfaces' addresses and routes need (IPv4 also for a VRF with an RD or route targets); an interface's
   `vrf forwarding V` comes before its addresses, which it would otherwise clear, and `ip route vrf V` after. `type`
