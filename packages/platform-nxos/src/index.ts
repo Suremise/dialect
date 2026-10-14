@@ -1,6 +1,6 @@
 // @dialect/platform-nxos: the NX-OS plugin (B12). The indentation-tree parser (tree.ts), mapping into the shared model
-// (parse.ts) and rendering from it (render.ts), for the phase 1 and phase 2 areas, and detect(). Platform-neutral:
-// strings in, strings and plain objects out.
+// (parse.ts) and rendering from it (render.ts), for the phase 1 and phase 2 areas and phase 3's routing policy
+// (policy.ts, renderPolicy.ts), and detect(). Platform-neutral: strings in, strings and plain objects out.
 import type { PlatformPlugin } from '@dialect/core'
 import { detect } from './detect'
 import { describeInterface, nameInterface } from './names'
@@ -16,9 +16,9 @@ export { parseTree, type NxNode, type NxTree, type NodeKind } from './tree'
 const plugin: PlatformPlugin = {
   id: 'nxos',
   name: 'Cisco NX-OS',
-  // 0.4.1: its parse fills VLANs, switch ports, SVIs, OSPF and BGP, with BGP's default policy for eBGP, which a 0.4.0
-  // core doesn't know.
-  modelApi: '>=0.4.1 <1.0.0',
+  // 0.5.0: its parse fills VLANs, switch ports, SVIs, OSPF and BGP, with BGP's default policy for eBGP (0.4.1), and
+  // routing policy (0.5.0), which an older core doesn't know.
+  modelApi: '>=0.5.0 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },
@@ -29,7 +29,8 @@ const plugin: PlatformPlugin = {
     snmp: { parse: 'partial', render: 'partial' },
     vlans: { parse: 'partial', render: 'partial' },
     ospf: { parse: 'partial', render: 'partial' },
-    bgp: { parse: 'partial', render: 'partial' }
+    bgp: { parse: 'partial', render: 'partial' },
+    'routing-policy': { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,

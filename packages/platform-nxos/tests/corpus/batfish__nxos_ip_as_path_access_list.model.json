@@ -1,0 +1,50 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "nxos_ip_as_path_access_list"
+    },
+    "routingPolicy": {
+      "asPathSets": {
+        "aspacl_seq": {
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "^1$"
+            },
+            "5": {
+              "action": "permit",
+              "regex": "^5$"
+            },
+            "10": {
+              "action": "permit",
+              "regex": "^10$"
+            },
+            "11": {
+              "action": "permit",
+              "regex": "^11$"
+            }
+          }
+        },
+        "aspacl_test": {
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "deny",
+              "regex": "(_1_2_|_2_1_)"
+            },
+            "2": {
+              "action": "permit",
+              "regex": "_1_"
+            },
+            "3": {
+              "action": "permit",
+              "regex": "_2_"
+            }
+          }
+        }
+      }
+    }
+  }
+}

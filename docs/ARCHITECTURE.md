@@ -731,8 +731,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
 The second Cisco platform, built like the IOS / IOS-XE plugin (its code copied, not imported: plugins don't depend on
-each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.4.1 <1.0.0'`, for model 0.4's
-VLANs, switch ports, SVIs, OSPF and BGP and 0.4.1's eBGP default policy), with `detect`, `parse`, `render`, and `describeInterface` and
+each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.5.0 <1.0.0'`, for model 0.4's
+VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's routing policy), with `detect`, `parse`, `render`, and `describeInterface` and
 `nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as IOS's, nested by NX-OS's two-space indents; `!Command:` and `!Time:` headers are
@@ -820,7 +820,8 @@ VLANs, switch ports, SVIs, OSPF and BGP and 0.4.1's eBGP default policy), with `
     `unsupported`. `neighbor X [remote-as N]` and `template peer T` (a group) take `remote-as`, `description`,
     `update-source`, `ebgp-multihop`, `password` (flagged: `authentication`, never carried), `inherit peer T` (a
     neighbor's group), `no shutdown` (`ignored-by-design`) and `address-family ipv4|ipv6 unicast` with `route-map NAME
-    in|out` (by name only, with the warning `nxos.route-map-name-only`, which gives the line, not the name). `vrf V`
+    in|out` (the policy of that name, below: one the text doesn't define, or that isn't converted, is `unsupported`,
+    resolved once the text is read). `vrf V`
     under it is V's BGP, with the process's AS as V's `localAs`. A global `address-family ipv4|ipv6 unicast` is
     `ignored-by-design` (the render writes it where a peer carries the family); what is inside it, a neighbor range
     (dynamic peers), `template peer-session|peer-policy` and other families are `unsupported`. `no neighbor`, `no
@@ -832,6 +833,17 @@ VLANs, switch ports, SVIs, OSPF and BGP and 0.4.1's eBGP default policy), with `
     (each family by its effective policy: the family's own, else the neighbor's, else the template's family's, else the
     template's; with no family, the neighbor's or the template's), the parse sets `ebgpDefaultPolicy` to `accept` that
     way, mapped by `router bgp` or the VRF's `vrf V`: the platform's default, not configuration.
+  - **Routing policy (#78, model 0.5.0, `policy.ts`):** IOS-XE's reader (#77) with NX-OS's syntax, kept alike: the
+    same lists, route map statements, `no` forms and rules (a list converted whole or not at all; a route map by the
+    per-term rule, only its last sequence safe to leave out; `continue` unsupported; `fallThrough: 'reject'`). What
+    differs: community lists are `standard|expanded NAME` only and AS-path lists are named; both take `seq N`, and an
+    entry without one is numbered 1 after the highest (1 for the first), as NX-OS does, keyed by it, with `no … seq N`
+    taking it out; a prefix list's `eq N` is one length (`minLength` and `maxLength` N, with no `form`, as the model has
+    none for it), and `mask` is `unsupported`; regexes are read without the double quotes NX-OS writes around them, and
+    one with a quote of its own is `unsupported`, as it couldn't be written back; the well-known communities are
+    `no-export`, `no-advertise` and `local-AS`. A BGP neighbor's `route-map NAME in|out` names a converted policy, or
+    is `unsupported` (`checkBgp()`). `template peer-policy` stays `unsupported`: the model's groups are peer templates,
+    and a policy template's per-family route maps, inherited by sequence, have no place in them.
   - **A VRF's deletion** (`no vrf context V`) leaves V's OSPF and BGP so far out as `unsupported`, as its interfaces'
     membership is (#47).
   - **SNMP communities:** a community with any statement not converted, anywhere in the text (an access list in any
@@ -844,7 +856,7 @@ VLANs, switch ports, SVIs, OSPF and BGP and 0.4.1's eBGP default policy), with `
     corpus file.
   - Keys come from the configuration (`vrf context __proto__`), so the model is built with own properties only, and
     per-name bookkeeping uses `Map`s.
-- **Render (`render.ts`):** every leaf of model 0.4 gets a disposition; a later version's fields get none, for the
+- **Render (`render.ts`):** every leaf of model 0.4 and of 0.5's routing policy gets a disposition; a later version's fields get none, for the
   ledger to report. The text relies on no switch default: it writes each `feature` a written statement needs before it,
   and `switchport` or `no switchport` on every Ethernet and port-channel interface (`no switchport` with an address or
   subinterfaces, a VRF or OSPF). Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
@@ -875,11 +887,18 @@ VLANs, switch ports, SVIs, OSPF and BGP and 0.4.1's eBGP default policy), with `
     templates are the process's) and neighbors, then each VRF as `vrf V`. A Junos `internal` group writes
     `remote-as` with the local AS; `localAddress` and multihop with no TTL are `unsupported`. Route maps go per family,
     one each way: a policy for the whole peer goes into each family it carries (its template's too) unless the family
-    has its own, and a chain of policies is `unsupported`. Warnings: `nxos.route-map-name-only` (a policy written by
+    has its own, and a chain of policies is `unsupported`; a policy of the model is named only when it is written.
+    Warnings: `nxos.route-map-name-only` (a policy the model doesn't have, from a source that keeps names alone, written by
     name), `nxos.ebgp-default-policy` (an eBGP neighbor with no route map one way, by the same per-family rule, where
     the source's `ebgpDefaultPolicy` is `reject` that way: IOS-XR's RFC 8212 drops those routes and NX-OS exchanges
     them all; the warning names no peer), `nxos.bgp-no-address-family` (it carries no routes). `ebgpDefaultPolicy` is
     `not-applicable`: the source's default.
+  - **Routing policy (#78, `renderPolicy.ts`):** IOS-XE's renderer (#77) with NX-OS's syntax, after BGP, kept alike:
+    lists written whole or not at all, policies by the per-term rule, another dialect's regexes never translated, and
+    a `next-policy` fall-through kept by a final permit sequence with the warning `nxos.policy-fall-through` (a policy
+    whose written terms decide every route gets neither). Every list entry is written with its `seq`; regexes in
+    double quotes (one with a quote in it is `unsupported`); a prefix range of one length longer than the prefix's,
+    with no `form`, as `eq`; names up to 63 characters; route map lines indented by two spaces.
   - **Secrets the model only flags** are `secret` needs-input items, each naming the `authentication` leaf, written
     when the answer is one NX-OS takes and never made up: an OSPF key per interface (`nxos.ospf-key:<the OSPF
     interface's path>`; for MD5, `ID KEY`; an area's authentication asks on each interface without its own), a key
@@ -902,10 +921,13 @@ VLANs, switch ports, SVIs, OSPF and BGP and 0.4.1's eBGP default policy), with `
   in either order beside an open statement and a letter-led malformed next hop among them, and model 0.4's (a VLAN name
   and a peer template named by a prototype key, `no neighbor`, `no ip router ospf`, an AS number and a VLAN ID out of
   range, OSPF and BGP changes in one VRF), but a prototype key as an interface name, which NX-OS can't say.
-  `phase2.test.ts` covers the phase 2 areas beyond their fixtures, and checks that each phase 2 warning comes from a
+  Its model 0.5.0 cases are the IOS plugin's in NX-OS syntax (route map and prefix list entry negation, a malformed
+  prefix and length, the four unknown references, quoted regexes). `tests/fixtures/routing-policy` has every list and
+  route map statement the plugin converts, `policy.test.ts` its routing policy beyond that, and the corpus cases include
+  `policy/` files. `phase2.test.ts` covers the phase 2 areas beyond their fixtures, and checks that each phase 2 warning comes from a
   saved source fixture or a saved model from another platform (`tests/models`: `<case>.model.json`, its expected
   `.rendered.cfg` and `.warnings.json`), for what an NX-OS parse can't produce (an IRB not named `Vlan<ID>`, OSPF
-  enabled by `network` statements).
+  enabled by `network` statements, a Junos policy's fall-through).
 
 ## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
 

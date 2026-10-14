@@ -18,6 +18,9 @@ const ospfScoped = lines(
 /** The same BGP neighbor in VRFs A and B and the global table. */
 const bgpScoped = lines('vrf context A', 'vrf context B', 'router bgp 65000', '  neighbor 192.0.2.2 remote-as 65001', ...['A', 'B'].flatMap((vrf) => [`  vrf ${vrf}`, '    neighbor 192.0.2.2 remote-as 65001']))
 
+/** A route map with one sequence and what it says. */
+const routeMap = (...children: string[]) => lines('route-map M permit 10', ...children)
+
 export const NXOS_PROBES: ProbeAdapter = {
   prototypeKeys: {
     // The key as a community, a VRF (with a route in it) and a DNS name (a search domain, a name server's VRF), in one
@@ -52,7 +55,9 @@ export const NXOS_PROBES: ProbeAdapter = {
     'static-route': { set: 'ip route 10.0.0.0/8 192.0.2.1', negated: lines('ip route 10.0.0.0/8 192.0.2.1', 'no ip route 10.0.0.0/8 192.0.2.1'), path: ['networkInstances', 'default', 'staticRoutes', '10.0.0.0/8'] },
     community: { set: 'snmp-server community PLACEHOLDER group network-operator', negated: lines('snmp-server community PLACEHOLDER group network-operator', 'no snmp-server community PLACEHOLDER'), path: ['system', 'snmp', 'communities', 'PLACEHOLDER'] },
     'bgp-neighbor': { set: lines('router bgp 65000', '  neighbor 192.0.2.2 remote-as 65001'), negated: lines('router bgp 65000', '  neighbor 192.0.2.2 remote-as 65001', '  no neighbor 192.0.2.2'), path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2'] },
-    'ospf-interface': { set: iface('  ip address 192.0.2.1/24', '  ip router ospf 1 area 0'), negated: iface('  ip address 192.0.2.1/24', '  ip router ospf 1 area 0', '  no ip router ospf 1 area 0'), path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'Ethernet1/1'] }
+    'ospf-interface': { set: iface('  ip address 192.0.2.1/24', '  ip router ospf 1 area 0'), negated: iface('  ip address 192.0.2.1/24', '  ip router ospf 1 area 0', '  no ip router ospf 1 area 0'), path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'Ethernet1/1'] },
+    'policy-term': { set: routeMap('  set tag 1'), negated: lines(routeMap('  set tag 1'), 'no route-map M permit 10'), path: ['routingPolicy', 'policies', 'M', 'terms', '10'] },
+    'prefix-list-entry': { set: 'ip prefix-list L seq 5 permit 10.0.0.0/8', negated: lines('ip prefix-list L seq 5 permit 10.0.0.0/8', 'no ip prefix-list L seq 5'), path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '5'] }
   },
   malformed: {
     'ipv4-address': { source: iface('  ip address 999.1.1.1/24'), value: '999.1.1.1' },
@@ -61,7 +66,9 @@ export const NXOS_PROBES: ProbeAdapter = {
     // Letter-led, so it can't pass for an interface name either (the numeric and stray-word ones are in plugin.test.ts).
     'next-hop': { source: 'ipv6 route 2001:db8::/32 dead::beef::bad', value: 'dead::beef::bad' },
     'as-number': { source: lines('router bgp 65000', '  neighbor 192.0.2.2 remote-as 4294967296'), value: '4294967296' },
-    'vlan-id': { source: lines('vlan 4095', 'interface Ethernet1/2', '  switchport access vlan 4095'), value: '4095' }
+    'vlan-id': { source: lines('vlan 4095', 'interface Ethernet1/2', '  switchport access vlan 4095'), value: '4095' },
+    prefix: { source: 'ip prefix-list L seq 5 permit 10.0.0.1/8', value: '10.0.0.1/8' },
+    'prefix-length': { source: 'ip prefix-list L seq 5 permit 10.0.0.0/8 le 33', value: '33' }
   },
   vrfScoping: {
     delete: { base: scoped, changed: lines(scoped, 'no vrf context A'), vrf: 'A' },
@@ -71,5 +78,13 @@ export const NXOS_PROBES: ProbeAdapter = {
     // A's stub area and its interface go; B's and the global table's, the same, stay.
     ospf: { base: ospfScoped, changed: lines(ospfScoped, 'router ospf 1', '  vrf A', '    no area 0.0.0.1 stub', 'interface loopback1', '  no ip router ospf 1 area 0'), vrf: 'A' },
     bgp: { base: bgpScoped, changed: lines(bgpScoped, 'router bgp 65000', '  vrf A', '    no neighbor 192.0.2.2'), vrf: 'A' }
-  }
+  },
+  // Model 0.5.0: a route map naming lists the text never defines, and a neighbor naming a route map it never defines.
+  unknownReference: {
+    'prefix-list': { source: routeMap('  match ip address prefix-list NOPE'), value: 'NOPE' },
+    'community-set': { source: routeMap('  match community NOPE'), value: 'NOPE' },
+    'as-path-set': { source: routeMap('  match as-path NOPE'), value: 'NOPE' },
+    policy: { source: lines('router bgp 65000', '  neighbor 192.0.2.2', '    remote-as 65001', '    address-family ipv4 unicast', '      route-map NOPE in'), value: 'NOPE' }
+  },
+  regex: { source: lines('ip as-path access-list P seq 10 permit "_65000_"', 'ip community-list expanded C seq 10 permit "^65000:[0-9]+$"'), regexes: ['_65000_', '^65000:[0-9]+$'] }
 }

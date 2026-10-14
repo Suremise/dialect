@@ -18,6 +18,10 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco NX-OS routing policy converts:** prefix lists (IPv4 and IPv6, with `eq`), standard and expanded community lists
+  and AS-path access lists with their sequence numbers, and route maps; BGP neighbors' route maps now carry the policy,
+  not only its name. As on IOS-XE, regexes are kept as written, a route map converts sequence by sequence, and a Junos
+  policy that passes undecided routes on gets a final permit sequence, with a warning.
 - **Cisco IOS / IOS-XE routing policy converts:** prefix lists (IPv4 and IPv6), community lists (standard, expanded and
   numbered), AS-path access lists and route maps, and BGP neighbors' route maps now carry the policy itself, not only
   its name. Regexes are kept as written and never translated between platforms. A route map converts sequence by
