@@ -1,0 +1,49 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "mixed_acl": {
+          "terms": {
+            "10": {
+              "description": "$Id:$ mixed inet/inet6 header test good-term",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "10.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      },
+      "ipv6": {
+        "ipv6-mixed_acl": {
+          "terms": {
+            "10": {
+              "description": "$Id:$ mixed inet/inet6 header test good-term",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPrefixes": [
+                  "2001:4860:8000::/33"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

@@ -26,6 +26,17 @@
   neighbor-group G` in a VRF now convert with the template's settings, where they were listed as not converted.
   Converting to NX-OS or IOS-XR writes a VRF's group once as the global template when it is the same as the global one
   (or every other VRF's), and lists one that differs.
+- **Cisco IOS / IOS-XE and NX-OS VRF import and export maps convert** with the VRF's route targets, as the policies
+  they name. A Cisco map filters what the route targets import or export, where Junos `vrf-import` and `vrf-export`
+  replace them: converting a Junos VRF policy to IOS-XE or NX-OS warns.
+- **More routing policy converts to and from Junos:** AS-path groups (`as-path-group`), and a Cisco AS-path list of
+  several lines is written as one. A route map's `set community 65000:1` now converts to Junos, as a community of the
+  term's own (Junos acts on named communities only).
+- **Cisco IOS / IOS-XE and NX-OS access lists convert,** IPv4 and IPv6, with the interfaces that apply them: protocols,
+  addresses, ports (eq, neq, gt, lt, range), ICMP types, established and TCP flags, fragments, DSCP and log, and each
+  entry's remarks as its description. A non-contiguous wildcard is never approximated: its entry is listed as not
+  converted. Converting a Junos filter warns that the Cisco list denies what no entry decides, where Junos drops it
+  silently.
 - **Cisco IOS-XR access lists convert:** `ipv4` and `ipv6 access-list` entries (addresses, contiguous wildcards,
   protocols, ports, ICMP types, `established`, `fragments`, `dscp`, `log`, `counter`) and the interfaces' `access-group`
   attachments. An entry that can't be converted leaves its whole access list out unless it is the last, and a

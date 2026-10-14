@@ -1,0 +1,25 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "FOO": {
+          "terms": {
+            "10": {
+              "description": "$Id:$ this is a standard acl standard-term-2",
+              "matches": {
+                "sourcePrefixes": [
+                  "10.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

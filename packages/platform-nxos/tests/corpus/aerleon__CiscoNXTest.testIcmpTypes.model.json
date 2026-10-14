@@ -1,0 +1,54 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "test-filter": {
+          "terms": {
+            "50": {
+              "description": "\"$Date:$\" \"$Revision:$\" this is a test extended acl good-term-10",
+              "matches": {
+                "protocols": [
+                  1
+                ],
+                "icmpTypes": [
+                  0
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "60": {
+              "matches": {
+                "protocols": [
+                  1
+                ],
+                "icmpTypes": [
+                  3
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "70": {
+              "matches": {
+                "protocols": [
+                  1
+                ],
+                "icmpTypes": [
+                  11
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

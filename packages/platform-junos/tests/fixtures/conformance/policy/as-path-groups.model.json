@@ -1,0 +1,62 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "routingPolicy": {
+      "asPathSets": {
+        "TRANSITS": {
+          "regexDialect": "junos",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "^64501 .*"
+            },
+            "2": {
+              "action": "permit",
+              "regex": "^64502 .*"
+            }
+          }
+        },
+        "DIRECT": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "^64500$"
+            }
+          },
+          "regexDialect": "junos"
+        }
+      },
+      "policies": {
+        "FROM-PEERS": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "TRANSIT",
+              "matches": {
+                "asPathSets": [
+                  "TRANSITS"
+                ]
+              },
+              "actions": {
+                "localPreference": 50,
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "name": "DIRECT",
+              "matches": {
+                "asPathSets": [
+                  "DIRECT"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

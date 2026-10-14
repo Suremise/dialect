@@ -1,0 +1,8 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "nxos_ipv6_access_list"
+    }
+  }
+}

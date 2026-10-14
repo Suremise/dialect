@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.5.3",
   "device": {
     "system": {
       "hostname": "nxos_snmp_server",
@@ -11,6 +11,60 @@
         },
         "contact": "Give us a call at 867-5309",
         "location": "The midnight train going anywhere"
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "snmp_acl4": {
+          "terms": {
+            "10": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePrefixes": [
+                  "1.2.3.4/32"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "20": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePrefixes": [
+                  "1.2.3.0/24"
+                ],
+                "destinationPorts": [
+                  "161"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "30": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePrefixes": [
+                  "2.0.0.0/8"
+                ],
+                "destinationPorts": [
+                  "161"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
       }
     }
   }

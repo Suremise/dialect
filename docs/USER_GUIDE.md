@@ -197,7 +197,7 @@ name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP
 or write is listed as not converted, with why. Junos also converts VLANs, switch ports (access and trunk, with a
 native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches (the older non-ELS syntax is listed
 as not converted), OSPF and BGP (areas and interfaces, groups and neighbors), and routing policy: prefix lists,
-communities, AS paths and policy-statements, with the policies BGP and VRFs import and export, and firewall filters (inet
+communities, AS paths and AS-path groups and policy-statements, with the policies BGP and VRFs import and export, and firewall filters (inet
 and inet6) with the units they're applied on. A policy or a filter converts term by
 term: a term Dialect can't convert in full is listed as not converted, whole, and when leaving it out would change
 what a later term does, the whole policy is. Regular expressions are kept as written and never translated to another
@@ -243,7 +243,16 @@ sequence to the route map, with a warning, since an IOS route map denies a route
 
 Cisco NX-OS converts routing policy the same way: prefix lists (with `eq`), standard and expanded community lists and
 AS-path access lists (each entry by its `seq`), and route maps, which its BGP neighbors' route maps name. A route map a
-neighbor names but the config doesn't define isn't converted.
+neighbor names but the config doesn't define isn't converted. On both, a VRF's `import map` and `export map` convert
+too, with its route targets: a Cisco map filters what the route targets bring in or send out, where a Junos
+`vrf-import` or `vrf-export` replaces them, so converting one from Junos warns.
+
+Cisco IOS / IOS-XE and NX-OS also convert access lists (IPv4 and IPv6, named, and on IOS numbered and standard) and the
+interfaces that apply them, each entry with its remarks kept as its description. An address with a wildcard is
+converted only when the wildcard is a plain prefix: an entry with any other wildcard is listed as not converted, never
+approximated, and so is the whole list unless that entry is the last. Every Cisco access list denies what no entry
+decides: converting a Junos filter, which drops such packets silently, says so with a warning. An IPv6 access list with no final entry deciding every packet warns too: some Cisco
+platforms let neighbor discovery through before the implicit deny, and others don't.
 
 ## The command line
 

@@ -1,0 +1,13 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "routingPolicy": {
+      "policies": {
+        "P": {
+          "fallThrough": "next-policy"
+        }
+      }
+    }
+  }
+}
+

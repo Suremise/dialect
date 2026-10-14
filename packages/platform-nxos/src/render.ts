@@ -5,10 +5,11 @@
 // written statement needs, and `switchport` or `no switchport` on every Ethernet and port-channel interface, so the
 // result doesn't depend on the switch's defaults. Secrets the model only flags (an OSPF key, a BGP password) are
 // needs-input items, written when answered (Context.inputs) and never made up.
-import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type BgpPeer, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type OspfInterface, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
+import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Bgp, type BgpAddressFamilyName, type BgpGroup, type BgpNeighbor, type BgpPeer, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type Ospf, type OspfAuthentication, type OspfInterface, type RenderResult, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
 import { isIpv4, isIpv6 } from './addresses'
 import { featuresFor, OSPF_FEATURE, VPN_FEATURE } from './features'
 import { isSwitchable } from './names'
+import { planFilters } from './renderAcl'
 import { planRoutingPolicy } from './renderPolicy'
 import { SEVERITY_LEVELS, SNMP_GROUPS } from './parse'
 import { vlanEntries } from './vlans'
@@ -190,6 +191,8 @@ export function render(model: Device, context: Context): RenderResult {
 
   // ---- VRFs and static routes
 
+  // Routing policy is planned first, as a VRF and BGP name a route map only when its policy is written (renderPolicy.ts).
+  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
   const instances = Object.entries(model.networkInstances ?? {})
   emptyContainer(model.networkInstances, ['networkInstances'])
   // The global table first, then each VRF with its routes inside `vrf context`.
@@ -214,13 +217,14 @@ export function render(model: Device, context: Context): RenderResult {
     if (isDefault) {
       if (instance.routeDistinguisher !== undefined) skip([...at, 'routeDistinguisher'], 'unsupported', 'the global routing table has no route distinguisher')
       if (instance.routeTargets !== undefined) skipAll(instance.routeTargets, [...at, 'routeTargets'], 'the global routing table has no route targets')
+      for (const leaf of ['importPolicies', 'exportPolicies', 'vrfPolicyMode'] as const) if (instance[leaf] !== undefined) skip([...at, leaf], 'unsupported', 'the global routing table has no VRF import or export map')
     } else if (instance.routeDistinguisher !== undefined) {
       if (isRouteDistinguisher(instance.routeDistinguisher)) emit(`  rd ${instance.routeDistinguisher}`, [...at, 'routeDistinguisher'])
       else skip([...at, 'routeDistinguisher'], 'unsupported', 'not a route distinguisher in the form ASN:nn, IP:nn or ASN4:nn')
     }
     emptyContainer(instance.staticRoutes, [...at, 'staticRoutes'])
     for (const [prefix, route] of Object.entries(instance.staticRoutes ?? {})) renderRoute(indent, prefix, route, [...at, 'staticRoutes', prefix])
-    if (!isDefault && instance.routeTargets !== undefined) renderRouteTargets(instance.routeTargets, [...at, 'routeTargets'])
+    if (!isDefault) renderVrfFamilies(instance, at)
   }
 
   /** Whether a VRF's route distinguisher or route targets are written: they need `feature bgp`. */
@@ -230,23 +234,48 @@ export function render(model: Device, context: Context): RenderResult {
   }
 
   /**
-   * A VRF's route targets: NX-OS sets them per address family, and the model's are the VRF's, so they go under both
-   * IPv4 and IPv6 unicast. Each list is one field (a leaf-list), marked on its first line.
+   * A VRF's route targets and its own maps (model 0.5.2): NX-OS sets them per address family, and the model's are the
+   * VRF's, so they go under both IPv4 and IPv6 unicast. Each list is one field (a leaf-list), marked on its first line.
+   * NX-OS's map filters after the route targets: a source whose policy replaces them (Junos) gets a semantic warning.
    */
-  function renderRouteTargets(targets: RouteTargets, at: Segments) {
-    emptyContainer(targets, at)
-    const lists: [direction: 'import' | 'export', values: readonly string[]][] = []
-    for (const direction of ['import', 'export'] as const) {
-      const values = targets[direction]
-      if (values === undefined) continue
-      if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
-      else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
-      else lists.push([direction, values])
+  function renderVrfFamilies(instance: NetworkInstance, vrf: Segments) {
+    const at = [...vrf, 'routeTargets']
+    const targets = instance.routeTargets
+    // The maps first: a direction whose map can't be written can't have its route targets either, which written alone
+    // would import or export routes the policy refuses (as the parse leaves them out together).
+    const maps: { direction: 'import' | 'export'; name: string; field: Segments }[] = []
+    const blocked = new Set<'import' | 'export'>()
+    for (const [direction, leaf] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const) {
+      const list = instance[leaf]
+      if (list === undefined) continue
+      const field = [...vrf, leaf]
+      if (!list.length) skip(field, 'not-applicable', 'no policy: nothing to write')
+      else if (list.length > 1 || !policyPlan.policies.has(list[0])) {
+        skip(field, 'unsupported', list.length > 1 ? 'NX-OS applies one map a direction: a chain of policies isn\'t written' : 'names a policy NX-OS can\'t write as a route map')
+        blocked.add(direction)
+      } else maps.push({ direction, name: list[0], field })
     }
-    if (!lists.length) return
+    const lists: [direction: 'import' | 'export', values: readonly string[]][] = []
+    if (targets !== undefined) {
+      emptyContainer(targets, at)
+      for (const direction of ['import', 'export'] as const) {
+        const values = targets[direction]
+        if (values === undefined) continue
+        if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
+        else if (blocked.has(direction)) skip([...at, direction], 'unsupported', `left out with the VRF's ${direction} map, which NX-OS can't write: alone, they would ${direction} routes the policy refuses`)
+        else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
+        else lists.push([direction, values])
+      }
+    }
+    if (instance.vrfPolicyMode !== undefined) {
+      skip([...vrf, 'vrfPolicyMode'], 'not-applicable', 'an NX-OS map filters what the route targets import or export')
+      if (instance.vrfPolicyMode === 'replaces-route-targets' && maps.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.vrf-policy-mode', message: 'The source\'s VRF policy replaces the route targets (its own import and export), where an NX-OS map filters what the route targets import and export: check the route targets take in and send out what the policy did.', field: fieldPath(...vrf) })
+    }
+    if (!lists.length && !maps.length) return
     for (const family of ['ipv4', 'ipv6']) {
       emit(`  address-family ${family} unicast`)
       for (const [direction, values] of lists) values.forEach((v, i) => emit(`    route-target ${direction} ${v}`, ...(family === 'ipv4' && i === 0 ? [[...at, direction]] : [])))
+      for (const m of maps) emit(`    ${m.direction} map ${m.name}`, ...(family === 'ipv4' ? [m.field] : []))
     }
   }
 
@@ -327,6 +356,8 @@ export function render(model: Device, context: Context): RenderResult {
   /** The network instances whose OSPF the source enabled with `network` statements, for the warning. */
   const networkEnabled = new Set<string>()
   const ospf = ospfInterfaces()
+  // Access lists are planned first, as an interface applies one only when it is written (renderAcl.ts).
+  const aclPlan = planFilters(model.filters, skip, skipAll)
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
   emptyContainer(model.interfaces, ['interfaces'])
   // An OSPF interface whose interface wasn't written, with why when it is known.
@@ -371,6 +402,7 @@ export function render(model: Device, context: Context): RenderResult {
         renderAddresses(main, sub)
         renderOspfInterface(name, own, main)
       }
+      renderAttachments(main, sub, isSwitchable(name) && !routed)
     } else if (own === '0') renderOspfInterface(name, own, {})
     if (iface.enabled !== undefined) emit(iface.enabled ? '  no shutdown' : '  shutdown', [...at, 'enabled'])
 
@@ -390,7 +422,31 @@ export function render(model: Device, context: Context): RenderResult {
         renderAddresses(sub, subAt)
         renderOspfInterface(name, index, sub)
       }
+      renderAttachments(sub, subAt, false)
       if (sub.enabled !== undefined) emit(sub.enabled ? '  no shutdown' : '  shutdown', [...subAt, 'enabled'])
+    }
+  }
+
+  /**
+   * A subinterface's access lists (model 0.5.1), each way and family, when the access list is written: on a switch
+   * port, its port forms (`ip port access-group`, `ipv6 port traffic-filter`), which filter what comes in only.
+   */
+  function renderAttachments(sub: Subinterface, at: Segments, port: boolean) {
+    const filters = sub.filters
+    if (!filters) return
+    emptyContainer(filters, [...at, 'filters'])
+    for (const family of ['ipv4', 'ipv6'] as const) {
+      const directions = filters[family]
+      if (!directions) continue
+      emptyContainer(directions, [...at, 'filters', family])
+      for (const [direction, way] of [['input', 'in'], ['output', 'out']] as const) {
+        const name = directions[direction]
+        if (name === undefined) continue
+        const field = [...at, 'filters', family, direction]
+        if (!aclPlan.written[family].has(name)) skip(field, 'unsupported', 'names an access list NX-OS can\'t write')
+        else if (port && direction === 'output') skip(field, 'unsupported', 'a switch port\'s access list filters what comes in only on NX-OS')
+        else emit(`  ${family === 'ipv4' ? 'ip' : 'ipv6'}${port ? ' port' : ''} ${family === 'ipv4' ? 'access-group' : 'traffic-filter'} ${name} ${way}`, field)
+      }
     }
   }
 
@@ -857,8 +913,6 @@ export function render(model: Device, context: Context): RenderResult {
     }
   }
 
-  // Routing policy is planned first, as BGP writes a route map only when its policy is written (renderPolicy.ts).
-  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
   renderOspfProcesses()
   renderBgp()
   if (policyPlan.lines.length) separator()
@@ -868,6 +922,13 @@ export function render(model: Device, context: Context): RenderResult {
     emit(l.text, ...l.fields)
     const n = lines.length
     if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
+  }
+  // Access lists, each a block of its own.
+  for (const l of aclPlan.lines) {
+    if (!l.text.startsWith(' ')) separator()
+    emit(l.text, ...l.fields)
+    const n = lines.length
+    for (const w of l.warnings ?? []) diagnostics.push({ ...w, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
   }
 
   return { text: `${lines.join('\n')}\n`, dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }

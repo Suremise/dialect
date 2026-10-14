@@ -173,6 +173,11 @@ product decisions.
   on to later statements is left out with its policy, as the model's terms accept or reject. A VRF's own import and
   export route policies (model 0.5.2) convert too, and IOS-XR warns when the source's (Junos) replaces the VRF's route
   targets, where IOS-XR's filters after them.
+- **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
+  left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
+  contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos
+  silent discard), or a filter relying on its end, gets a semantic warning. A Cisco remark is kept as its entry's
+  description.
 
 ## 5. Configs and test data
 

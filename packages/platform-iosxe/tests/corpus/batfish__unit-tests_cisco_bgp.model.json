@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.5.1",
+  "modelVersion": "0.5.3",
   "device": {
     "system": {
       "hostname": "cisco_bgp"
@@ -85,6 +85,20 @@
             }
           },
           "fallThrough": "reject"
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "5": {
+          "terms": {
+            "10": {
+              "actions": {
+                "action": "discard"
+              }
+            }
+          },
+          "implicitAction": "deny"
         }
       }
     }

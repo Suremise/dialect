@@ -1,0 +1,23 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "networkInstances": {
+      "CUST": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:10",
+        "routeTargets": { "import": ["65000:10"], "export": ["65000:10"] },
+        "importPolicies": ["CUST-IN"],
+        "exportPolicies": ["CUST-OUT", "CUST-OUT-2"],
+        "vrfPolicyMode": "replaces-route-targets"
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": { "ipv4": { "CUST-NETS": { "entries": { "1": { "action": "permit", "prefix": "192.0.2.0/24", "minLength": 24, "maxLength": 32, "form": "orlonger" } } } } },
+      "policies": {
+        "CUST-IN": { "terms": { "1": { "matches": { "prefixLists": { "ipv4": ["CUST-NETS"] } }, "actions": { "flow": "accept" } }, "2": { "actions": { "flow": "reject" } } }, "fallThrough": "next-policy" },
+        "CUST-OUT": { "terms": { "1": { "actions": { "flow": "accept", "localPreference": 200 } } }, "fallThrough": "next-policy" },
+        "CUST-OUT-2": { "terms": { "1": { "actions": { "flow": "accept" } } }, "fallThrough": "next-policy" }
+      }
+    }
+  }
+}
