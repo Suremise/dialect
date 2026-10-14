@@ -15,6 +15,7 @@
     "@dialect/core": "0.0.0"
   },
   "devDependencies": {
-    "@dialect/conformance": "0.0.0"
+    "@dialect/conformance": "0.0.0",
+    "@dialect/platform-iosxe": "0.0.0"
   }
 }

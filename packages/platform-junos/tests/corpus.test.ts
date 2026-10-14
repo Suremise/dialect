@@ -4,12 +4,13 @@
 //   (tests/corpus/<file>.model.json, checked by hand against the source);
 // - every Junos file in the corpus, phase 1 or not, hierarchical or set form: it parses without an error, every
 //   statement gets a disposition, every field of its model is rendered or says why not, and render → reparse gives the
-//   same model, so nothing the plugin doesn't know is dropped or garbled.
+//   same model, so nothing the plugin doesn't know is dropped or garbled; and every statement or field left out says
+//   why (#109).
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, extname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { deserializeModel, MODEL_VERSION } from '@dialect/core'
+import { buildLedger, deserializeModel, MODEL_VERSION } from '@dialect/core'
 import { checkFixture } from '@dialect/conformance'
 import plugin from '../src'
 
@@ -77,6 +78,20 @@ const NOT_CONFIGS: Readonly<Record<string, string>> = {
   'whole/tsg8139__srx-lab_leaf01.conf': 'a terminal capture whose wrapped lines cut a quoted password hash'
 }
 
+/**
+ * What a parse and its render leave out without saying why (#109): every statement and field that is `unsupported` or
+ * `ignored-by-design` gives a reason, so the ledger never shows a bare "not converted".
+ */
+const unexplained = (source: string): string[] => {
+  const parsed = plugin.parse!(source, { modelVersion: MODEL_VERSION })
+  const ledger = buildLedger(parsed, plugin.render!(parsed.model, { modelVersion: MODEL_VERSION }))
+  const bare = (d: { readonly kind: string; readonly reason?: string } | null) => (d?.kind === 'unsupported' || d?.kind === 'ignored-by-design') && !d.reason?.trim()
+  return [
+    ...ledger.source.statements.filter((s) => bare(s.disposition)).map((s) => `line ${s.span?.startLine}: ${s.disposition!.kind} with no reason`),
+    ...(ledger.target?.fields ?? []).filter((f) => bare(f.disposition)).map((f) => `${f.path}: ${f.disposition!.kind} with no reason`)
+  ]
+}
+
 describe('every Junos file in the corpus', () => {
   const all = files(corpus).map((f) => relative(corpus, f).split(sep).join('/')).sort()
   it('is there', () => {
@@ -95,6 +110,7 @@ describe('every Junos file in the corpus', () => {
       const results = checkFixture(plugin, { name: path, source: read(path), expectedModel: plugin.parse!(read(path), { modelVersion: MODEL_VERSION }).model }, OPTIONS)
       const failed = results.filter((r) => r.status === 'failed').flatMap((r) => r.problems.map((p) => `${r.check}: ${p}`))
       expect(failed).toEqual([])
+      expect(unexplained(read(path))).toEqual([])
     })
   }
 })

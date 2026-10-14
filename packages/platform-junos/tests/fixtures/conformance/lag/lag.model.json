@@ -1,0 +1,49 @@
+{
+  "modelVersion": "0.5.4",
+  "device": {
+    "interfaces": {
+      "xe-0/1/1": {
+        "type": "ethernet",
+        "aggregate": "ae0"
+      },
+      "xe-0/1/0": {
+        "type": "ethernet",
+        "aggregate": "ae1"
+      },
+      "ge-0/0/0": {
+        "description": "to core-1",
+        "type": "ethernet",
+        "aggregate": "ae0"
+      },
+      "ge-0/0/1": {
+        "type": "ethernet",
+        "aggregate": "ae0"
+      },
+      "ae0": {
+        "description": "uplink bundle",
+        "type": "aggregate",
+        "aggregation": {
+          "minLinks": 2,
+          "lacp": "active"
+        },
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        }
+      },
+      "ae1": {
+        "aggregation": {
+          "lacp": "passive"
+        },
+        "type": "aggregate"
+      }
+    }
+  }
+}

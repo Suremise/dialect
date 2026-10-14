@@ -127,7 +127,8 @@ writes that model in the target platform's syntax.
 
 Nothing is dropped silently. Every line of the source is either converted, left out on purpose (with why), or marked
 as not converted, and every setting is either written or marked as one the target can't say (a Junos `reject` route
-on IOS-XE, say). These are listed as warnings, by line, with the reason.
+on IOS-XE, say). These are listed as warnings, by line, with the reason. From Junos and IOS-XR, every line not
+converted says why, even one Dialect doesn't read at all ("logical systems come later", "IS-IS comes later").
 
 In the app, open a convert tab (**File → New Tab…**, then **Convert**, with the platform to convert from and the one
 to convert to); both can be changed at the top of the tab. Then open, drop or paste the config as in display set. The target platform's config appears on the right as you type. Below, the **Problems**
@@ -207,6 +208,16 @@ Converting to NX-OS writes the `feature` lines the config needs, and a routed VL
 VLAN ID (`Vlan100`), with a warning otherwise. Cisco IOS-XR converts no Layer 2 yet: VLANs, switch ports and routed
 VLAN interfaces are listed as not converted, both ways (VLAN-tagged subinterfaces do convert). IRB units and VLAN
 interfaces are named as [Interface names](#interface-names) says.
+
+**Link aggregation (LAGs).** Junos and Cisco IOS-XR convert which aggregate each member link is in, the aggregate's
+LACP mode (active, passive, or none) and its minimum links. Junos reads `ether-options 802.3ad aeN` (or
+`gigether-options`) on the members and `aggregated-ether-options` (`lacp active|passive`, `minimum-links`) on the
+aggregate, and writes `ether-options`, with the `chassis aggregated-devices ethernet device-count` Junos needs to make
+the `ae` interfaces. IOS-XR reads and writes `bundle id N mode active|passive|on` on the members and `bundle
+minimum-active links` on the `Bundle-Ether`; it gives the mode on each member, so members of one bundle that disagree
+on it are listed as not converted. Other LAG settings (LACP timers and priorities, link speed, maximum links) are
+listed as not converted. An aggregate needs its name on the target like any interface: until you name it (`ae0` for a
+`Port-channel1`, say), its members and settings are listed as not written.
 
 **OSPF.** Every platform converts OSPF, one process per routing table (the global one and each VRF's): the router ID,
 areas (stub, NSSA, authentication) and their interfaces (cost, point-to-point or broadcast, passive, hello and dead

@@ -4,12 +4,12 @@
 //   (tests/corpus/<file>.model.json, checked by hand against the source);
 // - every IOS-XR file in the corpus, phase 1 or not: it parses without an error, every statement gets a disposition,
 //   render → reparse gives the same model, and no secret reaches a message, so nothing the plugin doesn't know is
-//   dropped or garbled.
+//   dropped or garbled; and every statement or field left out says why (#109).
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { deserializeModel, MODEL_VERSION } from '@dialect/core'
+import { buildLedger, deserializeModel, MODEL_VERSION } from '@dialect/core'
 import { checkFixture } from '@dialect/conformance'
 import plugin from '../src'
 
@@ -67,6 +67,20 @@ describe('corpus files with an expected model', () => {
 
 const files = (dir: string): string[] => readdirSync(dir).flatMap((e) => (statSync(join(dir, e)).isDirectory() ? files(join(dir, e)) : [join(dir, e)]))
 
+/**
+ * What a parse and its render leave out without saying why (#109): every statement and field that is `unsupported` or
+ * `ignored-by-design` gives a reason, so the ledger never shows a bare "not converted".
+ */
+const unexplained = (source: string): string[] => {
+  const parsed = plugin.parse!(source, { modelVersion: MODEL_VERSION })
+  const ledger = buildLedger(parsed, plugin.render!(parsed.model, { modelVersion: MODEL_VERSION }))
+  const bare = (d: { readonly kind: string; readonly reason?: string } | null) => (d?.kind === 'unsupported' || d?.kind === 'ignored-by-design') && !d.reason?.trim()
+  return [
+    ...ledger.source.statements.filter((s) => bare(s.disposition)).map((s) => `line ${s.span?.startLine}: ${s.disposition!.kind} with no reason`),
+    ...(ledger.target?.fields ?? []).filter((f) => bare(f.disposition)).map((f) => `${f.path}: ${f.disposition!.kind} with no reason`)
+  ]
+}
+
 describe('every IOS-XR file in the corpus', () => {
   const all = files(corpus).map((f) => relative(corpus, f).split(sep).join('/')).sort()
   it('is there', () => {
@@ -77,6 +91,7 @@ describe('every IOS-XR file in the corpus', () => {
       const results = checkFixture(plugin, { name: path, source: read(path), expectedModel: plugin.parse!(read(path), { modelVersion: MODEL_VERSION }).model })
       const failed = results.filter((r) => r.status === 'failed').flatMap((r) => r.problems.map((p) => `${r.check}: ${p}`))
       expect(failed).toEqual([])
+      expect(unexplained(read(path))).toEqual([])
     })
   }
 })
