@@ -284,6 +284,69 @@ describe('convert: OSPF interfaces and BGP update sources name interfaces too (m
   })
 })
 
+describe('convert: two OSPF interfaces of an area that answers would make one', () => {
+  // eth0 → Gig0.0 and eth1 → Gig0 are distinct names, but turn the area's eth0 and eth1.0 into one reference, Gig0.0.
+  const OSPF = ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces'] as const
+  const model: Device = {
+    interfaces: { eth0: {}, eth1: { subinterfaces: { '0': {} } } },
+    networkInstances: { default: { ospf: { areas: { '0.0.0.0': { interfaces: { eth0: { cost: 10 }, 'eth1.0': { cost: 20 } } } } } } }
+  }
+  const tree: SyntaxNode[] = [
+    { id: 'eth0', label: 'eth0' },
+    { id: 'eth1', label: 'eth1' },
+    { id: 'ospf-eth0', label: 'ospf eth0 cost 10', span: { startLine: 3, startColumn: 1, endLine: 3, endColumn: 18 } },
+    { id: 'ospf-eth1', label: 'ospf eth1.0 cost 20', span: { startLine: 4, startColumn: 1, endLine: 4, endColumn: 20 } }
+  ]
+  const dispositions: Record<string, StatementDisposition> = {
+    eth0: { kind: 'mapped', fields: [fieldPath('interfaces', 'eth0')] },
+    eth1: { kind: 'mapped', fields: [fieldPath('interfaces', 'eth1', 'subinterfaces', '0')] },
+    'ospf-eth0': { kind: 'mapped', fields: [fieldPath(...OSPF, 'eth0', 'cost')] },
+    'ospf-eth1': { kind: 'mapped', fields: [fieldPath(...OSPF, 'eth1.0', 'cost')] }
+  }
+  const ospfSource: PlatformPlugin = { ...source, parse: () => ({ tree, model, dispositions, diagnostics: [] }) }
+
+  it('renameInterfaces() refuses it rather than lose an area entry', () => {
+    expect(() => renameInterfaces(model, { eth0: 'Gig0.0', eth1: 'Gig0' })).toThrow('Two OSPF interfaces of an area would have one name')
+    // Either answer alone is fine.
+    expect(Object.keys(renameInterfaces(model, { eth1: 'Gig0' }).networkInstances!.default.ospf!.areas!['0.0.0.0'].interfaces!)).toEqual(['eth0', 'Gig0.0'])
+  })
+
+  it('convert() refuses both answers with a diagnostic naming lines, never names, and keeps both entries', () => {
+    const c = convert(ospfSource, target, 'config', { modelVersion: MODEL_VERSION, inputs: interfaceInputs({ eth0: 'Gig0.0', eth1: 'Gig0' }) })
+    expect(c.ledger.diagnostics).toEqual([
+      {
+        severity: 'error',
+        category: 'other',
+        code: 'convert.interface-name-taken',
+        message: '2 OSPF interfaces would have one name on Target (lines 3, 4): give each its own.',
+        span: { startLine: 3, startColumn: 1, endLine: 3, endColumn: 18 },
+        statement: 'ospf-eth0'
+      }
+    ])
+    expect(c.interfaces.map((i) => i.target)).toEqual([undefined, undefined])
+    expect(c.unanswered.map((i) => i.id)).toEqual(['interface:eth0', 'interface:eth1'])
+    expect(c.model.networkInstances!.default.ospf!.areas!['0.0.0.0'].interfaces).toEqual({ eth0: { cost: 10 }, 'eth1.0': { cost: 20 } })
+    expect(populatedLeaves(c.model)).toEqual(populatedLeaves(model))
+    // Each cost still links back to its own statement.
+    const lines = c.render!.text.split('\n')
+    expect(c.links.filter((l) => l.statement.startsWith('ospf-')).map((l) => [l.statement, lines[l.output.startLine - 1]])).toEqual([
+      ['ospf-eth0', `${fieldPath(...OSPF, 'eth0', 'cost')} = 10`],
+      ['ospf-eth1', `${fieldPath(...OSPF, 'eth1.0', 'cost')} = 20`]
+    ])
+  })
+
+  it('keeps an answer that clashes with nothing, and links renamed entries to their own statements', () => {
+    const c = convert(ospfSource, target, 'config', { modelVersion: MODEL_VERSION, inputs: interfaceInputs({ eth0: 'Gig9', eth1: 'Gig0' }) })
+    expect(c.ledger.diagnostics).toEqual([])
+    expect(Object.keys(c.model.networkInstances!.default.ospf!.areas!['0.0.0.0'].interfaces!)).toEqual(['Gig9', 'Gig0.0'])
+    const lines = c.render!.text.split('\n')
+    expect(c.links.filter((l) => l.statement.startsWith('ospf-')).map((l) => [l.statement, lines[l.output.startLine - 1]])).toEqual([
+      ['ospf-eth0', `${fieldPath(...OSPF, 'Gig9', 'cost')} = 10`],
+      ['ospf-eth1', `${fieldPath(...OSPF, 'Gig0.0', 'cost')} = 20`]
+    ])
+  })
+})
+
 describe('the interface map file', () => {
   it('reads from,to lines with comments, blank lines, spaces, CRLF and a byte order mark', () => {
     expect(parseInterfaceMap('﻿# Junos,IOS\r\nge-0/0/0, GigabitEthernet0/0/0\r\n\r\n  lo0 ,Loopback0  # the loopback\r\n')).toEqual({

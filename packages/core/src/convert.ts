@@ -84,6 +84,34 @@ export function modelInterfaces(model: Device): string[] {
   return names
 }
 
+/**
+ * How `names` renames a reference (`name` or `name.<subinterface>`): the interface itself when it is one of the
+ * model's `keys` or a renamed name, else its base, keeping the subinterface index (`ge-0/0/0.10` → `Gig0.10`).
+ */
+function referenceRenamer(keys: ReadonlySet<string>, names: InterfaceMap): (value: string) => string {
+  const has = (name: string) => Object.hasOwn(names, name)
+  return (value) => {
+    if (has(value)) return names[value]
+    const split = splitReference(value)
+    return split && !keys.has(value) && has(split.base) ? `${names[split.base]}.${split.index}` : value
+  }
+}
+
+/**
+ * The OSPF interface references that would have one name after renaming by `ref`, by area: each clash as its source
+ * keys, with the area's instance and ID. A rename that made two one would lose one area entry.
+ */
+function ospfClashes(model: Device, ref: (value: string) => string): { instance: string; area: string; keys: string[] }[] {
+  const out: { instance: string; area: string; keys: string[] }[] = []
+  for (const [instance, ni] of Object.entries(model.networkInstances ?? {}))
+    for (const [area, a] of Object.entries(ni.ospf?.areas ?? {})) {
+      const byName = new Map<string, string[]>()
+      for (const k of Object.keys(a.interfaces ?? {})) byName.set(ref(k), [...(byName.get(ref(k)) ?? []), k])
+      for (const group of byName.values()) if (group.length > 1) out.push({ instance, area, keys: group })
+    }
+  return out
+}
+
 /** A null-prototype copy of a keyed map, keys renamed (configuration keys can be `__proto__`: model.ts). */
 function keyed<T>(entries: Iterable<readonly [string, T]>): Record<string, T> {
   const out = Object.create(null) as Record<string, T>
@@ -93,7 +121,8 @@ function keyed<T>(entries: Iterable<readonly [string, T]>): Record<string, T> {
 
 /**
  * The model with interfaces renamed by `names` (source → target), as keys and in references. Others are kept. Throws
- * when two interfaces would end up with one name (one would replace the other): convert() refuses such answers first.
+ * when two interfaces would end up with one name, or two OSPF interfaces of an area with one reference (`eth0` →
+ * `Gig0.0` beside `eth1.0` with `eth1` → `Gig0`): one would replace the other. convert() refuses such answers first.
  */
 export function renameInterfaces(model: Device, names: InterfaceMap): Device {
   const has = (name: string) => Object.hasOwn(names, name)
@@ -101,11 +130,8 @@ export function renameInterfaces(model: Device, names: InterfaceMap): Device {
   const after = modelInterfaces(model).map((n) => (has(n) ? names[n] : n))
   // No name in the message: an interface's name can be a secret's value reused (AGENTS.md).
   if (new Set(after).size !== after.length) throw new Error('Two interfaces would have one name: refused, so neither is lost.')
-  const ref = (value: string): string => {
-    if (has(value)) return names[value]
-    const split = splitReference(value)
-    return split && !keys.has(value) && has(split.base) ? `${names[split.base]}.${split.index}` : value
-  }
+  const ref = referenceRenamer(keys, names)
+  if (ospfClashes(model, ref).length) throw new Error('Two OSPF interfaces of an area would have one name: refused, so neither is lost.')
   const system = model.system && {
     ...model.system,
     ...(model.system.ntp?.sourceInterface !== undefined ? { ntp: { ...model.system.ntp, sourceInterface: ref(model.system.ntp.sourceInterface) } } : {}),
@@ -248,9 +274,34 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
 
   // Two interfaces with one name on the target would become one, the second replacing the first. Every name counts,
   // the answers and the source names that unanswered interfaces keep: the answers in a clash are refused (unanswered),
-  // which leaves each its source name, and those are distinct. The message gives lines, never names: an interface's
-  // name can be a secret's value reused, and diagnostics reach stderr and logs (AGENTS.md).
+  // which leaves each its source name, and those are distinct. The same for two OSPF interfaces of an area whose
+  // references the answers would make one (`eth0` → `Gig0.0` beside `eth1.0` with `eth1` → `Gig0`): the answers of the
+  // interfaces they name are refused. The message gives lines, never names: an interface's name can be a secret's value
+  // reused, and diagnostics reach stderr and logs (AGENTS.md).
   const diagnostics: Diagnostic[] = []
+  /** The statement that configures an OSPF interface: the first whose mapped fields are its entry's. */
+  const ospfStatement = (instance: string, area: string, key: string) => {
+    const entry = fieldPath('networkInstances', instance, 'ospf', 'areas', area, 'interfaces', key)
+    return statementsOf(parse.tree).find((n) => (fields.get(n.id) ?? []).some((f) => f === entry || f.startsWith(`${entry}.`) || f.startsWith(`${entry}[`)))?.id
+  }
+  const refuse = (what: string, group: readonly string[], at: readonly (string | undefined)[]) => {
+    const where = at.flatMap((id) => {
+      const span = spans.get(id ?? '')
+      return span ? [span] : []
+    })
+    const lineNumbers = [...new Set(where.map((sp) => sp.startLine))].sort((a, b) => a - b)
+    const lines = lineNumbers.length ? ` (line${lineNumbers.length > 1 ? 's' : ''} ${lineNumbers.join(', ')})` : ''
+    const first = at.find((id) => id !== undefined)
+    diagnostics.push({
+      severity: 'error',
+      category: 'other',
+      code: 'convert.interface-name-taken',
+      message: `${at.length} ${what} would have one name on ${target.name}${lines}: give each its own.`,
+      ...(where[0] ? { span: where[0] } : {}),
+      ...(first ? { statement: first } : {})
+    })
+    for (const n of group) answers.set(n, undefined)
+  }
   for (;;) {
     const byName = new Map<string, string[]>()
     for (const n of names) {
@@ -258,25 +309,16 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
       byName.set(name, [...(byName.get(name) ?? []), n])
     }
     const clashes = [...byName.values()].filter((group) => group.length > 1)
-    if (!clashes.length) break
-    for (const group of clashes) {
-      const where = group.flatMap((n) => {
-        const span = spans.get(statements.get(n) ?? '')
-        return span ? [span] : []
-      })
-      const at = [...new Set(where.map((sp) => sp.startLine))].sort((a, b) => a - b)
-      const lines = at.length ? ` (line${at.length > 1 ? 's' : ''} ${at.join(', ')})` : ''
-      const first = statements.get(group[0])
-      diagnostics.push({
-        severity: 'error',
-        category: 'other',
-        code: 'convert.interface-name-taken',
-        message: `${group.length} interfaces would have one name on ${target.name}${lines}: give each its own.`,
-        ...(where[0] ? { span: where[0] } : {}),
-        ...(first ? { statement: first } : {})
-      })
-      for (const n of group) answers.set(n, undefined)
-    }
+    for (const group of clashes) refuse('interfaces', group, group.map((n) => statements.get(n)))
+    if (clashes.length) continue
+    const answered: Record<string, string> = Object.create(null) as Record<string, string>
+    for (const [n, to] of answers) if (to !== undefined) answered[n] = to
+    // Unanswered references keep their (distinct) keys, so a clash always has an answered interface to refuse.
+    const ospf = ospfClashes(parse.model, referenceRenamer(keys, answered))
+      .map((c) => ({ ...c, interfaces: [...new Set(c.keys.map((k) => referencedInterface(k, keys)))].filter((n) => answers.get(n) !== undefined) }))
+      .filter((c) => c.interfaces.length)
+    for (const c of ospf) refuse('OSPF interfaces', c.interfaces, c.keys.map((k) => ospfStatement(c.instance, c.area, k)))
+    if (!ospf.length) break
   }
   const interfaces = names.map((n): InterfaceName => {
     const port = source.describeInterface?.(n)
@@ -306,21 +348,17 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   const ledger: CoverageLedger = { ...built, diagnostics: [...built.diagnostics, ...diagnostics], needsInput: [...needsInput, ...built.needsInput] }
   const named = new Set(interfaces.filter((i) => i.target !== undefined).map((i) => i.inputId))
   const unanswered = [...needsInput.filter((item) => !named.has(item.id)), ...built.needsInput.filter((item) => answer(item.id) === undefined)]
-  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, map, ospfKeys(parse.model, model)) }
+  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, map, ospfKeys(parse.model, referenceRenamer(keys, map))) }
 }
 
 /**
- * For each OSPF area, its interface keys after renaming → before (`GigabitEthernet0/0/0.0` → `ge-0/0/0.0`), by the
- * area's path: renameInterfaces() keeps each area's interfaces in order, so the two lists pair up.
+ * For each OSPF area, by its instance and ID, its interface keys after renaming → before (`GigabitEthernet0/0/0.0` →
+ * `ge-0/0/0.0`), from the rename itself, which never makes two keys of an area one.
  */
-function ospfKeys(before: Device, after: Device): Map<string, Map<string, string>> {
+function ospfKeys(model: Device, ref: (value: string) => string): Map<string, Map<string, string>> {
   const out = new Map<string, Map<string, string>>()
-  for (const [instance, ni] of Object.entries(before.networkInstances ?? {}))
-    for (const [area, a] of Object.entries(ni.ospf?.areas ?? {})) {
-      const was = Object.keys(a.interfaces ?? {})
-      const now = Object.keys(after.networkInstances?.[instance]?.ospf?.areas?.[area]?.interfaces ?? {})
-      out.set(JSON.stringify([instance, area]), new Map(now.map((k, i) => [k, was[i]])))
-    }
+  for (const [instance, ni] of Object.entries(model.networkInstances ?? {}))
+    for (const [area, a] of Object.entries(ni.ospf?.areas ?? {})) out.set(JSON.stringify([instance, area]), new Map(Object.keys(a.interfaces ?? {}).map((k) => [ref(k), k])))
   return out
 }
 

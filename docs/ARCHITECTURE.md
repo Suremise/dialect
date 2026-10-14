@@ -205,7 +205,9 @@ error). Interface names are the core's job, not a plugin's, so they never map si
   renderer writes a `.0` reference as the main interface), OSPF interface keys included, with null-prototype maps;
 - two interfaces that would have one name are refused, counting the source names unanswered interfaces keep: the
   answers in a clash are dropped (an error diagnostic, `convert.interface-name-taken`, with the interfaces' lines), so
-  each keeps its distinct source name and none replaces another. `renameInterfaces()` throws rather than merge two;
+  each keeps its distinct source name and none replaces another. So are answers that would give two OSPF interfaces of
+  an area one reference (`eth0` → `Gig0.0` beside `eth1.0` with `eth1` → `Gig0`), with the OSPF statements' lines.
+  `renameInterfaces()` throws rather than merge two;
 - no message names an interface (needs-input items say which by `statement` and `field`): a name can be a secret's
   value reused, and messages reach stderr and logs.
 
