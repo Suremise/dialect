@@ -65,6 +65,11 @@ describe('findSecrets', () => {
     ].join('\n')
     expect(findSecrets(notSecrets)).toEqual(['$9$PLACEHOLDER', 'PLACEHOLDER-CMAC'])
   })
+
+  it('takes no value the source also uses where it isn\'t a secret, and one that is a secret wherever it is', () => {
+    expect(findSecrets('snmp-server community __proto__ RW\nip route vrf __proto__ 0.0.0.0 0.0.0.0 192.0.2.1')).toEqual([])
+    expect(findSecrets('snmp-server community PLACEHOLDER-RO RO\nsnmp-server community PLACEHOLDER-RO RW')).toEqual(['PLACEHOLDER-RO'])
+  })
 })
 
 describe('the secrets check', () => {

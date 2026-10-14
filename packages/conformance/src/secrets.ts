@@ -64,15 +64,24 @@ const PATTERNS: readonly RegExp[] = [
   /(?<![\w-])(?:secret|authentication-key|encrypted-password|simple-password|ascii-text|hexadecimal|key)[ \t]+"([^"]+)"/gi
 ]
 
-/** The secret values in `source`, by pattern, each once, in the order found. */
+/** How many times `value` is in `text`, overlaps aside. */
+const occurrences = (text: string, value: string) => text.split(value).length - 1
+
+/**
+ * The secret values in `source`, by pattern, each once, in the order found. A value the source also has somewhere a
+ * pattern didn't find it (a community named like a VRF) isn't taken: a message naming the other one isn't a leak.
+ */
 export function findSecrets(source: string): string[] {
-  const found = new Set<string>()
+  const found = new Map<string, Set<number>>()
   for (const pattern of PATTERNS)
-    for (const m of source.matchAll(pattern)) {
-      const value = m[m.length - 1].replace(/^"|"$/g, '')
-      if (value.length >= MIN_LENGTH) found.add(value)
+    for (const m of source.matchAll(new RegExp(pattern.source, `${pattern.flags}d`))) {
+      const group = m.length - 1
+      const value = m[group].replace(/^"|"$/g, '')
+      if (value.length < MIN_LENGTH) continue
+      const at = source.indexOf(value, m.indices?.[group]?.[0] ?? m.index)
+      found.set(value, (found.get(value) ?? new Set()).add(at))
     }
-  return [...found]
+  return [...found].filter(([value, at]) => occurrences(source, value) === at.size).map(([value]) => value)
 }
 
 /** The broken copies of `source` a leak is also looked for in: for each secret, cut just after it, and a quote opened after it. */
