@@ -22,6 +22,15 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS / IOS-XE VLANs, switch ports, VLAN interfaces, OSPF and BGP convert:** VLANs and their names, access and
+  trunk ports (allowed VLANs with add, remove and except, a native VLAN), VLAN interfaces, OSPF enabled by `ip ospf …
+  area` or `network` statements (areas, stub and NSSA, authentication, cost, network type, passive, timers) and BGP
+  (neighbors, peer groups, update source, eBGP multihop, IPv4 and IPv6 address families with their route maps), in
+  the global table and in VRFs. Converting OSPF enabled by `network` statements writes an exact one for each
+  interface, with a warning, and an eBGP neighbor with no route map warns where the source (IOS-XR) exchanged nothing.
+- **Keys and passwords are left for you to add:** an OSPF key or a BGP password is never carried over, nor written as a
+  placeholder. Dialect can't take them as answers yet: the converted config leaves them out, and `dialect convert`
+  gives each one's line (`needs input`) and exits 3 unless `--allow-incomplete`.
 - **IOS-XE messages no longer quote the config:** a statement that isn't converted says which word, by its position, or
   which line, never the word itself, so a password or community reused there doesn't show up in a warning or log.
 - **A VRF's BGP neighbor can inherit a global template on NX-OS and IOS-XR:** `inherit peer T` and `use
@@ -91,27 +100,26 @@
 - **Cisco NX-OS VLANs, switch ports, VLAN interfaces, OSPF and BGP convert:** VLANs and their names, access and trunk
   ports (allowed VLANs with add, remove and except, a native VLAN), VLAN interfaces (SVIs), OSPF as NX-OS enables it on
   each interface (areas, stub and NSSA, cost, network type, passive, timers, `passive-interface default`) and BGP
-  (neighbors, peer templates, eBGP multihop, address families, route maps by name only), in the global table and in
-  VRFs. The `feature` lines they need are written. OSPF keys and BGP passwords are never carried: converting to NX-OS
-  asks for them. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route
+  (neighbors, peer templates, eBGP multihop, address families, route maps), in the global table and in VRFs. The
+  `feature` lines they need are written. OSPF keys and BGP passwords are never carried over. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route
   (IOS-XR exchanges none, RFC 8212), and OSPF enabled with `network` statements is enabled per interface.
 - **Junos OSPF and BGP convert:** OSPF areas (stub, NSSA) and their interfaces (passive, metric, point-to-point,
   timers), and BGP groups and neighbors (type, peer AS, description, local address, multihop, IPv4 and IPv6 unicast,
-  import and export policies by name), with the router ID and AS number, in the global table and in VRFs. Keys are
-  never carried over: Dialect asks for each one. Converting into Junos warns where its defaults differ from the
-  source's: OSPF enabled by `network` statements becomes per interface, and an eBGP peer without a policy accepts its
-  routes on Junos where IOS-XR rejects them. Policy bodies aren't converted yet, with a warning.
+  import and export policies), with the router ID and AS number, in the global table and in VRFs. Keys are never
+  carried over. Converting into Junos warns where its defaults differ from the source's: OSPF enabled by `network`
+  statements becomes per interface, and an eBGP peer without a policy accepts its routes on Junos where IOS-XR rejects
+  them.
 - **Aggregated interfaces get a suggested name on every target:** Junos `ae0` is suggested as IOS `Port-channel1`,
   NX-OS `port-channel1` or IOS-XR `Bundle-Ether1` (Cisco counts from 1, Junos from 0), and back again; between Cisco
   platforms the number is kept (`Port-channel5` → `Bundle-Ether5`). As with every suggestion, it's used only once you
   take it.
 - **Cisco IOS-XR OSPF and BGP convert:** OSPF processes with their areas (stub, NSSA, authentication) and interfaces
   (cost, network type, passive, timers), taking IOS-XR's inheritance from the area and the process into each interface,
-  and BGP (neighbors, neighbor groups, eBGP multihop, address families, route policies by name only), in the global
-  table and in VRFs, with each VRF's route distinguisher. Layer 2 (bridge domains) isn't converted yet. Converting to
-  IOS-XR, an eBGP neighbor with no route policy one way asks for one, since IOS-XR exchanges no routes without it
-  (RFC 8212), and warns when the source accepted them; no policy is made up. OSPF keys and BGP passwords are never
-  carried: converting to IOS-XR asks for them.
+  and BGP (neighbors, neighbor groups, eBGP multihop, address families, route policies), in the global table and in
+  VRFs, with each VRF's route distinguisher. Layer 2 (bridge domains) isn't converted yet. Converting to
+  IOS-XR, an eBGP neighbor with no route policy one way needs one, since IOS-XR exchanges no routes without it
+  (RFC 8212), and a warning says so when the source accepted them; no policy is made up. OSPF keys and BGP passwords
+  are never carried over.
 - **Junos VLANs, switch ports and IRB convert** (ELS, as on today's EX and QFX): VLANs with their names and
   descriptions, access and trunk ports with their VLANs and native VLAN, and IRB units with the VLAN each routes for.
   What Junos itself refuses (two VLANs with one ID, or naming one IRB unit) is an error, and what can't be read one way
