@@ -336,8 +336,8 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.3.0 <1.0.0'`, for model 0.3's VRF membership, route distinguishers and route targets), with `detect`,
-`parse` and `render`.
+`modelApi: '>=0.4.0 <1.0.0'`, for model 0.4's VLANs, switch ports and routed VLANs), with `detect`, `parse`, `render`
+and `nameInterface`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
   statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
@@ -394,8 +394,32 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
     secret). The warning is the parse's: only it can tell the source had no definition, which a model from another
     platform can't say. A render writes `vrf definition V` with the address families its routes need, as for any VRF.
     When a later `no ip route` removes its last route, nothing names it, and it goes too.
-- **Render (`render.ts`):** gives every leaf of model 0.3 a disposition (DNS as one `ip name-server` line per server)
-  and leaves a later version's fields without one, so the ledger reports them. Each VRF is a `vrf definition` before
+  - **VLANs, switch ports and VLAN interfaces (#62, model 0.4):** `vlan N` (or a list, `vlan 100,3000`, `vlan 10-20`)
+    is a VLAN, with a single VLAN's `name` (one word); `no vlan N` removes it and its name, but IOS keeps its default
+    VLANs (1, 1002 to 1005). `switchport` on a main interface is its `switching` (bare, an empty one): `mode access` or
+    `trunk` (a later mode the model doesn't have, `dynamic auto|desirable`, `dot1q-tunnel` or `private-vlan …`, is
+    `unsupported` and still supersedes the one before it, so a negotiated port never becomes a forced trunk), `access
+    vlan`, `trunk native vlan`, and `trunk allowed vlan` read as the device does: a list, `all`, `none`
+    or `except` replaces the list (the earlier statements `ignored-by-design`, superseded), `add` and `remove` change it,
+    from every VLAN when it has none yet. The list is kept as IDs in order, a run of two or more as a range
+    (`10,11,12` is `10-12`). `trunk encapsulation dot1q` is `ignored-by-design` (the model's only one). The `no` forms
+    remove their setting, and `no switchport` every switch port setting before it; it stays `unsupported` itself (the
+    model has no routed-port setting). A malformed VLAN ID or list is `unsupported` and changes nothing. `interface
+    VlanN` is of type `irb-or-svi`, routing for VLAN N on subinterface `0` (`routedVlan`); a `Vlan` subinterface or a
+    switch port setting on one is `unsupported`. A VLAN a port or VLAN interface uses that the text doesn't define (a
+    switch in VTP server mode keeps its VLANs out of its configuration) is kept with no name, mapped by the first
+    statement using it, with a parse warning, `iosxe.vlan-created`, naming it by `field` only; VLAN 1, which IOS always
+    has, gets none. A VLAN `no vlan` deleted (and no later `vlan` defines again) isn't brought back: its ports are
+    inactive and its VLAN interface down on the device, which the model can't say, so a switch port using it is left
+    out whole (its `switchport` statements `unsupported`) and so is its VLAN interface, with its addresses. A
+    `switchport access vlan` creates a VLAN that doesn't exist, one deleted before too, where it is read, as IOS does:
+    it stays when the port moves on to another VLAN or becomes routed, until a later `no vlan` deletes it again.
+- **Render (`render.ts`):** gives every leaf of model 0.3, and of 0.4's VLANs, switch ports and routed VLANs, a
+  disposition (DNS as one `ip name-server` line per server) and leaves the rest (OSPF, BGP, a later version's fields)
+  without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,
+  and a name with a space or any VLAN's description is `unsupported`); a switch port is ` switchport`, its VLANs, then
+  its mode, as `show running-config` orders them (an empty allowed list as `none`); a routed VLAN is rendered by the
+  interface's name, `interface VlanN`, and is `unsupported` on an interface of another name or a subinterface. Each VRF is a `vrf definition` before
   the interfaces, with its `rd` and its route targets VRF-wide (the model's are the VRF's), and the address families
   its interfaces' addresses and routes need (IPv4 also for a VRF with an RD or route targets); an interface's
   `vrf forwarding V` comes before its addresses, which it would otherwise clear, and `ip route vrf V` after. `type`
@@ -410,7 +434,12 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
   parse (no error, a complete ledger, a stable round trip). `tests/probes.ts` is its adapter for the kit's probes
-  (#55): every probe runs, but a prototype key as an interface name, which IOS can't say.
+  (#55): every probe runs, but a prototype key as an interface name, which IOS can't say; of model 0.4's cases, a VLAN
+  name and a malformed VLAN ID so far.
+- **Convert suggestions (`names.ts`):** `nameInterface()` names an Ethernet port by its speed, `Port-channel`,
+  `Loopback` and `Tunnel` by number, and a `vlan` or `irb-or-svi` port `Vlan<id>` by its VLAN's ID. A Junos `irb.100`
+  gets `Vlan100` only once the core's convert names an IRB unit on its own (#41): today it names the `irb` interface
+  as a whole.
 
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
@@ -729,8 +758,8 @@ The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_P
 B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
 areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.3.0 <1.0.0'`, for model
-  0.3's VRF membership, route distinguishers and route targets), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.4.0 <1.0.0'`, for model
+  0.4's VLANs, switch ports and routed VLANs), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
   `displaySetTool`: id `display-set`, name "Display set". `run(text)`
   returns the set lines as text, one per line, each ended by a newline (none on an error), and `sourceLines`, the
   statement's source line for each output line (a quoted value with line breaks makes one set line several output
@@ -800,12 +829,11 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   and communities with `authorization` and `clients`. A statement is `mapped` only when everything it says went into
   the model. A later single-valued setting supersedes an earlier one ("superseded by line N"): a statement left with
   only the fields it filled in passing (the interface's type, its unit) is superseded too. Everything else is
-  `unsupported`, with a reason where one helps (`family ethernet-switching`, per-facility syslog severities, NTP
-  keys, `protocols`, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
+  `unsupported`, with a reason where one helps (per-facility syslog severities, NTP keys, `protocols`, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
   can't carry (a `client-list-name`, `clients … restrict`, a `view`) makes all its statements unsupported and leaves it
   out of the model, so it can't come out answering clients it shouldn't. The interface type comes from the name
-  (`ge-`, `xe-`, `et-` ethernet, `ae` aggregate, `lo` loopback, `irb` vlan, `fxp`/`em`/`me` management, `gr-`/`st`
-  tunnels). Reasons never quote the configuration.
+  (`ge-`, `xe-`, `et-` ethernet, `ae` aggregate, `lo` loopback, `irb` irb-or-svi, the non-ELS `vlan` vlan,
+  `fxp`/`em`/`me` management, `gr-`/`st` tunnels). Reasons never quote the configuration.
 - **Routing instances (#46):** `instance-type vrf` or `virtual-router` is the network instance's `type`;
   `interface ge-0/0/0.0` is that unit's `networkInstance` (Junos binds units, so an interface without its unit is
   `unsupported`; `irb.100` and `lo0.1` are units), and makes sure the instance and the unit exist; `route-distinguisher`
@@ -819,8 +847,28 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   something else there. Which type an instance has is settled as any single setting is (the configuration over a
   group, an earlier group over a later one), so a group's `mac-vrf` under the instance's own `vrf` is superseded and
   the VRF converts.
-- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.3 with a disposition and a
-  later version's fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
+- **VLANs, switch ports and IRB (#60, ELS only):** the model keys VLANs by ID and Junos by name, so a VLAN's
+  statements and the ports naming it settle once every statement is read. `vlans V vlan-id N` is `vlans["N"]` with
+  `name` V, and `description` its description; `l3-interface irb.U` makes irb unit U route for it (`routedVlan`,
+  creating the unit as `routing-instances … interface` does). On unit 0, `family ethernet-switching` is the
+  interface's `switching`: `interface-mode` its `mode`, and `vlan members` (names, IDs, ranges, `all` as `1-4094`) a
+  trunk's `allowedVlans`, each once, or an access port's `accessVlan` (access is Junos's default mode, so a port with
+  no `interface-mode` is one); `native-vlan-id` on the interface is a trunk's `nativeVlan` (on a port without
+  `interface-mode trunk` it is `unsupported`, as Junos takes one on a trunk only, and no mode is made up). Where the source can't be read
+  one way, nothing is guessed: **Junos refuses** two VLANs with one ID and two VLANs naming one IRB unit, so each is an
+  error naming the lines, and neither converts; `vlan-id` and `vlan-id-list` replace each other, so they settle as one
+  setting (rank, then order): **a VLAN whose `vlan-id-list` wins** converts not at all, and a list its `vlan-id` wins
+  over is superseded; a VLAN with no ID converts neither, nor a member that names a VLAN without one;
+  **an access port** naming more than one VLAN, a range or a VLAN that doesn't convert is in none; **a non-ELS port**
+  (`port-mode`, `native-vlan-id` under its family, VLAN ports listed under the VLAN, `l3-interface vlan.N`) converts
+  not at all, so a trunk never comes out an access port; switching on another unit is `unsupported`. A port or
+  interface that only unconverted statements configured is left out of the model. **An IRB unit that routes for no
+  VLAN** (none of `vlans … l3-interface` names it, or only a mac-vrf's) isn't converted (the user's decision on #60): its statements, its routing
+  instance membership too, are `unsupported`, with a `junos.irb-without-vlan` warning naming the lines, and the irb
+  interface goes whole when none of its units routes, so the model's referential check (`model.irb-without-vlan`)
+  holds. Groups and ranges apply as everywhere (R1–R12): a VLAN's ID is a single setting, members add up.
+- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.3 and 0.4's VLAN, switch
+  port and routed VLAN fields with a disposition, and its OSPF and BGP fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
   with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
   `unsupported` with why: a route's description, NTP and syslog source interfaces (Junos uses addresses), a drop beside
@@ -830,6 +878,12 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   target each way: the same both ways is `vrf-target target:X`, else `vrf-target { import …; export …; }`; more than one
   needs vrf-import or vrf-export policies, so it is `unsupported`). A virtual router and the global table have no route
   distinguisher or targets (`unsupported`), and a unit naming an instance the model doesn't have is `unsupported`.
+  `vlans` names each VLAN by the model's `name`, or `vlan<ID>` for one without (or whose name an earlier VLAN took:
+  that `name` is `unsupported`), with its `description`, `vlan-id` and `l3-interface irb.U` from the unit that routes
+  for it (a routed VLAN on an interface not named `irb`, one naming no VLAN, or a second unit for one VLAN is
+  `unsupported`). A switch port is unit 0's `family ethernet-switching` (`interface-mode`, `vlan members` by name,
+  `30-40`, `all`) and `native-vlan-id` on the interface; `vlan members` holds an access port's VLAN or a trunk's, so
+  the other mode's VLANs are `unsupported`, as is a native VLAN off a trunk.
   **A VRF Junos can't commit isn't made whole by guessing:** one without a route distinguisher, or without a route
   target for a side, is written with what it has, and each missing part is a needs-input item
   (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
@@ -851,6 +905,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   both forms, `detect()`, nodes standing for several statements, member ranges, inactive statements, keys named like
   `Object.prototype`'s, secrets, SNMP communities and render from another platform's model.
   `tests/inheritance.test.ts`: the group and range inheritance rules, one per test, each citing Juniper's page.
+  `tests/vlans.test.ts`: VLANs, switch ports and IRB beyond the fixtures (`tests/fixtures/conformance/vlans/`): the
+  conflicts Junos refuses, what converts not at all, IRB units without a VLAN, render from another platform's model and
+  names like `Object.prototype`'s. The corpus's expected models include an access, a trunk and an IRB file, and the
+  probes give the VLAN name and the malformed VLAN ID cases.
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)

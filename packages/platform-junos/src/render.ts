@@ -1,14 +1,15 @@
-// The shared model → hierarchical Junos, for the phase 1 areas. Every populated leaf of model 0.3 gets a disposition:
-// `rendered` with the line it went to, `unsupported` with why (Junos can't say it, or this renderer can't yet), or
-// `not-applicable` (Junos implies it). Fields of a later model version are left without one, so the ledger reports
-// them as unrendered rather than this renderer claiming them.
+// The shared model → hierarchical Junos, for the phase 1 areas and 0.4's VLANs, switch ports and IRB. Every populated
+// leaf of model 0.3, and of those, gets a disposition: `rendered` with the line it went to, `unsupported` with why
+// (Junos can't say it, or this renderer can't yet), or `not-applicable` (Junos implies it). Fields it doesn't render
+// yet (0.4's OSPF and BGP) are left without one, so the ledger reports them as unrendered rather than this renderer
+// claiming them.
 //
 // Diagnostics never quote the model's keys or values, nor carry a field path with them: a community name is a secret.
 //
 // A VRF can't be committed on Junos without a route distinguisher and route targets: one the model gives without them
 // is written with what it has, and each missing part is a needs-input item (`routeDistinguisherInputId()`,
 // `routeTargetInputId()`), answered through Context.inputs. Nothing is made up.
-import { fieldPath, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type NextHop, type RenderResult, type StaticRoute, type Subinterface } from '@dialect/core'
+import { fieldPath, isRouteDistinguisher, isVlanId, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NeedsInput, type NetworkInstance, type NextHop, type RenderResult, type StaticRoute, type Subinterface, type Switching } from '@dialect/core'
 import { isIpv4, isIpv6, parsePrefix } from './addresses'
 import { fromJunos, targetFromJunos, toJunos } from './communities'
 import { SEVERITIES } from './parse'
@@ -28,6 +29,13 @@ const JUNOS_SEVERITY: Readonly<Record<string, string>> = Object.fromEntries(Obje
 const FACILITIES = new Set(['authorization', 'daemon', 'ftp', 'kernel', 'user', 'local0', 'local1', 'local2', 'local3', 'local4', 'local5', 'local6', 'local7'])
 const INTEGER = /^\d+$/
 const ROUTE_SETTINGS = ['preference', 'metric', 'tag'] as const
+/** A VLAN key as the model writes one: a VLAN ID from 1 to 4094 (`"10"`). */
+const isVlanKey = (key: string): boolean => /^[1-9]\d*$/.test(key) && isVlanId(Number(key))
+/** A trunk's allowed VLAN: an ID, or a range of them, first below last (`"20-30"`). */
+const isVlanEntry = (entry: string): boolean => {
+  const [first, last, ...rest] = entry.split('-')
+  return !rest.length && isVlanKey(first) && (last === undefined || (isVlanKey(last) && Number(first) < Number(last)))
+}
 
 /** The needs-input id for a VRF's route distinguisher, which the model doesn't give. */
 export const routeDistinguisherInputId = (instance: string): string => `junos.route-distinguisher:${instance}`
@@ -156,6 +164,29 @@ export function render(model: Device, context: Context): RenderResult {
     return hosts.length ? [box('syslog', hosts)] : []
   }
 
+  // ---- VLAN names: Junos keys a VLAN by its name, the model by its ID
+
+  /** Each VLAN's name on Junos, by the model's key: its own, or `vlan<ID>` for one without (or whose name another VLAN took first). */
+  const vlanNames = new Map<string, string>()
+  {
+    const taken = new Set<string>()
+    const valid = Object.entries(model.vlans ?? {}).filter(([key]) => isVlanKey(key))
+    for (const [key, vlan] of valid) {
+      if (vlan.name === undefined || vlan.name === '' || taken.has(vlan.name)) continue
+      taken.add(vlan.name)
+      vlanNames.set(key, vlan.name)
+    }
+    for (const [key] of valid) {
+      if (vlanNames.has(key)) continue
+      let name = `vlan${Number(key)}`
+      for (let n = 2; taken.has(name); n++) name = `vlan${Number(key)}-${n}`
+      taken.add(name)
+      vlanNames.set(key, name)
+    }
+  }
+  /** A VLAN as `vlan members` names it: by its name when the model has it, else by its ID. */
+  const memberName = (entry: string): string => (entry === '1-4094' ? 'all' : vlanNames.get(String(Number(entry))) ?? entry)
+
   // ---- interfaces
 
   const interfaces: Out[] = []
@@ -173,20 +204,58 @@ export function render(model: Device, context: Context): RenderResult {
     if (iface.vlanTagging) out.push(leaf('vlan-tagging', [...at, 'vlanTagging']))
     else if (iface.vlanTagging === false) skip([...at, 'vlanTagging'], 'not-applicable', 'a Junos interface is untagged unless vlan-tagging is set')
     if (iface.mtu !== undefined) out.push(leaf(`mtu ${iface.mtu}`, [...at, 'mtu']))
+    const switching = iface.switching ? switchingOf(iface.switching, [...at, 'switching']) : null
+    if (switching?.native) out.push(switching.native)
     emptyContainer(iface.subinterfaces, [...at, 'subinterfaces'])
+    let unit0 = false
+    const units = out.length
     for (const [index, sub] of Object.entries(iface.subinterfaces ?? {})) {
       const s = [...at, 'subinterfaces', index]
       if (!INTEGER.test(index)) {
         skipAll(sub, s, 'a Junos unit is a number')
         continue
       }
-      out.push(unitOf(index, sub, s))
+      // A switch port is unit 0's family ethernet-switching.
+      const own = Number(index) === 0 && switching ? [switching.family] : []
+      unit0 ||= own.length > 0
+      out.push(unitOf(index, sub, s, own))
     }
+    if (switching && !unit0) out.splice(units, 0, box('unit 0', [switching.family]))
     // An interface with nothing to write but its type is still configured: `ge-0/0/0;`.
     return out.length ? box(quote(name), out) : leaf(quote(name), ...self(iface, at))
   }
 
-  function unitOf(index: string, sub: Subinterface, at: Segments): Out {
+  /**
+   * A switch port (ELS): unit 0's `family ethernet-switching` with its `interface-mode` and `vlan members`, and the
+   * interface's `native-vlan-id`. `vlan members` is an access port's VLAN, or a trunk's (Junos's default mode is
+   * access), so the VLANs of the mode the port isn't in have no place.
+   */
+  function switchingOf(sw: Switching, at: Segments): { family: Out; native: Out | null } {
+    const out: Out[] = []
+    const trunk = sw.mode === 'trunk'
+    if (sw.mode !== undefined) out.push(leaf(`interface-mode ${sw.mode}`, [...at, 'mode']))
+    const members = (entries: readonly string[], field: Segments) => out.push(box('vlan', [entries.length === 1 ? leaf(`members ${quote(entries[0])}`, field) : leaf(`members [ ${entries.map(quote).join(' ')} ]`, field)]))
+    if (sw.accessVlan !== undefined) {
+      if (trunk) skip([...at, 'accessVlan'], 'unsupported', "a trunk's vlan members are its VLANs on Junos: an access VLAN has no place on one")
+      else if (!isVlanId(sw.accessVlan)) skip([...at, 'accessVlan'], 'unsupported', 'not a VLAN ID')
+      else members([memberName(String(sw.accessVlan))], [...at, 'accessVlan'])
+    }
+    if (sw.allowedVlans !== undefined) {
+      if (!trunk) skip([...at, 'allowedVlans'], 'unsupported', "an access port's vlan members is its one VLAN on Junos: a trunk's VLANs have no place on one")
+      else if (!sw.allowedVlans.length) skip([...at, 'allowedVlans'], 'not-applicable', 'no VLANs: nothing to write')
+      else if (!sw.allowedVlans.every(isVlanEntry)) skip([...at, 'allowedVlans'], 'unsupported', 'not VLAN IDs or ranges of them')
+      else members(sw.allowedVlans.map(memberName), [...at, 'allowedVlans'])
+    }
+    let native: Out | null = null
+    if (sw.nativeVlan !== undefined) {
+      if (!trunk) skip([...at, 'nativeVlan'], 'unsupported', 'Junos takes a native VLAN on a trunk only')
+      else if (!isVlanId(sw.nativeVlan)) skip([...at, 'nativeVlan'], 'unsupported', 'not a VLAN ID')
+      else native = leaf(`native-vlan-id ${sw.nativeVlan}`, [...at, 'nativeVlan'])
+    }
+    return { family: out.length ? box('family ethernet-switching', out) : leaf('family ethernet-switching', ...self(sw, at)), native }
+  }
+
+  function unitOf(index: string, sub: Subinterface, at: Segments, own: readonly Out[] = []): Out {
     const out: Out[] = []
     if (sub.description !== undefined) out.push(leaf(`description ${quote(sub.description)}`, [...at, 'description']))
     if (sub.enabled === false) out.push(leaf('disable', [...at, 'enabled']))
@@ -194,7 +263,8 @@ export function render(model: Device, context: Context): RenderResult {
     if (sub.vlanId !== undefined) out.push(leaf(`vlan-id ${sub.vlanId}`, [...at, 'vlanId']))
     if (sub.ipv4) out.push(familyOf(sub.ipv4, [...at, 'ipv4'], false))
     if (sub.ipv6) out.push(familyOf(sub.ipv6, [...at, 'ipv6'], true))
-    return out.length ? box(`unit ${index}`, out) : leaf(`unit ${index}`, ...self(sub, at))
+    out.push(...own)
+    return out.length ? box(`unit ${index}`, out, ...self(sub, at)) : leaf(`unit ${index}`, ...self(sub, at))
   }
 
   function familyOf(family: AddressFamily, at: Segments, v6: boolean): Out {
@@ -285,6 +355,43 @@ export function render(model: Device, context: Context): RenderResult {
     instances.push(out.length ? box(quote(name), out, ...self(instance, at)) : leaf(quote(name), ...self(instance, at)))
   }
   if (instances.length) top.push(box('routing-instances', instances))
+
+  // ---- VLANs: each by its name, with its ID and the IRB unit that routes for it
+
+  const routed = new Map<string, Out>()
+  for (const [name, iface] of Object.entries(model.interfaces ?? {})) {
+    for (const [index, sub] of Object.entries(iface.subinterfaces ?? {})) {
+      if (sub.routedVlan === undefined || !INTEGER.test(index)) continue
+      const field = ['interfaces', name, 'subinterfaces', index, 'routedVlan']
+      const key = String(sub.routedVlan)
+      if (name !== 'irb') skip(field, 'unsupported', 'Junos routes for a VLAN on a unit of irb: name the interface irb in the interface map')
+      else if (!isVlanId(sub.routedVlan) || !vlanNames.has(key)) skip(field, 'unsupported', "names a VLAN the model doesn't have")
+      else if (routed.has(key)) skip(field, 'unsupported', 'Junos gives a VLAN one l3-interface: another unit routes for it')
+      else routed.set(key, leaf(`l3-interface irb.${index}`, field))
+    }
+  }
+
+  const vlans: Out[] = []
+  emptyContainer(model.vlans, ['vlans'])
+  for (const [key, vlan] of Object.entries(model.vlans ?? {})) {
+    const at = ['vlans', key]
+    if (!vlanNames.has(key)) {
+      skipAll(vlan, at, 'not keyed by a VLAN ID from 1 to 4094')
+      continue
+    }
+    const name = vlanNames.get(key)!
+    const fields: Segments[] = [...self(vlan, at)]
+    if (vlan.name !== undefined) {
+      if (vlan.name === name) fields.push([...at, 'name'])
+      else skip([...at, 'name'], 'unsupported', vlan.name === '' ? 'an empty VLAN name: Junos names every VLAN' : 'another VLAN has the same name, which Junos keys VLANs by')
+    }
+    const out: Out[] = []
+    if (vlan.description !== undefined) out.push(leaf(`description ${quote(vlan.description)}`, [...at, 'description']))
+    out.push(leaf(`vlan-id ${Number(key)}`))
+    if (routed.has(key)) out.push(routed.get(key)!)
+    vlans.push(box(quote(name), out, ...fields))
+  }
+  if (vlans.length) top.push(box('vlans', vlans))
 
   /**
    * A VRF's route distinguisher and `vrf-target`. Junos takes one route target each way (`vrf-target`, or its `import`

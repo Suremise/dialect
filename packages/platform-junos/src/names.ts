@@ -16,7 +16,7 @@ const TYPES: Readonly<Record<string, InterfaceType>> = {
   ae: 'aggregate',
   reth: 'aggregate',
   lo: 'loopback',
-  irb: 'vlan',
+  irb: 'irb-or-svi',
   vlan: 'vlan',
   fxp: 'management',
   em: 'management',

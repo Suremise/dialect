@@ -1,0 +1,83 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "interface-vlan"
+    },
+    "interfaces": {
+      "ge-0/0/0": {
+        "type": "ethernet",
+        "switching": {
+          "accessVlan": 101
+        }
+      },
+      "ge-0/2/0": {
+        "type": "ethernet",
+        "switching": {}
+      },
+      "ge-0/4/0": {
+        "subinterfaces": {
+          "0": {
+            "vlanId": 1000
+          },
+          "1": {
+            "vlanId": 1
+          }
+        },
+        "type": "ethernet",
+        "vlanTagging": true
+      },
+      "ge-0/5/0": {
+        "subinterfaces": {
+          "7": {
+            "vlanId": 7
+          }
+        },
+        "type": "ethernet"
+      },
+      "ge-0/6/0": {
+        "switching": {
+          "mode": "trunk"
+        },
+        "type": "ethernet",
+        "vlanTagging": true,
+        "subinterfaces": {
+          "1": {
+            "vlanId": 100
+          }
+        }
+      },
+      "vlan": {
+        "subinterfaces": {
+          "103": {
+            "ipv4": {
+              "addresses": {
+                "192.168.3.35": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "type": "vlan"
+      },
+      "ge-0/9/0": {
+        "switching": {
+          "mode": "trunk"
+        },
+        "type": "ethernet"
+      }
+    },
+    "vlans": {
+      "101": {
+        "name": "VLAN_ID_TEST"
+      },
+      "102": {
+        "name": "VLAN_TEST_UNUSED"
+      },
+      "103": {
+        "name": "VLAN_WITH_INTERFACES"
+      }
+    }
+  }
+}

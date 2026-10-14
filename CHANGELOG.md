@@ -28,6 +28,11 @@
   VRFs. The `feature` lines they need are written. OSPF keys and BGP passwords are never carried: converting to NX-OS
   asks for them. Warnings say where NX-OS behaves differently: an eBGP neighbor with no route map exchanges every route
   (IOS-XR exchanges none, RFC 8212), and OSPF enabled with `network` statements is enabled per interface.
+- **Junos VLANs, switch ports and IRB convert** (ELS, as on today's EX and QFX): VLANs with their names and
+  descriptions, access and trunk ports with their VLANs and native VLAN, and IRB units with the VLAN each routes for.
+  What Junos itself refuses (two VLANs with one ID, or naming one IRB unit) is an error, and what can't be read one way
+  (a vlan-id-list, the older non-ELS port-mode, an IRB unit that routes for no VLAN) is listed as not converted rather
+  than guessed.
 - **Junos routing instances convert:** VRFs and virtual routers, with their units, route distinguisher and vrf-target
   (one target or an import and export), to and from the model, so their interfaces stay in the right VRF. A unit in two
   instances is an error, as on the device, and instance types Dialect doesn't convert yet (mac-vrf, EVPN) are listed as

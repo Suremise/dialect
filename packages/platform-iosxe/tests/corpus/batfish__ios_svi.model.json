@@ -1,0 +1,63 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "ios_svi"
+    },
+    "vlans": {
+      "100": {},
+      "3000": {}
+    },
+    "interfaces": {
+      "Vlan100": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 100,
+            "ipv4": {
+              "addresses": {
+                "192.168.100.254": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "Vlan3000": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 3000,
+            "ipv4": {
+              "addresses": {
+                "192.168.200.254": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "GigabitEthernet0/0": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "access",
+          "accessVlan": 100
+        },
+        "enabled": false
+      },
+      "GigabitEthernet0/1": {
+        "type": "ethernet",
+        "switching": {
+          "mode": "access",
+          "accessVlan": 3000
+        },
+        "enabled": false
+      }
+    }
+  }
+}
+
