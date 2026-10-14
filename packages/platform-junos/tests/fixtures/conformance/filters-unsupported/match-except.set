@@ -1,0 +1,2 @@
+set firewall family inet filter F term T from destination-port-except 22
+set firewall family inet filter F term T then accept

@@ -1,0 +1,3 @@
+set groups SHARED firewall family inet filter F term FROM-GROUP then discard
+set firewall apply-groups SHARED
+set firewall family inet filter F term OWN then accept

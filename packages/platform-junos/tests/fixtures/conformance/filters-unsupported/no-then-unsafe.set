@@ -1,0 +1,2 @@
+set firewall family inet filter F term T from packet-length 1500
+set firewall family inet filter F term REST then discard

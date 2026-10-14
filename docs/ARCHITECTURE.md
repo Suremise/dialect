@@ -1157,8 +1157,9 @@ The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_P
 B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
 areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.5.0 <1.0.0'`, for model
-  0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's routing policy), with
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.5.1 <1.0.0'`, for model
+  0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's routing policy and
+  0.5.1's filters), with
   `detect`, `parse`,
   `render`, `nameInterface` (an aggregate another platform describes, Cisco `Port-channelN` or `Bundle-EtherN`, is
   suggested as `ae(N-1)`, as the user decided; nothing else yet) and the capabilities per area. Its `tools()` has one tool,
@@ -1327,6 +1328,33 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   read** leaves a policy out whole too: terms only a group gives beside the configuration's own, and a set-form
   `insert`, `rename` or `copy` under it (`statements.ts` lists them as `reshaped`), which reorder or rename what the
   statements say. Lists and communities `rename`d or `copy`d likewise.
+- **Firewall filters (`filters.ts`, #86):** `firewall family inet|inet6 filter F` (and the older `firewall filter F`,
+  which is inet) is `filters.ipv4.F` or `.ipv6.F`, `implicitAction: 'discard'` (Junos drops silently what no term
+  decides), its terms keyed from 1 in order as a policy's are (by the configuration's own first statement; a group's
+  only-terms beside the configuration's, or a set-form `insert`/`rename`/`copy`, leave the filter out whole). `from`:
+  `source-`/`destination-address` and `address` (a bare address is a /32 or /128; one with host bits or a mask isn't
+  converted, never approximated), `source-`/`destination-prefix-list` and `prefix-list` (a list the routing policy
+  converted with prefixes of the filter's family), `protocol` (inet) and `next-header` (inet6) by name or number,
+  `source-`/`destination-port` and `port` (numbers, names, a hyphenated one whole, and ranges, split at the one
+  hyphen whose sides are ports), `icmp-type` (names per family, numbers, ranges,
+  expanded) and `icmp-code` (numbers, ranges), `dscp` (inet) and `traffic-class` (inet6) by number or code point,
+  `tcp-established`, `tcp-initial` (`syn & !ack`), `tcp-flags` (flags joined by `&`, each maybe `!`), `first-fragment`
+  and `is-fragment`. `then`: `accept`, `discard`, `reject` (with no ICMP message), `next term` (one setting, the later
+  winning), `count`, and `log` or `syslog` (both the model's `log`); a term with no action accepts, as Junos's does.
+  **The per-term rule:** a term with anything else (a policer, `routing-instance`, `next-ip`, a nested `filter`, an
+  `-except` match, `address … except`, a `to` condition) or naming a prefix list that isn't converted is `unsupported`
+  whole; so is one with addresses and prefix lists of one direction, which Junos takes as one list where the model
+  needs both. Leaving it out must be what core's `filterTermSkipSafe()` allows (the last term, or one whose action is
+  `next term` with nothing unknown in it: a term with no action accepts, and an unknown action may decide), else every
+  statement of the filter is `unsupported`. A filter-level setting is `unsupported` with the filter, except
+  `interface-specific` (counters and policers per interface), which leaves which packets the filter decides alone, so
+  only its own statement is `unsupported`. Other families (`ethernet-switching`, `any`…), policers and interface sets
+  come later. `interfaces X unit N family inet|inet6 filter input|output F` is the subinterface's `filters`, by
+  family and direction, once F converted in that family (else `unsupported`: the unit applies nothing that way);
+  `input-list`/`output-list` and the single filter that way replace each other, by rank then order, and a list that
+  wins isn't converted; `filter group` comes later. Filters settle after the routing policy (their prefix lists) and
+  before VLANs, so an IRB unit that routes for no VLAN takes its attachments with it. Groups apply as everywhere
+  (R1–R12).
 - **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.4.1 with a disposition. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
   with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
@@ -1379,6 +1407,18 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   field, and when `termSkipSafe()` doesn't allow leaving it out, so is every field of its policy. `fallThrough` is
   `not-applicable`, and `reject` (a route map's implicit deny, RPL's drop) raises `junos.policy-fall-through` naming the
   policy's line: Junos passes such a route to the next policy, then the protocol's default.
+  **Filters** are `firewall` (`renderFilters.ts`), after `policy-options`: `family inet|inet6 { filter F { term T { from
+  {…} then {…} } } }`, an ACL entry (no name) under its sequence number, an address of the family's full length
+  written bare, protocols `tcp`, `udp`, `icmp`/`icmp6` by name and others by number (`next-header` and
+  `traffic-class` in inet6), ports and ranges as numbers, `tcp-flags "syn & !ack"`, and `count`, `log` and the action
+  in `then`. A term is written whole or not at all: one Junos can't say (a prefix list not written for the family,
+  addresses and prefix lists of one direction together, a TCP flag Junos has no name for, `ece` and `cwr`) is
+  `unsupported`, and when `filterTermSkipSafe()` doesn't allow leaving it out, so is the filter. `implicitAction` is
+  `not-applicable`, and raises `junos.filter-implicit-action` on the filter's `implicitAction` field (a path, never in
+  the message) naming its line when the source's is `deny` (a Cisco ACL, which may send an ICMP unreachable) or the
+  filter relies on its end (`filterReliesOnImplicitAction()`). A unit's `filters` go in its `family inet|inet6 {
+  filter { input F; output G; } }`, beside the family's own settings or alone, each only when the firewall writes that
+  filter (else `unsupported`: Junos commits a unit's filter only when it has it).
 - `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's
   (`hostname`, `!`, `interface GigabitEthernet…`).
 - **Tests:** the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
@@ -1410,7 +1450,13 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   expected models include an access, a trunk, an IRB, two OSPF, two BGP and three routing policy files, and the probes
   give every model 0.4 and 0.5.0 case (VLAN name and BGP group uses, policy names as prototype keys, BGP, OSPF, policy
   term and prefix list entry negation, malformed AS numbers, VLAN IDs, prefixes and lengths, OSPF and BGP scoping,
-  unknown references and regexes).
+  unknown references and regexes), and every 0.5.1 case (filter term and attachment negation, a malformed port,
+  filter prefix and mask, an unknown filter, the implicit action). `tests/filters.test.ts`: filters beyond the
+  fixtures (`tests/fixtures/conformance/filters/`, one hierarchical with its render and attachments, one in set form
+  with groups, duplicates, superseded actions and an `input-list` replaced): the per-term ledger of each negative
+  fixture in `tests/fixtures/conformance/filters-unsupported/`, Junos's names for values, groups in `firewall`, and
+  render from another platform's model (an ACL's sequence numbers, its implicit deny, a filter or unit left out)
+  naming nothing. The corpus's expected models include two filter files.
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)

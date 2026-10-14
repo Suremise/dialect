@@ -130,6 +130,11 @@ product decisions.
   converted rather than converted wrongly. Junos converts `policy-options` (prefix lists, communities, AS paths and
   policy-statements) and resolves BGP `import` and `export` to them (#76); `vrf-import` and `vrf-export` wait for a
   place in the model (#83).
+- **Filters and ACLs (phase 3, model 0.5.1)** convert by the same per-term rule: a term whole or not at all, the
+  whole filter when leaving one out could change what a later term decides, and a unit applying a filter that isn't
+  converted applies nothing. A filter's end is kept with the model (Junos discards silently, a Cisco ACL denies) and
+  a target says so when its own differs or the filter relies on it. Non-contiguous wildcard masks are never
+  approximated. Junos converts `firewall family inet|inet6` filters and their attachment to units (#86).
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
   With all four plugins registered (#50), the CLI and the app convert from any of them to any other.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,

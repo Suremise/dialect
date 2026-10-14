@@ -1,0 +1,35 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "F": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "T",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "ge-0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "filters": {
+              "ipv4": {
+                "input": "F"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

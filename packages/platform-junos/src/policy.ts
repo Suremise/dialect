@@ -523,15 +523,18 @@ export function policyMapper(ctx: PolicyContext) {
 
   return {
     map,
-    /** Builds the routing policy: the policies converted, by name, for the references BGP makes. */
-    settle(): ReadonlySet<string> {
+    /**
+     * Builds the routing policy: the policies converted, by name, for the references BGP makes, and the prefix lists
+     * with their families, for the filters' references.
+     */
+    settle(): { readonly policies: ReadonlySet<string>; readonly lists: ReadonlyMap<string, ReadonlySet<'ipv4' | 'ipv6'>> } {
       settleLists()
       settleCommunities()
       settleAsPaths()
       settlePolicies()
       model.removeIfEmpty(['routingPolicy', 'prefixLists'])
       model.removeIfEmpty(['routingPolicy'])
-      return converted
+      return { policies: converted, lists }
     }
   }
 }

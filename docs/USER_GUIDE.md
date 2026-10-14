@@ -197,7 +197,8 @@ name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP
 or write is listed as not converted, with why. Junos also converts VLANs, switch ports (access and trunk, with a
 native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches (the older non-ELS syntax is listed
 as not converted), OSPF and BGP (areas and interfaces, groups and neighbors), and routing policy: prefix lists,
-communities, AS paths and policy-statements, with the policies BGP imports and exports. A policy converts term by
+communities, AS paths and policy-statements, with the policies BGP imports and exports, and firewall filters (inet
+and inet6) with the units they're applied on. A policy or a filter converts term by
 term: a term Dialect can't convert in full is listed as not converted, whole, and when leaving it out would change
 what a later term does, the whole policy is. Regular expressions are kept as written and never translated to another
 platform's. Keys (OSPF and BGP authentication) are never carried over: Dialect asks you for each one. Cisco NX-OS also converts VLANs,

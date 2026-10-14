@@ -1,0 +1,3 @@
+set firewall family inet filter F term FBF from source-address 192.0.2.0/24
+set firewall family inet filter F term FBF then routing-instance OTHER
+set firewall family inet filter F term REST then accept
