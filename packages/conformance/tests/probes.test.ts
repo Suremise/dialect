@@ -1,9 +1,10 @@
 // The probes' own tests (src/probes.ts): the careful probe stub passes every probe, a stub with each bug class fails
-// the probe for it, a probe or case a plugin can't run is reported not applicable with why, and describeConformance()
-// runs the probes from an adapter (or shows them skipped without one).
+// the probe for it, a probe or case a plugin can't run is reported not applicable with why, a model 0.4.0 case an older
+// adapter leaves out isn't run but listed, and describeConformance() runs the probes from an adapter (or shows them
+// skipped without one).
 import { describe, expect, it } from 'vitest'
 import { fieldPath, type PlatformPlugin } from '@dialect/core'
-import { describeConformance, PROBE_COMMUNITY, runProbes, type ProbeAdapter, type ProbeName, type ProbeResult } from '../src'
+import { describeConformance, PROBE_COMMUNITY, probesNotGiven, runProbes, type ProbeAdapter, type ProbeName, type ProbeResult } from '../src'
 import { PROBE_STUB_ADAPTER, probeStub, type ProbeBug } from './probeStub'
 
 const failed = (results: readonly ProbeResult[]) => results.filter((r) => r.status === 'failed')
@@ -25,14 +26,21 @@ describe('runProbes', () => {
       'negation: name-server',
       'negation: static-route',
       'negation: community',
+      'negation: bgp-neighbor',
+      'negation: ospf-interface',
       'malformed: ipv4-address',
       'malformed: ipv6-address',
       'malformed: mask',
       'malformed: next-hop',
+      'malformed: as-number',
+      'malformed: vlan-id',
       'vrf-scoping: delete',
       'vrf-scoping: dns',
-      'vrf-scoping: static-route'
+      'vrf-scoping: static-route',
+      'vrf-scoping: ospf',
+      'vrf-scoping: bgp'
     ])
+    expect(probesNotGiven(PROBE_STUB_ADAPTER)).toEqual([])
   })
 
   const cases: readonly (readonly [ProbeBug, ProbeName, string])[] = [
@@ -41,10 +49,17 @@ describe('runProbes', () => {
     ['snmp-render', 'snmp-access', 'render of a limited community → reparse: a community limited to some clients came out open to every client'],
     ['negation', 'negation', 'parse: interfaces.e1.description is still in the model after it was cleared'],
     ['malformed', 'malformed', 'parse: the malformed value is in the model'],
-    ['vrf-scope', 'vrf-scoping', 'a change in VRF A changed networkInstances.default.staticRoutes.10.0.0.0/8.nextHops.0.address, outside it']
+    ['vrf-scope', 'vrf-scoping', 'a change in VRF A changed networkInstances.default.staticRoutes.10.0.0.0/8.nextHops.0.address, outside it'],
+    // Model 0.4.0's cases, each caught by the same bug class.
+    ['prototype', 'prototype-keys', '__proto__ as bgp-group: not an own key at networkInstances.default.bgp.groups'],
+    ['negation', 'negation', 'parse: networkInstances.default.bgp.neighbors.192.0.2.2 is still in the model after it was cleared'],
+    ['negation', 'negation', 'parse: networkInstances.default.ospf.areas.0.0.0.0.interfaces.e1 is still in the model after it was cleared'],
+    ['malformed', 'malformed', 'parse: the malformed value is in the model'],
+    ['vrf-scope', 'vrf-scoping', 'a change in VRF A changed networkInstances.default.ospf.areas.0.0.0.0.interfaces.e1, outside it'],
+    ['vrf-scope', 'vrf-scoping', 'a change in VRF A changed networkInstances.B.bgp.neighbors.192.0.2.2.peerAs, outside it']
   ]
   for (const [bug, probe, problem] of cases) {
-    it(`fails a stub with the ${bug} bug on the ${probe} probe`, () => {
+    it(`fails a stub with the ${bug} bug on the ${probe} probe: ${problem}`, () => {
       const results = runProbes(probeStub([bug]), PROBE_STUB_ADAPTER)
       expect(failedProbes(results)).toContain(probe)
       expect(failed(results).filter((r) => r.probe === probe).flatMap((r) => r.problems)).toContain(problem)
@@ -53,7 +68,9 @@ describe('runProbes', () => {
 
   it('fails each case of a probe on its own: the mask, a dot past the end', () => {
     const results = runProbes(probeStub(['malformed']), PROBE_STUB_ADAPTER)
-    expect(failed(results).filter((r) => r.probe === 'malformed').map((r) => r.case)).toEqual(['ipv4-address', 'ipv6-address', 'mask', 'next-hop'])
+    expect(failed(results).filter((r) => r.probe === 'malformed').map((r) => r.case)).toEqual(['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id'])
+    // An AS number out of range, taken as a number: found in the model by its decimal form.
+    expect(results.find((r) => r.case === 'as-number')?.problems).toContain('parse: the malformed value is in the model')
     // The mask's address is in the model, so the statement mapping it is what gives it away.
     expect(results.find((r) => r.case === 'mask')?.problems).toEqual(['parse: L2 on the malformed value\'s line is mapped', 'parse: the malformed value is flagged nowhere: no error, and no unsupported statement on its line'])
   })
@@ -201,6 +218,38 @@ describe('runProbes', () => {
     const na = results.filter((r) => r.status === 'not-applicable').map((r) => `${r.probe}: ${r.case}: ${r.problems.join('')}`)
     expect(na).toEqual(['prototype-keys: as a DNS name: no DNS yet', 'snmp-access: all: no SNMP yet', 'negation: name-server: no DNS yet'])
     expect(failed(results)).toEqual([])
+  })
+
+  it('runs an adapter written before model 0.4.0 as before, and lists the 0.4.0 cases it leaves out', () => {
+    // As an adapter for 0.3 is: no VLAN or BGP group use, no BGP, OSPF, AS or VLAN cases.
+    const { 'bgp-neighbor': _n, 'ospf-interface': _o, ...negation } = PROBE_STUB_ADAPTER.negation
+    const { 'as-number': _a, 'vlan-id': _v, ...malformed } = PROBE_STUB_ADAPTER.malformed
+    const { ospf: _os, bgp: _b, ...vrfScoping } = PROBE_STUB_ADAPTER.vrfScoping
+    const proto = PROBE_STUB_ADAPTER.prototypeKeys as Exclude<ProbeAdapter['prototypeKeys'], { notApplicable: string }>
+    const adapter: ProbeAdapter = {
+      ...PROBE_STUB_ADAPTER,
+      prototypeKeys: { source: proto.source, uses: { interface: true, vrf: true, community: true, dns: true } },
+      negation,
+      malformed,
+      vrfScoping
+    }
+    const results = runProbes(probeStub(), adapter)
+    expect(results).toHaveLength(17)
+    expect(results.filter((r) => r.status !== 'passed')).toEqual([])
+    expect(probesNotGiven(adapter)).toEqual([
+      'prototype-keys: as a VLAN name',
+      'prototype-keys: as a BGP group',
+      'negation: bgp-neighbor',
+      'negation: ospf-interface',
+      'malformed: as-number',
+      'malformed: vlan-id',
+      'vrf-scoping: ospf',
+      'vrf-scoping: bgp'
+    ])
+    // Declared not applicable, a 0.4.0 case is reported as such, and isn't "not given".
+    const declared: ProbeAdapter = { ...adapter, negation: { ...negation, 'bgp-neighbor': { notApplicable: 'no BGP yet' } } }
+    expect(runProbes(probeStub(), declared).filter((r) => r.status === 'not-applicable').map((r) => `${r.probe}: ${r.case}: ${r.problems.join('')}`)).toEqual(['negation: bgp-neighbor: no BGP yet'])
+    expect(probesNotGiven(declared)).not.toContain('negation: bgp-neighbor')
   })
 
   it('fails a case that tests nothing: a negation with nothing to clear, a VRF change that changes nothing', () => {

@@ -1,9 +1,10 @@
 // Convert mode: a source plugin's parse → the shared model → a target plugin's render, with the interface map between
 // them. Interface names never map silently: every interface the model names, as a key or as a reference (a next hop's
-// interface, a source interface), is a needs-input item until the user names it on the target. Plugins that describe
-// and name ports (PortName) give suggestions, marked as such. Plain strings and objects, as everywhere in the core.
+// interface, a source interface, an OSPF interface, a BGP update source), is a needs-input item until the user names it
+// on the target. Plugins that describe and name ports (PortName) give suggestions, marked as such. Plain strings and
+// objects, as everywhere in the core.
 import { buildLedger, statementsOf, type CoverageLedger } from './ledger'
-import type { Device, Interface, InterfaceType, NetworkInstance, StaticRoute, System } from './model'
+import type { Bgp, BgpPeer, Device, Interface, InterfaceType, NetworkInstance, Ospf, StaticRoute, System } from './model'
 import { fieldPath, pathSegments } from './paths'
 import type { PlatformPlugin } from './plugin'
 import type { Context, Diagnostic, NeedsInput, ParseResult, RenderResult, Span, SyntaxNode } from './results'
@@ -41,17 +42,27 @@ function splitReference(ref: string): { base: string; index: string } | null {
   return m ? { base: m[1], index: m[2] } : null
 }
 
-/** Where the model names an interface by reference, not as a key: the value is `name` or `name.<subinterface>`. */
+/**
+ * Where the model names an interface by reference, not as a top-level key: the value is `name` or
+ * `name.<subinterface>`, at a leaf (a next hop's interface) or as the key of an entry (an OSPF interface), whose path
+ * is the entry's.
+ */
 function references(model: Device): { path: string; value: string }[] {
   const out: { path: string; value: string }[] = []
   const ntp = model.system?.ntp?.sourceInterface
   if (ntp !== undefined) out.push({ path: fieldPath('system', 'ntp', 'sourceInterface'), value: ntp })
   const logging = model.system?.logging?.sourceInterface
   if (logging !== undefined) out.push({ path: fieldPath('system', 'logging', 'sourceInterface'), value: logging })
-  for (const [instance, ni] of Object.entries(model.networkInstances ?? {}))
+  for (const [instance, ni] of Object.entries(model.networkInstances ?? {})) {
     for (const [prefix, route] of Object.entries(ni.staticRoutes ?? {}))
       for (const [index, hop] of Object.entries(route.nextHops ?? {}))
         if (hop.interface !== undefined) out.push({ path: fieldPath('networkInstances', instance, 'staticRoutes', prefix, 'nextHops', index, 'interface'), value: hop.interface })
+    for (const [area, a] of Object.entries(ni.ospf?.areas ?? {}))
+      for (const ref of Object.keys(a.interfaces ?? {})) out.push({ path: fieldPath('networkInstances', instance, 'ospf', 'areas', area, 'interfaces', ref), value: ref })
+    for (const kind of ['groups', 'neighbors'] as const)
+      for (const [key, peer] of Object.entries(ni.bgp?.[kind] ?? {}))
+        if (peer.updateSource !== undefined) out.push({ path: fieldPath('networkInstances', instance, 'bgp', kind, key, 'updateSource'), value: peer.updateSource })
+  }
   return out
 }
 
@@ -102,7 +113,16 @@ export function renameInterfaces(model: Device, names: InterfaceMap): Device {
   }
   const route = (r: StaticRoute): StaticRoute =>
     r.nextHops ? { ...r, nextHops: keyed(Object.entries(r.nextHops).map(([i, hop]) => [i, hop.interface !== undefined ? { ...hop, interface: ref(hop.interface) } : hop] as const)) } : r
-  const instance = (ni: NetworkInstance): NetworkInstance => (ni.staticRoutes ? { ...ni, staticRoutes: keyed(Object.entries(ni.staticRoutes).map(([p, r]) => [p, route(r)] as const)) } : ni)
+  const ospf = (o: Ospf): Ospf =>
+    o.areas ? { ...o, areas: keyed(Object.entries(o.areas).map(([id, a]) => [id, a.interfaces ? { ...a, interfaces: keyed(Object.entries(a.interfaces).map(([r, i]) => [ref(r), i] as const)) } : a] as const)) } : o
+  const peers = <T extends BgpPeer>(map: Readonly<Record<string, T>>) => keyed(Object.entries(map).map(([k, p]) => [k, p.updateSource !== undefined ? { ...p, updateSource: ref(p.updateSource) } : p] as const))
+  const bgp = (b: Bgp): Bgp => ({ ...b, ...(b.groups ? { groups: peers(b.groups) } : {}), ...(b.neighbors ? { neighbors: peers(b.neighbors) } : {}) })
+  const instance = (ni: NetworkInstance): NetworkInstance => ({
+    ...ni,
+    ...(ni.staticRoutes ? { staticRoutes: keyed(Object.entries(ni.staticRoutes).map(([p, r]) => [p, route(r)] as const)) } : {}),
+    ...(ni.ospf ? { ospf: ospf(ni.ospf) } : {}),
+    ...(ni.bgp ? { bgp: bgp(ni.bgp) } : {})
+  })
   return {
     ...model,
     ...(system ? { system: system as System } : {}),
@@ -195,7 +215,8 @@ function interfaceStatement(tree: readonly SyntaxNode[], fields: Map<string, rea
     }
     return undefined
   }
-  return find(tree) ?? statementsOf(tree).find((n) => (fields.get(n.id) ?? []).some((f) => referencedAt.has(f)))?.id
+  const at = (f: string) => [...referencedAt].some((r) => f === r || f.startsWith(`${r}.`) || f.startsWith(`${r}[`))
+  return find(tree) ?? statementsOf(tree).find((n) => (fields.get(n.id) ?? []).some(at))?.id
 }
 
 /**
@@ -285,16 +306,36 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   const ledger: CoverageLedger = { ...built, diagnostics: [...built.diagnostics, ...diagnostics], needsInput: [...needsInput, ...built.needsInput] }
   const named = new Set(interfaces.filter((i) => i.target !== undefined).map((i) => i.inputId))
   const unanswered = [...needsInput.filter((item) => !named.has(item.id)), ...built.needsInput.filter((item) => answer(item.id) === undefined)]
-  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, map) }
+  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, map, ospfKeys(parse.model, model)) }
+}
+
+/**
+ * For each OSPF area, its interface keys after renaming → before (`GigabitEthernet0/0/0.0` → `ge-0/0/0.0`), by the
+ * area's path: renameInterfaces() keeps each area's interfaces in order, so the two lists pair up.
+ */
+function ospfKeys(before: Device, after: Device): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>()
+  for (const [instance, ni] of Object.entries(before.networkInstances ?? {}))
+    for (const [area, a] of Object.entries(ni.ospf?.areas ?? {})) {
+      const was = Object.keys(a.interfaces ?? {})
+      const now = Object.keys(after.networkInstances?.[instance]?.ospf?.areas?.[area]?.interfaces ?? {})
+      out.set(JSON.stringify([instance, area]), new Map(now.map((k, i) => [k, was[i]])))
+    }
+  return out
 }
 
 /** By source statement: what didn't fully carry over (one issue per statement and reason), and where its fields went. */
-function sourceSide(ledger: CoverageLedger, map: InterfaceMap): Pick<Conversion, 'issues' | 'links'> {
+function sourceSide(ledger: CoverageLedger, map: InterfaceMap, ospf: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map()): Pick<Conversion, 'issues' | 'links'> {
   // The render's fields are the renamed model's: back to the parse's names, to find the statement that filled each.
   const back = new Map(Object.entries(map).map(([from, to]) => [to, from]))
   const sourcePath = (path: string) => {
     const s = pathSegments(path)
     if (s[0] === 'interfaces' && typeof s[1] === 'string' && back.has(s[1])) s[1] = back.get(s[1])!
+    // networkInstances.<instance>.ospf.areas.<area>.interfaces.<reference>…
+    if (s[0] === 'networkInstances' && s[2] === 'ospf' && s[3] === 'areas' && s[5] === 'interfaces' && typeof s[6] === 'string') {
+      const was = ospf.get(JSON.stringify([s[1], s[4]]))?.get(s[6])
+      if (was !== undefined) s[6] = was
+    }
     return fieldPath(...s)
   }
   const rendered = new Map<string, Span>()

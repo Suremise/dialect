@@ -6,8 +6,11 @@
 //   vrf V | vrf V route P H | route P H
 //   community C ro|rw | community C clients P
 //   name-server A [vrf V] | search D
+//   vlandef N [name X]
+//   [vrf V] bgp as A | [vrf V] bgp group G | [vrf V] bgp neighbor A as N | [vrf V] bgp neighbor A group G
+//   [vrf V] ospf area X interface I
 //   no <any of them> (no interface N description, no interface N address A/L, no vrf V [route P], no route P,
-//   no community C, no name-server A [vrf V], no search D)
+//   no community C, no name-server A [vrf V], no search D, no [vrf V] bgp neighbor A, no [vrf V] ospf area X interface I)
 import { fieldPath, type Context, type Device, type FieldDisposition, type ParseResult, type PathSegment, type PlatformPlugin, type RenderResult, type StatementDisposition, type SyntaxNode } from '@dialect/core'
 import type { ProbeAdapter } from '../src'
 
@@ -21,9 +24,9 @@ export type ProbeBug =
   | 'snmp-render'
   /** `no …` forms are ignored-by-design and remove nothing. */
   | 'negation'
-  /** Any address and next hop is taken as one. */
+  /** Any address, next hop, AS number and VLAN ID is taken as one. */
   | 'malformed'
-  /** A `no …` in one VRF removes the same thing in every VRF and the global table. */
+  /** A `no …` in one VRF removes the same thing (a route, a BGP neighbor, an OSPF interface) in every VRF and the global table. */
   | 'vrf-scope'
 
 type Obj = Record<string, unknown>
@@ -34,6 +37,14 @@ const IPV4 = new RegExp(`^${OCTET}(?:\\.${OCTET}){3}$`)
 /** An IPv6 address, as a URL's host takes one. */
 const isIpv6 = (text: string): boolean => text.includes(':') && URL.canParse(`http://[${text}]/`)
 const isAddress = (text: string) => IPV4.test(text) || isIpv6(text)
+/** A decimal number from `min` to `max` with no sign or leading zero, or null; any number at all when careless. */
+function bounded(text: string, min: number, max: number, careless: boolean): number | null {
+  if (careless) return Number.isNaN(Number(text)) ? null : Number(text)
+  if (!/^[1-9]\d*$/.test(text)) return null
+  const n = Number(text)
+  return n >= min && n <= max ? n : null
+}
+
 /** `A/L` as [address, length, family], or null. */
 function prefix(text: string, careless: boolean): [string, number, 'ipv4' | 'ipv6'] | null {
   const m = /^(\S+)\/(\d+)$/.exec(text)
@@ -51,7 +62,15 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
     id: `probe-stub${bugs.length ? `-${bugs.join('-')}` : ''}`,
     name: 'Probe stub (tests only)',
     modelApi: '>=0.3.0 <1.0.0',
-    capabilities: { interfaces: { parse: 'partial', render: 'partial' }, 'static-routes': { parse: 'partial', render: 'partial' }, dns: { parse: 'partial', render: 'partial' }, snmp: { parse: 'partial', render: 'partial' } },
+    capabilities: {
+      interfaces: { parse: 'partial', render: 'partial' },
+      'static-routes': { parse: 'partial', render: 'partial' },
+      dns: { parse: 'partial', render: 'partial' },
+      snmp: { parse: 'partial', render: 'partial' },
+      vlans: { parse: 'partial', render: 'partial' },
+      ospf: { parse: 'partial', render: 'partial' },
+      bgp: { parse: 'partial', render: 'partial' }
+    },
     parse(text: string, _context: Context): ParseResult {
       const model: Obj = {}
       const tree: SyntaxNode[] = []
@@ -123,6 +142,40 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
           const search = (get(['system', 'dns', 'search']) as string[] | undefined) ?? []
           return mapped(put(['system', 'dns', 'search'], [...search, w[1]]))
         }
+        if (w[0] === 'vlandef' && (w.length === 2 || (w.length === 4 && w[2] === 'name'))) {
+          const id = bounded(w[1], 1, 4094, bug.has('malformed'))
+          if (id === null) return unsupported('not a VLAN ID')
+          if (w.length === 4) return mapped(put(['vlans', String(id), 'name'], w[3]))
+          object(['vlans', String(id)])
+          return mapped(fieldPath('vlans', String(id)))
+        }
+        if (w[0] === 'vrf' && (w[2] === 'bgp' || w[2] === 'ospf')) return protocol(w[1], w.slice(2))
+        if (w[0] === 'bgp' || w[0] === 'ospf') return protocol('default', w)
+        return unsupported('the probe stub has no rule for it')
+      }
+      /** A BGP or OSPF statement in `instance`. */
+      const protocol = (instance: string, w: readonly string[]): StatementDisposition => {
+        const bgp = ['networkInstances', instance, 'bgp']
+        const as = (word: string) => bounded(word, 1, 0xffffffff, bug.has('malformed'))
+        if (w[0] === 'bgp' && w[1] === 'as' && w.length === 3) {
+          const n = as(w[2])
+          return n === null ? unsupported('not an AS number') : mapped(put([...bgp, 'localAs'], n))
+        }
+        if (w[0] === 'bgp' && w[1] === 'group' && w.length === 3) {
+          object([...bgp, 'groups', w[2]])
+          return mapped(fieldPath(...bgp, 'groups', w[2]))
+        }
+        if (w[0] === 'bgp' && w[1] === 'neighbor' && w[3] === 'as' && w.length === 5) {
+          const n = as(w[4])
+          if (!isAddress(w[2]) && !bug.has('malformed')) return unsupported('not an address')
+          return n === null ? unsupported('not an AS number') : mapped(put([...bgp, 'neighbors', w[2], 'peerAs'], n))
+        }
+        if (w[0] === 'bgp' && w[1] === 'neighbor' && w[3] === 'group' && w.length === 5) return mapped(put([...bgp, 'neighbors', w[2], 'group'], w[4]))
+        if (w[0] === 'ospf' && w[1] === 'area' && w[3] === 'interface' && w.length === 5) {
+          if (!IPV4.test(w[2])) return unsupported('not an area in dotted form')
+          object(['networkInstances', instance, 'ospf', 'areas', w[2], 'interfaces', w[4]])
+          return mapped(fieldPath('networkInstances', instance, 'ospf', 'areas', w[2], 'interfaces', w[4]))
+        }
         return unsupported('the probe stub has no rule for it')
       }
       const route = (instance: string, p: string, hop: string): StatementDisposition => {
@@ -143,6 +196,13 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
         } else if (w[0] === 'vrf' && w[2] === 'route' && w.length === 4) {
           for (const i of bug.has('vrf-scope') ? instances() : [w[1]]) remove(['networkInstances', i, 'staticRoutes', w[3]])
         } else if (w[0] === 'route' && w.length === 2) remove(['networkInstances', 'default', 'staticRoutes', w[1]])
+        else if ((w[0] === 'vrf' && w[2] === 'bgp' && w[3] === 'neighbor' && w.length === 5) || (w[0] === 'bgp' && w[1] === 'neighbor' && w.length === 3)) {
+          const [instance, address] = w[0] === 'vrf' ? [w[1], w[4]] : ['default', w[2]]
+          for (const i of bug.has('vrf-scope') ? instances() : [instance]) remove(['networkInstances', i, 'bgp', 'neighbors', address])
+        } else if ((w[0] === 'vrf' && w[2] === 'ospf' && w[3] === 'area' && w[5] === 'interface' && w.length === 7) || (w[0] === 'ospf' && w[1] === 'area' && w[3] === 'interface' && w.length === 5)) {
+          const [instance, area, ifc] = w[0] === 'vrf' ? [w[1], w[4], w[6]] : ['default', w[2], w[4]]
+          for (const i of bug.has('vrf-scope') ? instances() : [instance]) remove(['networkInstances', i, 'ospf', 'areas', area, 'interfaces', ifc])
+        }
         else if (w[0] === 'community' && w.length === 2) remove(['system', 'snmp', 'communities', w[1]])
         else if (w[0] === 'name-server' && (w.length === 2 || (w.length === 4 && w[2] === 'vrf'))) {
           const server = get(['system', 'dns', 'servers', w[1]])
@@ -184,10 +244,22 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
         for (const family of ['ipv4', 'ipv6'] as const)
           for (const [a, v] of Object.entries(sub?.[family]?.addresses ?? {})) emit(`interface ${name} address ${a}/${v.prefixLength}`, ['interfaces', name, 'subinterfaces', '0', family, 'addresses', a, 'prefixLength'])
       }
+      for (const [id, v] of Object.entries(model.vlans ?? {})) emit(`vlandef ${id}${v.name !== undefined ? ` name ${v.name}` : ''}`, v.name !== undefined ? ['vlans', id, 'name'] : ['vlans', id])
       for (const [name, instance] of Object.entries(model.networkInstances ?? {})) {
-        if (name !== 'default') emit(`vrf ${name}`, ...(instance.type !== undefined ? [['networkInstances', name, 'type']] : []))
+        const vrf = name === 'default' ? '' : `vrf ${name} `
+        const at = ['networkInstances', name]
+        if (name !== 'default') emit(`vrf ${name}`, ...(instance.type !== undefined ? [[...at, 'type']] : []))
         for (const [p, r] of Object.entries(instance.staticRoutes ?? {}))
-          for (const [i, hop] of Object.entries(r.nextHops ?? {})) emit(`${name === 'default' ? '' : `vrf ${name} `}route ${p} ${hop.address}`, ['networkInstances', name, 'staticRoutes', p, 'nextHops', i, 'address'])
+          for (const [i, hop] of Object.entries(r.nextHops ?? {})) emit(`${vrf}route ${p} ${hop.address}`, [...at, 'staticRoutes', p, 'nextHops', i, 'address'])
+        const bgp = instance.bgp
+        if (bgp?.localAs !== undefined) emit(`${vrf}bgp as ${bgp.localAs}`, [...at, 'bgp', 'localAs'])
+        for (const g of Object.keys(bgp?.groups ?? {})) emit(`${vrf}bgp group ${g}`, [...at, 'bgp', 'groups', g])
+        for (const [a, n] of Object.entries(bgp?.neighbors ?? {})) {
+          if (n.peerAs !== undefined) emit(`${vrf}bgp neighbor ${a} as ${n.peerAs}`, [...at, 'bgp', 'neighbors', a, 'peerAs'])
+          if (n.group !== undefined) emit(`${vrf}bgp neighbor ${a} group ${n.group}`, [...at, 'bgp', 'neighbors', a, 'group'])
+        }
+        for (const [area, a] of Object.entries(instance.ospf?.areas ?? {}))
+          for (const i of Object.keys(a.interfaces ?? {})) emit(`${vrf}ospf area ${area} interface ${i}`, [...at, 'ospf', 'areas', area, 'interfaces', i])
       }
       for (const [name, c] of Object.entries(model.system?.snmp?.communities ?? {})) {
         const at = ['system', 'snmp', 'communities', name]
@@ -217,11 +289,28 @@ function hasField(model: Obj, field: string): boolean {
   return fields.has(field)
 }
 
+/** The same OSPF interface and BGP neighbor in the global table and in VRFs A and B, for the scoping probe. */
+const OSPF_BASE = ['interface e1', 'vrf A', 'vrf B', 'ospf area 0.0.0.0 interface e1', 'vrf A ospf area 0.0.0.0 interface e1', 'vrf B ospf area 0.0.0.0 interface e1'].join('\n')
+const BGP_BASE = ['vrf A', 'vrf B', 'bgp neighbor 192.0.2.2 as 65001', 'vrf A bgp neighbor 192.0.2.2 as 65002', 'vrf B bgp neighbor 192.0.2.2 as 65003'].join('\n')
+
 /** The stub's probe adapter: every probe and case, in its syntax. */
 export const PROBE_STUB_ADAPTER: ProbeAdapter = {
   prototypeKeys: {
-    source: (key) => [`community ${key} ro`, `interface ${key}`, `interface ${key} description d`, `vrf ${key}`, `vrf ${key} route 10.0.0.0/8 192.0.2.1`, `search ${key}`, `name-server 192.0.2.53 vrf ${key}`].join('\n'),
-    uses: { interface: true, vrf: true, community: true, dns: true }
+    source: (key) =>
+      [
+        `community ${key} ro`,
+        `interface ${key}`,
+        `interface ${key} description d`,
+        `vrf ${key}`,
+        `vrf ${key} route 10.0.0.0/8 192.0.2.1`,
+        `search ${key}`,
+        `name-server 192.0.2.53 vrf ${key}`,
+        `vlandef 10 name ${key}`,
+        `bgp group ${key}`,
+        `bgp neighbor 192.0.2.2 group ${key}`,
+        `ospf area 0.0.0.0 interface ${key}`
+      ].join('\n'),
+    uses: { interface: true, vrf: true, community: true, dns: true, vlan: true, 'bgp-group': true }
   },
   snmpAccess: {
     'read-only': 'community PLACEHOLDER-RO ro\ncommunity PLACEHOLDER-RO clients 192.0.2.0/24',
@@ -232,17 +321,23 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     description: { set: 'interface e1\ninterface e1 description uplink', negated: 'interface e1\ninterface e1 description uplink\nno interface e1 description', path: ['interfaces', 'e1', 'description'] },
     'name-server': { set: 'name-server 192.0.2.53', negated: 'name-server 192.0.2.53\nno name-server 192.0.2.53', path: ['system', 'dns', 'servers', '192.0.2.53'] },
     'static-route': { set: 'route 10.0.0.0/8 192.0.2.1', negated: 'route 10.0.0.0/8 192.0.2.1\nno route 10.0.0.0/8', path: ['networkInstances', 'default', 'staticRoutes', '10.0.0.0/8'] },
-    community: { set: 'community PLACEHOLDER ro', negated: 'community PLACEHOLDER ro\nno community PLACEHOLDER', path: ['system', 'snmp', 'communities', 'PLACEHOLDER'] }
+    community: { set: 'community PLACEHOLDER ro', negated: 'community PLACEHOLDER ro\nno community PLACEHOLDER', path: ['system', 'snmp', 'communities', 'PLACEHOLDER'] },
+    'bgp-neighbor': { set: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001', negated: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001\nno bgp neighbor 192.0.2.2', path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2'] },
+    'ospf-interface': { set: 'interface e1\nospf area 0.0.0.0 interface e1', negated: 'interface e1\nospf area 0.0.0.0 interface e1\nno ospf area 0.0.0.0 interface e1', path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'e1'] }
   },
   malformed: {
     'ipv4-address': { source: 'interface e1\ninterface e1 address 999.1.1.1/24', value: '999.1.1.1' },
     'ipv6-address': { source: 'interface e1\ninterface e1 address dead::beef::1/64', value: 'dead::beef::1' },
     mask: { source: 'interface e1\ninterface e1 address 192.0.2.1/33', value: '192.0.2.1/33' },
-    'next-hop': { source: 'route 10.0.0.0/8 192.0.2.300', value: '192.0.2.300' }
+    'next-hop': { source: 'route 10.0.0.0/8 192.0.2.300', value: '192.0.2.300' },
+    'as-number': { source: 'bgp neighbor 192.0.2.2 as 4294967296', value: '4294967296' },
+    'vlan-id': { source: 'vlandef 4095', value: '4095' }
   },
   vrfScoping: {
     delete: { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A', vrf: 'A' },
     dns: { base: 'vrf A\nname-server 192.0.2.53\nname-server 192.0.2.54 vrf A', changed: 'vrf A\nname-server 192.0.2.53\nname-server 192.0.2.54 vrf A\nno name-server 192.0.2.53 vrf A\nno name-server 192.0.2.54 vrf A', vrf: 'A' },
-    'static-route': { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A route 10.0.0.0/8', vrf: 'A' }
+    'static-route': { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A route 10.0.0.0/8', vrf: 'A' },
+    ospf: { base: OSPF_BASE, changed: `${OSPF_BASE}\nno vrf A ospf area 0.0.0.0 interface e1`, vrf: 'A' },
+    bgp: { base: BGP_BASE, changed: `${BGP_BASE}\nno vrf A bgp neighbor 192.0.2.2`, vrf: 'A' }
   }
 }
