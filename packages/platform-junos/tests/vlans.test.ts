@@ -44,10 +44,22 @@ describe('a VLAN', () => {
     expect(errors(p).map((d) => [d.code, d.message])).toEqual([['junos.vlan-id-twice', 'Two VLANs have the same vlan-id: Junos accepts a VLAN ID once (lines 1, 2).']])
   })
 
-  it('with a vlan-id-list converts not at all: the later of vlan-id and vlan-id-list replaces the other', () => {
+  it('whose vlan-id-list wins converts not at all: the later of vlan-id and vlan-id-list replaces the other', () => {
     const p = parse(set('set vlans servers vlan-id 30', 'set vlans servers vlan-id-list 31-32', 'set interfaces ge-0/0/0 unit 0 family ethernet-switching vlan members servers'), context)
     expect(p.model).toEqual({})
-    expect(kinds(p)).toEqual(['unsupported', 'unsupported', 'unsupported'])
+    expect(reasons(p)).toEqual(['ignored-by-design: superseded by line 2', 'unsupported: a VLAN with a list of IDs: the model gives a VLAN one ID', "unsupported: names a VLAN the configuration doesn't give a vlan-id"])
+  })
+
+  it('whose vlan-id wins, later or from the configuration over a group, converts, the list superseded', () => {
+    const later = parse(set('set vlans servers vlan-id-list 31-32', 'set vlans servers vlan-id-list 40', 'set vlans servers vlan-id 30', 'set interfaces ge-0/0/0 unit 0 family ethernet-switching vlan members servers'), context)
+    expect(later.model).toEqual({ vlans: { '30': { name: 'servers' } }, interfaces: { 'ge-0/0/0': { type: 'ethernet', switching: { accessVlan: 30 } } } })
+    expect(reasons(later)).toEqual(['ignored-by-design: superseded by line 3', 'ignored-by-design: superseded by line 3', 'mapped', 'mapped'])
+    const grouped = parse(set('set groups G vlans V vlan-id-list 11-12', 'set apply-groups G', 'set vlans V vlan-id 10'), context)
+    expect(grouped.model).toEqual({ vlans: { '10': { name: 'V' } } })
+    expect(reasons(grouped)[0]).toBe('ignored-by-design: superseded by line 3')
+    // And a group's vlan-id loses to the configuration's list.
+    const listed = parse(set('set groups G vlans V vlan-id 10', 'set apply-groups G', 'set vlans V vlan-id-list 11-12'), context)
+    expect(listed.model).toEqual({})
   })
 
   it('without an ID converts not at all, nor do the ports that name it', () => {
@@ -100,6 +112,15 @@ describe('a switch port', () => {
     expect(kinds(p)).toEqual(['unsupported', 'unsupported', 'mapped'])
   })
 
+  it("that isn't a trunk takes no native VLAN, its interface-mode access or left out: nothing is made a trunk", () => {
+    for (const mode of [[], ['set interfaces ge-0/0/0 unit 0 family ethernet-switching interface-mode access']]) {
+      const p = parse(set('set vlans V vlan-id 10', ...mode, 'set interfaces ge-0/0/0 native-vlan-id 10'), context)
+      expect(p.model.interfaces?.['ge-0/0/0']?.switching?.nativeVlan).toBeUndefined()
+      expect(reasons(p).at(-1)).toBe("unsupported: a native VLAN on a port that isn't a trunk (interface-mode trunk): Junos takes one on a trunk only")
+      expect(checkFixture(plugin, { name: 'native off a trunk', source: set('set vlans V vlan-id 10', ...mode, 'set interfaces ge-0/0/0 native-vlan-id 10'), expectedModel: p.model }).filter((c) => c.status === 'failed')).toEqual([])
+    }
+  })
+
   it("with a native VLAN the configuration doesn't define keeps the rest", () => {
     const p = parse(set('set interfaces xe-0/0/0 unit 0 family ethernet-switching interface-mode trunk', 'set interfaces xe-0/0/0 native-vlan-id 99'), context)
     expect(p.model.interfaces!['xe-0/0/0'].switching).toEqual({ mode: 'trunk' })
@@ -119,6 +140,14 @@ describe('an IRB unit', () => {
     expect(kinds(p)).toEqual(['mapped', 'unsupported', 'unsupported', 'mapped', 'mapped'])
     expect(p.diagnostics.map((d) => [d.severity, d.code, d.message])).toEqual([['warning', 'junos.irb-without-vlan', "An IRB unit routes for no VLAN, so it isn't converted (lines 2, 3)."]])
     expect(modelProblems(p.model)).toEqual([])
+  })
+
+  it("whose VLAN is a mac-vrf's, which isn't converted, is left out too, as unsupported, never given a VLAN", () => {
+    const p = parse(set('set routing-instances M instance-type mac-vrf', 'set routing-instances M vlans V vlan-id 10', 'set routing-instances M vlans V l3-interface irb.10', 'set interfaces irb unit 10 family inet address 192.0.2.1/24', 'set interfaces ge-0/0/0 unit 0 family inet address 198.51.100.1/24'), context)
+    expect(p.model).toEqual({ interfaces: { 'ge-0/0/0': { type: 'ethernet', subinterfaces: { '0': { ipv4: { addresses: { '198.51.100.1': { prefixLength: 24 } } } } } } } })
+    expect(kinds(p)).toEqual(['unsupported', 'unsupported', 'unsupported', 'unsupported', 'mapped'])
+    expect(p.diagnostics.map((d) => d.code)).toEqual(['junos.irb-without-vlan'])
+    expect(errors(p)).toEqual([])
   })
 
   it('of an irb none of whose units routes for a VLAN leaves out the irb interface whole', () => {

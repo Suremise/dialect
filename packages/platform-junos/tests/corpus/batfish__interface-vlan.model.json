@@ -5,6 +5,12 @@
       "hostname": "interface-vlan"
     },
     "interfaces": {
+      "ge-0/0/0": {
+        "type": "ethernet",
+        "switching": {
+          "accessVlan": 101
+        }
+      },
       "ge-0/2/0": {
         "type": "ethernet",
         "switching": {}
@@ -63,6 +69,9 @@
       }
     },
     "vlans": {
+      "101": {
+        "name": "VLAN_ID_TEST"
+      },
       "102": {
         "name": "VLAN_TEST_UNUSED"
       },

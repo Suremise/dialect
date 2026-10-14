@@ -751,15 +751,17 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   creating the unit as `routing-instances … interface` does). On unit 0, `family ethernet-switching` is the
   interface's `switching`: `interface-mode` its `mode`, and `vlan members` (names, IDs, ranges, `all` as `1-4094`) a
   trunk's `allowedVlans`, each once, or an access port's `accessVlan` (access is Junos's default mode, so a port with
-  no `interface-mode` is one); `native-vlan-id` on the interface is its `nativeVlan`. Where the source can't be read
+  no `interface-mode` is one); `native-vlan-id` on the interface is a trunk's `nativeVlan` (on a port without
+  `interface-mode trunk` it is `unsupported`, as Junos takes one on a trunk only, and no mode is made up). Where the source can't be read
   one way, nothing is guessed: **Junos refuses** two VLANs with one ID and two VLANs naming one IRB unit, so each is an
-  error naming the lines, and neither converts; **a VLAN with a `vlan-id-list`** converts not at all (the later of
-  `vlan-id` and `vlan-id-list` replaces the other); one with no ID neither, nor a member that names a VLAN without one;
+  error naming the lines, and neither converts; `vlan-id` and `vlan-id-list` replace each other, so they settle as one
+  setting (rank, then order): **a VLAN whose `vlan-id-list` wins** converts not at all, and a list its `vlan-id` wins
+  over is superseded; a VLAN with no ID converts neither, nor a member that names a VLAN without one;
   **an access port** naming more than one VLAN, a range or a VLAN that doesn't convert is in none; **a non-ELS port**
   (`port-mode`, `native-vlan-id` under its family, VLAN ports listed under the VLAN, `l3-interface vlan.N`) converts
   not at all, so a trunk never comes out an access port; switching on another unit is `unsupported`. A port or
   interface that only unconverted statements configured is left out of the model. **An IRB unit that routes for no
-  VLAN** (none of `vlans … l3-interface` names it, or only a mac-vrf's) isn't converted: its statements, its routing
+  VLAN** (none of `vlans … l3-interface` names it, or only a mac-vrf's) isn't converted (the user's decision on #60): its statements, its routing
   instance membership too, are `unsupported`, with a `junos.irb-without-vlan` warning naming the lines, and the irb
   interface goes whole when none of its units routes, so the model's referential check (`model.irb-without-vlan`)
   holds. Groups and ranges apply as everywhere (R1–R12): a VLAN's ID is a single setting, members add up.
