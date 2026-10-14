@@ -238,6 +238,38 @@ fixtures needs any more, so the fix takes the allowance with it (one scoped to f
 file's). There are none today: the last ones, for IOS-XE's VRF messages naming a VRF that shared its name with an
 SNMP community, went when those messages stopped quoting the name (#29).
 
+### Probes (`probes.ts`, #33)
+
+Beside its fixtures, a plugin runs the kit's probes for the bug classes reviews kept finding, by giving its
+`ProbeAdapter` (`describeConformance(plugin, dir, { probes })`): small sources in its own syntax, and the kit checks
+what comes out the same way for every platform (`runProbes()`):
+1. **prototype keys:** one source using `__proto__`, `constructor` and `toString` as each name it can (an interface, a
+   VRF, an SNMP community, a DNS name), in one text: each stays an own key where the model keeps that name, the source
+   passes the five fixture checks with the key as a secret (a community is one, and a VRF of the same name is too), and
+   `Object.prototype` is unchanged after two parses and renders: every own property's descriptor (a value or accessor
+   by identity, each flag), no property added or removed, and its prototype. What changed is reported and put back;
+2. **SNMP access never widens:** a source with one community limited to some clients, read-only and read-write. The
+   parse and the render → reparse each have it with clients or not at all. A render of the kit's own limited community
+   (`PROBE-COMMUNITY`, read-only or read-write, clients `192.0.2.0/24`) → reparse has it back exactly (the same access
+   and clients, its fields `rendered`, no other community, no error), or not at all with its fields `unsupported`;
+3. **negation clears state** (an address, a description, a name server, a static route, a community): the value at the
+   case's path is there after `set`, and in neither the parse nor the render → reparse of `negated`;
+4. **malformed values are flagged, not mapped** (an IPv4 or IPv6 address, a mask, a next hop): unless the parse reports
+   an error, a statement on the value's line (the case's `line`, or every line with it) is `unsupported`, none starting
+   there is `mapped` or `ignored-by-design`, and the value is in no model (as a key or a value). A statement that
+   vanishes without a word fails;
+5. **VRF scoping** (a delete, a DNS change, a static route change): every leaf that differs between `base` and
+   `changed` is the VRF's, and the case changes something. A leaf is the VRF's under its network instance, or under an
+   entry that belongs to it: where `base` puts an entry it already has (no `networkInstance`: the global table), and
+   where `changed` puts a new one, so a change can't move another VRF's entry in and make its edits look in scope.
+
+Every probe source also goes through the five fixture checks, the secrets check with the community names its parse
+has (and a cleared one's) among its secrets. Every probe and case is a choice in the adapter's types: given, or
+`{ notApplicable: 'why' }` for an area the plugin doesn't have, which the suite shows as a skipped test with its reason.
+A plugin with no adapter shows its probes as one skipped test, never as passing; each existing plugin's adapter is its
+own lane's follow-up card, which fixes what its probes find in the plugin (that lane owns it), so the probes have no
+allowances of their own; a probe source's secrets go through the secrets allowances like any fixture's.
+
 The kit's own tests (`packages/conformance/tests`) use a test-only stub platform, a tiny brace language, to show the
 checks catch careless plugins:
 - a mapper that handles only `host-name` in `system { host-name r1; services { ssh; } }`: `system services ssh` is
@@ -247,7 +279,11 @@ checks catch careless plugins:
   renderer leaves 0.3's VRF membership, route distinguisher and route targets unrendered;
 - a parse that puts an interface in a VRF it never declares, or gives a malformed route distinguisher, fails the parse
   check;
-- a stub that quotes a secret in each kind of message the secrets check looks in (`tests/secrets.test.ts`).
+- a stub that quotes a secret in each kind of message the secrets check looks in (`tests/secrets.test.ts`);
+- a line-language probe stub (`tests/probeStub.ts`) with a switch for each probe's bug class: `{}` containers that
+  turn `__proto__` into a prototype, a client list dropped on parse or on render, `no` forms that remove nothing, any
+  address taken as one, and a `no` in one VRF that removes the same thing everywhere. Each fails its probe; the
+  careful stub passes them all (`tests/probes.test.ts`).
 
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
