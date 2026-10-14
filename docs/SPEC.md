@@ -10,7 +10,9 @@ product decisions.
 - **Name:** the product's working name is **Dialect**. The local project and folder stay `juniper`.
 - **What it does:** translates network device configs between vendor "dialects", fully offline:
   - **Junos display set**: hierarchical Junos config to `set` commands (a Junos-only tool, shared with the Junos
-    plugin's parser).
+    plugin's parser). The app counts its output in commands (`set`, `deactivate` and `protect` alike); when a quoted
+    value's line breaks (a banner) make the output longer than that, it gives the line count too ("2 commands (4
+    lines)"). Each output line links to its statement.
   - **Convert**: Junos ⇄ Cisco (IOS/IOS-XE first; NX-OS and IOS-XR later), through a shared model (§4).
 - **Three products from one TypeScript core:**
   - the **desktop app** (Tauri 2, Windows, NSIS installer only, no MSI);

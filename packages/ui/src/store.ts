@@ -120,6 +120,24 @@ export function targetPlugin(id: string): PlatformPlugin {
   return TARGETS.find((p) => p.id === id) ?? TARGETS[0]
 }
 
+/**
+ * How many commands a display set holds: set, deactivate and protect alike. A quoted value can hold line breaks (a
+ * banner), so one command can be several lines: a line break ends a command only outside quotes, read as Junos's
+ * tokenizer reads them (in a quoted string, a backslash escapes the character after it).
+ */
+export function countCommands(output: string): number {
+  if (output === '') return 0
+  let commands = 1
+  let quoted = false
+  for (let i = 0; i < output.length; i++) {
+    const c = output[i]
+    if (quoted && c === '\\') i++
+    else if (c === '"') quoted = !quoted
+    else if (c === '\n' && !quoted) commands++
+  }
+  return commands
+}
+
 const withoutFinalNewline = (text: string): string => (text.endsWith('\n') ? text.slice(0, -1) : text)
 
 function deriveDisplaySet(source: string): Derived {

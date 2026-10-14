@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { outputName, useStore } from '../src/store'
+import { countCommands, outputName, useStore } from '../src/store'
 
 beforeEach(() => {
   useStore.getState().setSource('', null)
@@ -49,6 +49,33 @@ describe('the store', () => {
     const first = useStore.getState().reveal!
     useStore.getState().revealAt('source', 3)
     expect(useStore.getState().reveal).toEqual({ ...first, seq: first.seq + 1 })
+  })
+})
+
+describe('countCommands', () => {
+  it('counts a command per line, and a quoted line break as part of its command', () => {
+    expect(countCommands('')).toBe(0)
+    expect(countCommands('set system host-name r1')).toBe(1)
+    expect(countCommands('set system host-name r1\nset system services ssh\ndeactivate system services')).toBe(3)
+    expect(countCommands('set system login message "one\ntwo\nthree"\nset system host-name r1')).toBe(2)
+    // An escaped quote doesn't end the string; a backslash outside quotes is an ordinary character.
+    expect(countCommands('set system login message "a \\"b\nc\\" d"\nset x \\\nset y')).toBe(3)
+    expect(countCommands('set system login message "ends in a backslash \\\\"\nset y')).toBe(2)
+  })
+
+  it("matches the display set's own commands for a banner, its lines linked to one statement", () => {
+    useStore.getState().setSource('system {\n    login {\n        message "one\ntwo\nthree";\n    }\n    host-name r1;\n}\n')
+    const { output, sourceLines } = useStore.getState()
+    expect(output.split('\n')).toHaveLength(4)
+    expect(countCommands(output)).toBe(2)
+    expect(sourceLines).toEqual([3, 3, 3, 7])
+  })
+
+  it('counts deactivate and protect lines as commands of their own', () => {
+    useStore.getState().setSource('system {\n    protect: host-name r1;\n    inactive: login {\n        message "one\ntwo";\n    }\n}\n')
+    const { output } = useStore.getState()
+    expect(output).toBe('set system host-name r1\nprotect system host-name r1\nset system login message "one\ntwo"\ndeactivate system login')
+    expect(countCommands(output)).toBe(4)
   })
 })
 
