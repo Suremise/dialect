@@ -1,0 +1,62 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "TestRouter"
+    },
+    "interfaces": {
+      "GigabitEthernet0/0/0": {
+        "type": "ethernet",
+        "description": "WAN uplink to ISP",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "GigabitEthernet0/0/1": {
+        "type": "ethernet",
+        "description": "LAN segment",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.10.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "Loopback0": {
+        "type": "loopback",
+        "description": "Router ID",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.255.0.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/2": {
+        "type": "ethernet",
+        "description": "Unused port",
+        "enabled": false
+      }
+    }
+  }
+}

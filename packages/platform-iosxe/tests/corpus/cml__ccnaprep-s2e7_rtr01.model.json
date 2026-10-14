@@ -1,0 +1,67 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "rtr01",
+      "domainName": "example.com",
+      "ntp": {
+        "servers": {
+          "192.168.100.100": {}
+        }
+      }
+    },
+    "interfaces": {
+      "e0/1": {
+        "type": "ethernet",
+        "description": "Link to Inside Hosts",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.168.0.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "e0/0": {
+        "type": "ethernet",
+        "description": "Link to Internet",
+        "enabled": true
+      },
+      "e0/2": {
+        "type": "ethernet",
+        "description": "Link to Lab NTP Server",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.168.100.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.0.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

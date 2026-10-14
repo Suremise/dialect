@@ -1,7 +1,8 @@
 # Dialect: architecture
 
 How the code fits together. Product decisions are in [SPEC.md](SPEC.md); the reasoning behind the design is in the
-spike report ([spike-desktop-app.md](spike-desktop-app.md)). This describes the repo as built so far: B1's scaffold and B2's core contracts.
+spike report ([spike-desktop-app.md](spike-desktop-app.md)). This describes the repo as built so far: B1's scaffold, B2's core contracts and
+B8's IOS / IOS-XE plugin.
 Each card that adds code updates the part it changes.
 
 ## Packages
@@ -11,6 +12,7 @@ packages/
   core/             @dialect/core           shared model (+ MODEL_VERSION), coverage ledger, plugin interface, registry
   conformance/      @dialect/conformance    dev-only: Vitest conformance kit + negative tests for plugins
   platform-junos/   @dialect/platform-junos tree parser, display set tool, map/render
+  platform-iosxe/   @dialect/platform-iosxe indentation-tree parser, map/render for phase 1, detect
   cli/              @dialect/cli            Node CLI: display-set and convert, files and stdin/stdout
   ui/               @dialect/ui             React UI shared by both shells
 apps/
@@ -19,7 +21,8 @@ apps/
 docs/  scripts/  tests/  branding/
 ```
 
-`core` and `conformance` hold B2's contracts (below); the other packages are stubs for now. Packages are **source packages**: their `exports` point at
+`core` and `conformance` hold B2's contracts (below), and `platform-iosxe` is the first plugin built on them (below); the
+other packages are stubs for now. Packages are **source packages**: their `exports` point at
 TypeScript, and whichever shell bundles them compiles them (Vite, from group C). Nothing is emitted by `tsc`, which
 only checks.
 
@@ -156,6 +159,44 @@ checks catch careless plugins:
   unmapped although line 1 is "covered";
 - a renderer that handles only a BGP neighbor's address and remote AS: `…neighbors["10.0.0.2"].multihop.ttl` is
   unrendered although the neighbor was, also when `multihop` is a field of a later minor model version.
+
+## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
+
+The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
+`modelApi: '>=0.1.0 <1.0.0'`), with `detect`, `parse` and `render`.
+
+- **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
+  statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
+  Two delimited bodies are recognised and kept whole, verbatim, as one atomic statement with no children: a **banner**
+  (`banner [type] <d>…<d>`, any delimiter; `^C` as `show running-config` writes Ctrl-C is one two-character delimiter;
+  text after the closing delimiter belongs to it) and a **certificate chain** (`crypto pki|ca certificate chain`, each
+  `certificate` running to its own `quit` whatever the hex's indentation). An unterminated one is an error diagnostic
+  and takes the rest of the text.
+- **Parse (`parse.ts`):** hostname, `ip domain name`, interfaces and subinterfaces (`Gi0/1.10`: subinterface `10` of
+  `Gi0/1`; a main interface's addresses are subinterface `0`), dotted masks → prefix lengths, `secondary` addresses (the
+  primary gets `primary: true` only beside secondaries), `encapsulation dot1Q` (also setting the parent's
+  `vlanTagging`), `shutdown`, `description`, MTUs; `ip route` / `ipv6 route` with VRF, interface, next hop, distance,
+  `tag` and `name`, `Null0` as `drop: 'discard'`; `ntp server`/`source`; `logging host`, `trap`, `facility` (IOS's one
+  trap level and facility are copied onto every host) and `source-interface`; `snmp-server community` (`RO`/`RW`),
+  `location` and `contact`. The interface type is derived from the name. A statement is `mapped` only when every
+  option on it is understood; one with an option the model can't hold (`ntp server … key 1`, a community with an ACL,
+  `ip route … track 1`) is `unsupported` as a whole, and so is every unknown statement and everything inside it. A later
+  single-valued setting supersedes an earlier one (`ignored-by-design`, "superseded by line N"), as on the device, and
+  `no ip address` removes the addresses before it. A `secondary` address with no primary is unsupported: the model
+  can mark a primary but not a secondary, so it would come back as the primary. `ip name-server` is unsupported until
+  the model has DNS servers (#21, #22). Keys come from the configuration (`snmp-server community __proto__`), so the
+  model is built with own properties only, never through Object.prototype.
+- **Render (`render.ts`):** gives every leaf of model 0.1 a disposition and leaves a later version's fields without
+  one, so the ledger reports them. `type` and `vlanTagging` are `not-applicable` (IOS says them through the name and
+  `encapsulation dot1Q`). What IOS can't write is `unsupported` with why: unit 0's own description or shutdown, a
+  `reject` route, a static route's metric, an SNMP community limited to some clients (left out whole, with a warning, rather than
+  written open to every client: that needs an ACL, with filters later), and per-host syslog
+  severities or facilities that differ. A VRF's `type` is unsupported (no `vrf definition` yet) and its routes get a
+  semantic warning; with several IPv4 addresses and no primary, the first becomes primary, with a warning.
+- **Tests:** `tests/fixtures/<area>` are hand-written, with expected models and renders, through the conformance kit.
+  `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
+  against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own
+  parse (no error, a complete ledger, a stable round trip).
 
 ## TypeScript
 

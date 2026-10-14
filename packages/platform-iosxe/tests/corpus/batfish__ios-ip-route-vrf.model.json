@@ -1,0 +1,23 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "ios-ip-route-vrf"
+    },
+    "networkInstances": {
+      "management": {
+        "type": "vrf",
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "description": "mgmt vrf default route",
+            "nextHops": {
+              "0": {
+                "address": "1.2.3.4"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
