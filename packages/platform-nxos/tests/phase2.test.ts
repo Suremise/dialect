@@ -261,11 +261,16 @@ describe('BGP', () => {
     expect(roundTrips(text)).toEqual([])
   })
 
-  it('a route map is taken by name only, with a warning that doesn\'t name it', () => {
-    const result = parse(lines('router bgp 65000', '  neighbor 192.0.2.2', '    remote-as 65001', '    address-family ipv4 unicast', '      route-map CANARY in'))
+  it('a route map resolves to its policy (model 0.5.0); one undefined or not converted isn\'t kept', () => {
+    const peer = ['router bgp 65000', '  neighbor 192.0.2.2', '    remote-as 65001', '    address-family ipv4 unicast', '      route-map CANARY in']
+    const result = parse(lines(...peer, 'route-map CANARY permit 10'))
     expect(bgp(result)?.neighbors?.['192.0.2.2'].addressFamilies).toEqual({ 'ipv4-unicast': { importPolicies: ['CANARY'] } })
-    expect(result.diagnostics).toEqual([expect.objectContaining({ severity: 'warning', category: 'semantic', code: 'nxos.route-map-name-only', statement: 'L5' })])
-    expect(result.diagnostics[0].message).not.toContain('CANARY')
+    expect(result.diagnostics).toEqual([])
+    const undefinedMap = parse(lines(...peer))
+    expect(bgp(undefinedMap)?.neighbors?.['192.0.2.2'].addressFamilies).toEqual({ 'ipv4-unicast': {} })
+    expect(at(undefinedMap, 5)).toEqual({ kind: 'unsupported', reason: 'names a route map the configuration doesn\'t define: what NX-OS then does with the routes isn\'t converted' })
+    const unconverted = parse(lines(...peer, 'route-map CANARY permit 10', '  match ip address ACL'))
+    expect(at(unconverted, 5)).toEqual({ kind: 'unsupported', reason: 'names a route map that isn\'t converted' })
   })
 
   it('"no" forms: a neighbor, a template, a setting, a family, BGP itself, the feature', () => {
@@ -320,8 +325,8 @@ describe('BGP', () => {
     // NX-OS accepts an eBGP peer's routes with no route map: said for the ways a neighbor has none (2001:db8::1 has none).
     expect(parsed.model.networkInstances?.default.bgp?.ebgpDefaultPolicy).toEqual({ import: 'accept', export: 'accept' })
     const result = render(parsed.model)
-    // From an NX-OS source, nothing differs: only the route maps written by name.
-    expect(result.diagnostics.map((d) => [d.code, d.field])).toEqual([['nxos.route-map-name-only', 'networkInstances.default.bgp.neighbors["198.51.100.1"]']])
+    // From an NX-OS source, nothing differs: its route maps are written with their policies.
+    expect(result.diagnostics).toEqual([])
     expect(result.dispositions['networkInstances.default.bgp.ebgpDefaultPolicy.import']).toMatchObject({ kind: 'not-applicable' })
     // From IOS-XR, which drops them (reject), an eBGP neighbor with no route map that way warns; its message names no peer.
     const xr: Device = { networkInstances: { default: { bgp: { localAs: 65000, ebgpDefaultPolicy: { import: 'reject' }, neighbors: { '198.51.100.9': { peerAs: 64512, addressFamilies: { 'ipv4-unicast': { exportPolicies: ['OUT'] } } } } } } } }

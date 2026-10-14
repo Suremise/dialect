@@ -1,4 +1,18 @@
 // Addresses as NX-OS writes them: IPv4 with a prefix length (`10.0.0.1/24`) or a dotted mask (`10.0.0.1 255.255.255.0`).
+// Also the numbers parse.ts and policy.ts both read: integers in a range and AS numbers.
+import { isAsNumber } from '@dialect/core'
+
+/** A number from `min` to `max` written as one, or null. */
+export const inRange = (text: string | undefined, min: number, max: number): number | null => (text !== undefined && /^\d{1,10}$/.test(text) && Number(text) >= min && Number(text) <= max ? Number(text) : null)
+
+/** An AS number in plain form: NX-OS takes `65000` or asdot `1.10` (65546). Null when it isn't one from 1 to 4294967295. */
+export function asNumber(text: string): number | null {
+  const dot = /^(\d{1,5})\.(\d{1,5})$/.exec(text)
+  const high = dot ? inRange(dot[1], 0, 65535) : null
+  const low = dot ? inRange(dot[2], 0, 65535) : null
+  const n = dot ? (high !== null && low !== null ? high * 65536 + low : null) : inRange(text, 1, 4294967295)
+  return n !== null && isAsNumber(n) ? n : null
+}
 
 const IPV4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
 

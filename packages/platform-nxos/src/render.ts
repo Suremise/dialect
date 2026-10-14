@@ -1,5 +1,5 @@
-// The shared model → NX-OS text. Every populated leaf of model 0.4 gets a disposition:
-// `rendered` with the line it went to, `unsupported` with why (NX-OS can't say it, or this renderer can't yet), or
+// The shared model → NX-OS text, with model 0.5's routing policy (renderPolicy.ts). Every populated leaf of model 0.4
+// and of 0.5's routing policy gets a disposition: `rendered` with the line it went to, `unsupported` with why (NX-OS can't say it, or this renderer can't yet), or
 // `not-applicable` (NX-OS implies it). Fields of a later model version are left without one, so the ledger reports them
 // as unrendered rather than this renderer claiming them. The text says everything it relies on: each `feature` a
 // written statement needs, and `switchport` or `no switchport` on every Ethernet and port-channel interface, so the
@@ -9,6 +9,7 @@ import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves,
 import { isIpv4, isIpv6 } from './addresses'
 import { featuresFor, OSPF_FEATURE, VPN_FEATURE } from './features'
 import { isSwitchable } from './names'
+import { planRoutingPolicy } from './renderPolicy'
 import { SEVERITY_LEVELS, SNMP_GROUPS } from './parse'
 import { vlanEntries } from './vlans'
 
@@ -727,6 +728,7 @@ export function render(model: Device, context: Context): RenderResult {
    * the whole peer goes into each family it carries (its template's too), unless the family has its own.
    */
   function renderPeerFamilies(peer: BgpPeer, at: Segments, indent: string, group?: BgpGroup) {
+    const known = (name: string) => model.routingPolicy?.policies !== undefined && Object.hasOwn(model.routingPolicy.policies, name)
     const own = peer.addressFamilies ?? {}
     emptyContainer(own, [...at, 'addressFamilies'])
     for (const family of Object.keys(own)) if (!(FAMILIES as readonly string[]).includes(family)) skipAll(own[family as BgpAddressFamilyName], [...at, 'addressFamilies', family], 'an address family NX-OS\'s phase 2 rendering doesn\'t write')
@@ -744,10 +746,13 @@ export function render(model: Device, context: Context): RenderResult {
         if (!list.length) skip(where, 'not-applicable', 'no policy: nothing to write')
         else if (list.length > 1) skip(where, 'unsupported', 'NX-OS applies one route map each way: a chain of policies isn\'t written')
         else if (!/^\S{1,63}$/.test(list[0])) skip(where, 'unsupported', 'not a route map name NX-OS takes')
+        // A policy of the model is named only when it is written; one the model doesn't have (from a source that keeps
+        // policy names alone, before model 0.5.0) is named alone, with a warning.
+        else if (known(list[0]) && !policyPlan.policies.has(list[0])) skip(where, 'unsupported', 'names a policy NX-OS can\'t write as a route map')
         else {
           emit(`${indent}  route-map ${list[0]} ${direction}`, ...(af?.[field] !== undefined || !peerLevel[field] ? [where] : []))
           if (af?.[field] === undefined) peerLevel[field] = true
-          maps++
+          if (!known(list[0])) maps++
         }
       }
     }
@@ -755,7 +760,7 @@ export function render(model: Device, context: Context): RenderResult {
       if (peer[field] === undefined || peerLevel[field] || Object.hasOwn(dispositions, fieldPath(...at, field))) continue
       skip([...at, field], 'unsupported', families.length ? 'every family the peer carries has its own policy' : 'NX-OS applies a route map per address family, and the peer carries none')
     }
-    if (maps) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.route-map-name-only', message: 'A policy is written as a route map by its name only: its body isn\'t converted yet, so NX-OS needs a route map of that name.', field: fieldPath(...at) })
+    if (maps) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'nxos.route-map-name-only', message: 'A policy is written as a route map by its name only: the model has no body for it, so NX-OS needs a route map of that name.', field: fieldPath(...at) })
   }
 
   /**
@@ -781,8 +786,18 @@ export function render(model: Device, context: Context): RenderResult {
     }
   }
 
+  // Routing policy is planned first, as BGP writes a route map only when its policy is written (renderPolicy.ts).
+  const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
   renderOspfProcesses()
   renderBgp()
+  if (policyPlan.lines.length) separator()
+  for (const l of policyPlan.lines) {
+    // Each route map sequence is a block of its own, as NX-OS shows them.
+    if (l.text.startsWith('route-map ')) separator()
+    emit(l.text, ...l.fields)
+    const n = lines.length
+    if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
+  }
 
   return { text: `${lines.join('\n')}\n`, dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }
 }

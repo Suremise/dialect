@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.4.1",
+  "modelVersion": "0.5.1",
   "device": {
     "system": {
       "hostname": "nxos_bgp"
@@ -12,14 +12,7 @@
             "PEER_BLLF": {
               "peerAs": 12345,
               "addressFamilies": {
-                "ipv4-unicast": {
-                  "importPolicies": [
-                    "IN_BBB"
-                  ],
-                  "exportPolicies": [
-                    "EG_CCC"
-                  ]
-                }
+                "ipv4-unicast": {}
               }
             }
           },
@@ -27,6 +20,10 @@
             "1.1.1.1": {
               "group": "PEER_BLLF"
             }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "accept",
+            "export": "accept"
           }
         }
       }

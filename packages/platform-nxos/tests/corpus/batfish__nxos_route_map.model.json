@@ -1,0 +1,415 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "nxos_route_map"
+    },
+    "interfaces": {
+      "loopback0": {
+        "type": "loopback",
+        "enabled": true,
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "loopback1": {
+        "type": "loopback"
+      },
+      "Vlan1": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 1,
+            "ipv4": {
+              "addresses": {
+                "10.0.1.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan2": {
+        "type": "vlan",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan3": {
+        "type": "vlan",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.3.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      },
+      "Vlan4": {
+        "type": "vlan",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.4.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "prefix_list1": {
+            "entries": {
+              "10": {
+                "action": "permit",
+                "prefix": "192.168.1.0/24",
+                "minLength": 24,
+                "maxLength": 24,
+                "form": "exact"
+              }
+            }
+          }
+        },
+        "ipv6": {
+          "ipv6_prefix_list1": {
+            "entries": {
+              "10": {
+                "action": "permit",
+                "prefix": "dead:beef::1/128",
+                "minLength": 128,
+                "maxLength": 128,
+                "form": "exact"
+              }
+            }
+          }
+        }
+      },
+      "communitySets": {
+        "community_list_expanded": {
+          "type": "standard",
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "_64512:3[0-9][0-9][0-9][0-9]_"
+              ]
+            }
+          }
+        },
+        "community_list_standard": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "1:1",
+                "2:2"
+              ]
+            }
+          }
+        },
+        "community_list_standard_single": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "1:1"
+              ]
+            }
+          }
+        }
+      },
+      "asPathSets": {
+        "as_path_access_list1": {
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "_1_"
+            }
+          }
+        }
+      },
+      "policies": {
+        "empty_deny": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "reject"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "empty_permit": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "match_as_path": {
+          "terms": {
+            "10": {
+              "matches": {
+                "asPathSets": [
+                  "as_path_access_list1"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "match_community_standard": {
+          "terms": {
+            "10": {
+              "matches": {
+                "communitySets": [
+                  "community_list_standard"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "match_community_expanded": {
+          "terms": {
+            "10": {
+              "matches": {
+                "communitySets": [
+                  "community_list_expanded"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "match_ip_address_prefix_list": {
+          "terms": {
+            "10": {
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "prefix_list1"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "match_ipv6_address_prefix_list": {
+          "terms": {
+            "10": {
+              "matches": {
+                "prefixLists": {
+                  "ipv6": [
+                    "ipv6_prefix_list1"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "match_tag": {
+          "terms": {
+            "10": {
+              "matches": {
+                "tags": [
+                  1
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_as_path_prepend_literal_as": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "asPathPrepend": [
+                  65000,
+                  65100
+                ]
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_comm_list_expanded": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "communityDelete": {
+                  "sets": [
+                    "community_list_expanded"
+                  ]
+                }
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_comm_list_standard": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "communityDelete": {
+                  "sets": [
+                    "community_list_standard"
+                  ]
+                }
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_comm_list_standard_single": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "communityDelete": {
+                  "sets": [
+                    "community_list_standard_single"
+                  ]
+                }
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_community": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "communitySet": {
+                  "values": [
+                    "1:1",
+                    "1:2"
+                  ]
+                }
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_community_additive": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "communityAdd": {
+                  "values": [
+                    "1:1",
+                    "1:2"
+                  ]
+                }
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_ip_next_hop_literal": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "nextHop": "192.0.2.50"
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_local_preference": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "localPreference": 1
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_metric": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "med": 1
+              }
+            }
+          },
+          "fallThrough": "reject"
+        },
+        "set_tag": {
+          "terms": {
+            "10": {
+              "actions": {
+                "flow": "accept",
+                "tag": 1
+              }
+            }
+          },
+          "fallThrough": "reject"
+        }
+      }
+    },
+    "vlans": {
+      "1": {}
+    }
+  }
+}
