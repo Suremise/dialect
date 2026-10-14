@@ -34,13 +34,28 @@ freely, but **read it only and never change anything there**.
 - Personal, machine-specific notes belong in `CLAUDE.local.md` (git-ignored), not here. `CLAUDE.md` only imports this
   file.
 
+## No secrets in diagnostics
+
+No diagnostic, warning, error, log line or ledger reason may contain a secret value from the config: passwords and
+their hashes (`$1$`, `$5$`, `$6$`, `$9$`, Cisco types 5, 7, 8 and 9), SNMP communities, keys (pre-shared,
+TACACS+/RADIUS, NTP authentication) and certificates' private parts. They go to stderr, logs and screenshots. Say what
+is wrong and where instead: the statement's path and position, e.g. "snmp community (line 12)", never the line's text
+or a word from it. A tool's report (any output that isn't config) is a message too. Only converted config keeps its
+values: a render, and the text of a tool whose output is config (display set).
+
+Every plugin's conformance run checks it (docs/ARCHITECTURE.md, Conformance kit). A plugin with a tool that outputs
+config names it in `configTools`; every other tool's text is checked like a diagnostic. Give a fixture with secrets a
+`<case>.secrets.json` when the kit's patterns would miss them. A secret stays one wherever else its value appears. A
+leak is fixed, not allowed: the only allowances are the temporary ones in `packages/conformance/src/allowances.ts`,
+each naming the card that removes it.
+
 ## Commands
 
 ```bash
-npm install            # after cloning (needs npm 12: npm install -g npm@12.2.0)
+npx npm@12.2.0 install # after cloning (or ci): npm 12, which the repo pins
 npm run typecheck      # tsc for the repo-wide tests and every workspace package
 npm run lint           # oxlint (.oxlintrc.json), fails on warnings
-npm test               # Vitest: tests/ and each package's tests/
+npx npm@12.2.0 test    # Vitest: tests/ and each package's tests/
 npm run licenses       # regenerate THIRD_PARTY_NOTICES.md and docs/BUILD_ONLY_PACKAGES.md (-- --check: only check)
 npm run icons          # regenerate branding/out/ from the SVG masters
 npm run contrast       # check the theme tokens against WCAG AA
@@ -49,6 +64,10 @@ npm run fixtures       # check fixtures/ against its manifest and print the cove
 
 CI (`.github/workflows/ci.yml`, Windows, Node 24 with npm 12) runs typecheck, lint, the tests and the license check on
 every push to main and every pull request. The repo has no remote yet, so CI hasn't run: run the checks locally.
+
+**npm 12 through npx:** the global npm stays 11, because Hive on the same PC uses it, so run install, ci and test as
+`npx npm@12.2.0 …`. Under npm 11, `npm test` skips the npm 12 install-script checks (`tests/installScripts.test.ts`)
+with a warning; with `CI` set they run anyway and fail, as CI must use npm 12.
 
 ## Licenses and dependencies
 

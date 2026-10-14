@@ -154,28 +154,50 @@ its allowlist (only `semver` today).
 ## Conformance kit (`@dialect/conformance`, dev-only)
 
 A plugin's fixtures live in its `tests/fixtures/<area>/`: `<case>.<ext>` (the source), `<case>.model.json` (the
-expected model, with `modelVersion`) and optionally `<case>.rendered.<ext>` (the expected render). A source without its
-model file, or the reverse, is an error. A plugin's test file runs the kit with one line:
+expected model, with `modelVersion`), optionally `<case>.rendered.<ext>` (the expected render) and optionally
+`<case>.secrets.json` (a JSON list of the secret values in the source). A source without its model file, or a model or
+secrets file without its source, is an error. A plugin's test file runs the kit with one line:
 
 ```ts
 describeConformance(plugin, new URL('./fixtures', import.meta.url))
 ```
 
-Each fixture goes through four checks (`checkFixture()`):
+Each fixture goes through five checks (`checkFixture()`):
 1. parse → no error, and the expected model;
 2. render → no error, and the expected text (skipped when there is none and the render reported no error);
 3. render → reparse → no error, and the same model;
-4. the coverage ledger is complete for the parse and the render.
+4. the coverage ledger is complete for the parse and the render;
+5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
 
 An error a step reports (a diagnostic with `severity: 'error'`) fails its check even when its output matches;
 warnings and info don't.
+
+The secrets check takes the fixture's secrets from its `secrets.json`, or else finds them in the source by pattern
+(`findSecrets()`: crypt-style hashes and Junos `$9$`, IOS typed passwords and keys, SNMP communities, TACACS+/RADIUS
+and NTP keys, Junos's `secret`, `authentication-key`, `encrypted-password` and pre-shared keys). A value found as a
+secret stays one wherever else the source has it (a comment, a VRF of the same name). It runs the parse, the render of
+the parse's model and each of the plugin's tools on the fixture and on broken copies of it (cut just after a secret; a
+quote opened after one), since a syntax error is where a message most often quotes its line. It looks in diagnostics'
+messages, needs-input items' messages and suggestions, statement and field dispositions' reasons, thrown errors, and
+the text of every tool not named in `configTools` (a report). It doesn't look in the render's text or a config tool's,
+the config itself: the core's `Tool` doesn't say what its text is, so the plugin's suite names its config tools
+(`describeConformance(plugin, dir, { configTools: ['display-set'] })`). It doesn't look in statement labels or field
+paths either, which name the config's own structure. A plugin with tools but no parse or render still gets it.
+
+A leak found when the check came in can have a temporary allowance (`SECRET_ALLOWANCES` in `allowances.ts`), keyed by
+plugin, site (`statement reason`, `tool diagnostic`, `tool text`, …) and optionally the diagnostic's code, the tool or
+the fixtures' names, naming the card that fixes it. `describeConformance()` fails a plugin's allowance that none of its
+fixtures needs any more, so the fix takes the allowance with it (one scoped to fixtures of another test file is that
+file's). Today's: IOS-XE's prototype-names test uses one name as an SNMP community and a VRF, and the VRF messages
+name it (#29).
 
 The kit's own tests (`packages/conformance/tests`) use a test-only stub platform, a tiny brace language, to show the
 checks catch careless plugins:
 - a mapper that handles only `host-name` in `system { host-name r1; services { ssh; } }`: `system services ssh` is
   unmapped although line 1 is "covered";
 - a renderer that handles only a BGP neighbor's address and remote AS: `…neighbors["10.0.0.2"].multihop.ttl` is
-  unrendered although the neighbor was, also when `multihop` is a field of a later minor model version.
+  unrendered although the neighbor was, also when `multihop` is a field of a later minor model version;
+- a stub that quotes a secret in each kind of message the secrets check looks in (`tests/secrets.test.ts`).
 
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
