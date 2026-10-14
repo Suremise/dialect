@@ -250,7 +250,8 @@ checks catch careless plugins:
 ## IOS / IOS-XE plugin (`@dialect/platform-iosxe`, B8)
 
 The first Cisco platform, IOS and IOS-XE treated as one. Its default export is the `PlatformPlugin` (`id: 'iosxe'`,
-`modelApi: '>=0.2.0 <1.0.0'`, for model 0.2's DNS), with `detect`, `parse` and `render`.
+`modelApi: '>=0.3.0 <1.0.0'`, for model 0.3's VRF membership, route distinguishers and route targets), with `detect`,
+`parse` and `render`.
 
 - **The tree (`tree.ts`):** one statement per line, nested by indentation; bare `!` and blank lines are separators, not
   statements, and a `!` line with text is a comment. Ids are `L<line>`, labels the full path (`interface Gi1 shutdown`).
@@ -273,15 +274,41 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   `no ip address` removes the addresses before it. A `secondary` address with no primary is unsupported: the model
   can mark a primary but not a secondary, so it would come back as the primary. The model keys name servers by address alone,
   so the same server in a second VRF is unsupported. `vrf default` (on a name server, NTP server or syslog host) is the
-  global table, mapped as if no VRF were given, since that is how it renders. Keys come from the configuration (`snmp-server community __proto__`), so the
-  model is built with own properties only, never through Object.prototype.
-- **Render (`render.ts`):** gives every leaf of model 0.2 a disposition (DNS as one `ip name-server` line per server) and leaves a later version's fields without
-  one, so the ledger reports them. `type` and `vlanTagging` are `not-applicable` (IOS says them through the name and
-  `encapsulation dot1Q`). What IOS can't write is `unsupported` with why: unit 0's own description or shutdown, a
-  `reject` route, a static route's metric, an SNMP community limited to some clients (left out whole, with a warning, rather than
-  written open to every client: that needs an ACL, with filters later), and per-host syslog
-  severities or facilities that differ. A VRF's `type` is unsupported (no `vrf definition` yet) and its routes get a
-  semantic warning; with several IPv4 addresses and no primary, the first becomes primary, with a warning.
+  global table, mapped as if no VRF were given, since that is how it renders. Keys come from the configuration
+  (`snmp-server community __proto__`), so the model is built with own properties only, never through Object.prototype.
+  - **VRF membership (#45):** `vrf forwarding V` (and the older `ip vrf forwarding V`) on an interface or subinterface
+    is the subinterface's `networkInstance` (subinterface `0` for a main interface). It clears the IPv4 and IPv6
+    addresses before it, as on the device ("removed by line N, which moves the interface to another VRF"), so only the
+    addresses after it stay; `no vrf forwarding [V]` returns the interface to the global table, clearing them too, and
+    one naming another VRF touches nothing. A VRF the text never defines (`vrf definition` or `ip vrf`: an
+    `ip route vrf V` naming it isn't a definition) would name a VRF the device doesn't have: the membership and the
+    interface's addresses are then `unsupported` rather than put in the global table. `vrf forwarding default` is
+    `unsupported` (IOS names no global table).
+  - **VRF definitions:** `vrf definition V` (and the older `ip vrf V`) is a network instance of type `vrf`. Its `rd`
+    maps in any of the model's three forms (a later one supersedes it, `no rd` removes it). Route targets
+    (`route-target import|export|both V`, `no route-target …` taking one direction) can be VRF-wide or in
+    `address-family ipv4|ipv6`. As on IOS, a family with route targets of its own uses only those, and one with none
+    inherits the VRF-wide ones (which are then `ignored-by-design` as overridden when no family inherits them). The
+    model holds one set for the VRF, so every family's effective set must agree, or they are all `unsupported`; so they
+    are when a family overrides one direction only (what it keeps of the other isn't certain) or one statement about
+    them isn't converted: an import or export map, VRF-wide or in a family, or anything else in the definition but a
+    description. The address family statements are `ignored-by-design`. `no address-family ipv4|ipv6` removes the
+    family, its route targets and what in it blocked them (a blocker VRF-wide or in another family still blocks), and
+    leaves out the VRF's interface addresses and routes in that family before it
+    (`unsupported`: what the device keeps of them isn't guessed). `no vrf definition V` / `no ip vrf V` removes the VRF,
+    everything in it, its `ip route vrf V` routes, and its interfaces' membership and addresses, as the device does.
+- **Render (`render.ts`):** gives every leaf of model 0.3 a disposition (DNS as one `ip name-server` line per server)
+  and leaves a later version's fields without one, so the ledger reports them. Each VRF is a `vrf definition` before
+  the interfaces, with its `rd` and its route targets VRF-wide (the model's are the VRF's), and the address families
+  its interfaces' addresses and routes need (IPv4 also for a VRF with an RD or route targets); an interface's
+  `vrf forwarding V` comes before its addresses, which it would otherwise clear, and `ip route vrf V` after. `type`
+  and `vlanTagging` are `not-applicable` (IOS says them through the name and `encapsulation dot1Q`). What IOS can't
+  write is `unsupported` with why: unit 0's own description or shutdown, a `reject` route, a static route's metric, an
+  SNMP community limited to some clients (left out whole, with a warning, rather than written open to every client:
+  that needs an ACL, with filters later), per-host syslog severities or facilities that differ, a membership in a VRF the model doesn't have (with the interface's addresses,
+  which would otherwise land in another table), a route distinguisher or route targets on the global table, and an
+  instance type other than `vrf`. With several IPv4 addresses and no primary, the first becomes primary, with a
+  warning.
 - **Tests:** `tests/fixtures/<area>` are hand-written, with expected models and renders, through the conformance kit.
   `tests/corpus.test.ts` reads the corpus by path (`fixtures/public/iosxe`, not copied): chosen files per phase 1 area
   against expected models in `tests/corpus/`, and every IOS / IOS-XE file through the kit's checks against its own

@@ -1,0 +1,26 @@
+{
+  "modelVersion": "0.3.0",
+  "device": {
+    "system": {
+      "hostname": "ios-vrf-definition"
+    },
+    "networkInstances": {
+      "vrf1": {
+        "type": "vrf",
+        "routeDistinguisher": "1111:11"
+      },
+      "vrf2": {
+        "type": "vrf",
+        "routeDistinguisher": "2222:22",
+        "routeTargets": {
+          "import": [
+            "2222:77"
+          ],
+          "export": [
+            "2222:77"
+          ]
+        }
+      }
+    }
+  }
+}

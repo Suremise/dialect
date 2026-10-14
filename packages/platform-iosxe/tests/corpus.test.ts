@@ -25,6 +25,8 @@ const CASES: readonly (readonly [area: string, path: string])[] = [
   ['interfaces', 'whole/netcanon__show_run_simple.cfg'],
   ['static-routes', 'static-routes/batfish__unit-tests_cisco_ip_route.cfg'],
   ['static-routes', 'static-routes/batfish__ios-ip-route-vrf.cfg'],
+  ['vrfs', 'vrfs/batfish__ios-vrf-definition.cfg'],
+  ['vrfs', 'whole/netcanon__kitchen_sink.cfg'],
   ['ntp', 'mgmt/batfish__ios-ntp.cfg'],
   ['ntp', 'mgmt/cml__ccnaprep-s2e7_rtr01.cfg'],
   ['logging', 'mgmt/batfish__ios-logging.cfg'],
@@ -35,7 +37,7 @@ const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
 
 describe('corpus files with an expected model', () => {
   it('cover every phase 1 area', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'interfaces', 'static-routes', 'ntp', 'logging', 'snmp']))
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'interfaces', 'vrfs', 'static-routes', 'ntp', 'logging', 'snmp']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {
