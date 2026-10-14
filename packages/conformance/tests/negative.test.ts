@@ -82,7 +82,7 @@ describe('a renderer that handles only a BGP neighbor\'s address and remote AS',
     expect(r.ledger.problems).toEqual([`unrendered: ${ttl}`])
   })
 
-  it('the careful stub renders the ttl and passes all four checks', () => {
+  it('the careful stub renders the ttl and passes the four model checks', () => {
     const results = checkFixture(stubPlugin(), { name: 'bgp/multihop', source, expectedModel })
     expect(results.filter((r) => r.status === 'failed')).toEqual([])
   })
@@ -123,9 +123,9 @@ describe('a renderer that drops an NTP server configured with no options', () =>
     expect(r['round-trip'].status).toBe('failed')
   })
 
-  it('the careful stub renders it and passes all four checks', () => {
+  it('the careful stub renders it and passes the four model checks', () => {
     const results = checkFixture(stubPlugin(), { name: 'system/ntp', source, expectedModel, expectedRender: 'system {\n    ntp {\n        server 192.0.2.123;\n    }\n}\n' })
-    expect(results.filter((r) => r.status !== 'passed')).toEqual([])
+    expect(results.filter((r) => r.check !== 'secrets' && r.status !== 'passed')).toEqual([])
   })
 })
 
@@ -166,7 +166,7 @@ describe('errors a plugin reports fail their check, even when its output matches
 
   it('warnings and info fail nothing', () => {
     for (const severity of ['warning', 'info'] as const)
-      for (const where of ['render', 'reparse'] as const) expect(checkFixture(with_(severity, where), fixture).filter((r) => r.status !== 'passed'), `${severity} in ${where}`).toEqual([])
+      for (const where of ['render', 'reparse'] as const) expect(checkFixture(with_(severity, where), fixture).filter((r) => r.status === 'failed'), `${severity} in ${where}`).toEqual([])
   })
 })
 
@@ -195,13 +195,14 @@ describe('the other checks catch what they are for', () => {
     expect(r.render.status).toBe('skipped')
   })
 
-  it('a plugin with no parse or render fails every check, saying which is missing', () => {
+  it('a plugin with no parse or render fails the four model checks, saying which is missing (secrets runs its tools)', () => {
     const { render: _render, ...noRender } = stubPlugin()
     expect(checkFixture(noRender, fixture).map((r) => [r.check, r.status, r.problems])).toEqual([
       ['parse', 'failed', ['the plugin has no render()']],
       ['render', 'failed', ['the plugin has no render()']],
       ['round-trip', 'failed', ['the plugin has no render()']],
-      ['ledger', 'failed', ['the plugin has no render()']]
+      ['ledger', 'failed', ['the plugin has no render()']],
+      ['secrets', 'skipped', ['the fixture has no secrets']]
     ])
   })
 })
