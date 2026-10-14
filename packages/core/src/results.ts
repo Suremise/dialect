@@ -61,6 +61,11 @@ export interface Diagnostic {
   readonly statement?: string
   /** The model field it is about. */
   readonly field?: string
+  /**
+   * Where in a render's output it is. Set by convert() only (#112): it moves a render diagnostic's `span`, a place in the
+   * output, here, so that in a conversion `span` is always a place in the source. A plugin gives its render's `span`.
+   */
+  readonly outputSpan?: Span
 }
 
 /**

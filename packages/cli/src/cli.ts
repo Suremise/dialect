@@ -19,12 +19,13 @@ function tool(pluginId: string, toolId: string): Tool {
 
 /**
  * `name:line:column: severity: message`, the way compilers print them; without a span, `name: severity: message`. A
- * diagnostic with no span but a statement is at the statement's (`spans`, by statement id).
+ * diagnostic with no span but a statement is at the statement's (`spans`, by statement id). A render's diagnostic also
+ * says its line of the output (`outputSpan`, #112), after the message.
  */
 function formatDiagnostic(name: string, d: Diagnostic, spans?: ReadonlyMap<string, Span | undefined>): string {
   const span = d.span ?? (d.statement !== undefined ? spans?.get(d.statement) : undefined)
   const where = span ? `${name}:${span.startLine}:${span.startColumn}` : name
-  return `${where}: ${d.severity}: ${d.message}\n`
+  return `${where}: ${d.severity}: ${d.message}${d.outputSpan ? ` (output line ${d.outputSpan.startLine})` : ''}\n`
 }
 
 /**

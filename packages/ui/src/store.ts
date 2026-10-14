@@ -25,6 +25,8 @@ export interface Problem {
   /** Where in the source; absent for a problem with no place (two interfaces given one name). */
   line?: number
   column?: number
+  /** Where in the output, for a render's diagnostic (#112). */
+  outputLine?: number
 }
 
 /** One row of the interface table: an interface the source names, and its name on the target. */
@@ -339,9 +341,14 @@ function deriveConvert(source: string, job: Job & { kind: 'convert' }, map: Inte
   }
   const problems: Problem[] = [
     ...c.ledger.diagnostics.map((d): Problem => {
-      // A render's diagnostic about a field has its source statement (convert), and no span.
+      // A render's diagnostic has the source statement of its field (convert), no span, and its line of the output.
       const span = d.span ?? (d.statement !== undefined ? spanOf.get(d.statement) : undefined)
-      return { severity: d.severity === 'error' ? 'error' : 'warning', message: d.message, ...(span ? { line: span.startLine, column: span.startColumn } : {}) }
+      return {
+        severity: d.severity === 'error' ? 'error' : 'warning',
+        message: d.message,
+        ...(span ? { line: span.startLine, column: span.startColumn } : {}),
+        ...(d.outputSpan ? { outputLine: d.outputSpan.startLine } : {})
+      }
     }),
     ...(c.render ? c.issues.map((i): Problem => ({ severity: 'warning', message: issueMessage(i, from, target), ...(i.span ? { line: i.span.startLine, column: i.span.startColumn } : {}) })) : [])
   ]

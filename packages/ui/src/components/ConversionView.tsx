@@ -63,7 +63,11 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
     ],
     [problems, linkedSource]
   )
-  const outputMarks = useMemo<LineMark[]>(() => linkedOutput.map((line) => ({ line, kind: 'link' as const })), [linkedOutput])
+  // A render's warning marks its line of the output too.
+  const outputMarks = useMemo<LineMark[]>(
+    () => [...problems.flatMap((p) => (p.outputLine ? [{ line: p.outputLine, kind: p.severity, title: p.message }] : [])), ...linkedOutput.map((line) => ({ line, kind: 'link' as const }))],
+    [problems, linkedOutput]
+  )
 
   const onOutputCursor = useCallback(
     (line: number) => {
@@ -178,6 +182,7 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
             reveal={reveal}
             onCursorLine={onOutputCursor}
             dark={dark}
+            issueGutter
           />
         </section>
       </main>
@@ -204,13 +209,15 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
             ) : (
               problems.map((p, i) => (
                 <li key={i}>
-                  <button className={`problem ${p.severity}`} onClick={() => p.line && revealAt('source', p.line, p.column, true)} title={p.message}>
+                  <button
+                    className={`problem ${p.severity}`}
+                    onClick={() => (p.line ? revealAt('source', p.line, p.column, true) : p.outputLine && revealAt('output', p.outputLine, 1, true))}
+                    title={p.message}
+                  >
                     {p.severity === 'error' ? <ErrorIcon /> : <WarningIcon />}
                     <span className="problem-message">{p.message}</span>
-                    {p.line && (
-                      <span className="problem-place">
-                        line {p.line}, column {p.column}
-                      </span>
+                    {(p.line || p.outputLine) && (
+                      <span className="problem-place">{[p.line && `line ${p.line}, column ${p.column}`, p.outputLine && `output line ${p.outputLine}`].filter(Boolean).join('; ')}</span>
                     )}
                   </button>
                 </li>

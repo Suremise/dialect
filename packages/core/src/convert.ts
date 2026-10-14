@@ -400,9 +400,12 @@ export interface Conversion {
   readonly parse: ParseResult
   /** What was rendered: the parse's model with the answered interfaces renamed. */
   readonly model: Device
-  /** Absent when the parse failed (an error diagnostic), so there was nothing sound to render. */
+  /**
+   * Absent when the parse failed (an error diagnostic), so there was nothing sound to render. Its diagnostics give their
+   * place in the output as `outputSpan`, never `span`, and their source statement where their field has one.
+   */
   readonly render?: RenderResult
-  /** The coverage ledger; its needs-input items start with the interfaces. */
+  /** The coverage ledger; its needs-input items start with the interfaces. Every diagnostic's `span` is the source's. */
   readonly ledger: CoverageLedger
   readonly interfaces: readonly InterfaceName[]
   /** Needs-input items the inputs don't answer. */
@@ -583,8 +586,11 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
     const statement = statementAt(parse.tree, fields, sourcePath(x.field))
     return statement !== undefined ? { ...x, statement } : x
   }
+  // A render's span is a line of the output, where shells read a diagnostic's span as the source's: it becomes its
+  // `outputSpan`, and the diagnostic gets the statement of its field, as a placeless one does (#112).
+  const toOutput = ({ span, ...d }: Diagnostic): Diagnostic => (span ? { ...d, outputSpan: span } : d)
   const rendered = failed ? undefined : target.render(model, context)
-  const render = rendered && { ...rendered, diagnostics: rendered.diagnostics.map(locate), ...(rendered.needsInput ? { needsInput: rendered.needsInput.map(locate) } : {}) }
+  const render = rendered && { ...rendered, diagnostics: rendered.diagnostics.map((d) => locate(toOutput(d))), ...(rendered.needsInput ? { needsInput: rendered.needsInput.map(locate) } : {}) }
   const built = buildLedger(parse, render, model)
   const ledger: CoverageLedger = { ...built, diagnostics: [...built.diagnostics, ...diagnostics], needsInput: [...needsInput, ...built.needsInput] }
   const named = new Set(interfaces.filter((i) => i.target !== undefined).map((i) => i.inputId))
