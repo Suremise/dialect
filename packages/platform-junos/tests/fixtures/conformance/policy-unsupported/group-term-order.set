@@ -1,0 +1,3 @@
+set groups SHARED policy-options policy-statement P term FROM-GROUP then reject
+set policy-options apply-groups SHARED
+set policy-options policy-statement P term OWN then accept

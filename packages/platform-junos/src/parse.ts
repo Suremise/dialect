@@ -1,6 +1,7 @@
 // Junos text → the shared model, for the phase 1 areas: system (host name, domain name, DNS), interfaces with their
 // units, families and addresses, static routes, routing instances (VRFs and virtual routers: their units, route
-// distinguisher and vrf-target), NTP, syslog and SNMP, and from model 0.4 VLANs, ELS switch ports, IRB units, OSPF and BGP.
+// distinguisher and vrf-target), NTP, syslog and SNMP, from model 0.4 VLANs, ELS switch ports, IRB units, OSPF and BGP,
+// and from model 0.5 routing policy (policy.ts), which BGP's import and export policies name.
 //
 // The text is read into statements (statements.ts), groups and interface ranges are expanded (expand.ts), and each
 // statement is mapped on its own, as a `set` command says it. A statement is `mapped` only when everything it says went
@@ -17,14 +18,9 @@ import { fromJunos, targetFromJunos } from './communities'
 import { expand, type Expanded } from './expand'
 import { isObject, ModelBuilder, type Obj, type Segments } from './model'
 import { interfaceType, NOT_INTERFACES } from './names'
+import { ignored, mapped, unsupported, type Mutable } from './dispositions'
+import { policyMapper } from './policy'
 import { readConfig, startsWith } from './statements'
-
-type Mutable = { kind: 'mapped'; fields: string[] } | Exclude<StatementDisposition, { kind: 'mapped' }>
-
-/** Mapped, with the fields it filled; a null is a setting a higher-ranked statement kept (`put`). */
-const mapped = (fields: readonly (string | null)[]): Mutable => ({ kind: 'mapped', fields: fields.filter((f): f is string => f !== null) })
-const ignored = (reason: string): Mutable => ({ kind: 'ignored-by-design', reason })
-const unsupported = (reason?: string): Mutable => (reason ? { kind: 'unsupported', reason } : { kind: 'unsupported' })
 
 /** The model's syslog severities by Junos's names; `any` is every severity, so down to debug. `none` has no match. */
 export const SEVERITIES: Readonly<Record<string, SyslogSeverity>> = {
@@ -48,7 +44,6 @@ const isInterfaceName = (s: string): boolean => /^[a-z][\w-]*\d[\w/:.-]*$/i.test
 const LATER: Readonly<Record<string, string>> = {
   security: 'SRX security (zones, policies, NAT) comes later',
   applications: 'SRX applications come later, with security policies',
-  'policy-options': 'routing policy comes later',
   firewall: 'firewall filters come later',
   'class-of-service': 'class of service comes later'
 }
@@ -100,6 +95,7 @@ export function parse(text: string, _context: Context): ParseResult {
     return true
   }
   /** Sets a single-valued leaf for statement `index` unless a higher-ranked statement has it: its path, or null. */
+  const policy = policyMapper({ statements, results, model, claim, reshaped: read.reshaped ?? [] })
   const put = (index: number, segments: Segments, value: unknown): string | null => {
     const path = fieldPath(...segments)
     if (!claim(path, index)) return null
@@ -354,7 +350,7 @@ export function parse(text: string, _context: Context): ParseResult {
       return rd ? mapped([put(i, [...at, 'routeDistinguisher'], rd)]) : unsupported('not a route distinguisher in a form the model has (ASN:nn, IP:nn or a 4-byte AS with L)')
     }
     if (r[0] === 'vrf-target') return mapTarget(name, r.slice(1), i)
-    if (r[0] === 'vrf-import' || r[0] === 'vrf-export') return unsupported('VRF import and export policies come later, with routing policy')
+    if (r[0] === 'vrf-import' || r[0] === 'vrf-export') return unsupported("a VRF's import and export policies: the model has no place for them yet")
     if (r[0] === 'routing-options') return mapRoutingOptions(name, r.slice(1), i)
     if (r[0] === 'protocols') return mapProtocols(name, r.slice(1), i)
     return unsupported()
@@ -672,8 +668,8 @@ export function parse(text: string, _context: Context): ParseResult {
   const ospfRefs: { readonly index: number; readonly at: Segments; readonly ref: string }[] = []
   /** Per instance and neighbor address, the groups that name it and their statements: Junos takes a neighbor in one group. */
   const neighbors = new Map<string, { readonly instance: string; readonly address: string; readonly groups: Map<string, number[]> }>()
-  /** The import and export statements: converted by name only, the policies' bodies not. */
-  const policies: number[] = []
+  /** The import and export statements: each policy it names, the peer and the side, resolved once policies are settled. */
+  const policyRefs: { readonly index: number; readonly peer: Segments; readonly field: 'importPolicies' | 'exportPolicies'; readonly name: string }[] = []
 
   const mapProtocols = (instance: string, r: readonly string[], i: number): Mutable => {
     if (r[0] === 'ospf') return mapOspf(instance, r.slice(1), i)
@@ -684,7 +680,7 @@ export function parse(text: string, _context: Context): ParseResult {
   const mapOspf = (instance: string, r: readonly string[], i: number): Mutable => {
     const at = ['networkInstances', instance, 'ospf']
     if (!r.length) return mapped([model.ensure(at)])
-    if (r[0] !== 'area' || r[1] === undefined) return unsupported(r[0] === 'import' || r[0] === 'export' ? 'OSPF import and export policies come later, with routing policy' : undefined)
+    if (r[0] !== 'area' || r[1] === undefined) return unsupported(r[0] === 'import' || r[0] === 'export' ? "OSPF import and export policies: the model has no place for them yet" : undefined)
     const area = areaId(r[1])
     if (area === null) return unsupported('not an OSPF area ID (dotted, or a number)')
     const a = [...at, 'areas', area]
@@ -782,7 +778,7 @@ export function parse(text: string, _context: Context): ParseResult {
       const field = [...at, t[0] === 'import' ? 'importPolicies' : 'exportPolicies']
       const list = (model.get(field) as string[] | undefined) ?? []
       if (list.includes(t[1])) return ignored('already a policy of the peer')
-      policies.push(i)
+      policyRefs.push({ index: i, peer: at, field: field[field.length - 1] as 'importPolicies' | 'exportPolicies', name: t[1] })
       return ok(() => [model.set(field, [...list, t[1]])])
     }
     // The key is never carried: the model says only that there is one.
@@ -794,7 +790,7 @@ export function parse(text: string, _context: Context): ParseResult {
    * Once every statement is read and the interfaces settled: OSPF interfaces that name one the model has, each BGP
    * neighbor in one group, and each instance's router ID and AS number on its OSPF and BGP.
    */
-  function settleProtocols() {
+  function settleProtocols(policies: ReadonlySet<string>) {
     const interfaces = model.get(['interfaces'])
     /** Whether `ref` names an interface of the model, or with `.N`, one of its subinterfaces (as modelProblems() reads it). */
     const exists = (ref: string): boolean => {
@@ -867,6 +863,31 @@ export function parse(text: string, _context: Context): ParseResult {
       settleTo(index, bgp ? mapped([model.set(['networkInstances', instance, 'bgp', 'localAs'], value)]) : unsupported('an AS number with no BGP here: the model keeps it with BGP'))
     }
 
+    // Each peer's import and export policies are a chain, converted whole: one that names a policy the configuration
+    // doesn't define, or that isn't converted, leaves the side out. A neighbor without its own would take its group's,
+    // so the group's goes too.
+    const chains = new Map<string, { readonly peer: Segments; readonly field: 'importPolicies' | 'exportPolicies'; readonly indexes: number[]; broken: boolean }>()
+    for (const ref of policyRefs) {
+      if (results[ref.index].kind !== 'mapped') continue
+      const key = fieldPath(...ref.peer, ref.field)
+      const chain = chains.get(key) ?? { peer: ref.peer, field: ref.field, indexes: [], broken: false }
+      chains.set(key, chain)
+      chain.indexes.push(ref.index)
+      if (!policies.has(ref.name)) chain.broken = true
+    }
+    const breakChain = (chain: { readonly peer: Segments; readonly field: string; readonly indexes: number[] }, reason: string) => {
+      for (const index of chain.indexes) if (results[index].kind !== 'unsupported') results[index] = unsupported(reason)
+      model.remove([...chain.peer, chain.field])
+    }
+    for (const chain of chains.values()) {
+      if (!chain.broken) continue
+      breakChain(chain, "names a policy the configuration doesn't define, or that isn't converted: none of the peer's policies that way are, as they run as a chain")
+      const neighbor = chain.peer[chain.peer.length - 2] === 'neighbors'
+      const group = neighbor ? model.get([...chain.peer, 'group']) : undefined
+      const groupChain = typeof group === 'string' ? chains.get(fieldPath(...chain.peer.slice(0, -2), 'groups', group, chain.field)) : undefined
+      if (groupChain && !groupChain.broken) breakChain(groupChain, "a neighbor of the group has its own policies that way that aren't converted: without them it would take the group's, so the group's aren't converted either")
+    }
+
     // Junos's default for an eBGP peer with no policy: it accepts the peer's routes and advertises its active BGP routes
     // to it (model 0.4.1). Set for the side(s) an eBGP peer without a policy has, so a target that rejects by default
     // (IOS-XR, RFC 8212) can say what changes.
@@ -887,9 +908,6 @@ export function parse(text: string, _context: Context): ParseResult {
       }
       if (sides.size) model.set(['networkInstances', name, 'bgp', 'ebgpDefaultPolicy'], Object.fromEntries([...sides].sort().map((side) => [side, 'accept'])))
     }
-
-    const named = policies.filter((index) => results[index].kind === 'mapped')
-    if (named.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.policy-by-name', message: `BGP import and export policies are converted by name only: their bodies aren't converted yet (lines ${linesOf(named).join(', ')}).` })
   }
 
   // ---- every statement
@@ -913,6 +931,8 @@ export function parse(text: string, _context: Context): ParseResult {
         return mapSnmp(w, i)
       case 'vlans':
         return mapVlan(w, i)
+      case 'policy-options':
+        return policy.map(w, i)
       default:
         return unsupported(Object.hasOwn(LATER, w[0]) ? LATER[w[0]] : undefined)
     }
@@ -1003,7 +1023,7 @@ export function parse(text: string, _context: Context): ParseResult {
   }
 
   settleVlans()
-  settleProtocols()
+  settleProtocols(policy.settle())
 
   return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics, ...diagnostics] }
 }

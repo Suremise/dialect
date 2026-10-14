@@ -185,8 +185,11 @@ Convert goes from any of them to any other, in the app and on the command line. 
 name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP, syslog and SNMP; what one can't read
 or write is listed as not converted, with why. Junos also converts VLANs, switch ports (access and trunk, with a
 native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches (the older non-ELS syntax is listed
-as not converted), and OSPF and BGP: areas and interfaces, groups and neighbors, with policies by name only. Keys
-(OSPF and BGP authentication) are never carried over: Dialect asks you for each one. Cisco NX-OS also converts VLANs,
+as not converted), OSPF and BGP (areas and interfaces, groups and neighbors), and routing policy: prefix lists,
+communities, AS paths and policy-statements, with the policies BGP imports and exports. A policy converts term by
+term: a term Dialect can't convert in full is listed as not converted, whole, and when leaving it out would change
+what a later term does, the whole policy is. Regular expressions are kept as written and never translated to another
+platform's. Keys (OSPF and BGP authentication) are never carried over: Dialect asks you for each one. Cisco NX-OS also converts VLANs,
 switch ports (access and trunk), VLAN interfaces, OSPF and BGP; an OSPF key or a BGP password is never carried, so
 converting to NX-OS asks for it. Cisco IOS-XR also converts OSPF and BGP; converting to IOS-XR asks for an OSPF key or
 a BGP password the same way, and for a route policy for each eBGP neighbor that has none, since IOS-XR exchanges no

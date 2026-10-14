@@ -1,0 +1,59 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "juniper-from-prefix-list"
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "PREFIX-LIST1": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "1.1.1.0/24",
+                "minLength": 24,
+                "maxLength": 24
+              }
+            }
+          },
+          "PREFIX-LIST2": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "2.2.2.0/24",
+                "minLength": 24,
+                "maxLength": 24
+              }
+            }
+          }
+        }
+      },
+      "policies": {
+        "POLICY-NAME": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "TERM1",
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "PREFIX-LIST1",
+                    "PREFIX-LIST2"
+                  ]
+                },
+                "protocols": [
+                  "connected"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

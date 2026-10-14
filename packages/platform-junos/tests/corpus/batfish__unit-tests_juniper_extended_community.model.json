@@ -1,0 +1,37 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "juniper_extended_community"
+    },
+    "routingPolicy": {
+      "communitySets": {
+        "COMM_ALL": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "target:123456L:.*$"
+              ]
+            }
+          },
+          "type": "extended",
+          "regexDialect": "junos"
+        },
+        "COMM_NON_CUST": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "8075:[1][0][0-3,5-9][0-9][0-9]$"
+              ]
+            }
+          },
+          "type": "standard",
+          "regexDialect": "junos"
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,114 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "V4": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "192.0.2.0/24",
+                "minLength": 24,
+                "maxLength": 24
+              }
+            }
+          },
+          "EMPTY": {
+            "entries": {}
+          }
+        }
+      },
+      "communitySets": {
+        "GROUP-C": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "no-export"
+              ]
+            }
+          }
+        },
+        "C": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65000:1"
+              ]
+            }
+          }
+        }
+      },
+      "asPathSets": {
+        "A": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": "^64501$"
+            }
+          },
+          "regexDialect": "junos"
+        }
+      },
+      "policies": {
+        "FROM-GROUP": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "ALL",
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          }
+        },
+        "P": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "T1",
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "V4",
+                    "EMPTY"
+                  ]
+                }
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "name": "T2",
+              "matches": {
+                "communitySets": [
+                  "C"
+                ],
+                "asPathSets": [
+                  "A"
+                ]
+              },
+              "actions": {
+                "communityAdd": {
+                  "sets": [
+                    "C"
+                  ]
+                }
+              }
+            },
+            "3": {
+              "name": "T3"
+            }
+          }
+        },
+        "EMPTY-POLICY": {
+          "fallThrough": "next-policy"
+        }
+      }
+    }
+  }
+}
+

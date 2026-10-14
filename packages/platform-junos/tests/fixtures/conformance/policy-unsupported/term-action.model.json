@@ -1,0 +1,26 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "routingPolicy": {
+      "policies": {
+        "P": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "KEEP",
+              "matches": {
+                "protocols": [
+                  "static"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,8 +1,8 @@
-// The shared model → hierarchical Junos, for the phase 1 areas and 0.4's VLANs, switch ports and IRB. Every populated
-// leaf of model 0.3, and of those, gets a disposition: `rendered` with the line it went to, `unsupported` with why
-// (Junos can't say it, or this renderer can't yet), or `not-applicable` (Junos implies it). Fields it doesn't render
-// yet (0.4's OSPF and BGP) are left without one, so the ledger reports them as unrendered rather than this renderer
-// claiming them.
+// The shared model → hierarchical Junos, for the phase 1 areas, 0.4's VLANs, switch ports, IRB, OSPF and BGP, and
+// 0.5's routing policy (renderPolicy.ts). Every populated leaf gets a disposition: `rendered` with the line it went to,
+// `unsupported` with why (Junos can't say it, or this renderer can't yet), or `not-applicable` (Junos implies it). A
+// field of a later model version is left without one, so the ledger reports it as unrendered rather than this renderer
+// claiming it.
 //
 // Diagnostics never quote the model's keys or values, nor carry a field path with them: a community name is a secret.
 //
@@ -13,18 +13,11 @@ import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves,
 import { isIpv4, isIpv6, parsePrefix } from './addresses'
 import { fromJunos, targetFromJunos, toJunos } from './communities'
 import { SEVERITIES } from './parse'
+import { policyOptions, type Out } from './renderPolicy'
 import { quote } from './words'
 
 type Segments = readonly string[]
 
-/** A statement to write: a leaf (`host-name r1;`) or a container, and the fields it says. */
-interface Out {
-  readonly text: string
-  readonly children: Out[] | null
-  readonly fields: Segments[]
-  /** Told the line the statement went to, for a diagnostic that names it. */
-  readonly placed?: (line: number) => void
-}
 
 const JUNOS_SEVERITY: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(SEVERITIES).map(([junos, model]) => [model, junos]))
 /** The facilities `facility-override` takes. */
@@ -338,6 +331,9 @@ export function render(model: Device, context: Context): RenderResult {
     }
   }
 
+  // Routing policy first, so BGP knows which of the policies it names are written.
+  const routing = model.routingPolicy ? policyOptions(model.routingPolicy, { dispositions, diagnostics }) : { out: null, written: new Set<string>() }
+
   const instances: Out[] = []
   emptyContainer(model.networkInstances, ['networkInstances'])
   for (const [name, instance] of Object.entries(model.networkInstances ?? {})) {
@@ -363,6 +359,7 @@ export function render(model: Device, context: Context): RenderResult {
     if (protocols) out.push(protocols)
     instances.push(out.length ? box(quote(name), out, ...self(instance, at)) : leaf(quote(name), ...self(instance, at)))
   }
+  if (routing.out) top.push(routing.out)
   if (instances.length) top.push(box('routing-instances', instances))
 
   // ---- VLANs: each by its name, with its ID and the IRB unit that routes for it
@@ -657,7 +654,7 @@ export function render(model: Device, context: Context): RenderResult {
           skip([...p, side], 'not-applicable', 'no policies: nothing to write')
           continue
         }
-        policies = true
+        if (list.some((name) => !routing.written.has(name))) policies = true
         const word = side === 'importPolicies' ? 'import' : 'export'
         out.push(leaf(list.length === 1 ? `${word} ${quote(list[0])}` : `${word} [ ${list.map(quote).join(' ')} ]`, [...p, side]))
       }
@@ -711,7 +708,7 @@ export function render(model: Device, context: Context): RenderResult {
       inner.push(...neighbors)
       out.push(inner.length ? box(`group ${quote(name)}`, inner, ...(group && g ? self(group, g) : [])) : leaf(`group ${quote(name)}`, ...(group && g ? self(group, g) : [])))
     }
-    if (policies) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.policy-by-name', message: "BGP import and export policies are written by name only: their bodies (policy-options) aren't converted yet, and Junos commits a reference only to a policy it has." })
+    if (policies) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.policy-by-name', message: "Some BGP import and export policies are written by name only: the model has no body for them that Junos can take, and Junos commits a reference only to a policy it has." })
     // Semantic: a source that rejects an eBGP peer's routes, or doesn't advertise to it, when no policy applies (RFC
     // 8212, IOS-XR); Junos accepts and advertises, so a peer without a policy here takes and sends everything.
     let placed: ((line: number) => void) | undefined

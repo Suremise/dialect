@@ -1,0 +1,317 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "networkInstances": {
+      "default": {
+        "bgp": {
+          "groups": {
+            "EBGP": {
+              "type": "external",
+              "importPolicies": [
+                "IN-FILTER",
+                "IN-PREFER"
+              ],
+              "exportPolicies": [
+                "OUT"
+              ],
+              "peerAs": 64500
+            }
+          },
+          "neighbors": {
+            "192.0.2.2": {
+              "group": "EBGP"
+            }
+          },
+          "localAs": 65000
+        }
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "CUSTOMERS": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "198.51.100.0/24",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "2": {
+                "action": "permit",
+                "prefix": "203.0.113.0/24",
+                "minLength": 24,
+                "maxLength": 24
+              }
+            }
+          },
+          "MARTIANS": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "0.0.0.0/8",
+                "minLength": 8,
+                "maxLength": 8
+              },
+              "2": {
+                "action": "permit",
+                "prefix": "127.0.0.0/8",
+                "minLength": 8,
+                "maxLength": 8
+              }
+            }
+          }
+        },
+        "ipv6": {
+          "CUSTOMERS": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "2001:db8:100::/48",
+                "minLength": 48,
+                "maxLength": 48
+              }
+            }
+          }
+        }
+      },
+      "communitySets": {
+        "CUSTOMER": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65000:100"
+              ]
+            }
+          }
+        },
+        "INTERNAL": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regexes": [
+                "^65000:9[0-9]$"
+              ]
+            }
+          },
+          "type": "standard",
+          "regexDialect": "junos"
+        },
+        "PEER": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "members": [
+                "65000:200",
+                "target:4200000000:7",
+                "large:65000:1:2"
+              ]
+            }
+          }
+        }
+      },
+      "asPathSets": {
+        "VIA-PEER": {
+          "entries": {
+            "1": {
+              "action": "permit",
+              "regex": ".* 64500 .*"
+            }
+          },
+          "regexDialect": "junos"
+        }
+      },
+      "policies": {
+        "IN-FILTER": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "MARTIANS",
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "MARTIANS"
+                  ]
+                },
+                "prefixListMatch": "orlonger"
+              },
+              "actions": {
+                "flow": "reject"
+              }
+            },
+            "2": {
+              "name": "DEFAULT",
+              "matches": {
+                "routeFilters": {
+                  "1": {
+                    "prefix": "0.0.0.0/0",
+                    "minLength": 0,
+                    "maxLength": 0,
+                    "form": "exact"
+                  }
+                }
+              },
+              "actions": {
+                "flow": "reject"
+              }
+            },
+            "3": {
+              "name": "TOO-LONG",
+              "matches": {
+                "routeFilters": {
+                  "1": {
+                    "prefix": "0.0.0.0/0",
+                    "minLength": 25,
+                    "maxLength": 32,
+                    "form": "prefix-length-range"
+                  },
+                  "2": {
+                    "prefix": "::/0",
+                    "minLength": 49,
+                    "maxLength": 128,
+                    "form": "prefix-length-range"
+                  }
+                }
+              },
+              "actions": {
+                "flow": "reject"
+              }
+            },
+            "4": {
+              "name": "NEXT",
+              "actions": {
+                "flow": "next-policy"
+              }
+            }
+          }
+        },
+        "IN-PREFER": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "CUSTOMERS",
+              "matches": {
+                "prefixLists": {
+                  "ipv4": [
+                    "CUSTOMERS"
+                  ],
+                  "ipv6": [
+                    "CUSTOMERS"
+                  ]
+                },
+                "communitySets": [
+                  "CUSTOMER"
+                ]
+              },
+              "actions": {
+                "communityDelete": {
+                  "sets": [
+                    "INTERNAL"
+                  ]
+                },
+                "localPreference": 200,
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "name": "PEERS",
+              "matches": {
+                "routeFilters": {
+                  "1": {
+                    "prefix": "10.0.0.0/8",
+                    "minLength": 8,
+                    "maxLength": 24,
+                    "form": "upto"
+                  }
+                },
+                "asPathSets": [
+                  "VIA-PEER"
+                ],
+                "neighbors": [
+                  "192.0.2.2"
+                ]
+              },
+              "actions": {
+                "communityAdd": {
+                  "sets": [
+                    "PEER"
+                  ]
+                },
+                "med": 50,
+                "tag": 100,
+                "flow": "next-term"
+              }
+            },
+            "3": {
+              "name": "TAGGED",
+              "matches": {
+                "tags": [
+                  100
+                ],
+                "family": "ipv4"
+              },
+              "actions": {
+                "localPreference": 120
+              }
+            },
+            "4": {
+              "matches": {
+                "protocols": [
+                  "bgp"
+                ]
+              },
+              "actions": {
+                "flow": "accept"
+              }
+            }
+          }
+        },
+        "OUT": {
+          "fallThrough": "next-policy",
+          "terms": {
+            "1": {
+              "name": "LOCAL",
+              "matches": {
+                "protocols": [
+                  "connected",
+                  "static",
+                  "aggregate"
+                ]
+              },
+              "actions": {
+                "communitySet": {
+                  "sets": [
+                    "CUSTOMER"
+                  ]
+                },
+                "asPathPrepend": [
+                  65000,
+                  65000
+                ],
+                "nextHopSelf": true,
+                "flow": "accept"
+              }
+            },
+            "2": {
+              "name": "V6",
+              "matches": {
+                "family": "ipv6"
+              },
+              "actions": {
+                "nextHop": "2001:db8::1",
+                "flow": "accept"
+              }
+            },
+            "3": {
+              "actions": {
+                "flow": "reject"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
