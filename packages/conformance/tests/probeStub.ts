@@ -19,7 +19,8 @@
 //   filter F ipv4|ipv6 | filter F seq N accept|discard|reject|next-term [protocol P] [dport R] [source A/L]
 //     [destination A/L] [source-wildcard A W]   (a filter's implicit action is the stub's own, deny)
 //   interface N filter-in F
-//   no prefix-list L seq N, no policy P term N, no filter F seq N, no interface N filter-in)
+//   interface N member A (a member link of aggregate A, which it makes, as IOS does) | interface A min-links K
+//   no prefix-list L seq N, no policy P term N, no filter F seq N, no interface N filter-in, no interface N member)
 //
 // A policy term is converted whole or not at all (the per-term rule): a term with a line the stub can't take is left out
 // with all its lines unsupported, and its whole policy too when leaving it out isn't safe (termSkipSafe()); so is a
@@ -49,6 +50,8 @@ export type ProbeBug =
   | 'implicit'
   /** A filter that relies on its implicit action is written with no word said when the default is the stub's. */
   | 'implicit-reliance'
+  /** A member link names its aggregate without making it, so the name resolves to nothing. */
+  | 'aggregate'
 
 type Obj = Record<string, unknown>
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -140,7 +143,8 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
           if (bug.has('negation')) return ignored('a no form')
           return removal(w.slice(1))
         }
-        if (w[0] === 'interface' && w.length === 2) return mapped(put(['interfaces', w[1], 'type'], 'ethernet'))
+        // An interface's type from its name, as the platforms give it: `agg1` is an aggregate.
+        if (w[0] === 'interface' && w.length === 2) return mapped(put(['interfaces', w[1], 'type'], w[1].startsWith('agg') ? 'aggregate' : 'ethernet'))
         if (w[0] === 'interface' && w[2] === 'description' && w.length > 3) return mapped(put(['interfaces', w[1], 'description'], w.slice(3).join(' ')))
         if (w[0] === 'interface' && w[2] === 'address' && w.length === 4) {
           const p = prefix(w[3], bug.has('malformed'))
@@ -176,6 +180,15 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
         if (w[0] === 'bgp' || w[0] === 'ospf') return protocol('default', w)
         if (w[0] === 'prefix-list' || w[0] === 'community-set' || w[0] === 'as-path-set' || w[0] === 'policy') return policyStatement(w)
         if (w[0] === 'filter') return filterStatement(w)
+        if (w[0] === 'interface' && w[2] === 'member' && w.length === 4) {
+          // The aggregate a member names is made, as IOS makes the Port-channel a channel group names.
+          const made = bug.has('aggregate') ? [] : [put(['interfaces', w[3], 'type'], 'aggregate')]
+          return mapped(put(['interfaces', w[1], 'aggregate'], w[3]), ...made)
+        }
+        if (w[0] === 'interface' && w[2] === 'min-links' && w.length === 4) {
+          const n = bounded(w[3], 1, 64, bug.has('malformed'))
+          return n === null ? unsupported('not a number of links from 1 to 64') : mapped(put(['interfaces', w[1], 'aggregation', 'minLinks'], n))
+        }
         if (w[0] === 'interface' && w[2] === 'filter-in' && w.length === 4) {
           const family = ['ipv4', 'ipv6'].find((f) => isObject(get(['filters', f, w[3]]))) ?? (bug.has('reference') ? 'ipv4' : undefined)
           if (!family) return unsupported('applies a filter the source doesn\'t have')
@@ -344,7 +357,8 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
           if (isObject(policy) && !isObject(policy.terms)) remove(['routingPolicy', 'policies', w[1]])
         } else if (w[0] === 'filter' && w[2] === 'seq' && w.length === 4) {
           for (const family of ['ipv4', 'ipv6']) if (isObject(get(['filters', family, w[1], 'terms', w[3]]))) remove(['filters', family, w[1], 'terms', w[3]])
-        } else if (w[0] === 'interface' && w[2] === 'filter-in' && w.length === 3) {
+        } else if (w[0] === 'interface' && w[2] === 'member' && w.length === 3) remove(['interfaces', w[1], 'aggregate'])
+        else if (w[0] === 'interface' && w[2] === 'filter-in' && w.length === 3) {
           for (const family of ['ipv4', 'ipv6']) if (get(['interfaces', w[1], 'subinterfaces', '0', 'filters', family, 'input']) !== undefined) remove(['interfaces', w[1], 'subinterfaces', '0', 'filters', family, 'input'])
         } else return unsupported('the probe stub has no rule for it')
         return ignored('removes what it names: nothing to convert')
@@ -404,6 +418,8 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
       for (const [name, i] of Object.entries(model.interfaces ?? {})) {
         emit(`interface ${name}`, ...(i.type !== undefined ? [['interfaces', name, 'type']] : []))
         if (i.description !== undefined) emit(`interface ${name} description ${i.description}`, ['interfaces', name, 'description'])
+        if (i.aggregate !== undefined) emit(`interface ${name} member ${i.aggregate}`, ['interfaces', name, 'aggregate'])
+        if (i.aggregation?.minLinks !== undefined) emit(`interface ${name} min-links ${i.aggregation.minLinks}`, ['interfaces', name, 'aggregation', 'minLinks'])
         const sub = i.subinterfaces?.['0']
         if (sub?.networkInstance !== undefined) emit(`interface ${name} vrf ${sub.networkInstance}`, ['interfaces', name, 'subinterfaces', '0', 'networkInstance'])
         for (const family of ['ipv4', 'ipv6'] as const)
@@ -554,6 +570,8 @@ const BGP_BASE = ['vrf A', 'vrf B', 'bgp neighbor 192.0.2.2 as 65001', 'vrf A bg
 const POLICY_BASE = ['prefix-list L seq 5 permit 10.0.0.0/8 le 24', 'prefix-list L seq 10 deny 0.0.0.0/0 le 32', 'policy P term 10 match prefix-list L', 'policy P term 10 action accept', 'policy P term 20 action reject'].join('\n')
 /** A filter of two terms applied to an interface, for the filter negation cases and the implicit-action probe. */
 const FILTER_BASE = ['interface e1', 'filter F ipv4', 'filter F seq 10 accept protocol 6 dport 22 destination 192.0.2.1/32', 'filter F seq 20 discard', 'interface e1 filter-in F'].join('\n')
+/** An aggregate with a member link, for the LAG cases (model 0.5.4). */
+const LAG_BASE = ['interface agg1', 'interface agg1 min-links 2', 'interface e1', 'interface e1 member agg1'].join('\n')
 
 /** The stub's probe adapter: every probe and case, in its syntax. */
 export const PROBE_STUB_ADAPTER: ProbeAdapter = {
@@ -589,7 +607,8 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'policy-term': { set: POLICY_BASE, negated: `${POLICY_BASE}\nno policy P term 10`, path: ['routingPolicy', 'policies', 'P', 'terms', '10'] },
     'prefix-list-entry': { set: POLICY_BASE, negated: `${POLICY_BASE}\nno prefix-list L seq 10`, path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '10'] },
     'filter-term': { set: FILTER_BASE, negated: `${FILTER_BASE}\nno filter F seq 10`, path: ['filters', 'ipv4', 'F', 'terms', '10'] },
-    'filter-attachment': { set: FILTER_BASE, negated: `${FILTER_BASE}\nno interface e1 filter-in`, path: ['interfaces', 'e1', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] }
+    'filter-attachment': { set: FILTER_BASE, negated: `${FILTER_BASE}\nno interface e1 filter-in`, path: ['interfaces', 'e1', 'subinterfaces', '0', 'filters', 'ipv4', 'input'] },
+    'aggregate-member': { set: LAG_BASE, negated: `${LAG_BASE}\nno interface e1 member`, path: ['interfaces', 'e1', 'aggregate'] }
   },
   malformed: {
     'ipv4-address': { source: 'interface e1\ninterface e1 address 999.1.1.1/24', value: '999.1.1.1' },
@@ -602,7 +621,8 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'prefix-length': { source: 'prefix-list L seq 5 permit 10.0.0.0/8 le 33', value: '33' },
     port: { source: 'filter F ipv4\nfilter F seq 10 accept protocol 6 dport 70000', value: '70000' },
     'filter-prefix': { source: 'filter F ipv4\nfilter F seq 10 accept source 10.0.0.1/8', value: '10.0.0.1/8' },
-    wildcard: { source: 'filter F ipv4\nfilter F seq 10 accept source-wildcard 10.0.0.0 0.255.0.255', value: '0.255.0.255' }
+    wildcard: { source: 'filter F ipv4\nfilter F seq 10 accept source-wildcard 10.0.0.0 0.255.0.255', value: '0.255.0.255' },
+    'min-links': { source: 'interface agg1\ninterface agg1 min-links 999', value: '999' }
   },
   vrfScoping: {
     delete: { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A', vrf: 'A' },
@@ -616,7 +636,8 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'community-set': { source: 'policy P term 10 match community MISSING\npolicy P term 10 action accept', value: 'MISSING' },
     'as-path-set': { source: 'policy P term 10 match as-path MISSING\npolicy P term 10 action accept', value: 'MISSING' },
     policy: { source: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001\nbgp neighbor 192.0.2.2 import MISSING', value: 'MISSING' },
-    filter: { source: 'interface e1\ninterface e1 filter-in MISSING', value: 'MISSING' }
+    filter: { source: 'interface e1\ninterface e1 filter-in MISSING', value: 'MISSING' },
+    aggregate: { source: 'interface e1\ninterface e1 member agg9', value: 'agg9' }
   },
   regex: { source: 'as-path-set A seq 1 permit regex _65000_\ncommunity-set C seq 1 permit regex _65000:[0-9]+_', regexes: ['_65000_', '_65000:[0-9]+_'] },
   implicitAction: { source: FILTER_BASE }

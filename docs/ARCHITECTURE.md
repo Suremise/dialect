@@ -512,7 +512,12 @@ what comes out the same way for every platform (`runProbes()`):
    where `changed` puts a new one, so a change can't move another VRF's entry in and make its edits look in scope;
 6. **unknown references** (model 0.5.0: a term's prefix list, community set or AS-path set, a BGP peer's policy; 0.5.1:
    a subinterface's filter; none of them defined): checked as a malformed value is, with the missing name as the
-   value, and the parse's model has no `modelProblems()`, BGP policy names included whatever the capabilities say;
+   value, and the parse's model has no `modelProblems()`, BGP policy names included whatever the capabilities say.
+   Model 0.5.4's member link naming an aggregate the source never configures is checked another way (#107): every
+   platform makes the aggregate a channel group or bundle names (IOS's Port-channel, IOS-XR's Bundle-Ether, Junos's
+   `ae`), so the membership is converted, and the case's `value` is the aggregate's name as the model has it
+   (`Bundle-Ether7` for IOS-XR's `bundle id 7`): the parse has a member naming it, and the parse and its render →
+   reparse have no `modelProblems()`, the aggregate there as one;
 7. **regexes kept as written** (model 0.5.0): a source with AS-path and community regexes in the plugin's dialect, and
    each regex as written. The parse keeps each verbatim in a set that says the dialect, all in one; a render of the
    kit's own sets (`PROBE-AS-PATH`, `PROBE-COMMUNITY-SET`) in each other dialect leaves each regex `unsupported`, or
@@ -526,18 +531,21 @@ what comes out the same way for every platform (`runProbes()`):
 
 Model 0.5.0 also adds cases to the probes above: negation of a policy term and of a prefix list entry, and a malformed
 prefix and prefix length; 0.5.1, negation of a filter term and of a filter's attachment, and a malformed port, filter
-prefix and non-contiguous wildcard (the term flagged, never approximated).
+prefix and non-contiguous wildcard (the term flagged, never approximated); 0.5.4 (#107), negation of a member link's
+membership (`delete … 802.3ad`, `no bundle id`, `no channel-group`) and a malformed minimum links, beside the aggregate
+reference.
 
 Every probe source also goes through the five fixture checks, the secrets check with the community names its parse
 has (and a cleared one's) among its secrets. Every probe and case is a choice in the adapter's types: given, or
 `{ notApplicable: 'why' }` for an area the plugin doesn't have, which the suite shows as a skipped test with its reason.
 The cases model 0.4.0 added (the VLAN and BGP group uses, BGP and OSPF negation, AS and VLAN malformed values, OSPF and
 BGP scoping), 0.5.0 added (term and entry negation, prefix and length malformed values, the reference and regex
-probes) and 0.5.1 added (the filter cases, the filter reference and the implicit-action probe) are optional in the
-types, so an older adapter compiles and runs as it did: `runProbes()` leaves out the ones it doesn't give,
-`probesNotGiven()` lists them, and the suite shows them as a skipped test per model version (`not given yet (model
-0.4.0)`, `(model 0.5.0)`, `(model 0.5.1)`, from `probesNotGivenByModel()`), until the plugin's card for that phase
-gives each or declares it not applicable.
+probes), 0.5.1 added (the filter cases, the filter reference and the implicit-action probe) and 0.5.4 added (the LAG
+cases) are optional in the types, so an older adapter compiles and runs as it did: `runProbes()` leaves out the ones it
+doesn't give, `probesNotGiven()` lists them, and the suite shows them as a skipped test per model version (`not given
+yet (model 0.4.0)`, `(model 0.5.0)`, `(model 0.5.1)`, `(model 0.5.4)`, from `probesNotGivenByModel()`), until the
+plugin's card for that phase gives each or declares it not applicable. Junos and IOS-XR give the LAG cases; IOS-XE and
+NX-OS show them as not given yet.
 A plugin with no adapter shows its probes as one skipped test, never as passing; each existing plugin's adapter is its
 own lane's follow-up card, which fixes what its probes find in the plugin (that lane owns it), so the probes have no
 allowances of their own; a probe source's secrets go through the secrets allowances like any fixture's.
@@ -560,7 +568,9 @@ checks catch careless plugins:
   neighbor, an OSPF interface) everywhere; since 0.5.0, a prefix or length out of range taken as one, a name kept
   that nothing defines, and another dialect's regex written as its own; since 0.5.1, a port, filter prefix or
   non-contiguous wildcard taken as one, a filter whose implicit action differs written with no word, and one relying
-  on the stub's own implicit action written with no word. Each fails its probe; the
+  on the stub's own implicit action written with no word; since 0.5.4, a member link naming an aggregate it doesn't
+  make (`interface e1 member agg1`; the stub makes it, as IOS does, and `agg…` names an aggregate), with the
+  existing switches for a membership `no` that removes nothing and a minimum links out of range. Each fails its probe; the
   careful stub, which keeps the per-term rule itself, passes them all (`tests/probes.test.ts`);
 - a 0.4.1 renderer leaves every routing policy field unrendered; renders that convert part of a term, or leave out a
   term that rejects while converting the rest of its policy, fail the ledger check, and leaving out a term that changes

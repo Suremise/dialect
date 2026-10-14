@@ -32,6 +32,7 @@ describe('runProbes', () => {
       'negation: prefix-list-entry',
       'negation: filter-term',
       'negation: filter-attachment',
+      'negation: aggregate-member',
       'malformed: ipv4-address',
       'malformed: ipv6-address',
       'malformed: mask',
@@ -43,6 +44,7 @@ describe('runProbes', () => {
       'malformed: port',
       'malformed: filter-prefix',
       'malformed: wildcard',
+      'malformed: min-links',
       'vrf-scoping: delete',
       'vrf-scoping: dns',
       'vrf-scoping: static-route',
@@ -53,6 +55,7 @@ describe('runProbes', () => {
       'unknown-reference: as-path-set',
       'unknown-reference: policy',
       'unknown-reference: filter',
+      'unknown-reference: aggregate',
       'regex: all',
       'implicit-action: all'
     ])
@@ -89,7 +92,11 @@ describe('runProbes', () => {
     ['implicit', 'implicit-action', 'render of a filter whose implicit action is discard relying on it: no semantic warning on the filter, though some packets reach its implicit action'],
     ['implicit', 'implicit-action', 'render of a filter whose implicit action is discard with a final term deciding every packet: no semantic warning on the filter, though the plugin\'s platform does otherwise with a packet no term decides'],
     // A renderer that warns only when the defaults differ: a filter relying on the plugin's own default goes unsaid.
-    ['implicit-reliance', 'implicit-action', 'render of a filter whose implicit action is deny, the plugin\'s own, relying on it: no semantic warning on the filter, though some packets reach its implicit action']
+    ['implicit-reliance', 'implicit-action', 'render of a filter whose implicit action is deny, the plugin\'s own, relying on it: no semantic warning on the filter, though some packets reach its implicit action'],
+    // Model 0.5.4's (#107): a membership negated, a minimum links out of range, a member naming an aggregate it doesn't make.
+    ['negation', 'negation', 'parse: interfaces.e1.aggregate is still in the model after it was cleared'],
+    ['malformed', 'malformed', 'parse: the malformed value is in the model'],
+    ['aggregate', 'unknown-reference', 'parse made an invalid model: A member link names an aggregate interface the model doesn\'t have. (interfaces.e1.aggregate)']
   ]
   for (const [bug, probe, problem] of cases) {
     it(`fails a stub with the ${bug} bug on the ${probe} probe: ${problem}`, () => {
@@ -101,7 +108,7 @@ describe('runProbes', () => {
 
   it('fails each case of a probe on its own: the mask, a dot past the end', () => {
     const results = runProbes(probeStub(['malformed']), PROBE_STUB_ADAPTER)
-    expect(failed(results).filter((r) => r.probe === 'malformed').map((r) => r.case)).toEqual(['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length', 'port', 'filter-prefix', 'wildcard'])
+    expect(failed(results).filter((r) => r.probe === 'malformed').map((r) => r.case)).toEqual(['ipv4-address', 'ipv6-address', 'mask', 'next-hop', 'as-number', 'vlan-id', 'prefix', 'prefix-length', 'port', 'filter-prefix', 'wildcard', 'min-links'])
     // A non-contiguous wildcard approximated as a prefix: the value is gone, so the statement that mapped it gives it away.
     expect(results.find((r) => r.case === 'wildcard')?.problems).toContain('parse: L2 on the malformed value\'s line is mapped')
     // A prefix length out of range, taken as one: found in the model as a number.
@@ -257,12 +264,19 @@ describe('runProbes', () => {
     expect(failed(results)).toEqual([])
   })
 
-  /** The stub's adapter as one written for model 0.5.0 is: no filter cases. */
+  /** The stub's adapter as one written for model 0.5.1 is: no LAG cases. */
+  const adapter051 = (): ProbeAdapter => {
+    const { 'aggregate-member': _m, ...negation } = PROBE_STUB_ADAPTER.negation
+    const { 'min-links': _l, ...malformed } = PROBE_STUB_ADAPTER.malformed
+    const { aggregate: _g, ...unknownReference } = PROBE_STUB_ADAPTER.unknownReference!
+    return { ...PROBE_STUB_ADAPTER, negation, malformed, unknownReference }
+  }
+  /** As one written for model 0.5.0 is: no filter cases either. */
   const adapter05 = (): ProbeAdapter => {
-    const { 'filter-term': _t, 'filter-attachment': _a, ...negation } = PROBE_STUB_ADAPTER.negation
-    const { port: _p, 'filter-prefix': _f, wildcard: _w, ...malformed } = PROBE_STUB_ADAPTER.malformed
-    const { filter: _r, ...unknownReference } = PROBE_STUB_ADAPTER.unknownReference!
-    const { implicitAction: _i, ...adapter } = PROBE_STUB_ADAPTER
+    const { 'filter-term': _t, 'filter-attachment': _a, ...negation } = adapter051().negation
+    const { port: _p, 'filter-prefix': _f, wildcard: _w, ...malformed } = adapter051().malformed
+    const { filter: _r, ...unknownReference } = adapter051().unknownReference!
+    const { implicitAction: _i, ...adapter } = adapter051()
     return { ...adapter, negation, malformed, unknownReference }
   }
   /** As one written for model 0.4 is: no routing policy cases either. */
@@ -274,8 +288,9 @@ describe('runProbes', () => {
   }
   const NOT_GIVEN_05 = ['negation: policy-term', 'negation: prefix-list-entry', 'malformed: prefix', 'malformed: prefix-length', 'unknown-reference: prefix-list', 'unknown-reference: community-set', 'unknown-reference: as-path-set', 'unknown-reference: policy', 'regex']
   const NOT_GIVEN_051 = ['negation: filter-term', 'negation: filter-attachment', 'malformed: port', 'malformed: filter-prefix', 'malformed: wildcard', 'unknown-reference: filter', 'implicit-action']
+  const NOT_GIVEN_054 = ['negation: aggregate-member', 'malformed: min-links', 'unknown-reference: aggregate']
 
-  it('runs an adapter written before model 0.4.0 as before, and lists the 0.4.0, 0.5.0 and 0.5.1 cases it leaves out', () => {
+  it('runs an adapter written before model 0.4.0 as before, and lists the 0.4.0, 0.5.0, 0.5.1 and 0.5.4 cases it leaves out', () => {
     // As an adapter for 0.3 is: no VLAN or BGP group use, no BGP, OSPF, AS or VLAN cases, and no routing policy.
     const { 'bgp-neighbor': _n, 'ospf-interface': _o, ...negation } = adapter04().negation
     const { 'as-number': _a, 'vlan-id': _v, ...malformed } = adapter04().malformed
@@ -292,12 +307,13 @@ describe('runProbes', () => {
     expect(results).toHaveLength(17)
     expect(results.filter((r) => r.status !== 'passed')).toEqual([])
     const notGiven04 = ['prototype-keys: as a VLAN name', 'prototype-keys: as a BGP group', 'negation: bgp-neighbor', 'negation: ospf-interface', 'malformed: as-number', 'malformed: vlan-id', 'vrf-scoping: ospf', 'vrf-scoping: bgp']
-    expect(probesNotGiven(adapter).sort()).toEqual([...notGiven04, ...NOT_GIVEN_05, ...NOT_GIVEN_051].sort())
+    expect(probesNotGiven(adapter).sort()).toEqual([...notGiven04, ...NOT_GIVEN_05, ...NOT_GIVEN_051, ...NOT_GIVEN_054].sort())
     // The suite shows them as one skipped test per model version.
     expect(probesNotGivenByModel(adapter)).toEqual([
       ['0.4.0', ['prototype-keys: as a VLAN name', 'prototype-keys: as a BGP group', 'negation: bgp-neighbor', 'negation: ospf-interface', 'malformed: as-number', 'malformed: vlan-id', 'vrf-scoping: ospf', 'vrf-scoping: bgp']],
       ['0.5.0', NOT_GIVEN_05],
-      ['0.5.1', NOT_GIVEN_051]
+      ['0.5.1', NOT_GIVEN_051],
+      ['0.5.4', NOT_GIVEN_054]
     ])
     // Declared not applicable, a 0.4.0 case is reported as such, and isn't "not given".
     const declared: ProbeAdapter = { ...adapter, negation: { ...negation, 'bgp-neighbor': { notApplicable: 'no BGP yet' } } }
@@ -305,22 +321,34 @@ describe('runProbes', () => {
     expect(probesNotGiven(declared)).not.toContain('negation: bgp-neighbor')
   })
 
-  it('runs an adapter written for model 0.4 as before, and lists the 0.5.0 and 0.5.1 cases it leaves out', () => {
+  it('runs an adapter written for model 0.4 as before, and lists the 0.5.0, 0.5.1 and 0.5.4 cases it leaves out', () => {
     const results = runProbes(probeStub(), adapter04())
     expect(results).toHaveLength(23)
     expect(results.filter((r) => r.status !== 'passed')).toEqual([])
-    expect(probesNotGivenByModel(adapter04())).toEqual([['0.5.0', NOT_GIVEN_05], ['0.5.1', NOT_GIVEN_051]])
+    expect(probesNotGivenByModel(adapter04())).toEqual([['0.5.0', NOT_GIVEN_05], ['0.5.1', NOT_GIVEN_051], ['0.5.4', NOT_GIVEN_054]])
     // Declared not applicable, they are reported as such, and aren't "not given".
     const declared: ProbeAdapter = { ...adapter04(), unknownReference: { 'prefix-list': { notApplicable: 'no policy yet' }, 'community-set': { notApplicable: 'no policy yet' }, 'as-path-set': { notApplicable: 'no policy yet' }, policy: { notApplicable: 'no policy yet' } }, regex: { notApplicable: 'no policy yet' } }
     expect(runProbes(probeStub(), declared).filter((r) => r.status === 'not-applicable').map((r) => `${r.probe}: ${r.case}`)).toEqual(['unknown-reference: prefix-list', 'unknown-reference: community-set', 'unknown-reference: as-path-set', 'unknown-reference: policy', 'regex: all'])
-    expect(probesNotGiven(declared)).toEqual(['negation: policy-term', 'negation: prefix-list-entry', 'negation: filter-term', 'negation: filter-attachment', 'malformed: prefix', 'malformed: prefix-length', 'malformed: port', 'malformed: filter-prefix', 'malformed: wildcard', 'unknown-reference: filter', 'implicit-action'])
+    expect(probesNotGiven(declared)).toEqual(['negation: policy-term', 'negation: prefix-list-entry', 'negation: filter-term', 'negation: filter-attachment', 'negation: aggregate-member', 'malformed: prefix', 'malformed: prefix-length', 'malformed: port', 'malformed: filter-prefix', 'malformed: wildcard', 'malformed: min-links', 'unknown-reference: filter', 'unknown-reference: aggregate', 'implicit-action'])
   })
 
-  it('runs an adapter written for model 0.5.0 as before, and lists the 0.5.1 cases it leaves out', () => {
+  it('runs an adapter written for model 0.5.0 as before, and lists the 0.5.1 and 0.5.4 cases it leaves out', () => {
     const results = runProbes(probeStub(), adapter05())
     expect(results).toHaveLength(32)
     expect(results.filter((r) => r.status !== 'passed')).toEqual([])
-    expect(probesNotGivenByModel(adapter05())).toEqual([['0.5.1', NOT_GIVEN_051]])
+    expect(probesNotGivenByModel(adapter05())).toEqual([['0.5.1', NOT_GIVEN_051], ['0.5.4', NOT_GIVEN_054]])
+  })
+
+  it('runs an adapter written for model 0.5.1 as before, and lists the 0.5.4 cases it leaves out (#107)', () => {
+    const results = runProbes(probeStub(), adapter051())
+    expect(results).toHaveLength(39)
+    expect(results.filter((r) => r.status !== 'passed')).toEqual([])
+    expect(probesNotGivenByModel(adapter051())).toEqual([['0.5.4', NOT_GIVEN_054]])
+    // Declared not applicable, they are reported as such, and aren't "not given".
+    const lagless = { notApplicable: 'no LAGs yet' }
+    const declared: ProbeAdapter = { ...adapter051(), negation: { ...adapter051().negation, 'aggregate-member': lagless }, malformed: { ...adapter051().malformed, 'min-links': lagless }, unknownReference: { ...adapter051().unknownReference!, aggregate: lagless } }
+    expect(runProbes(probeStub(), declared).filter((r) => r.status === 'not-applicable').map((r) => `${r.probe}: ${r.case}`)).toEqual(['negation: aggregate-member', 'malformed: min-links', 'unknown-reference: aggregate'])
+    expect(probesNotGiven(declared)).toEqual([])
   })
 
   it('passes a filter rendered with its implicit action said; fails one that says it only as info, on another filter, or for a filter that decides every packet', () => {
