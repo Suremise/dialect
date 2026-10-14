@@ -35,9 +35,17 @@
   (neighbors, peer groups, update source, eBGP multihop, IPv4 and IPv6 address families with their route maps), in
   the global table and in VRFs. Converting OSPF enabled by `network` statements writes an exact one for each
   interface, with a warning, and an eBGP neighbor with no route map warns where the source (IOS-XR) exchanged nothing.
-- **Keys and passwords are left for you to add:** an OSPF key or a BGP password is never carried over, nor written as a
-  placeholder. Dialect can't take them as answers yet: the converted config leaves them out, and `dialect convert`
-  gives each one's line (`needs input`) and exits 3 unless `--allow-incomplete`.
+- **Keys and passwords are asked for, never carried over:** an OSPF key or a BGP password is never carried over, nor
+  written as a placeholder: the converted config leaves it out until you give it.
+- **Give keys, passwords and other answers:** the app's new **Needs input** panel, beside the interfaces, lists what a
+  conversion needs besides names (an OSPF key, a BGP password, an IOS-XR eBGP neighbor's route policy, a Junos VRF's
+  route distinguisher or route targets) by line, with a field for each; keys and passwords are masked unless you show
+  them, and kept only while the tab is open, never stored. On the command line, `dialect convert --answers <file>`
+  (or `-` for stdin) reads them from an answers file, never from the command line, and `--write-answers <file>`
+  writes everything asked to fill in. Each unanswered item's message now says what's needed, and the summary counts
+  interfaces and other items apart.
+- **Warnings about a converted field give their line:** a target's warning such as IOS-XR's about an eBGP neighbor
+  with no policy is shown at the statement it's about, where it had no line before.
 - **IOS-XE messages no longer quote the config:** a statement that isn't converted says which word, by its position, or
   which line, never the word itself, so a password or community reused there doesn't show up in a warning or log.
 - **A VRF's BGP neighbor can inherit a global template on NX-OS and IOS-XR:** `inherit peer T` and `use

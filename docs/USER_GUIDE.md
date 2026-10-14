@@ -241,11 +241,13 @@ warns, and converting to IOS-XR leaves such a neighbor needing a route policy, w
 neighbor with no address family carries no routes on NX-OS and IOS-XR, which warn.
 
 **Keys and passwords are never carried over**, nor written as a placeholder: an OSPF key (or the name of a key chain)
-and a BGP password are left out of the converted config, each listed as needing input. Dialect can't take these
-answers yet, so add them to the converted config yourself before using it. The same goes for a route policy for an
-IOS-XR eBGP neighbor that has none, and for a route distinguisher or route targets that a Junos VRF needs and the
-source doesn't give. On the command line, `convert` gives each one's line (`needs input`) and exits 3 unless you
-give `--allow-incomplete`.
+and a BGP password are asked for instead, and written only once you give them. The same goes for a route policy for
+an IOS-XR eBGP neighbor that has none, and for a route distinguisher or route targets that a Junos VRF needs and the
+source doesn't give. In the app, each is a row of the **Needs input** panel beside the interfaces, with its line and
+what the target needs; type the answer there (keys and passwords are masked, unless you click **Show secrets**). An
+answer in a form the target doesn't take (an IOS-XR or NX-OS MD5 key without its key ID, say) is asked for again.
+Dialect keeps answers only while the tab is open: never in any storage, and not after you open another file or change
+the target. On the command line, give them in an answers file (see [convert](#convert)).
 
 Junos also converts routing policy: prefix lists, communities, AS paths and AS-path groups and policy-statements,
 with the policies BGP and VRFs import and export, and firewall filters (inet and inet6) with the units they're applied
@@ -347,12 +349,13 @@ router.conf:66:9: warning: not written for Cisco IOS / IOS-XE: IOS has no reject
 router.conf:74:1: warning: not converted: routing protocols come later
 ```
 
-`--map` gives the interfaces' names on the target (see [Interface names](#interface-names)). While an interface has no
-name, `convert` writes no config: it gives each unnamed interface's line and exits 3. It does the same while the
-target needs something Dialect can't take yet (a key, a password, an IOS-XR route policy for an eBGP neighbor; see
-[Supported platforms and features](#supported-platforms-and-features)), giving its line with `needs input`. `--allow-incomplete` writes the
-config anyway, after a warning giving their lines; they keep their Junos names in the output, so it isn't ready for a
-device. Options can also be written `--from=junos`.
+`--map` gives the interfaces' names on the target (see [Interface names](#interface-names)), and `--answers` the rest
+of what the target needs: keys, passwords, an IOS-XR route policy for an eBGP neighbor, a Junos VRF's route
+distinguisher or route targets (see [Supported platforms and features](#supported-platforms-and-features)). While an
+interface has no name, or something has no answer, `convert` writes no config: it gives each one's line, with what the
+target needs (`secret needed: …` or `needs input: …`), and exits 3. `--allow-incomplete` writes the config anyway,
+after a warning giving their lines: unnamed interfaces keep their source names and what has no answer is left out,
+so it isn't ready for a device. Options can also be written `--from=junos`.
 
 Messages give an interface's line, never its name: a name could be a password or community string reused, and messages
 end up in terminal and CI logs. To see the names, with suggestions, let `--write-map` write them to a map file:
@@ -365,14 +368,56 @@ It lists every interface, and every IRB unit on its own line: the name you gave,
 `# suggested`), else none (`lo0,`). Check
 it, fill in the rest and give it back with `--map names.csv`; a line with no name is an interface still to name.
 
+#### The answers file
+
+**Never put a key or password on the command line**, where other programs and your shell's history can see it: give
+answers in a file, or on stdin. `--write-answers` writes everything the conversion asks for to a file to fill in:
+
+```
+dialect convert --from junos --to iosxr --map names.csv --write-answers answers.txt router.conf
+```
+
+Each item is a comment saying its line and what's needed, and an `"id" = answer` line:
+
+```
+# Line 21: secret. OSPF MD5 authentication on an interface needs its key ID (1 to 255) and key, as "ID KEY": the key isn't carried.
+"iosxr.ospf-key:networkInstances.default.ospf.areas[\"0.0.0.0\"].interfaces[\"GigabitEthernet0/0/0/0.0\"]" = 7 my-key
+
+# Line 34: secret. A BGP session with a password needs the password, which isn't carried.
+"iosxr.bgp-password:networkInstances.default.bgp.neighbors[\"192.0.2.1\"]" =
+```
+
+Write each answer after the `=`, then give the file back:
+
+```
+dialect convert --from junos --to iosxr --map names.csv --answers answers.txt router.conf > router.xr
+some-vault-tool read router-keys | dialect convert --from junos --to iosxr --map names.csv --answers - router.conf
+```
+
+- Each item is asked once, even when its answer goes in several places (a BGP group's password, where VRFs use the
+  group too): the comment gives every line.
+- The id, in double quotes, says which item, as Dialect names it; keep it as written. It names the target's
+  interfaces, so name the interfaces first (an id changes with an interface's name).
+- The answer is the rest of the line as typed, so it can hold spaces, `#`, `=` and quotes; spaces at either end are
+  dropped. An empty answer leaves the item unanswered. Lines starting with `#` are comments.
+- A JSON object of answers by id works too: `{"iosxr.bgp-password:…": "…"}`.
+- `--answers -` reads the answers from stdin (the config then comes from a file).
+- An answer in a form the target doesn't take is asked for again (`… (the answer given isn't in the form asked for)`),
+  and an answer for something the conversion doesn't ask for is counted in a warning. Neither message repeats the
+  answer or its id.
+- Interface names go in the map, not here.
+
+Running `--write-answers` again with `--answers` keeps the answers you gave. The file holds your secrets in plain
+text: keep it somewhere safe and delete it once the config is done.
+
 ### Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Done. There may be warnings on stderr. |
 | 1 | The config has a syntax error (on stderr, with its line and column). |
-| 2 | A usage error (an unknown command or option, a missing or extra file, a map file it can't read), or a file can't be read. |
-| 3 | `convert`: interfaces have no name on the target, or it needs a key, a password or another answer. Give the names with `--map`, or use `--allow-incomplete`. |
+| 2 | A usage error (an unknown command or option, a missing or extra file, a map or answers file it can't read), or a file can't be read. |
+| 3 | `convert`: interfaces have no name on the target, or it needs a key, a password or another answer. Give the names with `--map` and the answers with `--answers`, or use `--allow-incomplete`. |
 
 `dialect --help` lists the commands, and `dialect --version` prints the version.
 

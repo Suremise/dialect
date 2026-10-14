@@ -562,6 +562,51 @@ describe('convert mode in the web build', () => {
     await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
   })
 
+  it('asks for the keys, passwords and policy a target needs, masking secrets and storing none (#105)', async () => {
+    await openPage()
+    await newTab(CONVERT_JOB)
+    await tab().getByRole('combobox', { name: 'Target platform' }).selectOption('iosxr')
+    await openWithPicker(join(CONVERT, 'secrets.conf'))
+    await tab().getByRole('textbox', { name: 'ge-0/0/0 on Cisco IOS-XR' }).fill('GigabitEthernet0/0/0/0')
+    await expect.poll(() => text('input-count'), UI_WAIT).toBe('3 of 3 need an answer')
+    await expect.poll(() => text('output-summary'), UI_WAIT).toMatch(/, incomplete: 3 items need an answer$/)
+    const panel = tab().getByRole('region', { name: 'Needs input' })
+    const key = panel.getByLabel(/^OSPF MD5 authentication on an interface/)
+    const password = panel.getByLabel(/^A BGP session with a password/)
+    const policy = panel.getByLabel(/^An eBGP neighbor has no route policy/)
+    // Secrets are masked; the policy's name isn't a secret.
+    expect([await key.getAttribute('type'), await password.getAttribute('type'), await policy.getAttribute('type')]).toEqual(['password', 'password', 'text'])
+    await key.fill('7 SYNTHETIC_KEY')
+    await password.fill('SYNTHETIC_PASSWORD')
+    await policy.fill('PASS-ALL')
+    await expect.poll(() => text('input-count'), UI_WAIT).toBe('all 3 answered')
+    await expect.poll(outputLines, UI_WAIT).toContain('  password clear SYNTHETIC_PASSWORD')
+    expect(await outputLines()).toContain('   message-digest-key 7 md5 clear SYNTHETIC_KEY')
+    expect(await outputLines()).toContain('   route-policy PASS-ALL in')
+    expect(await text('output-summary')).not.toContain('incomplete')
+    // Shown on request, masked again after.
+    await panel.getByRole('button', { name: 'Show secrets' }).click()
+    await expect.poll(() => key.getAttribute('type'), UI_WAIT).toBe('text')
+    await panel.getByRole('button', { name: 'Hide secrets' }).click()
+    await expect.poll(() => key.getAttribute('type'), UI_WAIT).toBe('password')
+    // An answer the target doesn't take is asked again, without repeating it.
+    await key.fill('SYNTHETIC_NO_ID')
+    await expect.poll(() => panel.getByText("Not in the form asked for, so it isn't used.").count(), UI_WAIT).toBe(1)
+    expect(await text('input-count')).toBe('1 of 3 need an answer')
+    expect(await tab().getByRole('region', { name: 'Problems' }).innerText()).not.toContain('SYNTHETIC')
+    // No answer reaches the page's storage.
+    const stored = await page.evaluate(async () => JSON.stringify({ local: Object.entries(localStorage), session: Object.entries(sessionStorage), databases: (await indexedDB.databases()).map((d) => d.name) }))
+    expect(stored).not.toContain('SYNTHETIC')
+    expect(stored).not.toContain('PASS-ALL')
+    // In the desktop app's smallest window, the panel stacks under the interfaces and its fields stay reachable.
+    await page.setViewportSize({ width: 720, height: 480 })
+    await policy.scrollIntoViewIfNeeded()
+    const box = (await policy.boundingBox())!
+    expect(box.x + box.width).toBeLessThanOrEqual(720)
+    expect(box.y + box.height).toBeLessThanOrEqual(480)
+    expect(await panel.getByRole('button', { name: 'Show secrets' }).isVisible()).toBe(true)
+  })
+
   it('keeps the display set tab as it was beside the convert tab', async () => {
     await openPhase1()
     await page.getByRole('tab', { name: 'Untitled → Display set' }).click()
