@@ -733,7 +733,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   its interfaces' addresses and routes need (IPv4 also for a VRF with an RD, route targets or maps), each with the
   VRF's own `import map` and `export map` (model 0.5.2: one each way, of a route map written; a chain is
   `unsupported`, `vrfPolicyMode` is `not-applicable`, a source whose policy replaces the route targets, Junos, raises
-  `iosxe.vrf-policy-mode`, and the global table's are `unsupported`); an interface's
+  `iosxe.vrf-policy-mode`, and the global table's are `unsupported`; a direction whose map can't be written leaves its
+  route targets out with it, as written alone they would carry routes the policy refuses); an interface's
   `vrf forwarding V` comes before its addresses, which it would otherwise clear, and `ip route vrf V` after. `type`
   and `vlanTagging` are `not-applicable` (IOS says them through the name and `encapsulation dot1Q`). What IOS can't
   write is `unsupported` with why: unit 0's own description or shutdown, a `reject` route, a static route's metric, an
@@ -944,7 +945,8 @@ VLANs, switch ports, SVIs, OSPF and BGP, 0.4.1's eBGP default policy, 0.5.0's ro
   and `switchport` or `no switchport` on every Ethernet and port-channel interface (`no switchport` with an address or
   subinterfaces, a VRF or OSPF). Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
   `address-family ipv4 unicast` and `ipv6 unicast` (the model's are the VRF's), with the VRF's own `import map` and
-  `export map` (model 0.5.2, as IOS-XE's, with `nxos.vrf-policy-mode`), after `feature bgp`, and before the
+  `export map` (model 0.5.2, as IOS-XE's, with `nxos.vrf-policy-mode`, a map that can't be written taking its
+  direction's route targets with it), after `feature bgp`, and before the
   interfaces; `vrf member V` comes before an interface's addresses, which it would otherwise clear, and `mgmt0` always
   gets `vrf member management`. What NX-OS can't write is `unsupported` with why: a membership in a VRF the model
   doesn't have, in `management` on an interface other than mgmt0, or in another VRF (`default` included) on mgmt0

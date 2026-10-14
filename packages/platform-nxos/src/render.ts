@@ -230,6 +230,20 @@ export function render(model: Device, context: Context): RenderResult {
   function renderVrfFamilies(instance: NetworkInstance, vrf: Segments) {
     const at = [...vrf, 'routeTargets']
     const targets = instance.routeTargets
+    // The maps first: a direction whose map can't be written can't have its route targets either, which written alone
+    // would import or export routes the policy refuses (as the parse leaves them out together).
+    const maps: { direction: 'import' | 'export'; name: string; field: Segments }[] = []
+    const blocked = new Set<'import' | 'export'>()
+    for (const [direction, leaf] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const) {
+      const list = instance[leaf]
+      if (list === undefined) continue
+      const field = [...vrf, leaf]
+      if (!list.length) skip(field, 'not-applicable', 'no policy: nothing to write')
+      else if (list.length > 1 || !policyPlan.policies.has(list[0])) {
+        skip(field, 'unsupported', list.length > 1 ? 'NX-OS applies one map a direction: a chain of policies isn\'t written' : 'names a policy NX-OS can\'t write as a route map')
+        blocked.add(direction)
+      } else maps.push({ direction, name: list[0], field })
+    }
     const lists: [direction: 'import' | 'export', values: readonly string[]][] = []
     if (targets !== undefined) {
       emptyContainer(targets, at)
@@ -237,19 +251,10 @@ export function render(model: Device, context: Context): RenderResult {
         const values = targets[direction]
         if (values === undefined) continue
         if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
+        else if (blocked.has(direction)) skip([...at, direction], 'unsupported', `left out with the VRF's ${direction} map, which NX-OS can't write: alone, they would ${direction} routes the policy refuses`)
         else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
         else lists.push([direction, values])
       }
-    }
-    const maps: { direction: 'import' | 'export'; name: string; field: Segments }[] = []
-    for (const [direction, leaf] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const) {
-      const list = instance[leaf]
-      if (list === undefined) continue
-      const field = [...vrf, leaf]
-      if (!list.length) skip(field, 'not-applicable', 'no policy: nothing to write')
-      else if (list.length > 1) skip(field, 'unsupported', 'NX-OS applies one map a direction: a chain of policies isn\'t written')
-      else if (!policyPlan.policies.has(list[0])) skip(field, 'unsupported', 'names a policy NX-OS can\'t write as a route map')
-      else maps.push({ direction, name: list[0], field })
     }
     if (instance.vrfPolicyMode !== undefined) {
       skip([...vrf, 'vrfPolicyMode'], 'not-applicable', 'an NX-OS map filters what the route targets import or export')

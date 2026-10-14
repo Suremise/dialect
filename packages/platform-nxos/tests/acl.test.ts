@@ -114,4 +114,14 @@ describe('a VRF\'s import and export maps (model 0.5.2)', () => {
     expect(leak.model.networkInstances?.V?.routeTargets).toBeUndefined()
     expect(leak.model.networkInstances?.V?.importPolicies).toBeUndefined()
   })
+
+  it('never writes a direction\'s route targets without its map when the map can\'t be written, which would widen what they carry', () => {
+    const policies = { P: { fallThrough: 'reject' as const, terms: { '10': { matches: { protocols: ['connected' as const] }, actions: { flow: 'accept' as const } } } }, A: { fallThrough: 'reject' as const, terms: { '10': { actions: { flow: 'accept' as const } } } }, B: { fallThrough: 'reject' as const, terms: { '10': { actions: { flow: 'accept' as const } } } } }
+    const result = render({ routingPolicy: { policies }, networkInstances: { V: { type: 'vrf', routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'], export: ['65000:2'] }, importPolicies: ['P'], exportPolicies: ['A', 'B'], vrfPolicyMode: 'after-route-targets' } } })
+    expect(result.text).not.toContain('route-target')
+    expect(result.text).not.toMatch(/ (import|export) map /)
+    for (const leaf of ['import', 'export']) expect(result.dispositions[`networkInstances.V.routeTargets.${leaf}`]).toMatchObject({ kind: 'unsupported' })
+    const ok = render({ routingPolicy: { policies }, networkInstances: { V: { type: 'vrf', routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'] }, importPolicies: ['A'], vrfPolicyMode: 'after-route-targets' } } })
+    expect(ok.text).toContain('    route-target import 65000:1\n    import map A\n')
+  })
 })

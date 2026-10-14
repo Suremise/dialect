@@ -1220,6 +1220,18 @@ describe('a VRF\'s import and export maps (model 0.5.2)', () => {
     expect(other.model.networkInstances?.V?.importPolicies).toBeUndefined()
     expect(at(other, 'import map A')).toMatchObject({ kind: 'unsupported' })
   })
+
+  it('never writes a direction\'s route targets without its map when the map can\'t be written, which would widen what they carry', () => {
+    const policies = { P: { fallThrough: 'reject' as const, terms: { '10': { matches: { protocols: ['connected' as const] }, actions: { flow: 'accept' as const } } } }, A: { fallThrough: 'reject' as const, terms: { '10': { actions: { flow: 'accept' as const } } } }, B: { fallThrough: 'reject' as const, terms: { '10': { actions: { flow: 'accept' as const } } } } }
+    const result = render({ routingPolicy: { policies }, networkInstances: { V: { type: 'vrf', routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'], export: ['65000:2'] }, importPolicies: ['P'], exportPolicies: ['A', 'B'], vrfPolicyMode: 'after-route-targets' } } })
+    expect(result.text).not.toContain('route-target')
+    expect(result.text).not.toMatch(/ (import|export) map /)
+    for (const leaf of ['import', 'export']) expect(result.dispositions[`networkInstances.V.routeTargets.${leaf}`]).toMatchObject({ kind: 'unsupported' })
+    // With the maps written, the route targets go with them.
+    const ok = render({ routingPolicy: { policies }, networkInstances: { V: { type: 'vrf', routeDistinguisher: '65000:1', routeTargets: { import: ['65000:1'] }, importPolicies: ['A'], vrfPolicyMode: 'after-route-targets' } } })
+    expect(ok.text).toContain(' route-target import 65000:1\n')
+    expect(ok.text).toContain('  import map A\n')
+  })
 })
 
 describe('access lists (model 0.5.1)', () => {
