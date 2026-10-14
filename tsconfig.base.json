@@ -1,0 +1,17 @@
+// Shared by every tsconfig: Hive's settings. Bundlers emit, so tsc only checks. Each package sets its own lib and types:
+// core and the platform plugins get neither Node's nor the DOM's, the CLI Node's, the UI and the shells the DOM's.
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2023"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true
+  }
+}

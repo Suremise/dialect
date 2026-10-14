@@ -1,0 +1,14 @@
+{
+  "name": "@dialect/platform-junos",
+  "version": "0.0.0",
+  "description": "The Junos platform plugin: tree parser, the display set tool, and mapping to and from the shared model.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  }
+}

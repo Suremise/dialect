@@ -7,18 +7,16 @@ tools that make them don't.
 | --- | --- |
 | `icon.svg` | The master, on a 512×512 viewBox. Used for 48 px and up. |
 | `icon-small.svg` | The 16–32 px variant on a 64×64 viewBox: flat fill, no gradient or gloss, thicker strokes. |
-| `build-icons.mjs` | Renders both into `out/`. |
 | `theme-tokens.css` | The accent tokens for the UI, light and dark. |
-| `check-contrast.mjs` | Checks those tokens against WCAG AA. |
 | `out/` | Generated: `icon.png` (512), `icon-16.png` … `icon-256.png` (16, 24, 32, 48, 64, 128, 256), `icon.ico` (all seven sizes) and `icon.icns`. |
 | `concepts/` | The three phase-1 concepts, kept as a record (see its README). |
 
 ## Regenerating
 
+From the repo root (the scripts are `scripts/build-icons.mjs` and `scripts/check-contrast.mjs`):
+
 ```sh
-cd branding
-npm install
-npm run icons      # rewrites out/
+npm run icons      # rewrites branding/out/
 npm run contrast   # exits 1 if a token pair drops below AA
 ```
 
@@ -30,9 +28,9 @@ with entries for 16 to 512 px and their @2x versions up to 1024. It hasn't been 
 is scaffolded, check it there, or let `tauri icon branding/out/icon.png` make Tauri's own set from the 512 PNG.
 
 **Tools and licenses.** `sharp` (Apache-2.0, bundles libvips, LGPL-3.0) and `png-to-ico` (MIT) are build-only dev
-dependencies of this folder. They never ship, so they're allowed (see the build-only rule in the project decisions)
-and they don't go in `THIRD_PARTY_NOTICES.md`. The icons they produce are original work under the project's MIT
-license.
+dependencies of the repo root. They never ship, so they're allowed (see the license rule in `docs/SPEC.md`): they're
+listed in `docs/BUILD_ONLY_PACKAGES.md`, not in `THIRD_PARTY_NOTICES.md`. The icons they produce are original work
+under the project's MIT license.
 
 ## The icon
 

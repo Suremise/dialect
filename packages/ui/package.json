@@ -1,0 +1,14 @@
+{
+  "name": "@dialect/ui",
+  "version": "0.0.0",
+  "description": "The React UI both shells share: editors, the warnings panel and the modes.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  }
+}

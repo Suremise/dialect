@@ -1,8 +1,8 @@
-// Checks the accent tokens in theme-tokens.css against WCAG 2.x: 4.5:1 for text, 3:1 for icons and focus rings.
+// Checks the accent tokens in branding/theme-tokens.css against WCAG 2.x: 4.5:1 for text, 3:1 for icons and focus rings.
 // Run with `npm run contrast`; it prints each pair and exits 1 if any falls short.
 import { readFile } from 'node:fs/promises'
 
-const css = (await readFile(new URL('theme-tokens.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '')
+const css = (await readFile(new URL('../branding/theme-tokens.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '')
 // Hive's surfaces (bg, sidebar, activity bar, title, elevated, input, hover, active), standing in for Dialect's own.
 const surfaces = {
   dark: ['#1e1e1e', '#252526', '#2c2c2c', '#1f1f1f', '#2d2d30', '#313131', '#2a2d2e', '#37373d'],

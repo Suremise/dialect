@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import pngToIco from 'png-to-ico'
 
-const here = fileURLToPath(new URL('.', import.meta.url))
+const here = fileURLToPath(new URL('../branding/', import.meta.url))
 const master = join(here, 'icon.svg')
 // The flat, thicker-stroked variant: the master's gradient, gloss and thin face ring turn to mush below 48 px.
 const small = join(here, 'icon-small.svg')

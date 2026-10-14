@@ -1,0 +1,34 @@
+# Checks every push to main and every pull request: types, lint, unit tests and the license check.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push cancels a run still going for the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      # Node 24 bundles npm 11, which still runs unreviewed install scripts. npm 12 runs only those allowScripts
+      # approves (package.json pins npm@12.2.0; tests/installScripts.test.ts checks it).
+      - run: npm install -g npm@12.2.0
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      # npm test already checks this (tests/licenses.test.ts); here it has its own line in the log.
+      - run: npm run licenses -- --check

@@ -1,0 +1,14 @@
+{
+  "name": "@dialect/core",
+  "version": "0.0.0",
+  "description": "Dialect's core: the shared device model (with MODEL_VERSION), the coverage ledger, the platform plugin interface and the registry. No UI, Node or DOM APIs.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  }
+}

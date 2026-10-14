@@ -1,0 +1,14 @@
+{
+  "name": "@dialect/cli",
+  "version": "0.0.0",
+  "description": "The dialect command: display set and convert, on files or stdin/stdout. Runs on Node 24.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  }
+}
