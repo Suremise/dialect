@@ -1584,10 +1584,14 @@ export function parse(text: string, _context: Context): ParseResult {
 
   /**
    * BGP's references, once every statement is read: a VRF's BGP needs the VRF defined, an update source an interface
-   * of the model, and a neighbor's group one of its instance's (a VRF neighbor using a global group, for now, isn't).
+   * of the model, and a neighbor's group one of its instance's, or, for a VRF neighbor, one of the whole router bgp's,
+   * which the VRF gets a copy of (copyGroup()).
    */
   const checkBgp = () => {
     for (const instance of bgpStatements.keys()) if (!instanceDefined(instance)) dropBgp(instance, unsupported('BGP in a VRF the configuration doesn\'t define'))
+    const global = model.get([...bgpPath('default'), 'groups'])
+    const globalGroups = isObject(global) ? global : {}
+    const copies: [instance: string, name: string][] = []
     for (const [instance, ni] of Object.entries((model.get(['networkInstances']) as Obj | undefined) ?? {})) {
       const bgp = isObject(ni) && isObject(ni.bgp) ? ni.bgp : undefined
       if (!bgp) continue
@@ -1603,9 +1607,30 @@ export function parse(text: string, _context: Context): ParseResult {
             model.remove([...at, field])
           }
           if (typeof peer.updateSource === 'string' && !interfaceResolves(peer.updateSource)) drop('updateSource', 'names an interface the configuration doesn\'t define')
-          if (typeof peer.group === 'string' && !Object.hasOwn(groups, peer.group)) drop('group', 'names a neighbor group the configuration doesn\'t define here')
+          if (typeof peer.group === 'string' && !Object.hasOwn(groups, peer.group)) {
+            if (instance !== 'default' && Object.hasOwn(globalGroups, peer.group)) copies.push([instance, peer.group])
+            else drop('group', 'names a neighbor group the configuration doesn\'t define')
+          }
         }
       }
+    }
+    for (const [instance, name] of copies) copyGroup(instance, name)
+  }
+
+  /**
+   * A VRF neighbor's group, one of the whole router bgp's: the model's groups are per network instance, so the VRF gets
+   * a copy of it (#71), mapped by the statements that configure the global one. The render writes it back as one group.
+   */
+  const copyGroup = (instance: string, name: string) => {
+    const from = [...bgpPath('default'), 'groups', name]
+    const to = [...bgpPath(instance), 'groups', name]
+    if (model.get(to) !== undefined) return
+    model.set(to, JSON.parse(JSON.stringify(model.get(from))) as unknown)
+    const prefix = fieldPath(...from)
+    const copied = (f: string) => (f === prefix || f.startsWith(`${prefix}.`) || f.startsWith(`${prefix}[`) ? [fieldPath(...to) + f.slice(prefix.length)] : [])
+    for (const n of new Set(peerStatements.get(peerKey(...from)) ?? [])) {
+      const d = dispositions[n.id]
+      if (d?.kind === 'mapped') set(n, mapped([...d.fields, ...d.fields.flatMap(copied)]))
     }
   }
 

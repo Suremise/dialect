@@ -31,6 +31,17 @@ const word = (s: string) => (/\s/.test(s) ? `"${s}"` : s)
 const OSPF_TAG = /^[\w.-]{1,32}$/
 /** The BGP address families phase 2 writes, in order. */
 const FAMILIES = ['ipv4-unicast', 'ipv6-unicast'] as const satisfies readonly BgpAddressFamilyName[]
+/** A neighbor group name IOS-XR takes. */
+const GROUP_NAME = /^\S+$/
+/** A value as JSON with its objects' keys in order: two values that say the same are the same string. */
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v))
+
+/** A neighbor group written for the whole router bgp: the group, where in the model it is, and its VRFs' copies. */
+interface SharedGroup {
+  readonly group: BgpGroup
+  readonly at: Segments
+  readonly copies: Segments[]
+}
 
 export function render(model: Device, context: Context): RenderResult {
   const lines: string[] = []
@@ -595,7 +606,18 @@ export function render(model: Device, context: Context): RenderResult {
     const global = list.find(([i]) => i === 'default')?.[1]
     emit(`router bgp ${local}`, ...(global ? bgpFields('default', global, local) : []))
     const vrfs = new Set([...list.map(([i]) => i), ...distinguished.map(([i]) => i)].filter((i) => i !== 'default'))
-    if (global) renderBgpInstance('default', global, ' ', local)
+    const groups = planGroups(list)
+    if (global) renderBgpInstance('default', global, ' ', local, groups)
+    else {
+      // No BGP in the global table, but VRFs' groups written there: with the global families they carry, as above.
+      const families = new Set([...groups.shared.values()].flatMap((s) => Object.keys(s.group.addressFamilies ?? {})))
+      for (const family of FAMILIES) {
+        if (!families.has(family)) continue
+        emit(` address-family ${family.replace('-', ' ')}`)
+        close(' ')
+      }
+      renderGroups(groups, ' ', local)
+    }
     for (const instance of vrfs) {
       const ni = model.networkInstances![instance]
       const at = ['networkInstances', instance]
@@ -609,10 +631,60 @@ export function render(model: Device, context: Context): RenderResult {
         if (isRouteDistinguisher(ni.routeDistinguisher)) emit(`  rd ${ni.routeDistinguisher}`, [...at, 'routeDistinguisher'])
         else skip([...at, 'routeDistinguisher'], 'unsupported', 'not a route distinguisher in the form ASN:nn, IP:nn or ASN4:nn')
       }
-      if (ni.bgp) renderBgpInstance(instance, ni.bgp, '  ', local)
+      if (ni.bgp) renderBgpInstance(instance, ni.bgp, '  ', local, groups)
       close(' ')
     }
     close()
+  }
+
+  /**
+   * The neighbor groups written for the whole router bgp (#71): IOS-XR's belong to it, where the model's are per
+   * network instance. The global table's are written; a VRF's group (a copy, as the parse makes one for a VRF neighbor
+   * that uses a global group) is written with the global one of its name when it is the same, or, with no global one,
+   * once for every VRF whose group of that name is the same, and only when a neighbor of the VRF uses it. Any other
+   * VRF group is left out, with why (`unwritten`, by its path).
+   */
+  function planGroups(list: readonly [string, Bgp][]): { readonly shared: ReadonlyMap<string, SharedGroup>; readonly unwritten: ReadonlyMap<string, string> } {
+    const shared = new Map<string, SharedGroup>()
+    const unwritten = new Map<string, string>()
+    const path = (instance: string, name: string) => ['networkInstances', instance, 'bgp', 'groups', name]
+    for (const [name, group] of Object.entries(list.find(([i]) => i === 'default')?.[1].groups ?? {})) if (GROUP_NAME.test(name)) shared.set(name, { group, at: path('default', name), copies: [] })
+    const inVrfs = new Map<string, [Segments, BgpGroup][]>()
+    for (const [instance, b] of list) {
+      if (instance === 'default' || model.networkInstances![instance].type !== 'vrf') continue
+      for (const [name, group] of Object.entries(b.groups ?? {})) {
+        const at = path(instance, name)
+        if (!GROUP_NAME.test(name)) unwritten.set(fieldPath(...at), 'not a neighbor group name IOS-XR takes')
+        else if (!Object.values(b.neighbors ?? {}).some((n) => n.group === name)) unwritten.set(fieldPath(...at), 'a group in a VRF that no neighbor of the VRF uses: IOS-XR\'s neighbor groups belong to the whole router bgp')
+        else inVrfs.set(name, [...(inVrfs.get(name) ?? []), [at, group]])
+      }
+    }
+    for (const [name, copies] of inVrfs) {
+      const own = shared.get(name)
+      if (own) {
+        for (const [at, group] of copies) {
+          if (canonical(group) === canonical(own.group)) own.copies.push(at)
+          else unwritten.set(fieldPath(...at), 'a group in a VRF that differs from the global table\'s of its name: IOS-XR\'s neighbor groups belong to the whole router bgp')
+        }
+      } else if (copies.every(([, group]) => canonical(group) === canonical(copies[0][1]))) shared.set(name, { group: copies[0][1], at: copies[0][0], copies: copies.slice(1).map(([at]) => at) })
+      else for (const [at] of copies) unwritten.set(fieldPath(...at), 'a group in a VRF that differs from another VRF\'s of its name: IOS-XR\'s neighbor groups belong to the whole router bgp')
+    }
+    return { shared, unwritten }
+  }
+
+  /** Each neighbor group of the plan, written once; its VRFs' copies are what it is (rendered on its lines, or not). */
+  function renderGroups(groups: ReturnType<typeof planGroups>, indent: string, local: number) {
+    for (const [name, { group, at, copies }] of groups.shared) {
+      const asked = needsInput.length
+      renderPeer(`neighbor-group ${name}`, group, at, indent, local)
+      const prefix = fieldPath(...at)
+      // A question about the neighbor group (its password) is one question, answered once, whose answer is every copy's: an
+      // item for each copy, with the same id and the copy's field.
+      const questions = needsInput.slice(asked).filter((item) => item.field !== undefined && (item.field === prefix || item.field.startsWith(`${prefix}.`)))
+      for (const copy of copies) for (const item of questions) needsInput.push({ ...item, field: fieldPath(...copy) + item.field!.slice(prefix.length) })
+      const under = Object.entries(dispositions).filter(([path]) => path === prefix || path.startsWith(`${prefix}.`) || path.startsWith(`${prefix}[`))
+      for (const copy of copies) for (const [path, d] of under) dispositions[fieldPath(...copy) + path.slice(prefix.length)] = d
+    }
   }
 
   /** The fields a `router bgp` or `vrf` line says: the local AS (the model's one AS), or BGP with nothing in it. */
@@ -622,7 +694,7 @@ export function render(model: Device, context: Context): RenderResult {
     return [...(b.localAs === local ? [[...at, 'localAs']] : []), ...(isEmpty(b) ? [at] : [])]
   }
 
-  function renderBgpInstance(instance: string, b: Bgp, indent: string, local: number) {
+  function renderBgpInstance(instance: string, b: Bgp, indent: string, local: number, groups: ReturnType<typeof planGroups>) {
     const at = ['networkInstances', instance, 'bgp']
     // The source platform's default for an eBGP peer with no policy: IOS-XR has its own (RFC 8212), warned on per neighbor.
     for (const side of ['import', 'export'] as const) if (b.ebgpDefaultPolicy?.[side] !== undefined) skip([...at, 'ebgpDefaultPolicy', side], 'not-applicable', 'the source platform\'s default, not configuration: IOS-XR\'s own is to exchange nothing (RFC 8212)')
@@ -630,8 +702,10 @@ export function render(model: Device, context: Context): RenderResult {
       if (isIpv4(b.routerId)) emit(`${indent}bgp router-id ${b.routerId}`, [...at, 'routerId'])
       else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
     }
-    // IOS-XR carries a family to a neighbor only when BGP has it too: each family a peer carries.
-    const families = new Set(Object.values({ ...b.groups, ...b.neighbors }).flatMap((p) => Object.keys(p.addressFamilies ?? {})))
+    // IOS-XR carries a family to a neighbor only when BGP has it too: each family a peer carries, and in the global
+    // table each a neighbor group written there carries, a VRF's among them.
+    const peers = [...Object.values(b.neighbors ?? {}), ...(instance === 'default' ? [...groups.shared.values()].map((s) => s.group) : Object.values(b.groups ?? {}))]
+    const families = new Set(peers.flatMap((p) => Object.keys(p.addressFamilies ?? {})))
     for (const family of FAMILIES) {
       if (!families.has(family)) continue
       emit(`${indent}address-family ${family.replace('-', ' ')}`)
@@ -639,18 +713,19 @@ export function render(model: Device, context: Context): RenderResult {
     }
     emptyContainer(b.groups, [...at, 'groups'])
     emptyContainer(b.neighbors, [...at, 'neighbors'])
-    for (const [name, group] of Object.entries(b.groups ?? {})) {
-      if (instance !== 'default') skipAll(group, [...at, 'groups', name], 'a group in a VRF: IOS-XR\'s neighbor groups belong to the whole router bgp')
-      else if (!/^\S+$/.test(name)) skipAll(group, [...at, 'groups', name], 'not a neighbor group name IOS-XR takes')
-      else renderPeer(`neighbor-group ${name}`, group, [...at, 'groups', name], indent, local)
-    }
+    /** A group of this instance that is written: a neighbor uses it there. */
+    const written = (name: string) => b.groups !== undefined && Object.hasOwn(b.groups, name) && !groups.unwritten.has(fieldPath(...at, 'groups', name)) && GROUP_NAME.test(name)
+    if (instance === 'default') {
+      for (const [name, group] of Object.entries(b.groups ?? {})) if (!GROUP_NAME.test(name)) skipAll(group, [...at, 'groups', name], 'not a neighbor group name IOS-XR takes')
+      renderGroups(groups, indent, local)
+    } else for (const [name, group] of Object.entries(b.groups ?? {})) if (!written(name)) skipAll(group, [...at, 'groups', name], groups.unwritten.get(fieldPath(...at, 'groups', name))!)
     for (const [address, neighbor] of Object.entries(b.neighbors ?? {})) {
       const nAt = [...at, 'neighbors', address]
       if (!isIpv4(address) && !isIpv6(address)) {
         skipAll(neighbor, nAt, 'not a neighbor address')
         continue
       }
-      const group = neighbor.group !== undefined && instance === 'default' && b.groups && Object.hasOwn(b.groups, neighbor.group) && /^\S+$/.test(neighbor.group) ? b.groups[neighbor.group] : undefined
+      const group = neighbor.group !== undefined && written(neighbor.group) ? b.groups![neighbor.group] : undefined
       renderPeer(`neighbor ${address}`, neighbor, nAt, indent, local, group)
     }
   }
@@ -671,7 +746,7 @@ export function render(model: Device, context: Context): RenderResult {
     }
     if (peer.group !== undefined) {
       if (group) emit(`${inner}use neighbor-group ${peer.group}`, [...at, 'group'])
-      else skip([...at, 'group'], 'unsupported', 'a group IOS-XR can\'t write as a neighbor group of the global table')
+      else skip([...at, 'group'], 'unsupported', 'a group IOS-XR can\'t write as a neighbor group of the whole router bgp')
     }
     if (peer.description !== undefined) emit(`${inner}description ${peer.description}`, [...at, 'description'])
     if (peer.localAddress !== undefined) skip([...at, 'localAddress'], 'unsupported', 'IOS-XR sources a session from an interface (update-source), not an address')

@@ -304,6 +304,56 @@ describe('BGP', () => {
     expect(result.model.networkInstances).toEqual({ default: { bgp: { localAs: 65000 } }, A: { type: 'vrf' } })
   })
 
+  it('a VRF neighbor using a global peer template gets the VRF its own copy (#71), written back as the one peer template', () => {
+    const text = lines('vrf context A', 'router bgp 65000', '  template peer G', '    description d', '    remote-as 65000', '  vrf A', '    neighbor 192.0.2.2', '      inherit peer G')
+    const result = parse(text)
+    const copied = { peerAs: 65000, description: 'd' }
+    expect([bgp(result)?.groups, bgp(result, 'A')?.groups, bgp(result, 'A')?.neighbors]).toEqual([{ G: copied }, { G: copied }, { '192.0.2.2': { group: 'G' } }])
+    expect(at(result, 5)).toEqual({ kind: 'mapped', fields: [fieldPath('networkInstances', 'default', 'bgp', 'groups', 'G', 'peerAs'), fieldPath('networkInstances', 'A', 'bgp', 'groups', 'G', 'peerAs')] })
+    expect(render(result.model).text.match(/  template peer G$/gm)).toHaveLength(1)
+    expect(roundTrips(text)).toEqual([])
+  })
+
+  it('a VRF\'s group is written once for the whole process when it is the same as the global one, or with none as every other VRF\'s, and a VRF neighbor uses it', () => {
+    const vrf = (peerAs: number, used = true) => ({ type: 'vrf' as const, bgp: { localAs: 65000, groups: { G: { peerAs } }, ...(used ? { neighbors: { '192.0.2.2': { group: 'G' } } } : {}) } })
+    const global = { type: 'default' as const, bgp: { localAs: 65000, groups: { G: { peerAs: 65000 } } } }
+    const peerAs = (model: Device, instance: string) => render(model).dispositions[fieldPath('networkInstances', instance, 'bgp', 'groups', 'G', 'peerAs')]
+    const why = (reason: string) => ({ kind: 'unsupported', reason: `${reason}: NX-OS's peer templates belong to the whole process` })
+    const same: Device = { networkInstances: { default: global, A: vrf(65000) } }
+    const vrfsOnly: Device = { networkInstances: { A: vrf(65000), B: vrf(65000) } }
+    for (const model of [same, vrfsOnly]) {
+      const result = render(model)
+      expect(result.text.match(/  template peer G$/gm)).toHaveLength(1)
+      expect(result.text.match(/      inherit peer G$/gm)).toHaveLength(Object.keys(model.networkInstances!).filter((i) => i !== 'default').length)
+      expect(peerAs(model, 'A')).toMatchObject({ kind: 'rendered' })
+      expect(accounted(model)).toEqual([])
+    }
+    // With no BGP in the global table, the families a group carries are the global table's too.
+    expect(render({ networkInstances: { A: { type: 'vrf', bgp: { localAs: 65000, groups: { G: { addressFamilies: { 'ipv4-unicast': {} } } }, neighbors: { '192.0.2.2': { group: 'G' } } } } } }).text).toMatch(/^router bgp 65000\n  address-family ipv4 unicast\n  template peer G$/m)
+    const differs: Device = { networkInstances: { default: global, A: vrf(65001) } }
+    expect([peerAs(differs, 'A'), render(differs).dispositions[fieldPath('networkInstances', 'A', 'bgp', 'neighbors', '192.0.2.2', 'group')]?.kind]).toEqual([why('a group in a VRF that differs from the global table\'s of its name'), 'unsupported'])
+    const vrfsDiffer: Device = { networkInstances: { A: vrf(65000), B: vrf(65001) } }
+    expect([peerAs(vrfsDiffer, 'A'), peerAs(vrfsDiffer, 'B')]).toEqual(Array.from({ length: 2 }, () => why('a group in a VRF that differs from another VRF\'s of its name')))
+    const unused: Device = { networkInstances: { default: global, A: vrf(65000, false) } }
+    expect(peerAs(unused, 'A')).toEqual(why('a group in a VRF that no neighbor of the VRF inherits'))
+    for (const model of [differs, vrfsDiffer, unused]) expect(accounted(model)).toEqual([])
+  })
+
+  it('a global template with a password, used in two VRFs, is one question deferring each copy\'s flag, answered once', () => {
+    const text = lines('vrf context A', 'vrf context B', 'router bgp 65000', '  template peer G', '    remote-as 65000', '    password 3 PLACEHOLDER-BGP-PASSWORD', '  vrf A', '    neighbor 192.0.2.2', '      inherit peer G', '  vrf B', '    neighbor 192.0.2.3', '      inherit peer G')
+    expect(roundTrips(text)).toEqual([])
+    const model = parse(text).model
+    const fields = ['default', 'A', 'B'].map((i) => fieldPath('networkInstances', i, 'bgp', 'groups', 'G', 'authentication'))
+    const asked = render(model).needsInput ?? []
+    expect(asked.map((item) => [item.kind, item.field])).toEqual(fields.map((f) => ['secret', f]))
+    expect(new Set(asked.map((item) => item.id)).size).toBe(1)
+    const inputs = { [asked[0].id]: 'answer1' }
+    const answered = render(model, inputs)
+    expect(answered.text.match(/password/g)).toHaveLength(1)
+    expect(fields.map((f) => answered.dispositions[f]?.kind)).toEqual(['rendered', 'rendered', 'rendered'])
+    expect([accounted(model), accounted(model, inputs)]).toEqual([[], []])
+  })
+
   it('a password is never carried: flagged on parse, asked for on render, written when answered', () => {
     const text = lines('router bgp 65000', '  neighbor 192.0.2.2', '    remote-as 65001', '    password 3 CANARY_PASSWORD', '    address-family ipv4 unicast', '      route-map M in')
     const result = parse(text)

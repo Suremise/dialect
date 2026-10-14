@@ -24,6 +24,17 @@ const VLAN_NAME = /^\S{1,32}$/
 const OSPF_TAG = /^[\w.-]{1,20}$/
 /** The BGP address families phase 2 writes, in order. */
 const FAMILIES = ['ipv4-unicast', 'ipv6-unicast'] as const satisfies readonly BgpAddressFamilyName[]
+/** A peer template name NX-OS takes. */
+const GROUP_NAME = /^\S+$/
+/** A value as JSON with its objects' keys in order: two values that say the same are the same string. */
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v))
+
+/** A peer template written for the whole process: the group, where in the model it is, and its VRFs' copies. */
+interface SharedGroup {
+  readonly group: BgpGroup
+  readonly at: Segments
+  readonly copies: Segments[]
+}
 
 export function render(model: Device, context: Context): RenderResult {
   const lines: string[] = []
@@ -699,6 +710,13 @@ export function render(model: Device, context: Context): RenderResult {
     separator()
     const global = list.find(([i]) => i === 'default')?.[1]
     emit(`router bgp ${local}`, ...(global ? bgpFields('default', global, local) : []))
+    const groups = planGroups(list)
+    if (!global) {
+      // No BGP in the global table, but VRFs' templates written there: with the process's families they carry, as below.
+      const families = new Set([...groups.shared.values()].flatMap((s) => Object.keys(s.group.addressFamilies ?? {})))
+      for (const family of FAMILIES) if (families.has(family)) emit(`  address-family ${family.replace('-', ' ')}`)
+      renderGroups(groups, '  ', local)
+    }
     for (const [instance, b] of list) {
       const at = ['networkInstances', instance, 'bgp']
       const indent = instance === 'default' ? '  ' : '    '
@@ -709,26 +727,79 @@ export function render(model: Device, context: Context): RenderResult {
         if (isIpv4(b.routerId)) emit(`${indent}router-id ${b.routerId}`, [...at, 'routerId'])
         else skip([...at, 'routerId'], 'unsupported', 'not an IPv4 address')
       }
-      // NX-OS carries a family to a neighbor only when the process has it too: each family a peer carries.
-      const families = new Set(Object.values({ ...b.groups, ...b.neighbors }).flatMap((p) => Object.keys(p.addressFamilies ?? {})))
+      // NX-OS carries a family to a neighbor only when the process has it too: each family a peer carries, and in the
+      // global table each a template written there carries, a VRF's among them.
+      const peers = [...Object.values(b.neighbors ?? {}), ...(instance === 'default' ? [...groups.shared.values()].map((s) => s.group) : Object.values(b.groups ?? {}))]
+      const families = new Set(peers.flatMap((p) => Object.keys(p.addressFamilies ?? {})))
       for (const family of FAMILIES) if (families.has(family)) emit(`${indent}address-family ${family.replace('-', ' ')}`)
       emptyContainer(b.groups, [...at, 'groups'])
       emptyContainer(b.neighbors, [...at, 'neighbors'])
-      for (const [name, group] of Object.entries(b.groups ?? {})) {
-        if (instance !== 'default') skipAll(group, [...at, 'groups', name], 'a group in a VRF: NX-OS\'s peer templates belong to the whole process')
-        else if (!/^\S+$/.test(name)) skipAll(group, [...at, 'groups', name], 'not a template name NX-OS takes')
-        else renderPeer(`template peer ${name}`, group, [...at, 'groups', name], indent, local)
-      }
+      /** A template of this instance that is written: a neighbor inherits it there. */
+      const written = (name: string) => b.groups !== undefined && Object.hasOwn(b.groups, name) && !groups.unwritten.has(fieldPath(...at, 'groups', name)) && GROUP_NAME.test(name)
+      if (instance === 'default') {
+        for (const [name, group] of Object.entries(b.groups ?? {})) if (!GROUP_NAME.test(name)) skipAll(group, [...at, 'groups', name], 'not a template name NX-OS takes')
+        renderGroups(groups, indent, local)
+      } else for (const [name, group] of Object.entries(b.groups ?? {})) if (!written(name)) skipAll(group, [...at, 'groups', name], groups.unwritten.get(fieldPath(...at, 'groups', name))!)
       for (const [address, neighbor] of Object.entries(b.neighbors ?? {})) {
         const nAt = [...at, 'neighbors', address]
         if (!isIpv4(address) && !isIpv6(address)) {
           skipAll(neighbor, nAt, 'not a neighbor address')
           continue
         }
-        const group = neighbor.group !== undefined && instance === 'default' && b.groups && Object.hasOwn(b.groups, neighbor.group) && /^\S+$/.test(neighbor.group) ? b.groups[neighbor.group] : undefined
+        const group = neighbor.group !== undefined && written(neighbor.group) ? b.groups![neighbor.group] : undefined
         renderPeer(`neighbor ${address}`, neighbor, nAt, indent, local, group)
         bgpWarnings(neighbor, nAt, local, group)
       }
+    }
+  }
+
+  /**
+   * The peer templates written for the whole process (#71): NX-OS's belong to it, where the model's groups are per
+   * network instance. The global table's are written; a VRF's group (a copy, as the parse makes one for a VRF neighbor
+   * that inherits a global template) is written with the global one of its name when it is the same, or, with no global
+   * one, once for every VRF whose group of that name is the same, and only when a neighbor of the VRF inherits it. Any
+   * other VRF group is left out, with why (`unwritten`, by its path).
+   */
+  function planGroups(list: readonly [string, Bgp][]): { readonly shared: ReadonlyMap<string, SharedGroup>; readonly unwritten: ReadonlyMap<string, string> } {
+    const shared = new Map<string, SharedGroup>()
+    const unwritten = new Map<string, string>()
+    const path = (instance: string, name: string) => ['networkInstances', instance, 'bgp', 'groups', name]
+    for (const [name, group] of Object.entries(list.find(([i]) => i === 'default')?.[1].groups ?? {})) if (GROUP_NAME.test(name)) shared.set(name, { group, at: path('default', name), copies: [] })
+    const inVrfs = new Map<string, [Segments, BgpGroup][]>()
+    for (const [instance, b] of list) {
+      if (instance === 'default') continue
+      for (const [name, group] of Object.entries(b.groups ?? {})) {
+        const at = path(instance, name)
+        if (!GROUP_NAME.test(name)) unwritten.set(fieldPath(...at), 'not a template name NX-OS takes')
+        else if (!Object.values(b.neighbors ?? {}).some((n) => n.group === name)) unwritten.set(fieldPath(...at), 'a group in a VRF that no neighbor of the VRF inherits: NX-OS\'s peer templates belong to the whole process')
+        else inVrfs.set(name, [...(inVrfs.get(name) ?? []), [at, group]])
+      }
+    }
+    for (const [name, copies] of inVrfs) {
+      const own = shared.get(name)
+      if (own) {
+        for (const [at, group] of copies) {
+          if (canonical(group) === canonical(own.group)) own.copies.push(at)
+          else unwritten.set(fieldPath(...at), 'a group in a VRF that differs from the global table\'s of its name: NX-OS\'s peer templates belong to the whole process')
+        }
+      } else if (copies.every(([, group]) => canonical(group) === canonical(copies[0][1]))) shared.set(name, { group: copies[0][1], at: copies[0][0], copies: copies.slice(1).map(([at]) => at) })
+      else for (const [at] of copies) unwritten.set(fieldPath(...at), 'a group in a VRF that differs from another VRF\'s of its name: NX-OS\'s peer templates belong to the whole process')
+    }
+    return { shared, unwritten }
+  }
+
+  /** Each template of the plan, written once; its VRFs' copies are what it is (rendered on its lines, or not). */
+  function renderGroups(groups: ReturnType<typeof planGroups>, indent: string, local: number) {
+    for (const [name, { group, at, copies }] of groups.shared) {
+      const asked = needsInput.length
+      renderPeer(`template peer ${name}`, group, at, indent, local)
+      const prefix = fieldPath(...at)
+      // A question about the template (its password) is one question, answered once, whose answer is every copy's: an
+      // item for each copy, with the same id and the copy's field.
+      const questions = needsInput.slice(asked).filter((item) => item.field !== undefined && (item.field === prefix || item.field.startsWith(`${prefix}.`)))
+      for (const copy of copies) for (const item of questions) needsInput.push({ ...item, field: fieldPath(...copy) + item.field!.slice(prefix.length) })
+      const under = Object.entries(dispositions).filter(([p]) => p === prefix || p.startsWith(`${prefix}.`) || p.startsWith(`${prefix}[`))
+      for (const copy of copies) for (const [p, d] of under) dispositions[fieldPath(...copy) + p.slice(prefix.length)] = d
     }
   }
 
@@ -745,7 +816,7 @@ export function render(model: Device, context: Context): RenderResult {
     emit(`${indent}${header}`, ...(isEmpty(peer) ? [at] : []))
     if (peer.group !== undefined) {
       if (group) emit(`${inner}inherit peer ${peer.group}`, [...at, 'group'])
-      else skip([...at, 'group'], 'unsupported', 'a group NX-OS can\'t write as a template of the global table')
+      else skip([...at, 'group'], 'unsupported', 'a group NX-OS can\'t write as a template of the whole process')
     }
     if (peer.peerAs !== undefined) {
       if (isAsNumber(peer.peerAs)) emit(`${inner}remote-as ${peer.peerAs}`, [...at, 'peerAs'])

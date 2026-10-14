@@ -22,6 +22,10 @@
   keyboard focus shows.
 
 ### Convert
+- **A VRF's BGP neighbor can inherit a global template on NX-OS and IOS-XR:** `inherit peer T` and `use
+  neighbor-group G` in a VRF now convert with the template's settings, where they were listed as not converted.
+  Converting to NX-OS or IOS-XR writes a VRF's group once as the global template when it is the same as the global one
+  (or every other VRF's), and lists one that differs.
 - **Cisco IOS / IOS-XE and NX-OS VRF import and export maps convert** with the VRF's route targets, as the policies
   they name. A Cisco map filters what the route targets import or export, where Junos `vrf-import` and `vrf-export`
   replace them: converting a Junos VRF policy to IOS-XE or NX-OS warns.

@@ -154,6 +154,12 @@ product decisions.
   source names and their lines listed on stderr. Messages give an interface's line, never its name (a name can be a
   secret's value reused); `--write-map` writes the names, with suggestions, to a file the user chose. Two interfaces
   never end up with one name: such answers are refused, never merged.
+- **A BGP template belongs to the whole process on NX-OS and IOS-XR** (#71), where the model's groups are per network
+  instance: a VRF neighbor that inherits a global `template peer` (NX-OS) or uses a global `neighbor-group` (IOS-XR)
+  gives the VRF its own copy of it. Converting to them writes a VRF's group once, as the global template, when it is
+  the same as the global one of its name (with none, as every other VRF's) and a neighbor of the VRF uses it; any other
+  VRF group is listed as not converted. Junos and IOS-XE have groups per instance (a routing instance's own, an IOS
+  peer group in an address family's VRF), so they need no copy.
 - **Routing policy converts term by term** (phase 3): prefix lists, community and AS-path lists, and policies (Junos
   policy statements, Cisco route maps). A list is converted whole or not at all, and a policy term by term, each whole or
   not at all; the whole policy is left out when leaving a term out would change what later terms see. Regexes are kept
