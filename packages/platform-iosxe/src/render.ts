@@ -1,8 +1,9 @@
-// The shared model → IOS / IOS-XE text, for the phase 1 areas. Every populated leaf of model 0.2 gets a disposition:
+// The shared model → IOS / IOS-XE text, for the phase 1 areas. Every populated leaf of model 0.3 gets a disposition:
 // `rendered` with the line it went to, `unsupported` with why (IOS can't say it, or this renderer can't yet), or
 // `not-applicable` (IOS implies it). Fields of a later model version are left without one, so the ledger reports them
-// as unrendered rather than this renderer claiming them.
-import { fieldPath, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type StaticRoute, type Subinterface } from '@dialect/core'
+// as unrendered rather than this renderer claiming them. VRFs are defined (`vrf definition`) before the interfaces in
+// them, and an interface's `vrf forwarding` comes before its addresses, which it would otherwise clear.
+import { fieldPath, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface } from '@dialect/core'
 import { lengthMask } from './addresses'
 import { SEVERITIES } from './parse'
 
@@ -74,6 +75,51 @@ export function render(model: Device, _context: Context): RenderResult {
     }
   }
 
+  // ---- VRF definitions: before the interfaces in them
+
+  const instances = Object.entries(model.networkInstances ?? {})
+  for (const [name, instance] of instances) if (name !== 'default') renderDefinition(name, instance)
+
+  /** The address families a VRF needs: those of its interfaces' addresses and its routes, and IPv4 for a VPN. */
+  function familiesOf(name: string, instance: NetworkInstance): ('ipv4' | 'ipv6')[] {
+    const subs = Object.values(model.interfaces ?? {}).flatMap((i) => Object.values(i.subinterfaces ?? {})).filter((s) => s.networkInstance === name)
+    const prefixes = Object.keys(instance.staticRoutes ?? {})
+    const v4 = subs.some((s) => s.ipv4 !== undefined) || prefixes.some((p) => !p.includes(':')) || instance.routeDistinguisher !== undefined || instance.routeTargets !== undefined
+    const v6 = subs.some((s) => s.ipv6 !== undefined) || prefixes.some((p) => p.includes(':'))
+    return [...(v4 ? ['ipv4' as const] : []), ...(v6 ? ['ipv6' as const] : [])]
+  }
+
+  function renderDefinition(name: string, instance: NetworkInstance) {
+    const at = ['networkInstances', name]
+    separator()
+    const fields: Segments[] = isEmpty(instance) ? [at] : []
+    if (instance.type === 'vrf') fields.push([...at, 'type'])
+    else if (instance.type !== undefined) skip([...at, 'type'], 'unsupported', 'IOS\'s global table is unnamed, and every other instance is a VRF')
+    emit(`vrf definition ${name}`, ...fields)
+    if (instance.routeDistinguisher !== undefined) {
+      if (isRouteDistinguisher(instance.routeDistinguisher)) emit(` rd ${instance.routeDistinguisher}`, [...at, 'routeDistinguisher'])
+      else skip([...at, 'routeDistinguisher'], 'unsupported', 'not a route distinguisher in the form ASN:nn, IP:nn or ASN4:nn')
+    }
+    if (instance.routeTargets !== undefined) renderRouteTargets(instance.routeTargets, [...at, 'routeTargets'])
+    for (const family of familiesOf(name, instance)) {
+      emit(' !')
+      emit(` address-family ${family}`)
+      emit(' exit-address-family')
+    }
+  }
+
+  /** A VRF's route targets, VRF-wide (the model's are the VRF's, for every family). Each list is one field, on its first line. */
+  function renderRouteTargets(targets: RouteTargets, at: Segments) {
+    emptyContainer(targets, at)
+    for (const direction of ['import', 'export'] as const) {
+      const values = targets[direction]
+      if (values === undefined) continue
+      if (!values.length) skip([...at, direction], 'not-applicable', 'an empty list: nothing to write')
+      else if (!values.every(isRouteDistinguisher)) skip([...at, direction], 'unsupported', 'a route target not in the form ASN:nn, IP:nn or ASN4:nn')
+      else values.forEach((v, i) => emit(` route-target ${direction} ${v}`, ...(i === 0 ? [[...at, direction]] : [])))
+    }
+  }
+
   // ---- interfaces
 
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
@@ -99,7 +145,7 @@ export function render(model: Device, _context: Context): RenderResult {
         if (main.description !== undefined) skip([...sub, 'description'], 'unsupported', 'IOS has one description for the main interface')
         if (main.enabled !== undefined) skip([...sub, 'enabled'], 'unsupported', 'IOS has one shutdown for the main interface')
         if (main.vlanId !== undefined) skip([...sub, 'vlanId'], 'unsupported', 'IOS has no subinterface 0 to tag')
-        renderAddresses(main, sub)
+        if (renderMembership(main, sub)) renderAddresses(main, sub)
       }
       if (iface.enabled !== undefined) emit(iface.enabled ? ' no shutdown' : ' shutdown', [...at, 'enabled'])
     }
@@ -111,9 +157,31 @@ export function render(model: Device, _context: Context): RenderResult {
       emit(`interface ${name}.${index}`, ...(isEmpty(sub) ? [subAt] : []))
       if (sub.description !== undefined) emit(` description ${sub.description}`, [...subAt, 'description'])
       if (sub.vlanId !== undefined) emit(` encapsulation dot1Q ${sub.vlanId}`, [...subAt, 'vlanId'])
-      renderAddresses(sub, subAt)
+      if (renderMembership(sub, subAt)) renderAddresses(sub, subAt)
       if (sub.enabled !== undefined) emit(sub.enabled ? ' no shutdown' : ' shutdown', [...subAt, 'enabled'])
     }
+  }
+
+  /**
+   * `vrf forwarding V`, before the addresses (on IOS it clears those before it). Whether the addresses can follow: in a
+   * VRF the model doesn't have, they would land in another table, so they are left out with it.
+   */
+  function renderMembership(sub: Subinterface, at: Segments): boolean {
+    const vrf = sub.networkInstance
+    if (vrf === undefined) return true
+    const field = [...at, 'networkInstance']
+    if (vrf === 'default') {
+      skip(field, 'not-applicable', 'the global routing table, which interfaces are in unless they say otherwise')
+      return true
+    }
+    if (model.networkInstances && Object.hasOwn(model.networkInstances, vrf)) {
+      emit(` vrf forwarding ${vrf}`, field)
+      return true
+    }
+    const reason = 'a VRF the model doesn\'t have'
+    skip(field, 'unsupported', reason)
+    for (const family of ['ipv4', 'ipv6'] as const) if (sub[family] !== undefined) skipAll(sub[family], [...at, family], `in a VRF IOS can't put the interface in (${reason}): left out rather than put in another table`)
+    return false
   }
 
   function renderAddresses(sub: Subinterface, at: Segments) {
@@ -161,21 +229,19 @@ export function render(model: Device, _context: Context): RenderResult {
   // ---- static routes
 
   separator()
-  for (const [name, instance] of Object.entries(model.networkInstances ?? {})) renderInstance(name, instance)
+  for (const [name, instance] of instances) renderInstance(name, instance)
   emptyContainer(model.networkInstances, ['networkInstances'])
 
+  /** The global table's settings and every instance's static routes (`ip route vrf V …`, after its definition). */
   function renderInstance(name: string, instance: NetworkInstance) {
     const at = ['networkInstances', name]
     const isDefault = name === 'default'
-    if (instance.type !== undefined) {
-      if (isDefault || instance.type === 'default') skip([...at, 'type'], 'not-applicable', 'the global routing table')
-      // Value-free, like every message (AGENTS.md): a VRF can share its name with a secret. The field says which.
-      else skip([...at, 'type'], 'unsupported', 'VRF definitions come later: the routes are written with "ip route vrf", but the VRF\'s "vrf definition" isn\'t')
+    if (isDefault) {
+      if (instance.type !== undefined) skip([...at, 'type'], 'not-applicable', 'the global routing table')
+      if (isEmpty(instance)) skip(at, 'not-applicable', 'the global routing table, with nothing in it')
+      if (instance.routeDistinguisher !== undefined) skip([...at, 'routeDistinguisher'], 'unsupported', 'the global routing table has no route distinguisher')
+      if (instance.routeTargets !== undefined) skipAll(instance.routeTargets, [...at, 'routeTargets'], 'the global routing table has no route targets')
     }
-    if (!isDefault && Object.keys(instance.staticRoutes ?? {}).length) {
-      diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.vrf-not-defined', message: 'A VRF isn\'t defined in the output (VRFs come later): add its "vrf definition" before its routes.', field: fieldPath(...at) })
-    }
-    if (isEmpty(instance)) skip(at, 'unsupported', 'VRFs without routes come later')
     emptyContainer(instance.staticRoutes, [...at, 'staticRoutes'])
     for (const [prefix, route] of Object.entries(instance.staticRoutes ?? {})) renderRoute(isDefault ? '' : `vrf ${name} `, prefix, route, [...at, 'staticRoutes', prefix])
   }
