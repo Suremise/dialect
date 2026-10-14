@@ -70,7 +70,10 @@ Rust (stable, through rustup) and the Visual Studio C++ build tools are needed f
 `npm run licenses` and its test, which list the desktop app's crates (docs/ARCHITECTURE.md, Licenses).
 
 CI (`.github/workflows/ci.yml`, Windows, Node 24 with npm 12) runs typecheck, lint, the tests and the license check on
-every push to main and every pull request. The repo has no remote yet, so CI hasn't run: run the checks locally.
+every push to main and every pull request. A second job, `desktop`, runs `cargo deny --locked check`, builds the
+installer (kept as the run's `dialect-installer` artifact, never released) and runs the desktop smoke test, with
+tauri-driver and the msedgedriver of the runner's WebView2. The repo has no remote yet, so CI hasn't run: run the checks
+locally.
 
 **npm 12 through npx:** the global npm stays 11, because Hive on the same PC uses it, so run install, ci and test as
 `npx npm@12.2.0 …`. Under npm 11, `npm test` skips the npm 12 install-script checks (`tests/installScripts.test.ts`)

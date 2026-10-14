@@ -251,7 +251,7 @@ each workspace's `typecheck` script.
 - **Lint:** oxlint with `--deny-warnings` (`.oxlintrc.json`: correctness errors, suspicious warnings).
 - **Tests:** Vitest (`vitest.config.ts`), from `tests/` and each package's `tests/`.
 - **CI:** `.github/workflows/ci.yml`, on Windows with Node 24 and npm 12: `npm ci`, typecheck, lint, tests and the
-  license check.
+  license check; and the desktop job (The desktop app, below): cargo-deny, the installer and the smoke test.
 
 ## Licenses
 
@@ -526,6 +526,12 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
   `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs tauri-driver
   (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver matching the installed WebView2 (from
   `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`), through `MSEDGEDRIVER` or `PATH`.
+- **CI:** the `desktop` job in `.github/workflows/ci.yml` (`windows-latest`) does the same. It caches cargo's registry
+  and `src-tauri/target`, and keeps tauri-driver and cargo-deny cached in `~/.cargo-tools`. It runs
+  `cargo deny --locked check` in `src-tauri`, then reads the runner's WebView2 version from the registry
+  (`HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`, `pv`), downloads
+  that msedgedriver and sets `MSEDGEDRIVER`. Then it runs `npm run build` and the smoke test, and uploads the installer
+  as the `dialect-installer` artifact (14 days, no release).
 
 ## Branding
 
