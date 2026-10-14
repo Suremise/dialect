@@ -60,7 +60,12 @@ npm run licenses       # regenerate THIRD_PARTY_NOTICES.md and docs/BUILD_ONLY_P
 npm run icons          # regenerate branding/out/ from the SVG masters
 npm run contrast       # check the theme tokens against WCAG AA
 npm run fixtures       # check fixtures/ against its manifest and print the coverage table (npm test runs it too)
+npm run build -w @dialect/desktop       # the desktop app and its NSIS installer (needs Rust); never run the installer
+npm run test:smoke -w @dialect/desktop  # the desktop smoke test: builds the app, needs tauri-driver and msedgedriver
 ```
+
+Rust (stable, through rustup) and the Visual Studio C++ build tools are needed for the desktop app, and cargo for
+`npm run licenses` and its test, which list the desktop app's crates (docs/ARCHITECTURE.md, Licenses).
 
 CI (`.github/workflows/ci.yml`, Windows, Node 24 with npm 12) runs typecheck, lint, the tests and the license check on
 every push to main and every pull request. The repo has no remote yet, so CI hasn't run: run the checks locally.

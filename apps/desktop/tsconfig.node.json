@@ -1,0 +1,10 @@
+// The build config, the scripts and the tests, which run on Node.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "jsx": "react-jsx"
+  },
+  "include": ["vite.config.ts", "vitest.smoke.config.ts", "src/assets.d.ts", "tests/**/*", "e2e/**/*"]
+}

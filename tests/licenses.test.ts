@@ -10,7 +10,9 @@ import { licenseText, noticesDrift, noticesToWrite, staleNoticesMessage, toLf } 
 // @ts-expect-error: a plain .mjs module without types
 import { declaredLicense, licenseProblem, satisfies, SHIPPED_ALLOWED } from '../scripts/licensePolicy.mjs'
 // @ts-expect-error: a plain .mjs module without types
-import { generateLicenses, packageLink, repositoryUrl } from '../scripts/thirdPartyNotices.mjs'
+import { buildOnlyText, generateLicenses, licenseProblems, noticesText, packageLink, repositoryUrl } from '../scripts/thirdPartyNotices.mjs'
+// @ts-expect-error: a plain .mjs module without types
+import { cargoLicense, classifyCrates, treeCrates } from '../scripts/crateNotices.mjs'
 import { tempDir } from './tempDir'
 
 const repo = join(__dirname, '..')
@@ -79,7 +81,7 @@ const fixture = (shipped: string[], packages: Pkg[], options: Options = {}) => {
     mkdirSync(join(noticesDir, 'texts'), { recursive: true })
     for (const [file, text] of Object.entries(options.texts)) writeFileSync(join(noticesDir, 'texts', file), text)
   }
-  return generateLicenses(root, { products: { desktop: 'apps/app' }, noticesDir, exceptions: [], supplements: options.supplements ?? {} })
+  return generateLicenses(root, { products: { desktop: 'apps/app' }, noticesDir, exceptions: [], supplements: options.supplements ?? {}, other: [] })
 }
 
 describe('the repository', () => {
@@ -97,14 +99,38 @@ describe('the repository', () => {
   })
 
   it('every link in the committed THIRD_PARTY_NOTICES.md starts with https://', () => {
-    // None yet while nothing ships; the generated notices below are checked with links.
-    const found = links(readFileSync(join(repo, 'THIRD_PARTY_NOTICES.md'), 'utf8'))
+    // Every link Dialect gives (the tables, the hand-written entries), but not the addresses inside a quoted license text
+    // (```text blocks): those are the licenses' own words, such as Apache-2.0's http://www.apache.org/licenses/.
+    const text = readFileSync(join(repo, 'THIRD_PARTY_NOTICES.md'), 'utf8')
+    const found = links(text.replace(/^```text\r?\n[\s\S]*?^```$/gm, ''))
+    expect(found.length).toBeGreaterThan(100)
     expect(found.filter((l) => !l.startsWith('https://'))).toEqual([])
   })
 
   it('lists no copied fixtures: they don\'t ship, and fixtures/LICENSES/ is their attribution', () => {
     for (const repoName of ['juniper-config-converter', 'batfish', 'cml-community']) expect(now.notices.text).not.toContain(repoName)
-    expect(now.notices.text).toContain('# Other material\n\nNot npm packages: material Dialect includes or adapts, such as copied code.\n\nNo other third-party material ships in Dialect yet.')
+    expect(now.notices.text).toContain('# Other material\n\nNeither npm packages nor Rust crates: material Dialect includes or adapts, such as copied code, the installer\'s components and native libraries.\n\n## NSIS (the installer)\n')
+  })
+
+  it('lists the desktop app\'s runtime crates, with option-ext as MPL-2.0, and no proc-macro or other host-only crate', () => {
+    const text = now.notices.text
+    expect(text).toContain('# Rust crates\n')
+    expect(text).toContain('| [option-ext](https://github.com/soc/option-ext) | 0.2.0 | MPL-2.0 | desktop app |')
+    for (const crate of ['tauri', 'tauri-plugin-dialog', 'tauri-plugin-fs', 'wry', 'webview2-com']) expect(text).toMatch(new RegExp(`^\\| \\[${crate}\\]\\(https://[^)]+\\) \\| [0-9.]+ \\|`, 'm'))
+    // Proc-macros and build scripts run on the build machine: build-only, never in the notices.
+    for (const hostOnly of ['cssparser-macros', 'tauri-macros', 'tauri-build', 'serde_derive']) {
+      expect(text).not.toMatch(new RegExp(`^(\\| \\[?${hostOnly}\\b|## ${hostOnly} )`, 'm'))
+      expect(now.buildOnly.text).toMatch(new RegExp(`^\\| ${hostOnly} \\| `, 'm'))
+    }
+    // The app itself is ours, not a third party's.
+    expect(text).not.toMatch(/^\| \[?dialect\b/m)
+  })
+
+  it('lists the installer\'s components and the WebView2 loader under other material', () => {
+    for (const title of ['NSIS (the installer)', 'nsis_tauri_utils (the installer\'s plug-in)', 'Microsoft WebView2 loader (in the desktop app)']) expect(now.notices.text).toContain(`\n## ${title}\n`)
+    expect(now.notices.text).toContain('ZLIB/LIBPNG LICENSE')
+    // NSIS's CPL-licensed LZMA module isn't used (bundle.windows.nsis.compression is zlib), so its license isn't given.
+    expect(now.notices.text).not.toContain('COMMON PUBLIC LICENSE')
   })
 
   it('adds each hand-written entry for other material as written', () => {
@@ -113,7 +139,7 @@ describe('the repository', () => {
     mkdirSync(join(root, 'notices'))
     writeFileSync(join(root, 'notices', 'lib.md'), '- **Project:** copied-lib\r\n- **License:** MIT\r\n')
     const r = generateLicenses(root, { products: { desktop: 'apps/app' }, noticesDir: join(root, 'notices'), exceptions: [], supplements: {}, other: [{ title: 'copied-lib', file: 'lib.md' }] })
-    expect(r.notices.text).toContain('# Other material\n\nNot npm packages: material Dialect includes or adapts, such as copied code.\n\n## copied-lib\n\n- **Project:** copied-lib\n- **License:** MIT\n')
+    expect(r.notices.text).toContain('# Other material\n\nNeither npm packages nor Rust crates: material Dialect includes or adapts, such as copied code, the installer\'s components and native libraries.\n\n## copied-lib\n\n- **Project:** copied-lib\n- **License:** MIT\n')
     expect(r.notices.text).not.toContain('No other third-party material')
   })
 })
@@ -385,4 +411,109 @@ describe('the generated files stay up to date (scripts/licenseText.mjs)', () => 
     expect(staleNoticesMessage(drift, 'docs/BUILD_ONLY_PACKAGES.md')).toBe('docs/BUILD_ONLY_PACKAGES.md is out of date: run `npm run licenses` and commit it.')
     expect(noticesDrift(text, null)).toEqual({ packages: ['new: lib 1.0.0'] })
   })
+})
+
+describe('Rust crates (scripts/crateNotices.mjs)', () => {
+  /** A crate's source folder with these license files. */
+  const crateDir = (files: Record<string, string>): string => {
+    const dir = tempDir('dialect-crate-')
+    made.push(dir)
+    for (const [file, text] of Object.entries(files)) writeFileSync(join(dir, file), text)
+    return dir
+  }
+  type Crate = { name: string; version: string; license?: string; repository?: string; homepage?: string; files?: Record<string, string> }
+  /** `cargo metadata` and the two `cargo tree` outputs for an app (ours) whose runtime crates are `runtime` and whose host-only ones are `host`. */
+  const cargoOutput = (runtime: Crate[], host: Crate[]) => {
+    const pkg = (c: Crate) => ({ id: `registry+${c.name}@${c.version}`, name: c.name, version: c.version, license: c.license ?? null, repository: c.repository ?? null, homepage: c.homepage ?? null, manifest_path: join(crateDir(c.files ?? { 'LICENSE-MIT': `MIT license of ${c.name}\n` }), 'Cargo.toml') })
+    const app = { id: 'path+app@0.0.0', name: 'app', version: '0.0.0', license: 'MIT', manifest_path: join(repo, 'Cargo.toml') }
+    const metadata = { workspace_members: [app.id], packages: [app, ...[...runtime, ...host].map(pkg)] }
+    const line = (c: Crate) => `${c.name} v${c.version}`
+    return { metadata, runtimeTree: ['app v0.0.0 (D:\\app)', ...runtime.map(line), `${line(runtime[0])} (*)`].join('\r\n'), allTree: ['app v0.0.0 (D:\\app)', ...runtime.map(line), ...host.map(line)].join('\n') }
+  }
+  const inventoryOf = (runtime: Crate[], host: Crate[]) => {
+    const out = cargoOutput(runtime, host)
+    const crates = classifyCrates(out.metadata, out.runtimeTree, out.allTree)
+    for (const c of crates.shipped) c.products = new Set(['desktop'])
+    return { shipped: [], buildOnly: [], problems: [], crates }
+  }
+
+  it('reads cargo tree\'s crates, without the repeats\' (*) or a path crate\'s folder', () => {
+    expect([...treeCrates('app v0.1.0 (D:\\x)\r\nserde v1.0.200\nserde v1.0.200 (*)\n\n')].sort()).toEqual(['app@0.1.0', 'serde@1.0.200'])
+  })
+
+  it('reads Cargo\'s deprecated A/B license form as A OR B', () => {
+    expect(cargoLicense('MIT/Apache-2.0')).toBe('MIT OR Apache-2.0')
+    expect(cargoLicense('Apache-2.0 / MIT')).toBe('Apache-2.0 OR MIT')
+    expect(cargoLicense('MIT OR Apache-2.0')).toBe('MIT OR Apache-2.0')
+    expect(cargoLicense(null)).toBeNull()
+  })
+
+  it('ships only the runtime crates: a proc-macro and a build script\'s dependency are build-only, and the app is ours', () => {
+    const inv = inventoryOf([{ name: 'tauri', version: '2.0.0', license: 'MIT OR Apache-2.0' }], [
+      { name: 'cssparser-macros', version: '0.6.1', license: 'MPL-2.0' },
+      { name: 'cc', version: '1.0.0', license: 'MIT OR Apache-2.0' }
+    ])
+    expect(inv.crates.shipped.map((c: { name: string }) => c.name)).toEqual(['tauri'])
+    expect(inv.crates.buildOnly.map((c: { name: string }) => c.name)).toEqual(['cc', 'cssparser-macros'])
+    const text = noticesText(inv, emptyNoticesDir(), [], {}).text
+    expect(text).toContain('| tauri | 2.0.0 | MIT OR Apache-2.0 | desktop app |')
+    expect(text).not.toContain('cssparser-macros')
+    expect(buildOnlyText(inv, []).text).toContain('| cssparser-macros | 0.6.1 | MPL-2.0 |')
+    expect(licenseProblems(inv, [])).toEqual([])
+  })
+
+  it('links a crate to its repository, normalised (git+ssh://, .git), else its https homepage, else nothing', () => {
+    const inv = inventoryOf(
+      [
+        { name: 'a-ssh', version: '1.0.0', license: 'MIT', repository: 'git+ssh://git@github.com/owner/a-ssh.git' },
+        { name: 'b-dotgit', version: '1.0.0', license: 'MIT', repository: 'https://github.com/owner/b-dotgit.git' },
+        { name: 'c-home', version: '1.0.0', license: 'MIT', homepage: 'https://c.example.org' },
+        { name: 'd-none', version: '1.0.0', license: 'MIT', repository: 'git://git.example.org/d.git', homepage: 'http://d.example.org' }
+      ],
+      []
+    )
+    const text = noticesText(inv, emptyNoticesDir(), [], {}).text
+    expect(text).toContain('| [a-ssh](https://github.com/owner/a-ssh) | 1.0.0 |')
+    expect(text).toContain('| [b-dotgit](https://github.com/owner/b-dotgit) | 1.0.0 |')
+    expect(text).toContain('| [c-home](https://c.example.org) | 1.0.0 |')
+    expect(text).toContain('| d-none | 1.0.0 |')
+    expect(links(text).filter((l) => !l.startsWith('https://'))).toEqual([])
+  })
+
+  it('gives a license text once and refers back to it when another crate has the same one', () => {
+    const apache = 'Apache License\nVersion 2.0, January 2004\n'
+    const inv = inventoryOf(
+      [
+        { name: 'first', version: '1.0.0', license: 'MIT OR Apache-2.0', files: { 'LICENSE-APACHE': apache, 'LICENSE-MIT': 'MIT, first\n' } },
+        { name: 'second', version: '1.0.0', license: 'MIT OR Apache-2.0', files: { 'LICENSE-APACHE': apache, 'LICENSE-MIT': 'MIT, second\n' } }
+      ],
+      []
+    )
+    const text = noticesText(inv, emptyNoticesDir(), [], {}).text
+    expect(text.split('Version 2.0, January 2004').length).toBe(2)
+    expect(text).toContain("*LICENSE-APACHE*: the same text as first 1.0.0's LICENSE-APACHE, above.")
+    expect(text).toContain('MIT, second')
+  })
+
+  it('fails a shipped crate with no license file, and takes a reviewed supplement\'s text; judges crates by the license rule', () => {
+    const inv = inventoryOf([{ name: 'bare', version: '1.0.0', license: 'MIT', files: { 'README.md': 'no license here\n' } }], [{ name: 'tool', version: '1.0.0' }])
+    expect(noticesText(inv, emptyNoticesDir(), [], {}).problems).toEqual([expect.stringContaining('bare@1.0.0 (shipped crate): publishes no license file')])
+    const dir = emptyNoticesDir()
+    mkdirSync(join(dir, 'texts'))
+    writeFileSync(join(dir, 'texts', 'bare.txt'), 'MIT License, bare\n')
+    const supplemented = noticesText(inv, dir, [], { 'bare@1.0.0': { text: 'bare.txt', link: 'https://github.com/owner/bare', why: 'a test', reviewedBy: 'a test' } })
+    expect(supplemented.problems).toEqual([])
+    expect(supplemented.text).toContain('| [bare](https://github.com/owner/bare) | 1.0.0 | MIT | desktop app |')
+    expect(supplemented.text).toContain('```text\nMIT License, bare\n```')
+    expect(licenseProblems(inv, [])).toEqual(['tool (crate)@1.0.0 (build-only): no license'])
+    inv.crates.shipped[0].license = 'GPL-3.0-only'
+    expect(licenseProblems(inv, [])).toEqual([expect.stringContaining('bare (crate)@1.0.0 (shipped): GPL-3.0-only isn\'t allowed'), 'tool (crate)@1.0.0 (build-only): no license'])
+  })
+
+  /** An empty notices folder of the test's own. */
+  function emptyNoticesDir(): string {
+    const dir = tempDir('dialect-crate-notices-')
+    made.push(dir)
+    return dir
+  }
 })

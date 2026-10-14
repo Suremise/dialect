@@ -14,11 +14,15 @@
 // reaches it. What only an installed package gives (its repository link and license files) is read from node_modules;
 // a shipped package that isn't installed here, or has no license file, needs a reviewed supplement (SUPPLEMENTS) or the
 // check fails.
+//
+// The desktop app's Rust crates come from crateNotices.mjs (cargo's view of what is compiled into it), listed in their own
+// section of both files and judged by the same rule.
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { createRequire } from 'module'
 import { licenseText } from './licenseText.mjs'
 import { declaredLicense, EXCEPTIONS, licenseProblem } from './licensePolicy.mjs'
+import { CRATE_PRODUCTS, CRATE_SUPPLEMENTS, crateInventory, crateNotice } from './crateNotices.mjs'
 
 const hostedGitInfo = createRequire(import.meta.url)('hosted-git-info')
 
@@ -45,7 +49,11 @@ export const SUPPLEMENTS = {}
  * fixtures/, isn't listed: fixtures/LICENSES/ is its attribution (docs/SPEC.md, License).
  * @type {readonly { title: string, file: string }[]}
  */
-export const OTHER = []
+export const OTHER = [
+  { title: 'NSIS (the installer)', file: 'nsis.md' },
+  { title: 'nsis_tauri_utils (the installer\'s plug-in)', file: 'nsis-tauri-utils.md' },
+  { title: 'Microsoft WebView2 loader (in the desktop app)', file: 'webview2-loader.md' }
+]
 
 const shownLicense = (name, license) =>
   `${license ?? 'no license field; see the license text'}${CHOSEN[name] ? `, used under ${CHOSEN[name]}` : ''}${NOTES[name] ? `; ${NOTES[name]}` : ''}`
@@ -209,7 +217,7 @@ const productList = (products) => [...products].sort().map((p) => PRODUCT_NAMES[
  * whose full license text it can't give. `noticesDir` holds the hand-written entries and supplements' texts
  * (scripts/notices).
  */
-export function noticesText(inv, noticesDir, other = OTHER) {
+export function noticesText(inv, noticesDir, other = OTHER, crateSupplements = CRATE_SUPPLEMENTS) {
   const out = [
     '# Third-party notices',
     '',
@@ -232,15 +240,50 @@ export function noticesText(inv, noticesDir, other = OTHER) {
       for (const f of files) out.push(...(files.length > 1 ? [`*${f.file}*`, ''] : []), '```text', f.text, '```', '')
     }
   }
-  out.push('# Other material', '', 'Not npm packages: material Dialect includes or adapts, such as copied code.', '')
+  const crates = (inv.crates?.shipped ?? []).map((c) => ({ c, ...crateNotice(c, noticesDir, crateSupplements) }))
+  if (crates.length) {
+    out.push(
+      '# Rust crates',
+      '',
+      'Compiled into the desktop app. Crates that only run while it is built (proc-macros, build scripts and what they use) never ship and are listed in `docs/BUILD_ONLY_PACKAGES.md`. A license text that is the same, word for word, as one given earlier is given once and referred to.',
+      '',
+      '| Crate | Version | License | Ships in |',
+      '|---|---|---|---|'
+    )
+    for (const { c } of crates) {
+      const link = crateSupplements[`${c.name}@${c.version}`]?.link ?? packageLink(c)
+      out.push(`| ${link ? `[${c.name}](${link})` : c.name} | ${c.version} | ${c.license ?? 'no license field; see the license text'} | ${productList(c.products)} |`)
+    }
+    out.push('')
+    const given = new Map()
+    for (const { c, files } of crates) {
+      out.push(`## ${c.name} ${c.version} (crate)`, '', `License: ${c.license ?? 'no license field; see the license text'}`, '')
+      if (!files.length) out.push('Its license text is missing (see the license check).', '')
+      for (const f of files) {
+        const first = given.get(f.text)
+        if (first) out.push(`*${f.file}*: the same text as ${first}, above.`, '')
+        else {
+          given.set(f.text, `${c.name} ${c.version}'s ${f.file}`)
+          out.push(...(files.length > 1 ? [`*${f.file}*`, ''] : []), '```text', f.text, '```', '')
+        }
+      }
+    }
+  }
+  out.push('# Other material', '', 'Neither npm packages nor Rust crates: material Dialect includes or adapts, such as copied code, the installer\'s components and native libraries.', '')
   if (!other.length) out.push('No other third-party material ships in Dialect yet.', '')
   for (const o of other) out.push(`## ${o.title}`, '', licenseText(readFileSync(join(noticesDir, o.file), 'utf8')), '')
-  return { text: out.join('\n'), packages: inv.shipped.length, problems: entries.map((e) => e.problem).filter(Boolean) }
+  return { text: out.join('\n'), packages: inv.shipped.length + crates.length, problems: [...entries, ...crates].map((e) => e.problem).filter(Boolean) }
 }
 
 /** What breaks the license rule (scripts/licensePolicy.mjs) in an inventory. */
 export function licenseProblems(inv, exceptions = EXCEPTIONS) {
-  return [...inv.shipped.map((p) => licenseProblem(p, 'shipped', exceptions)), ...inv.buildOnly.map((p) => licenseProblem(p, 'build-only', exceptions))].filter(Boolean)
+  const crate = (c) => ({ ...c, name: `${c.name} (crate)` })
+  return [
+    ...inv.shipped.map((p) => licenseProblem(p, 'shipped', exceptions)),
+    ...inv.buildOnly.map((p) => licenseProblem(p, 'build-only', exceptions)),
+    ...(inv.crates?.shipped ?? []).map((c) => licenseProblem(crate(c), 'shipped', exceptions)),
+    ...(inv.crates?.buildOnly ?? []).map((c) => licenseProblem(crate(c), 'build-only', exceptions))
+  ].filter(Boolean)
 }
 
 /** docs/BUILD_ONLY_PACKAGES.md for an inventory, with \n line endings, and how many packages it lists. */
@@ -262,15 +305,23 @@ export function buildOnlyText(inv, exceptions = EXCEPTIONS) {
     }
     out.push('')
   }
-  return { text: out.join('\n'), packages: inv.buildOnly.length }
+  const crates = inv.crates?.buildOnly ?? []
+  if (crates.length) {
+    out.push('## Rust crates', '', 'Crates that run only on the build machine while the desktop app is built: proc-macros, build scripts and what they use.', '', '| Crate | Version | License |', '|---|---|---|')
+    for (const c of crates) out.push(`| ${c.name} | ${c.version} | ${c.license ?? 'none'} |`)
+    out.push('')
+  }
+  return { text: out.join('\n'), packages: inv.buildOnly.length + crates.length }
 }
 
 /**
  * Both generated files for the checkout at `root`, and every problem: shipped dependencies missing from the lockfile,
  * shipped packages without a full license text, and packages that break the license rule.
  */
-export function generateLicenses(root, { products = PRODUCTS, noticesDir = join(root, 'scripts', 'notices'), exceptions = EXCEPTIONS, supplements = SUPPLEMENTS, other = OTHER } = {}) {
-  const inv = inventory(root, products, supplements)
-  const notices = noticesText(inv, noticesDir, other)
+export function generateLicenses(root, { products = PRODUCTS, noticesDir = join(root, 'scripts', 'notices'), exceptions = EXCEPTIONS, supplements = SUPPLEMENTS, other = OTHER, crates = CRATE_PRODUCTS, crateSupplements = CRATE_SUPPLEMENTS } = {}) {
+  const crateInv = crateInventory(root, crates)
+  const inv = { ...inventory(root, products, supplements), crates: crateInv }
+  inv.problems = [...inv.problems, ...crateInv.problems]
+  const notices = noticesText(inv, noticesDir, other, crateSupplements)
   return { inventory: inv, notices, buildOnly: buildOnlyText(inv, exceptions), problems: [...inv.problems, ...notices.problems, ...licenseProblems(inv, exceptions)] }
 }
