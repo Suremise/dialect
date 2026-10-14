@@ -1,0 +1,31 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "filters": {
+      "ipv6": {
+        "test-filter": {
+          "terms": {
+            "50": {
+              "description": "\"$Date:$\" \"$Revision:$\" this is a test inet6 acl good-term-2",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "sourcePrefixes": [
+                  "2620:1::/64"
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

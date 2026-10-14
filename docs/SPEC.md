@@ -153,6 +153,11 @@ product decisions.
   says so: IOS/IOS-XE and NX-OS, whose route maps deny such a route, add a final permit sequence for a Junos policy
   that passes it on (BGP's default accepts it), with a semantic warning. A BGP route map the Cisco config never defines
   isn't converted (IOS then denies every route).
+- **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
+  left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
+  contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos
+  silent discard), or a filter relying on its end, gets a semantic warning. A Cisco remark is kept as its entry's
+  description.
 
 ## 5. Configs and test data
 

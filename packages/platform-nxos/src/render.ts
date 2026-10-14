@@ -9,6 +9,7 @@ import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, populatedLeaves,
 import { isIpv4, isIpv6 } from './addresses'
 import { featuresFor, OSPF_FEATURE, VPN_FEATURE } from './features'
 import { isSwitchable } from './names'
+import { planFilters } from './renderAcl'
 import { planRoutingPolicy } from './renderPolicy'
 import { SEVERITY_LEVELS, SNMP_GROUPS } from './parse'
 import { vlanEntries } from './vlans'
@@ -316,6 +317,8 @@ export function render(model: Device, context: Context): RenderResult {
   /** The network instances whose OSPF the source enabled with `network` statements, for the warning. */
   const networkEnabled = new Set<string>()
   const ospf = ospfInterfaces()
+  // Access lists are planned first, as an interface applies one only when it is written (renderAcl.ts).
+  const aclPlan = planFilters(model.filters, skip, skipAll)
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
   emptyContainer(model.interfaces, ['interfaces'])
   // An OSPF interface whose interface wasn't written, with why when it is known.
@@ -360,6 +363,7 @@ export function render(model: Device, context: Context): RenderResult {
         renderAddresses(main, sub)
         renderOspfInterface(name, own, main)
       }
+      renderAttachments(main, sub, isSwitchable(name) && !routed)
     } else if (own === '0') renderOspfInterface(name, own, {})
     if (iface.enabled !== undefined) emit(iface.enabled ? '  no shutdown' : '  shutdown', [...at, 'enabled'])
 
@@ -379,7 +383,31 @@ export function render(model: Device, context: Context): RenderResult {
         renderAddresses(sub, subAt)
         renderOspfInterface(name, index, sub)
       }
+      renderAttachments(sub, subAt, false)
       if (sub.enabled !== undefined) emit(sub.enabled ? '  no shutdown' : '  shutdown', [...subAt, 'enabled'])
+    }
+  }
+
+  /**
+   * A subinterface's access lists (model 0.5.1), each way and family, when the access list is written: on a switch
+   * port, its port forms (`ip port access-group`, `ipv6 port traffic-filter`), which filter what comes in only.
+   */
+  function renderAttachments(sub: Subinterface, at: Segments, port: boolean) {
+    const filters = sub.filters
+    if (!filters) return
+    emptyContainer(filters, [...at, 'filters'])
+    for (const family of ['ipv4', 'ipv6'] as const) {
+      const directions = filters[family]
+      if (!directions) continue
+      emptyContainer(directions, [...at, 'filters', family])
+      for (const [direction, word] of [['input', 'in'], ['output', 'out']] as const) {
+        const name = directions[direction]
+        if (name === undefined) continue
+        const field = [...at, 'filters', family, direction]
+        if (!aclPlan.written[family].has(name)) skip(field, 'unsupported', 'names an access list NX-OS can\'t write')
+        else if (port && direction === 'output') skip(field, 'unsupported', 'a switch port\'s access list filters what comes in only on NX-OS')
+        else emit(`  ${family === 'ipv4' ? 'ip' : 'ipv6'}${port ? ' port' : ''} ${family === 'ipv4' ? 'access-group' : 'traffic-filter'} ${name} ${word}`, field)
+      }
     }
   }
 
@@ -794,6 +822,13 @@ export function render(model: Device, context: Context): RenderResult {
   for (const l of policyPlan.lines) {
     // Each route map sequence is a block of its own, as NX-OS shows them.
     if (l.text.startsWith('route-map ')) separator()
+    emit(l.text, ...l.fields)
+    const n = lines.length
+    if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })
+  }
+  // Access lists, each a block of its own.
+  for (const l of aclPlan.lines) {
+    if (!l.text.startsWith(' ')) separator()
     emit(l.text, ...l.fields)
     const n = lines.length
     if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: n, startColumn: 1, endLine: n, endColumn: l.text.length + 1 } })

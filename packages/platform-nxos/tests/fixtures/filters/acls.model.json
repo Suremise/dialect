@@ -1,0 +1,264 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "leaf-4"
+    },
+    "interfaces": {
+      "Ethernet1/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 30
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8:1::1": {
+                  "prefixLength": 64
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "EDGE-IN"
+              },
+              "ipv6": {
+                "input": "EDGE6-IN"
+              }
+            }
+          }
+        }
+      },
+      "Ethernet1/2": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "filters": {
+              "ipv4": {
+                "input": "EDGE-IN"
+              }
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "EDGE-IN": {
+          "terms": {
+            "10": {
+              "description": "SSH from the jump hosts",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "sourcePrefixes": [
+                  "192.0.2.0/24"
+                ],
+                "destinationPrefixes": [
+                  "198.51.100.1/32"
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "action": "accept",
+                "log": true
+              }
+            },
+            "20": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "sourcePorts": [
+                  "1024-65535"
+                ],
+                "destinationPrefixes": [
+                  "198.51.100.0/30"
+                ],
+                "destinationPorts": [
+                  "80-81"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "30": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "0-22",
+                  "24-65535"
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "40": {
+              "matches": {
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "53"
+                ],
+                "destinationPorts": [
+                  "0-1023"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "50": {
+              "matches": {
+                "protocols": [
+                  1
+                ],
+                "icmpTypes": [
+                  8
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "60": {
+              "matches": {
+                "protocols": [
+                  1
+                ],
+                "icmpTypes": [
+                  3
+                ],
+                "icmpCodes": [
+                  4
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "70": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "tcpFlags": {
+                  "set": [
+                    "syn"
+                  ]
+                }
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "80": {
+              "matches": {
+                "fragment": "non-initial"
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "90": {
+              "matches": {
+                "dscp": [
+                  46
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "100": {
+              "matches": {
+                "protocols": [
+                  47
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "110": {
+              "matches": {
+                "sourcePrefixes": [
+                  "10.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "action": "discard"
+              }
+            },
+            "130": {
+              "description": "everything else",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      },
+      "ipv6": {
+        "EDGE6-IN": {
+          "terms": {
+            "10": {
+              "matches": {
+                "protocols": [
+                  58
+                ],
+                "icmpTypes": [
+                  135
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "20": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "sourcePrefixes": [
+                  "2001:db8::/32"
+                ],
+                "destinationPrefixes": [
+                  "2001:db8:1::1/128"
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "30": {
+              "actions": {
+                "action": "discard",
+                "log": true
+              }
+            }
+          },
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

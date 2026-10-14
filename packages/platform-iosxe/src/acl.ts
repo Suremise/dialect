@@ -455,10 +455,10 @@ export function createAclReader(dispositions: Record<string, StatementDispositio
         for (const r of e.remarks) set(r, ignored(t.description !== undefined ? `carried as the description of the entry on line ${line(e.node)}` : 'an empty remark: nothing to convert'))
       }
       // The first header (or numbered line) also says the ACL's implicit deny.
-      const head = state.headers[0]
+      // (A numbered list's first line may be a remark: then its first entry says it.)
+      const head = state.headers.find((h) => dispositions[h.id]?.kind === 'mapped') ?? kept[0][1].node
       const d = dispositions[head.id]
       if (d?.kind === 'mapped') set(head, mapped([...d.fields, fieldPath(...at, 'implicitAction')]))
-      for (const h of state.headers.slice(1)) if (dispositions[h.id]?.kind === 'mapped') set(h, mapped([]))
       out[state.family].push([name, { terms: keyed(kept.map(([seq, e]) => [String(seq), e.term!])), implicitAction: 'deny' }])
       converted.add(key)
     }

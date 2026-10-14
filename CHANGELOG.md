@@ -22,6 +22,11 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS / IOS-XE and NX-OS access lists convert,** IPv4 and IPv6, with the interfaces that apply them: protocols,
+  addresses, ports (eq, neq, gt, lt, range), ICMP types, established and TCP flags, fragments, DSCP and log, and each
+  entry's remarks as its description. A non-contiguous wildcard is never approximated: its entry is listed as not
+  converted. Converting a Junos filter warns that the Cisco list denies what no entry decides, where Junos drops it
+  silently.
 - **Cisco NX-OS routing policy converts:** prefix lists (IPv4 and IPv6, with `eq`), standard and expanded community lists
   and AS-path access lists with their sequence numbers, and route maps; BGP neighbors' route maps now carry the policy,
   not only its name. As on IOS-XE, regexes are kept as written, a route map converts sequence by sequence, and a Junos
