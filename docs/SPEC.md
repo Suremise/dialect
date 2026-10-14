@@ -61,7 +61,10 @@ product decisions.
   (`apps/desktop/scripts/sign.mjs`) that signs only when `DIALECT_SIGN_COMMAND` is set. A **strict CSP** (nothing remote,
   no inline code, IPC only). Open and save go through the system dialogs, and the app can read and write only the
   files the user picks there; a dropped file is read from the drop itself. Agents build the installer and run the
-  smoke test, but **never run the installer**: Darren installs and tests it himself.
+  smoke test, but **never run the installer**: Darren installs and tests it himself. The **Dialect icon** is on the
+  installer, the window and taskbar, and in the **notification area** (#82): left-click shows the window, the menu has
+  Show Dialect, New tab and Quit, and Quit goes through the close guard. **Closing the window quits the app**: no
+  minimise-to-tray, as Dialect needn't run in the background (Darren's decision; a setting only if he asks).
 - **Versions:** semver 0.x until the model and the plugin API are stable.
 
 ## 3. License
