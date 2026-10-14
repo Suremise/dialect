@@ -44,7 +44,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.5.2)
+## Core contracts (`@dialect/core`, model 0.5.3)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -139,11 +139,12 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 | 0.5.0 | `Device.routingPolicy` (`RoutingPolicy`): prefix lists, community and AS-path sets, policies and their terms, and the `routing-policy` feature area (#72, phase 3) |
 | 0.5.1 | `Device.filters` (`Filters`): firewall filters and ACLs and their terms, `Subinterface.filters` (`FilterAttachments`), and the `filters` feature area (#73) |
 | 0.5.2 | `NetworkInstance.importPolicies`, `exportPolicies` and `vrfPolicyMode` (`VrfPolicyMode`): a VRF's own policies and how they stand with its route targets (#83) |
+| 0.5.3 | `FilterTerm.description`: what an ACL entry is for, one line of text (a Cisco `remark`) (#101) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
 renderer, a subinterface's `networkInstance` for a 0.2 one or any of 0.4's VLAN, switch port, routed VLAN, OSPF and BGP
-fields for a 0.3 one, any routing policy field for a 0.4 one, any filter field for a 0.5.0 one or a VRF's policies
-for a 0.5.1 one, shows in the ledger as unrendered rather than being dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
+fields for a 0.3 one, any routing policy field for a 0.4 one, any filter field for a 0.5.0 one, a VRF's policies
+for a 0.5.1 one or a filter term's description for a 0.5.2 one, shows in the ledger as unrendered rather than being dropped (the kit's negative tests). Each plugin adopts 0.4 in its own phase 2 cards, and 0.5 in its phase 3 cards.
 
 ### Routing policy (model 0.5.0)
 
@@ -194,7 +195,10 @@ added, so a field's path is stable and the model's order is its keys' order with
 `ipv6 access-list` (standard and extended, named or numbered), IOS-XR's ACLs. After OpenConfig `acl`, simplified, with
 ideas from Capirca and Aerleon's term model (ideas only).
 - A filter has a `description`, ordered `terms` (keyed by position, as a policy's: an ACL entry's sequence number, a
-  Junos term's place from 1, with the Junos `name` a leaf) and its **`implicitAction`**: what the platform does with a
+  Junos term's place from 1, with the Junos `name` a leaf, and since 0.5.3 a `description`: one line of text saying what
+  the entry is for, a Cisco ACL's `remark` before it, several joined by a space, which a Cisco renderer writes back as a
+  `remark`; Junos keeps none per term, so a Junos renderer marks it `unsupported`, as a field has no
+  `ignored-by-design`) and its **`implicitAction`**: what the platform does with a
   packet no term decides, kept with the data as a policy's `fallThrough` is and required the same way. `discard` for
   Junos (dropped silently), `deny` for a Cisco ACL's implicit deny (dropped, with an ICMP unreachable as the
   interface's `ip unreachables` says). A renderer gives it `not-applicable` and raises a semantic warning when its
@@ -269,7 +273,7 @@ model's (`model.implicit-action`) and every term an `action` of the model's (`mo
 exist (`model.unknown-prefix-list`); protocols, ICMP types and codes are from 0 to 255 and DSCP from 0 to 63
 (`model.number`); ports are ports or ranges (`isPortRange()`, `model.port-range`); TCP flags (`model.tcp-flags`) and
 fragment matches (`model.fragment`) are the model's; and every filter a subinterface applies is one of the model's in
-that family (`model.unknown-filter`).
+that family (`model.unknown-filter`). From 0.5.3, a term's description is one line of text (`model.description`).
 
 Messages never quote the value, which can share its text with a secret. The conformance kit runs it on every parse and
 reparse.
@@ -373,13 +377,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.5.2.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.5.3.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.5.2", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.5.3", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
