@@ -10,6 +10,7 @@ import { useHelp } from './state'
 export function DocsView({ platform }: { platform: Platform }) {
   const { docsPage, showDocs, closeDocs, setAboutOpen } = useHelp()
   const doc = DOCS.find((d) => d.id === docsPage) ?? DOCS[0]
+  const back = useStore((s) => (s.mode === 'convert' ? 'Convert' : 'Display set'))
   const pageRef = useRef<HTMLDivElement>(null)
 
   // A new page starts at its top.
@@ -34,8 +35,8 @@ export function DocsView({ platform }: { platform: Platform }) {
           About Dialect
         </button>
         <span className="docs-nav-spacer" />
-        <button className="btn docs-back" onClick={closeDocs} title="Back to the display set (Esc)">
-          ← Display set
+        <button className="btn docs-back" onClick={closeDocs} title={`Back to ${back.toLowerCase()} (Esc)`}>
+          ← {back}
         </button>
       </nav>
       <div className="docs-page" ref={pageRef} data-doc={doc.id}>

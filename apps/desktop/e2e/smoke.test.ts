@@ -167,6 +167,41 @@ describe('the desktop app', () => {
     await expect.poll(() => paneText('source'), UI_WAIT).not.toBeNull()
   })
 
+  it('converts the phase 1 fixture to IOS-XE, with the interfaces named in the table and the warnings shown', async () => {
+    const convertFixtures = join(__dirname, '../../../packages/cli/tests/fixtures/convert')
+    const clickButton = (label: string): Promise<boolean> =>
+      page().execute((text: string) => {
+        const target = [...document.querySelectorAll<HTMLElement>('button')].find((el) => el.textContent?.trim() === text || el.getAttribute('aria-label') === text)
+        target?.click()
+        return !!target
+      }, label)
+    expect(await clickButton('Convert')).toBe(true)
+    await page().execute((content: string) => {
+      const target = document.querySelector('[data-pane="source"]')!
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([content], 'phase1.conf', { type: 'text/plain' }))
+      for (const type of ['dragenter', 'dragover', 'drop']) target.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }))
+    }, readFileSync(join(convertFixtures, 'phase1.conf'), 'utf8'))
+    await expect.poll(() => testIdText('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
+    // One name taken by hand, the rest as suggested.
+    expect(await clickButton('Use Loopback0 for lo0')).toBe(true)
+    await expect.poll(() => testIdText('interface-count'), UI_WAIT).toBe('3 of 4 need a name')
+    expect(await clickButton('Use suggestions')).toBe(true)
+    await expect.poll(() => testIdText('interface-count'), UI_WAIT).toBe('all 4 named')
+    const expected = readFileSync(join(convertFixtures, 'phase1.iosxe'), 'utf8').trimEnd()
+    await expect.poll(() => paneText('output'), UI_WAIT).toBe(expected)
+    expect(await testIdText('problem-count')).toBe('4 warnings')
+    const firstProblem = (): Promise<string | null> => page().execute(() => document.querySelector<HTMLElement>('.problem.warning .problem-message')?.innerText ?? null)
+    expect(await firstProblem()).toBe('Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards')
+    // The source gutter marks it once the line is in view.
+    await page().execute(() => document.querySelector<HTMLElement>('.problem.warning')?.click())
+    const gutterTitles = (): Promise<string[]> =>
+      page().execute(() => [...(document.querySelector('[data-pane="source"]')?.shadowRoot?.querySelectorAll<HTMLElement>('.cm-issue-warning') ?? [])].map((m) => m.title))
+    await expect.poll(gutterTitles, UI_WAIT).toContain('Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards')
+    expect(await clickButton('Display set')).toBe(true)
+    await expect.poll(() => testIdText('interface-count'), UI_WAIT).toBeNull()
+  })
+
   it('opens no link but an https one in the browser', async () => {
     // Only refusals are probed: an allowed https link would start the browser on this machine.
     const results = await page().execute(() => {

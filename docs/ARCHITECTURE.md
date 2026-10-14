@@ -449,22 +449,31 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 
 The React UI both shells share: `<App platform={…} />`, where `Platform` (`src/platform.ts`) is the shell's file and
 clipboard access (open, open a dropped file, save, read and write the clipboard), which build it is (`kind`, `version`)
-and how it opens a web link (`openLink`). The UI never touches files itself: even a dropped file is read by the shell,
+and how it opens a web link (`openLink`). Open and save take what the file holds (`FileKind`: a config, or an interface
+map), so the shells offer the right file types. The UI never touches files itself: even a dropped file is read by the shell,
 from the drop event's data. Both shells take the version from the root `package.json` (a named JSON import, so only
 that field is bundled).
 
-- `src/store.ts`: one zustand store, with the source text and its name, the display set output and each output line's
-  source line, the problems (the syntax error or the warnings), the theme choice, and requests to reveal a place in an
-  editor. It runs display set as the Junos plugin's tool, found through the core's registry
-  (`createRegistry([junos]).tools()`), as the CLI does: the problems come from the result's diagnostics and the linked
-  lines from its `sourceLines`. Display set runs synchronously on every change (config_22, 316 KB, parses in tens of
-  milliseconds).
-- `src/App.tsx`: the title bar and its actions (Open, Paste, Copy output, Save output, the theme), the source and output
-  panes, the problems panel and the status bar. A file dropped anywhere opens, even on an editor: the drop is handled
+- `src/store.ts`: one zustand store, with the mode (display set or convert), the convert target, the source text and
+  its name, the interface map, what the source gives in the mode (the output, the linked lines as source/output pairs,
+  the problems, and in convert the interface rows), the theme choice, and requests to reveal a place in an editor. Both
+  modes go through the core's registry (`createRegistry([junos, iosxe])`), as the CLI does: display set as the Junos
+  plugin's tool (its problems from the result's diagnostics, its links from `sourceLines`), convert as the core's
+  `convert()` from Junos to the target (its problems from the ledger's diagnostics and `issues`, its links from
+  `links` and the statements' spans, its rows from `interfaces`). Both run synchronously on every change (config_22,
+  316 KB, parses in tens of milliseconds). The interface map is kept while the source is edited and dropped when
+  another file opens or the target changes, so no name carries over to other ports unasked.
+- `src/App.tsx`: the title bar (the mode switch, convert's target, and the actions: Open, Paste, Copy output, Save
+  output, Help, the theme), the source and output panes, the problems panel (and in convert, the interface table beside
+  it) and the status bar. A file dropped anywhere opens, even on an editor: the drop is handled
   in the capture phase, so CodeMirror doesn't insert it, and `platform.openDropped()` reads it. Moving the cursor in one pane marks the matching lines in the other, through
-  the tool's `sourceLines`.
+  the store's links.
+- `src/components/InterfaceTable.tsx`: convert's interface table: each interface with its name on the target, the
+  suggestion as the input's placeholder and a Use button, Use suggestions, and Load map… / Save map in the CLI's map
+  format (the core's `parseInterfaceMap()` and `formatInterfaceMap()`).
 - `src/editor/`: the CodeMirror 6 editor component, and Junos colouring as a stream language (colouring only: the
-  parser does the real work).
+  parser does the real work). The source editor has an issue gutter: a marker on each error or warning line, with what
+  it says on hover.
 - `src/help/` (B16, Hive's Docs view and About dialog): `docs.ts` bundles `docs/USER_GUIDE.md`, `CHANGELOG.md`,
   `LICENSE` and `THIRD_PARTY_NOTICES.md` with Vite's `?raw`; `Markdown.tsx` renders one with marked, cleans it with
   DOMPurify, gives headings GitHub's ids and keeps every link from navigating the page (another bundled document

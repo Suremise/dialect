@@ -360,6 +360,108 @@ describe('the web build', () => {
   })
 })
 
+describe('convert mode in the web build', () => {
+  const CONVERT = join(__dirname, '../../../packages/cli/tests/fixtures/convert')
+  const expected = readFileSync(join(CONVERT, 'phase1.iosxe'), 'utf8')
+  const outputLines = (): Promise<string[]> => page.locator('[data-pane=output] .cm-line').allInnerTexts()
+  const interfaceInput = (name: string) => page.getByRole('textbox', { name: `${name} on Cisco IOS / IOS-XE` })
+
+  async function openPhase1(): Promise<void> {
+    await openPage()
+    await page.getByRole('button', { name: 'Convert' }).click()
+    await expect.poll(() => page.getByRole('combobox', { name: 'Target platform' }).inputValue(), UI_WAIT).toBe('iosxe')
+    await openWithPicker(join(CONVERT, 'phase1.conf'))
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
+  }
+
+  it('converts the phase 1 fixture to IOS-XE once the interfaces are named, and saves it', async () => {
+    await openPhase1()
+    const lines = expected.split('\n').length - 1
+    // Unnamed, the interfaces keep their Junos names: the output says it is incomplete.
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(`${lines} lines, incomplete: 4 interfaces need a name`)
+    expect(await outputLines()).toContain('interface ge-0/0/0')
+    expect(await interfaceInput('ge-0/0/0').getAttribute('placeholder')).toBe('GigabitEthernet0/0/0 (suggested)')
+    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+    await expect.poll(() => text('output-summary'), UI_WAIT).toBe(`${lines} lines`)
+    expect(await outputLines()).toEqual(expected.trimEnd().split('\n'))
+    expect(await saveOutput()).toEqual({ name: 'phase1.iosxe', text: expected })
+    expect(await text('status-result')).toBe(`${lines} lines`)
+  })
+
+  it('changes the output names from the interface table and from a loaded map, and saves the map', async () => {
+    await openPhase1()
+    await interfaceInput('ge-0/0/0').fill('GigabitEthernet1')
+    await expect.poll(outputLines, UI_WAIT).toContain('interface GigabitEthernet1')
+    // The Junos unit 0 next hop is the main interface on IOS.
+    expect(await outputLines()).toContain('ip route 198.51.100.64 255.255.255.192 GigabitEthernet1 192.0.2.2')
+    await page.getByRole('button', { name: 'Use Loopback0 for lo0' }).click()
+    await expect.poll(outputLines, UI_WAIT).toContain('interface Loopback0')
+    writeFileSync(join(dir, 'names.csv'), 'ge-0/0/1,GigabitEthernet2\nxe-0/1/0,TenGigabitEthernet9/9/9\n')
+    const chooser = page.waitForEvent('filechooser', UI_WAIT)
+    await page.getByRole('button', { name: /^Load map/ }).click()
+    await (await chooser).setFiles(join(dir, 'names.csv'))
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+    expect(await outputLines()).toEqual(expect.arrayContaining(['interface GigabitEthernet2.10', 'interface TenGigabitEthernet9/9/9']))
+    const download = page.waitForEvent('download', UI_WAIT)
+    await page.getByRole('button', { name: 'Save map' }).click()
+    const file = await download
+    const path = join(dir, `download-${++downloads}-${file.suggestedFilename()}`)
+    await file.saveAs(path)
+    expect({ name: file.suggestedFilename(), text: readFileSync(path, 'utf8') }).toEqual({
+      name: 'interfaces.csv',
+      text: 'ge-0/0/0,GigabitEthernet1\nlo0,Loopback0\nge-0/0/1,GigabitEthernet2\nxe-0/1/0,TenGigabitEthernet9/9/9\n'
+    })
+  })
+
+  it('shows what did not carry over in the warnings panel and the source gutter, and jumps to it', async () => {
+    await openPhase1()
+    await expect
+      .poll(() => page.locator('.problem.warning').allInnerTexts(), UI_WAIT)
+      .toEqual([
+        'Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards\nline 66, column 9',
+        'Not converted: routing protocols come later\nline 74, column 1',
+        'Not converted: routing protocols come later\nline 75, column 5',
+        'Not converted: routing protocols come later\nline 76, column 9'
+      ])
+    expect(await text('problem-count')).toBe('4 warnings')
+    await page.locator('.problem.warning').first().click()
+    await expect.poll(() => page.locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('        route 192.0.2.192/26 reject;')
+    // The gutter marks the line, saying why on hover; the line itself is marked too.
+    const marker = page.locator('[data-pane=source] .cm-issue-warning[title^="Not written"]')
+    await expect.poll(() => marker.getAttribute('title'), UI_WAIT).toBe('Not written for Cisco IOS / IOS-XE: IOS has no reject route: Null0 discards')
+    expect(await page.locator('[data-pane=source] .cm-mark-warning', { hasText: 'reject' }).count()).toBe(1)
+    await page.locator('.problem.warning').last().click()
+    await expect.poll(() => page.locator('[data-pane=source] .cm-issue-warning[title^="Not converted"]').count(), UI_WAIT).toBe(3)
+  })
+
+  it('links an output line to its source statement, and back', async () => {
+    await openPhase1()
+    await page.getByRole('button', { name: 'Use suggestions' }).click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('all 4 named')
+    await page.locator('[data-pane=output] .cm-line', { hasText: 'ip address 192.0.2.1 255.255.255.252' }).click()
+    await expect.poll(() => page.locator('[data-pane=source] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['                address 192.0.2.1/30;'])
+    // Back by the keyboard: the source pane has just scrolled to the address (on its next frame), so a click by position
+    // could land on another line. Line 3 is `host-name edge-1;`.
+    await page.locator('[data-pane=source] .cm-content').focus()
+    await page.keyboard.press('Control+Home')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => page.locator('[data-pane=source] .cm-activeLine').innerText(), UI_WAIT).toBe('    host-name edge-1;')
+    await expect.poll(() => page.locator('[data-pane=output] .cm-mark-link').allInnerTexts(), UI_WAIT).toEqual(['hostname edge-1'])
+  })
+
+  it('keeps display set as it was, and Convert in the Docs back button', async () => {
+    await openPhase1()
+    await page.keyboard.press('F1')
+    await expect.poll(() => page.getByRole('button', { name: '← Convert' }).count(), UI_WAIT).toBe(1)
+    await page.getByRole('button', { name: '← Convert' }).click()
+    await page.getByRole('button', { name: 'Display set' }).click()
+    await expect.poll(() => text('output-summary'), UI_WAIT).toMatch(/^\d+ set lines$/)
+    expect(await page.locator('.interfaces').count()).toBe(0)
+  })
+})
+
 // Writes light and dark screenshots of a fixture for the card's report, when asked: DIALECT_SCREENSHOTS=<folder>.
 const shots = process.env.DIALECT_SCREENSHOTS
 describe.runIf(Boolean(shots))('screenshots', () => {
@@ -373,6 +475,13 @@ describe.runIf(Boolean(shots))('screenshots', () => {
     await typeSource('system {\n    /* lab */\n    host-name r1\n}\n')
     await expect.poll(() => text('problem-count'), UI_WAIT).toBe('1 error')
     await page.screenshot({ path: join(shots!, `dialect-${scheme}-error.png`) })
+    await page.getByRole('button', { name: 'Convert' }).click()
+    await openWithPicker(join(__dirname, '../../../packages/cli/tests/fixtures/convert/phase1.conf'))
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('4 of 4 need a name')
+    await page.getByRole('button', { name: 'Use GigabitEthernet0/0/0 for ge-0/0/0' }).click()
+    await page.locator('.problem.warning').first().click()
+    await expect.poll(() => text('interface-count'), UI_WAIT).toBe('3 of 4 need a name')
+    await page.screenshot({ path: join(shots!, `dialect-${scheme}-convert.png`) })
     writeFileSync(join(shots!, 'size.txt'), `${readFileSync(join(dir, 'dist', 'dialect.html')).length}\n`)
   })
 })

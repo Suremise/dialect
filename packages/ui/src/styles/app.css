@@ -168,13 +168,47 @@ body {
   font-weight: 600;
   color: var(--fg-strong);
 }
-.titlebar-mode {
-  padding: 2px 8px;
+.mode-switch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+}
+.mode-button {
+  padding: 2px 10px;
+  border: none;
   border-radius: 10px;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
   font-size: 12px;
   font-weight: 600;
+  cursor: pointer;
+}
+.mode-button:hover {
+  color: var(--fg);
+}
+.mode-button.selected {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.target-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.target-picker select {
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--fg);
+  font: inherit;
 }
 
 .toolbar {
@@ -238,13 +272,116 @@ body {
   position: relative;
 }
 
-/* ---------- Problems ---------- */
-.problems {
-  display: flex;
-  flex-direction: column;
+/* ---------- Problems, and in convert the interface table beside them ---------- */
+.app.converting {
+  grid-template-rows: 40px minmax(0, 1fr) minmax(120px, 30%) 24px;
+}
+.bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   background: var(--bg-sidebar);
   border-top: 1px solid var(--border);
+}
+.bottom.converting {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.problems,
+.interfaces {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.interfaces {
+  border-left: 1px solid var(--border-subtle);
+}
+.section-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+.interface-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 8px 4px 16px;
+}
+.interface-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.interface-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-sidebar);
+  padding: 2px 6px 4px 0;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+.interface-table td {
+  padding: 1px 6px 1px 0;
+}
+.interface-table td:last-child {
+  width: 1%;
+}
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-family: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+.link-button:disabled {
+  cursor: default;
+}
+.link-button:hover:not(:disabled) span {
+  text-decoration: underline;
+}
+.interface-table tr.unnamed .icon {
+  color: var(--warning);
+}
+.interface-table tr:not(.unnamed) .icon {
+  color: var(--success);
+}
+.name-input {
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-input);
+  color: var(--fg);
+  font-family: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+}
+.name-input::placeholder {
+  color: var(--fg-faint);
+  font-style: italic;
+}
+.name-input:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+.interface-table tr.unnamed .name-input {
+  border-color: var(--warning);
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .section-header {
   display: flex;
@@ -381,6 +518,16 @@ body {
   background: transparent;
   border-color: var(--border);
 }
+.btn.small {
+  height: 22px;
+  padding: 0 8px;
+  gap: 4px;
+  font-size: 12px;
+}
+.btn.small .icon {
+  width: 14px;
+  height: 14px;
+}
 .btn.icon-only {
   width: 28px;
   padding: 0;
@@ -420,7 +567,13 @@ body {
     padding: 0;
     justify-content: center;
   }
-  .titlebar-mode {
+  .target-picker > span {
+    display: none;
+  }
+  .bottom.converting {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bottom.converting .interfaces {
     display: none;
   }
 }

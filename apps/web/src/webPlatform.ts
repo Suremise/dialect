@@ -1,14 +1,17 @@
 // The web build's file and clipboard access: a file picker, downloads, and the browser's clipboard (with the older
 // copy command as a fallback, since a page opened from file:// may not get the clipboard API).
-import type { OpenedFile, Platform } from '@dialect/ui'
+import type { FileKind, OpenedFile, Platform } from '@dialect/ui'
 // Dialect's version: the repo's (Vite keeps only this field).
 import { version } from '../../../package.json'
 
-function pickFile(): Promise<File | null> {
+/** The picker's file types, by what the file holds: an interface map is `from,to` lines or JSON. */
+const ACCEPT: Record<FileKind, string> = { config: '.conf,.cfg,.txt,.junos,text/plain', 'interface-map': '.csv,.json,.txt,text/csv,application/json,text/plain' }
+
+function pickFile(kind: FileKind): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.conf,.cfg,.txt,.junos,text/plain'
+    input.accept = ACCEPT[kind]
     input.addEventListener('change', () => resolve(input.files?.[0] ?? null), { once: true })
     input.addEventListener('cancel', () => resolve(null), { once: true })
     input.click()
@@ -30,8 +33,8 @@ function copyWithCommand(text: string): void {
 export const webPlatform: Platform = {
   kind: 'web',
   version,
-  async openFile(): Promise<OpenedFile | null> {
-    const file = await pickFile()
+  async openFile(kind = 'config'): Promise<OpenedFile | null> {
+    const file = await pickFile(kind)
     return file ? { name: file.name, text: await file.text() } : null
   },
   openDropped(data) {

@@ -71,6 +71,13 @@ Nothing is dropped silently. Every line of the source is either converted, left 
 as not converted, and every setting is either written or marked as one IOS-XE can't say (a `reject` route, say). These
 are listed as warnings, by line, with the reason.
 
+In the app, choose **Convert** at the top, next to Display set, and the target platform beside it. Then open, drop or
+paste a Junos config as in display set. The IOS-XE config appears on the right as you type. Below, the **Problems**
+panel lists what didn't carry over. The same lines are marked in the source's gutter, with the reason on hover, and
+clicking a problem shows its line. The **Interfaces** table lists every interface to name (see below). Moving the
+cursor in one pane marks the matching lines in the other. Copy output and Save output work as in display set; a saved
+conversion is named after the source with the target's name (`edge-1.conf` → `edge-1.iosxe`).
+
 ### Interface names
 
 Junos and IOS name interfaces differently, and only you know how the ports line up on the new device, so Dialect never
@@ -79,8 +86,14 @@ interface, needs a name on the target. Dialect suggests one where the name makes
 `GigabitEthernet0/0/0`, `xe-0/1/0` → `TenGigabitEthernet0/1/0`, `lo0` → `Loopback0`), but a suggestion is only used once
 you take it.
 
-On the command line, give the names in a map file, with `--map`. Either one `from,to` pair per line (`#` starts a
-comment, and blank lines are fine):
+In the app, name them in the **Interfaces** table: type a name, click **Use** to take a row's suggestion, or **Use
+suggestions** to take every one at once. Until an interface has a name, it is marked, keeps its Junos name in the
+output, and the output pane says the conversion is incomplete. **Load map…** reads a map file (below) and **Save
+map** writes your names to one, for next time or for the command line. The names stay while you edit the config; opening
+another config starts with none, since its ports may be different ones.
+
+On the command line, give the names in a map file, with `--map`. A map file is either one `from,to` pair per line
+(`#` starts a comment, and blank lines are fine):
 
 ```
 # Junos name,IOS-XE name

@@ -6,14 +6,21 @@
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import type { OpenedFile, Platform } from '@dialect/ui'
+import type { FileKind, OpenedFile, Platform } from '@dialect/ui'
 // Dialect's version: the repo's (Vite keeps only this field).
 import { version } from '../../../package.json'
 
-const FILTERS = [
-  { name: 'Configs', extensions: ['conf', 'cfg', 'txt', 'junos'] },
-  { name: 'All files', extensions: ['*'] }
-]
+/** The dialogs' file types, by what the file holds: an interface map is `from,to` lines or JSON. */
+export const FILTERS: Record<FileKind, { name: string; extensions: string[] }[]> = {
+  config: [
+    { name: 'Configs', extensions: ['conf', 'cfg', 'txt', 'junos', 'set', 'iosxe'] },
+    { name: 'All files', extensions: ['*'] }
+  ],
+  'interface-map': [
+    { name: 'Interface maps', extensions: ['csv', 'json', 'txt'] },
+    { name: 'All files', extensions: ['*'] }
+  ]
+}
 
 /** The file name at the end of a Windows or POSIX path. */
 export const baseName = (path: string): string => path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
@@ -21,8 +28,8 @@ export const baseName = (path: string): string => path.slice(Math.max(path.lastI
 export const desktopPlatform: Platform = {
   kind: 'desktop',
   version,
-  async openFile(): Promise<OpenedFile | null> {
-    const path = await open({ multiple: false, directory: false, filters: FILTERS })
+  async openFile(kind = 'config'): Promise<OpenedFile | null> {
+    const path = await open({ multiple: false, directory: false, filters: FILTERS[kind] })
     if (typeof path !== 'string') return null
     return { name: baseName(path), text: await readTextFile(path) }
   },
@@ -32,8 +39,8 @@ export const desktopPlatform: Platform = {
     if (!file) return Promise.resolve(null)
     return file.text().then((text) => ({ name: file.name, text }))
   },
-  async saveText(suggestedName, text) {
-    const path = await save({ defaultPath: suggestedName, filters: FILTERS })
+  async saveText(suggestedName, text, kind = 'config') {
+    const path = await save({ defaultPath: suggestedName, filters: FILTERS[kind] })
     if (!path) return
     await writeTextFile(path, text)
   },

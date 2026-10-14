@@ -144,6 +144,16 @@ export interface Conversion {
   readonly unanswered: readonly NeedsInput[]
   /** By source statement, what didn't fully carry over, in tree order. */
   readonly issues: readonly ConversionIssue[]
+  /**
+   * Which source statement each part of the output came from: a statement and the output span of a field it filled,
+   * one per pair, for linking the source and output panes (display only, like every span).
+   */
+  readonly links: readonly OutputLink[]
+}
+
+export interface OutputLink {
+  readonly statement: string
+  readonly output: Span
 }
 
 export interface ConvertOptions {
@@ -237,11 +247,11 @@ export function convert(source: PlatformPlugin, target: PlatformPlugin, text: st
   const ledger: CoverageLedger = { ...built, diagnostics: [...built.diagnostics, ...diagnostics], needsInput: [...needsInput, ...built.needsInput] }
   const named = new Set(interfaces.filter((i) => i.target !== undefined).map((i) => i.inputId))
   const unanswered = [...needsInput.filter((item) => !named.has(item.id)), ...built.needsInput.filter((item) => answer(item.id) === undefined)]
-  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, issues: issues(parse, ledger, map) }
+  return { parse, model, ...(render ? { render } : {}), ledger, interfaces, unanswered, ...sourceSide(ledger, map) }
 }
 
-/** By source statement, what didn't fully carry over: one issue per statement and reason, in tree order. */
-function issues(parse: ParseResult, ledger: CoverageLedger, map: InterfaceMap): ConversionIssue[] {
+/** By source statement: what didn't fully carry over (one issue per statement and reason), and where its fields went. */
+function sourceSide(ledger: CoverageLedger, map: InterfaceMap): Pick<Conversion, 'issues' | 'links'> {
   // The render's fields are the renamed model's: back to the parse's names, to find the statement that filled each.
   const back = new Map(Object.entries(map).map(([from, to]) => [to, from]))
   const sourcePath = (path: string) => {
@@ -249,6 +259,9 @@ function issues(parse: ParseResult, ledger: CoverageLedger, map: InterfaceMap): 
     if (s[0] === 'interfaces' && typeof s[1] === 'string' && back.has(s[1])) s[1] = back.get(s[1])!
     return fieldPath(...s)
   }
+  const rendered = new Map<string, Span>()
+  for (const f of ledger.target?.fields ?? []) if (f.disposition?.kind === 'rendered' && f.disposition.span) rendered.set(sourcePath(f.path), f.disposition.span)
+  const links: OutputLink[] = []
   const notRendered = new Map<string, string | undefined>()
   for (const f of ledger.target?.fields ?? []) {
     if (f.disposition === null) notRendered.set(sourcePath(f.path), 'the target plugin gave it no disposition')
@@ -267,12 +280,14 @@ function issues(parse: ParseResult, ledger: CoverageLedger, map: InterfaceMap): 
     else if (s.disposition.kind === 'unsupported') add({ statement: s.id, ...span, kind: 'unsupported', ...(s.disposition.reason ? { reason: s.disposition.reason } : {}) })
     else if (s.disposition.kind === 'mapped')
       for (const f of s.disposition.fields) {
+        const output = rendered.get(f)
+        if (output) links.push({ statement: s.id, output })
         if (!notRendered.has(f)) continue
         const reason = notRendered.get(f)
         add({ statement: s.id, ...span, kind: 'not-rendered', ...(reason ? { reason } : {}) })
       }
   }
-  return out
+  return { issues: out, links }
 }
 
 /** Reads an interface map: `from,to` lines (`#` starts a comment), or JSON (an object of names). Problems by line. */

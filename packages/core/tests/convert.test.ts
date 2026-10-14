@@ -81,7 +81,8 @@ const target: PlatformPlugin = {
       if (leaf.path.endsWith('.description')) dispositions[leaf.path] = { kind: 'unsupported', reason: 'no descriptions here' }
       else {
         lines.push(`${leaf.path} = ${JSON.stringify(leaf.value)}`)
-        dispositions[leaf.path] = { kind: 'rendered' }
+        const n = lines.length
+        dispositions[leaf.path] = { kind: 'rendered', span: { startLine: n, startColumn: 1, endLine: n, endColumn: lines[n - 1].length + 1 } }
       }
     }
     return { text: lines.join('\n') + '\n', dispositions, diagnostics: [] }
@@ -154,6 +155,18 @@ describe('convert: issues and the parse', () => {
         { statement: 'bgp', span: { startLine: 12, startColumn: 1, endLine: 12, endColumn: 4 }, kind: 'unsupported', reason: 'routing protocols come later' }
       ])
     }
+  })
+
+  it("links each statement to the output lines of the fields it filled, by the fields' new names", () => {
+    const c = run(interfaceInputs({ eth0: 'Gig0' }))
+    const lines = c.render!.text.split('\n')
+    const linked = c.links.map((l) => [l.statement, lines[l.output.startLine - 1]])
+    expect(linked).toContainEqual(['eth0-addr', 'interfaces.Gig0.subinterfaces["0"].ipv4.addresses["192.0.2.1"].prefixLength = 24'])
+    expect(linked).toContainEqual(['lo0', 'interfaces.lo0 = {}'])
+    expect(linked).toContainEqual(['ntp', 'system.ntp.sourceInterface = "Gig0.0"'])
+    // The description wasn't written, so it links nowhere.
+    expect(c.links.some((l) => l.statement === 'eth0-desc')).toBe(false)
+    expect(c.links.length).toBe(8)
   })
 
   it('renders nothing after a parse error', () => {
