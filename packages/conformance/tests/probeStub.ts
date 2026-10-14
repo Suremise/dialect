@@ -9,9 +9,18 @@
 //   vlandef N [name X]
 //   [vrf V] bgp as A | [vrf V] bgp group G | [vrf V] bgp neighbor A as N | [vrf V] bgp neighbor A group G
 //   [vrf V] ospf area X interface I
+//   bgp neighbor A import P
+//   prefix-list L seq N permit|deny P [ge X] [le Y]
+//   community-set C seq N permit|deny member M | community-set C seq N permit|deny regex R   (Cisco's dialect)
+//   as-path-set A seq N permit|deny regex R                                                  (Cisco's dialect)
+//   policy P term N match prefix-list L | match community C | match as-path A | action accept|reject|next-term|next-policy
 //   no <any of them> (no interface N description, no interface N address A/L, no vrf V [route P], no route P,
-//   no community C, no name-server A [vrf V], no search D, no [vrf V] bgp neighbor A, no [vrf V] ospf area X interface I)
-import { fieldPath, type Context, type Device, type FieldDisposition, type ParseResult, type PathSegment, type PlatformPlugin, type RenderResult, type StatementDisposition, type SyntaxNode } from '@dialect/core'
+//   no community C, no name-server A [vrf V], no search D, no [vrf V] bgp neighbor A, no [vrf V] ospf area X interface I,
+//   no prefix-list L seq N, no policy P term N)
+//
+// A policy term is converted whole or not at all (the per-term rule): a term with a line the stub can't take is left out
+// with all its lines unsupported, and its whole policy too when leaving it out isn't safe (termSkipSafe()).
+import { communityType, fieldPath, parsePrefix, populatedLeaves, termSkipSafe, type Context, type Device, type Diagnostic, type FieldDisposition, type ParseResult, type PathSegment, type PlatformPlugin, type Policy, type RenderResult, type StatementDisposition, type SyntaxNode } from '@dialect/core'
 import type { ProbeAdapter } from '../src'
 
 /** The bug classes the probes look for, each as the stub can be told to make it. */
@@ -28,6 +37,10 @@ export type ProbeBug =
   | 'malformed'
   /** A `no …` in one VRF removes the same thing (a route, a BGP neighbor, an OSPF interface) in every VRF and the global table. */
   | 'vrf-scope'
+  /** A name a term or a BGP neighbor gives is kept, whether or not anything has it. */
+  | 'reference'
+  /** A regex of another dialect is written as if it were the stub's own, with no word said. */
+  | 'regex'
 
 type Obj = Record<string, unknown>
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -69,7 +82,8 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
       snmp: { parse: 'partial', render: 'partial' },
       vlans: { parse: 'partial', render: 'partial' },
       ospf: { parse: 'partial', render: 'partial' },
-      bgp: { parse: 'partial', render: 'partial' }
+      bgp: { parse: 'partial', render: 'partial' },
+      'routing-policy': { parse: 'partial', render: 'partial' }
     },
     parse(text: string, _context: Context): ParseResult {
       const model: Obj = {}
@@ -151,6 +165,61 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
         }
         if (w[0] === 'vrf' && (w[2] === 'bgp' || w[2] === 'ospf')) return protocol(w[1], w.slice(2))
         if (w[0] === 'bgp' || w[0] === 'ospf') return protocol('default', w)
+        if (w[0] === 'prefix-list' || w[0] === 'community-set' || w[0] === 'as-path-set' || w[0] === 'policy') return policyStatement(w)
+        return unsupported('the probe stub has no rule for it')
+      }
+      const rp = ['routingPolicy']
+      /** Whether a name is one the source defined before (or, careless, any name at all). */
+      const defined = (path: readonly string[]) => bug.has('reference') || isObject(get(path))
+      /** Adds `value` to the leaf-list at `path`. */
+      const push = (path: readonly string[], value: unknown) => put(path, [...((get(path) as unknown[] | undefined) ?? []), value])
+      const position = (word: string | undefined) => (word !== undefined && /^(0|[1-9]\d{0,9})$/.test(word) && Number(word) <= 4294967294 ? word : null)
+      /** A prefix list, a set or a policy term. */
+      const policyStatement = (w: readonly string[]): StatementDisposition => {
+        const seq = position(w[3])
+        const action = w[4] === 'permit' || w[4] === 'deny' ? w[4] : null
+        if (w[0] === 'prefix-list' && w[2] === 'seq' && seq !== null && action !== null && w.length >= 6) {
+          const p = prefix(w[5], bug.has('malformed'))
+          if (!p || (!bug.has('malformed') && !parsePrefix(w[5]))) return unsupported('not a prefix with no host bits set')
+          const bits = p[2] === 'ipv4' ? 32 : 128
+          const options = new Map<string, number | null>()
+          for (let i = 6; i + 1 < w.length + 1; i += 2) options.set(w[i], w[i + 1] === undefined ? null : bounded(w[i + 1], 0, 128, bug.has('malformed')))
+          const ge = options.get('ge')
+          const le = options.get('le')
+          if ([...options.keys()].some((k) => k !== 'ge' && k !== 'le') || ge === null || le === null) return unsupported('not a prefix list entry')
+          const minLength = ge ?? p[1]
+          const maxLength = le ?? (ge !== undefined ? bits : p[1])
+          if (!bug.has('malformed') && !(p[1] <= minLength && minLength <= maxLength && maxLength <= bits && (ge === undefined || ge > p[1]))) return unsupported('lengths out of range')
+          const form = ge !== undefined ? (le !== undefined ? 'ge-le' : 'ge') : le !== undefined ? 'le' : 'exact'
+          const at = [...rp, 'prefixLists', p[2], w[1], 'entries', seq]
+          put(at, { action, prefix: `${p[0]}/${p[1]}`, minLength, maxLength, form })
+          return mapped(...populatedLeaves(get(at), at).map((l) => l.path))
+        }
+        if ((w[0] === 'community-set' || w[0] === 'as-path-set') && w[2] === 'seq' && seq !== null && action !== null && w.length === 7) {
+          const set = [...rp, w[0] === 'community-set' ? 'communitySets' : 'asPathSets', w[1]]
+          const at = [...set, 'entries', seq]
+          if (w[0] === 'community-set' && w[5] === 'member') {
+            if (communityType(w[6]) === null && !bug.has('malformed')) return unsupported('not a community')
+            return mapped(put([...at, 'action'], action), push([...at, 'members'], w[6]))
+          }
+          if (w[5] !== 'regex') return unsupported('the probe stub has no rule for it')
+          const dialect = put([...set, 'regexDialect'], 'cisco')
+          return w[0] === 'community-set' ? mapped(dialect, put([...at, 'action'], action), push([...at, 'regexes'], w[6])) : mapped(dialect, put([...at, 'action'], action), put([...at, 'regex'], w[6]))
+        }
+        const term = position(w[3])
+        if (w[0] === 'policy' && w[2] === 'term' && term !== null) {
+          const at = [...rp, 'policies', w[1], 'terms', term]
+          const fallThrough = put([...rp, 'policies', w[1], 'fallThrough'], 'reject')
+          if (w[4] === 'action' && ['accept', 'reject', 'next-term', 'next-policy'].includes(w[5]) && w.length === 6) return mapped(fallThrough, put([...at, 'actions', 'flow'], w[5]))
+          if (w[4] === 'match' && w.length === 7) {
+            if (w[5] === 'prefix-list') {
+              const family = ['ipv4', 'ipv6'].find((f) => isObject(get([...rp, 'prefixLists', f, w[6]]))) ?? (bug.has('reference') ? 'ipv4' : undefined)
+              return family ? mapped(fallThrough, push([...at, 'matches', 'prefixLists', family], w[6])) : unsupported('names a prefix list the source doesn\'t have')
+            }
+            if (w[5] === 'community') return defined([...rp, 'communitySets', w[6]]) ? mapped(fallThrough, push([...at, 'matches', 'communitySets'], w[6])) : unsupported('names a community set the source doesn\'t have')
+            if (w[5] === 'as-path') return defined([...rp, 'asPathSets', w[6]]) ? mapped(fallThrough, push([...at, 'matches', 'asPathSets'], w[6])) : unsupported('names an AS-path set the source doesn\'t have')
+          }
+        }
         return unsupported('the probe stub has no rule for it')
       }
       /** A BGP or OSPF statement in `instance`. */
@@ -171,6 +240,10 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
           return n === null ? unsupported('not an AS number') : mapped(put([...bgp, 'neighbors', w[2], 'peerAs'], n))
         }
         if (w[0] === 'bgp' && w[1] === 'neighbor' && w[3] === 'group' && w.length === 5) return mapped(put([...bgp, 'neighbors', w[2], 'group'], w[4]))
+        if (w[0] === 'bgp' && w[1] === 'neighbor' && w[3] === 'import' && w.length === 5) {
+          if (!defined(['routingPolicy', 'policies', w[4]])) return unsupported('names a policy the source doesn\'t have')
+          return mapped(push([...bgp, 'neighbors', w[2], 'importPolicies'], w[4]))
+        }
         if (w[0] === 'ospf' && w[1] === 'area' && w[3] === 'interface' && w.length === 5) {
           if (!IPV4.test(w[2])) return unsupported('not an area in dotted form')
           object(['networkInstances', instance, 'ospf', 'areas', w[2], 'interfaces', w[4]])
@@ -212,6 +285,12 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
           const rest = ((get(['system', 'dns', 'search']) as string[] | undefined) ?? []).filter((d) => d !== w[1])
           if (rest.length) put(['system', 'dns', 'search'], rest)
           else remove(['system', 'dns', 'search'])
+        } else if (w[0] === 'prefix-list' && w[2] === 'seq' && w.length === 4) {
+          for (const family of ['ipv4', 'ipv6']) if (isObject(get(['routingPolicy', 'prefixLists', family, w[1], 'entries', w[3]]))) remove(['routingPolicy', 'prefixLists', family, w[1], 'entries', w[3]])
+        } else if (w[0] === 'policy' && w[2] === 'term' && w.length === 4) {
+          remove(['routingPolicy', 'policies', w[1], 'terms', w[3]])
+          const policy = get(['routingPolicy', 'policies', w[1]])
+          if (isObject(policy) && !isObject(policy.terms)) remove(['routingPolicy', 'policies', w[1]])
         } else return unsupported('the probe stub has no rule for it')
         return ignored('removes what it names: nothing to convert')
       }
@@ -223,6 +302,19 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
         tree.push(node)
         dispositions[node.id] = statement(w)
       })
+      // The per-term rule: a term with a line the stub couldn't take is left out whole, every line of it unsupported,
+      // and its policy too when that isn't safe. Careless about references, it keeps the term as it is.
+      const lines = (policy: string, term?: string) => tree.filter((n) => n.label.startsWith(`policy ${policy} term `) && (term === undefined || n.label.split(' ')[3] === term))
+      for (const n of tree) {
+        const [first, policy, , term] = n.label.split(' ')
+        if (first !== 'policy' || dispositions[n.id].kind !== 'unsupported' || term === undefined) continue
+        const p = get(['routingPolicy', 'policies', policy]) as Policy | undefined
+        const whole = p?.terms !== undefined && Object.hasOwn(p.terms, term) && !termSkipSafe(p, term)
+        for (const l of lines(policy, whole ? undefined : term)) if (dispositions[l.id].kind === 'mapped') dispositions[l.id] = unsupported(whole ? 'its policy is converted whole or not at all' : 'its term is converted whole or not at all')
+        remove(['routingPolicy', 'policies', policy, ...(whole ? [] : ['terms', term])])
+        const left = get(['routingPolicy', 'policies', policy])
+        if (isObject(left) && !isObject(left.terms)) remove(['routingPolicy', 'policies', policy])
+      }
       // A statement whose fields a later `no` removed: it says so, as a removed statement's disposition would.
       for (const [id, d] of Object.entries(dispositions)) {
         if (d.kind === 'mapped' && d.fields.some((f) => !hasField(model, f))) dispositions[id] = ignored('removed by a later statement')
@@ -272,7 +364,52 @@ export function probeStub(bugs: readonly ProbeBug[] = []): PlatformPlugin {
       }
       for (const [a, s] of Object.entries(model.system?.dns?.servers ?? {})) emit(`name-server ${a}${s.networkInstance ? ` vrf ${s.networkInstance}` : ''}`, ['system', 'dns', 'servers', a, ...(s.networkInstance ? ['networkInstance'] : [])])
       model.system?.dns?.search?.forEach((d, i) => emit(`search ${d}`, ...(i === 0 ? [['system', 'dns', 'search']] : [])))
-      return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics: [] }
+      // Routing policy: the stub writes Cisco's regex dialect only, and route policies that reject what no term decides.
+      const diagnostics: Diagnostic[] = []
+      const rp = model.routingPolicy
+      const leavesOf = (value: unknown, ...at: PathSegment[]) => populatedLeaves(value, at).map((l) => l.path)
+      for (const family of ['ipv4', 'ipv6'] as const)
+        for (const [name, list] of Object.entries(rp?.prefixLists?.[family] ?? {}))
+          for (const [seq, e] of Object.entries(list.entries ?? {})) {
+            const length = Number(e.prefix.split('/')[1])
+            const options = e.form === 'ge' ? ` ge ${e.minLength}` : e.form === 'le' ? ` le ${e.maxLength}` : e.form === 'ge-le' ? ` ge ${e.minLength} le ${e.maxLength}` : e.minLength === length && e.maxLength === length ? '' : ` ge ${e.minLength} le ${e.maxLength}`
+            emit(`prefix-list ${name} seq ${seq} ${e.action} ${e.prefix}${options}`, ...['action', 'prefix', 'minLength', 'maxLength', 'form'].filter((leaf) => Object.hasOwn(e, leaf)).map((leaf) => ['routingPolicy', 'prefixLists', family, name, 'entries', seq, leaf]))
+          }
+      /** A set's regexes: written when they are Cisco's, or (careless) whatever they are; else unsupported, never rewritten. */
+      const foreign = (dialect: string | undefined) => dialect !== undefined && dialect !== 'cisco' && !bug.has('regex')
+      for (const [kind, sets] of [['community-set', rp?.communitySets], ['as-path-set', rp?.asPathSets]] as const)
+        for (const [name, set] of Object.entries(sets ?? {})) {
+          const at = ['routingPolicy', kind === 'community-set' ? 'communitySets' : 'asPathSets', name]
+          if (foreign(set.regexDialect)) {
+            for (const path of leavesOf(set, ...at)) dispositions[path] = { kind: 'unsupported', reason: 'the stub writes Cisco\'s regex dialect only' }
+            continue
+          }
+          if (set.regexDialect !== undefined) dispositions[fieldPath(...at, 'regexDialect')] = { kind: 'not-applicable', reason: 'the stub writes Cisco\'s regex dialect' }
+          for (const [seq, e] of Object.entries((set.entries ?? {}) as Record<string, { action: string; members?: readonly string[]; regexes?: readonly string[]; regex?: string }>)) {
+            const entry = [...at, 'entries', seq]
+            e.members?.forEach((m, i) => emit(`${kind} ${name} seq ${seq} ${e.action} member ${m}`, ...(i === 0 ? [[...entry, 'action'], [...entry, 'members']] : [])))
+            e.regexes?.forEach((r, i) => emit(`${kind} ${name} seq ${seq} ${e.action} regex ${r}`, ...(i === 0 ? [[...entry, 'regexes'], ...(e.members?.length ? [] : [[...entry, 'action']])] : [])))
+            if (e.regex !== undefined) emit(`${kind} ${name} seq ${seq} ${e.action} regex ${e.regex}`, [...entry, 'action'], [...entry, 'regex'])
+          }
+        }
+      for (const [name, policy] of Object.entries(rp?.policies ?? {})) {
+        const at = ['routingPolicy', 'policies', name]
+        if (policy.fallThrough !== undefined) {
+          dispositions[fieldPath(...at, 'fallThrough')] = { kind: 'not-applicable', reason: 'the stub\'s policies reject what no term decides' }
+          if (policy.fallThrough !== 'reject') diagnostics.push({ severity: 'warning', category: 'semantic', code: 'probe-stub.fall-through', message: 'A policy goes on to the next policy when no term decides, and the stub\'s rejects.', field: fieldPath(...at, 'fallThrough') })
+        }
+        for (const [seq, term] of Object.entries(policy.terms ?? {})) {
+          const t = [...at, 'terms', seq]
+          for (const [family, names] of Object.entries(term.matches?.prefixLists ?? {}) as [string, readonly string[] | undefined][]) names?.forEach((n, i) => emit(`policy ${name} term ${seq} match prefix-list ${n}`, ...(i === 0 ? [[...t, 'matches', 'prefixLists', family]] : [])))
+          term.matches?.communitySets?.forEach((n, i) => emit(`policy ${name} term ${seq} match community ${n}`, ...(i === 0 ? [[...t, 'matches', 'communitySets']] : [])))
+          term.matches?.asPathSets?.forEach((n, i) => emit(`policy ${name} term ${seq} match as-path ${n}`, ...(i === 0 ? [[...t, 'matches', 'asPathSets']] : [])))
+          if (term.actions?.flow !== undefined) emit(`policy ${name} term ${seq} action ${term.actions.flow}`, [...t, 'actions', 'flow'])
+        }
+      }
+      for (const [name, instance] of Object.entries(model.networkInstances ?? {}))
+        for (const [a, n] of Object.entries(instance.bgp?.neighbors ?? {}))
+          n.importPolicies?.forEach((p, i) => emit(`${name === 'default' ? '' : `vrf ${name} `}bgp neighbor ${a} import ${p}`, ...(i === 0 ? [['networkInstances', name, 'bgp', 'neighbors', a, 'importPolicies']] : [])))
+      return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics }
     }
   }
 }
@@ -292,6 +429,8 @@ function hasField(model: Obj, field: string): boolean {
 /** The same OSPF interface and BGP neighbor in the global table and in VRFs A and B, for the scoping probe. */
 const OSPF_BASE = ['interface e1', 'vrf A', 'vrf B', 'ospf area 0.0.0.0 interface e1', 'vrf A ospf area 0.0.0.0 interface e1', 'vrf B ospf area 0.0.0.0 interface e1'].join('\n')
 const BGP_BASE = ['vrf A', 'vrf B', 'bgp neighbor 192.0.2.2 as 65001', 'vrf A bgp neighbor 192.0.2.2 as 65002', 'vrf B bgp neighbor 192.0.2.2 as 65003'].join('\n')
+/** A prefix list of two entries and a policy of two terms, for the policy negation cases. */
+const POLICY_BASE = ['prefix-list L seq 5 permit 10.0.0.0/8 le 24', 'prefix-list L seq 10 deny 0.0.0.0/0 le 32', 'policy P term 10 match prefix-list L', 'policy P term 10 action accept', 'policy P term 20 action reject'].join('\n')
 
 /** The stub's probe adapter: every probe and case, in its syntax. */
 export const PROBE_STUB_ADAPTER: ProbeAdapter = {
@@ -323,7 +462,9 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'static-route': { set: 'route 10.0.0.0/8 192.0.2.1', negated: 'route 10.0.0.0/8 192.0.2.1\nno route 10.0.0.0/8', path: ['networkInstances', 'default', 'staticRoutes', '10.0.0.0/8'] },
     community: { set: 'community PLACEHOLDER ro', negated: 'community PLACEHOLDER ro\nno community PLACEHOLDER', path: ['system', 'snmp', 'communities', 'PLACEHOLDER'] },
     'bgp-neighbor': { set: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001', negated: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001\nno bgp neighbor 192.0.2.2', path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2'] },
-    'ospf-interface': { set: 'interface e1\nospf area 0.0.0.0 interface e1', negated: 'interface e1\nospf area 0.0.0.0 interface e1\nno ospf area 0.0.0.0 interface e1', path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'e1'] }
+    'ospf-interface': { set: 'interface e1\nospf area 0.0.0.0 interface e1', negated: 'interface e1\nospf area 0.0.0.0 interface e1\nno ospf area 0.0.0.0 interface e1', path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'e1'] },
+    'policy-term': { set: POLICY_BASE, negated: `${POLICY_BASE}\nno policy P term 10`, path: ['routingPolicy', 'policies', 'P', 'terms', '10'] },
+    'prefix-list-entry': { set: POLICY_BASE, negated: `${POLICY_BASE}\nno prefix-list L seq 10`, path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '10'] }
   },
   malformed: {
     'ipv4-address': { source: 'interface e1\ninterface e1 address 999.1.1.1/24', value: '999.1.1.1' },
@@ -331,7 +472,9 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     mask: { source: 'interface e1\ninterface e1 address 192.0.2.1/33', value: '192.0.2.1/33' },
     'next-hop': { source: 'route 10.0.0.0/8 192.0.2.300', value: '192.0.2.300' },
     'as-number': { source: 'bgp neighbor 192.0.2.2 as 4294967296', value: '4294967296' },
-    'vlan-id': { source: 'vlandef 4095', value: '4095' }
+    'vlan-id': { source: 'vlandef 4095', value: '4095' },
+    prefix: { source: 'prefix-list L seq 5 permit 10.0.0.0/33', value: '10.0.0.0/33' },
+    'prefix-length': { source: 'prefix-list L seq 5 permit 10.0.0.0/8 le 33', value: '33' }
   },
   vrfScoping: {
     delete: { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A', vrf: 'A' },
@@ -339,5 +482,12 @@ export const PROBE_STUB_ADAPTER: ProbeAdapter = {
     'static-route': { base: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3', changed: 'route 10.0.0.0/8 192.0.2.1\nvrf A\nvrf A route 10.0.0.0/8 192.0.2.2\nvrf B\nvrf B route 10.0.0.0/8 192.0.2.3\nno vrf A route 10.0.0.0/8', vrf: 'A' },
     ospf: { base: OSPF_BASE, changed: `${OSPF_BASE}\nno vrf A ospf area 0.0.0.0 interface e1`, vrf: 'A' },
     bgp: { base: BGP_BASE, changed: `${BGP_BASE}\nno vrf A bgp neighbor 192.0.2.2`, vrf: 'A' }
-  }
+  },
+  unknownReference: {
+    'prefix-list': { source: 'policy P term 10 match prefix-list MISSING\npolicy P term 10 action accept', value: 'MISSING' },
+    'community-set': { source: 'policy P term 10 match community MISSING\npolicy P term 10 action accept', value: 'MISSING' },
+    'as-path-set': { source: 'policy P term 10 match as-path MISSING\npolicy P term 10 action accept', value: 'MISSING' },
+    policy: { source: 'bgp as 65000\nbgp neighbor 192.0.2.2 as 65001\nbgp neighbor 192.0.2.2 import MISSING', value: 'MISSING' }
+  },
+  regex: { source: 'as-path-set A seq 1 permit regex _65000_\ncommunity-set C seq 1 permit regex _65000:[0-9]+_', regexes: ['_65000_', '_65000:[0-9]+_'] }
 }

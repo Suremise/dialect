@@ -3,8 +3,8 @@
 // that names a VRF, VLAN, interface or BGP group it never declared, or writes a route distinguisher, VLAN ID or AS number
 // in a form no other plugin can read, fails there instead of in a conversion. Messages never quote the config (AGENTS.md, No secrets in diagnostics): a VRF can share
 // its name with a secret, so they say what is wrong, and `field` says where.
-import type { BgpPeer, Device, Interface, Keyed } from './model'
-import { fieldPath } from './paths'
+import type { BgpPeer, Device, Interface, Keyed, PrefixMatch, RoutingPolicy } from './model'
+import { fieldPath, type PathSegment } from './paths'
 import type { Diagnostic } from './results'
 
 const UINT16 = 0xffff
@@ -20,6 +20,94 @@ function number(text: string, max: number): number | null {
 const isIpv4 = (text: string) => {
   const parts = text.split('.')
   return parts.length === 4 && parts.every((p) => number(p, 255) !== null)
+}
+
+/** An IPv4 address's 32 bits, as a string of `0` and `1`, or null. */
+function ipv4Bits(text: string): string | null {
+  return isIpv4(text) ? text.split('.').map((p) => Number(p).toString(2).padStart(8, '0')).join('') : null
+}
+
+/** An IPv6 address's 128 bits (with `::` and a final dotted IPv4 part), as a string of `0` and `1`, or null. */
+function ipv6Bits(text: string): string | null {
+  const halves = text.split('::')
+  if (halves.length > 2) return null
+  const groups = (part: string) => (part === '' ? [] : part.split(':'))
+  const head = groups(halves[0])
+  const tail = halves.length === 2 ? groups(halves[1]) : []
+  const last = halves.length === 2 ? tail : head
+  // A dotted IPv4 address may end it, as two groups.
+  if (last.length && last[last.length - 1].includes('.')) {
+    const v4 = ipv4Bits(last.pop()!)
+    if (v4 === null) return null
+    last.push(parseInt(v4.slice(0, 16), 2).toString(16), parseInt(v4.slice(16), 2).toString(16))
+  }
+  if (![...head, ...tail].every((g) => /^[0-9A-Fa-f]{1,4}$/.test(g))) return null
+  const missing = 8 - head.length - tail.length
+  if (halves.length === 2 ? missing < 1 : missing !== 0) return null
+  return [...head, ...Array<string>(missing).fill('0'), ...tail].map((g) => parseInt(g, 16).toString(2).padStart(16, '0')).join('')
+}
+
+/** Whether `value` is an IPv4 or IPv6 address. */
+export function isIpAddress(value: unknown): boolean {
+  return typeof value === 'string' && (isIpv4(value) || ipv6Bits(value) !== null)
+}
+
+/** A prefix in CIDR form with no host bits set (`10.0.0.0/8`, `2001:db8::/32`): its family and length, or null. */
+export function parsePrefix(value: unknown): { family: 'ipv4' | 'ipv6'; length: number } | null {
+  if (typeof value !== 'string') return null
+  const slash = value.lastIndexOf('/')
+  if (slash < 0) return null
+  const address = value.slice(0, slash)
+  const family = address.includes(':') ? 'ipv6' : 'ipv4'
+  const bits = family === 'ipv4' ? ipv4Bits(address) : ipv6Bits(address)
+  const length = number(value.slice(slash + 1), family === 'ipv4' ? 32 : 128)
+  if (bits === null || length === null || bits.slice(length).includes('1')) return null
+  return { family, length }
+}
+
+/** The well-known communities, by the model's names for them. */
+const WELL_KNOWN_COMMUNITIES: ReadonlySet<string> = new Set(['no-export', 'no-advertise', 'no-export-subconfed', 'graceful-shutdown', 'blackhole', 'accept-own', 'no-peer', 'llgr-stale', 'no-llgr'])
+
+/**
+ * Which kind of community `value` is in the model's forms (model.ts, CommunitySet): `standard` (`65000:100`, a
+ * well-known name), `extended` (`target:65000:100`, `origin:192.0.2.1:100`) or `large` (`large:65000:1:2`); null when
+ * it is none of them.
+ */
+export function communityType(value: unknown): 'standard' | 'extended' | 'large' | null {
+  if (typeof value !== 'string') return null
+  if (WELL_KNOWN_COMMUNITIES.has(value)) return 'standard'
+  const parts = value.split(':')
+  if (parts.length === 2 && parts.every((p) => number(p, UINT16) !== null)) return 'standard'
+  if ((parts[0] === 'target' || parts[0] === 'origin') && isRouteDistinguisher(value.slice(parts[0].length + 1))) return 'extended'
+  if (parts.length === 4 && parts[0] === 'large' && parts.slice(1).every((p) => number(p, UINT32) !== null)) return 'large'
+  return null
+}
+
+/** Whether `key` is a position in an ordered collection: a decimal number with no sign or leading zero, up to 4294967294. */
+export function isPositionKey(key: string): boolean {
+  return number(key, UINT32 - 1) !== null
+}
+
+const isDialect = (value: unknown) => value === 'junos' || value === 'cisco'
+
+const isUint32 = (value: unknown) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= UINT32
+
+/** Whether a prefix match's lengths fit its prefix and agree with its form (model.ts, PrefixMatch). */
+function lengthsAgree(match: PrefixMatch, length: number, bits: number): { range: boolean; form: boolean } {
+  const { minLength: min, maxLength: max, form } = match
+  const range = Number.isInteger(min) && Number.isInteger(max) && length <= min && min <= max && max <= bits
+  if (!range || form === undefined) return { range, form: true }
+  const agrees: Record<string, boolean> = {
+    exact: min === length && max === length,
+    orlonger: min === length && max === bits,
+    longer: min === length + 1 && max === bits,
+    upto: min === length,
+    'prefix-length-range': true,
+    ge: min > length && max === bits,
+    le: min === length,
+    'ge-le': min > length
+  }
+  return { range, form: Object.hasOwn(agrees, form) && agrees[form] }
 }
 
 /** Whether `value` is a VLAN ID: an integer from 1 to 4094. */
@@ -94,9 +182,12 @@ const entries = <T>(map: Readonly<Record<string, T>> | undefined): [string, T][]
  * - since 0.4.0: an OSPF or BGP router ID isn't an IPv4 address (`model.router-id`), an OSPF area isn't in dotted form
  *   (`model.ospf-area`), an OSPF interface or a BGP update source names no interface of the model
  *   (`model.unknown-interface`), a local or peer AS isn't one (`model.as-number`), and a BGP neighbor's group isn't
- *   one of its instance's (`model.unknown-bgp-group`).
+ *   one of its instance's (`model.unknown-bgp-group`);
+ * - since 0.5.0, routing policy (routingPolicyProblems()): positions, prefixes and their lengths, communities, regex
+ *   dialects and numbers in the model's forms, and every prefix list, community set and AS-path set a term names, and
+ *   with `policyReferences` (the default), every policy a BGP peer or family names, exists.
  */
-export function modelProblems(device: Device): Diagnostic[] {
+export function modelProblems(device: Device, { policyReferences = true }: ModelProblemsOptions = {}): Diagnostic[] {
   const out: Diagnostic[] = []
   const problem = (code: string, message: string, field: string) => out.push({ severity: 'error', category: 'semantic', code: `model.${code}`, message, field })
   const instances = device.networkInstances
@@ -165,6 +256,114 @@ export function modelProblems(device: Device): Diagnostic[] {
       const group = n?.group
       if (group !== undefined && (typeof group !== 'string' || !bgp?.groups || !Object.hasOwn(bgp.groups, group)))
         problem('unknown-bgp-group', 'A BGP neighbor is in a group its instance doesn\'t have.', fieldPath('networkInstances', name, 'bgp', 'neighbors', address, 'group'))
+    }
+    if (!policyReferences) continue
+    // Since 0.5.0: each policy a peer or one of its families names is one of the model's.
+    const policies = device.routingPolicy?.policies
+    const named = (list: unknown, path: readonly PathSegment[]) => {
+      if (list !== undefined && !(Array.isArray(list) ? list : [list]).every((p) => typeof p === 'string' && policies !== undefined && Object.hasOwn(policies, p)))
+        problem('unknown-policy', 'A BGP peer names a policy the model doesn\'t have.', fieldPath('networkInstances', name, 'bgp', ...path))
+    }
+    const peerPolicies = (p: BgpPeer | undefined, ...path: string[]) => {
+      named(p?.importPolicies, [...path, 'importPolicies'])
+      named(p?.exportPolicies, [...path, 'exportPolicies'])
+      for (const [family, f] of entries<{ importPolicies?: unknown; exportPolicies?: unknown } | undefined>(p?.addressFamilies as Readonly<Record<string, never>> | undefined)) {
+        named(f?.importPolicies, [...path, 'addressFamilies', family, 'importPolicies'])
+        named(f?.exportPolicies, [...path, 'addressFamilies', family, 'exportPolicies'])
+      }
+    }
+    for (const [group, g] of entries(bgp?.groups)) peerPolicies(g, 'groups', group)
+    for (const [address, n] of entries(bgp?.neighbors)) peerPolicies(n, 'neighbors', address)
+  }
+  out.push(...routingPolicyProblems(device.routingPolicy))
+  return out
+}
+
+export interface ModelProblemsOptions {
+  /**
+   * Whether a BGP peer's import and export policies must name policies of the model (since 0.5.0; true by default).
+   * The conformance kit turns it off for a plugin that doesn't parse routing policy, which keeps policy names without
+   * their bodies, as phase 2 did.
+   */
+  readonly policyReferences?: boolean
+}
+
+/**
+ * What is wrong with a model's routing policy (since 0.5.0), as modelProblems() reports it:
+ * - a term's, prefix list entry's, route filter's or set entry's key isn't a position (`model.position`);
+ * - a prefix isn't in CIDR form with no host bits set, or is in a list of the other family (`model.prefix`), and its
+ *   lengths aren't from the prefix's length to the family's longest, or disagree with its form (`model.prefix-length`);
+ * - a community isn't in one of the model's forms (`model.community`); a set with a regex, or an AS-path set with an
+ *   entry, says no dialect, or a set names one the model doesn't have (`model.regex-dialect`);
+ * - a local preference, MED or tag isn't from 0 to 4294967295 (`model.number`), a prepended AS isn't an AS number
+ *   (`model.as-number`), a next hop or neighbor isn't an IP address (`model.ip-address`);
+ * - a term or action names a prefix list, community set or AS-path set the model doesn't have
+ *   (`model.unknown-prefix-list`, `model.unknown-community-set`, `model.unknown-as-path-set`).
+ * A leaf-list's problem is reported on the list, once.
+ */
+export function routingPolicyProblems(policy: RoutingPolicy | undefined): Diagnostic[] {
+  const out: Diagnostic[] = []
+  if (!policy) return out
+  const problem = (code: string, message: string, ...path: PathSegment[]) => out.push({ severity: 'error', category: 'semantic', code: `model.${code}`, message, field: fieldPath('routingPolicy', ...path) })
+  const list = (value: unknown): unknown[] => (value === undefined ? [] : Array.isArray(value) ? value : [value])
+  const positions = (map: Keyed<unknown> | undefined, what: string, ...path: PathSegment[]) => {
+    for (const [key] of entries(map)) if (!isPositionKey(key)) problem('position', `${what} is keyed by something other than its position, a number from 0 to 4294967294.`, ...path, key)
+  }
+  /** A prefix match: its prefix (of `family`, when it is a list's) and its lengths. */
+  const prefixMatch = (match: PrefixMatch | undefined, family: 'ipv4' | 'ipv6' | undefined, ...path: PathSegment[]) => {
+    const prefix = parsePrefix(match?.prefix)
+    if (!match || !prefix || (family !== undefined && prefix.family !== family)) {
+      problem('prefix', `A prefix isn't in CIDR form with no host bits set${family ? `, or isn't an ${family === 'ipv4' ? 'IPv4' : 'IPv6'} prefix in an ${family === 'ipv4' ? 'IPv4' : 'IPv6'} list` : ''}.`, ...path, 'prefix')
+      return
+    }
+    const { range, form } = lengthsAgree(match, prefix.length, prefix.family === 'ipv4' ? 32 : 128)
+    if (!range) problem('prefix-length', 'A prefix match\'s lengths aren\'t from the prefix\'s own length to 32 (IPv4) or 128 (IPv6), the least first.', ...path, 'minLength')
+    else if (!form) problem('prefix-length', 'A prefix match\'s lengths don\'t agree with the form it was written in.', ...path, 'form')
+  }
+
+  for (const family of ['ipv4', 'ipv6'] as const)
+    for (const [name, l] of entries(policy.prefixLists?.[family])) {
+      positions(l?.entries, 'A prefix list entry', 'prefixLists', family, name, 'entries')
+      for (const [key, e] of entries(l?.entries)) prefixMatch(e, family, 'prefixLists', family, name, 'entries', key)
+    }
+  for (const [name, set] of entries(policy.communitySets)) {
+    positions(set?.entries, 'A community set entry', 'communitySets', name, 'entries')
+    let regex = false
+    for (const [key, e] of entries(set?.entries)) {
+      if (!list(e?.members).every((m) => communityType(m) !== null)) problem('community', 'A community isn\'t in one of the model\'s forms (65000:100, a well-known name, target:…, origin:…, large:…).', 'communitySets', name, 'entries', key, 'members')
+      regex ||= list(e?.regexes).length > 0
+    }
+    if (set?.regexDialect !== undefined ? !isDialect(set.regexDialect) : regex) problem('regex-dialect', 'A community set has a regex but says no dialect, or names one the model doesn\'t have.', 'communitySets', name, 'regexDialect')
+  }
+  for (const [name, set] of entries(policy.asPathSets)) {
+    positions(set?.entries, 'An AS-path set entry', 'asPathSets', name, 'entries')
+    if (set?.regexDialect !== undefined ? !isDialect(set.regexDialect) : entries(set?.entries).length > 0) problem('regex-dialect', 'An AS-path set has regexes but says no dialect, or names one the model doesn\'t have.', 'asPathSets', name, 'regexDialect')
+  }
+
+  /** Whether every name in `names` is a key of `map`. */
+  const resolve = (names: unknown, map: Keyed<unknown> | undefined) => list(names).every((n) => typeof n === 'string' && map !== undefined && Object.hasOwn(map, n))
+  for (const [name, p] of entries(policy.policies)) {
+    positions(p?.terms, 'A policy term', 'policies', name, 'terms')
+    for (const [key, term] of entries(p?.terms)) {
+      const at = ['policies', name, 'terms', key]
+      const m = term?.matches
+      for (const family of ['ipv4', 'ipv6'] as const)
+        if (!resolve(m?.prefixLists?.[family], policy.prefixLists?.[family])) problem('unknown-prefix-list', 'A policy term names a prefix list the model doesn\'t have.', ...at, 'matches', 'prefixLists', family)
+      positions(m?.routeFilters, 'A route filter', ...at, 'matches', 'routeFilters')
+      for (const [i, f] of entries(m?.routeFilters)) prefixMatch(f, undefined, ...at, 'matches', 'routeFilters', i)
+      if (!resolve(m?.communitySets, policy.communitySets)) problem('unknown-community-set', 'A policy term names a community set the model doesn\'t have.', ...at, 'matches', 'communitySets')
+      if (!resolve(m?.asPathSets, policy.asPathSets)) problem('unknown-as-path-set', 'A policy term names an AS-path set the model doesn\'t have.', ...at, 'matches', 'asPathSets')
+      if (!list(m?.neighbors).every(isIpAddress)) problem('ip-address', 'A policy term\'s neighbor isn\'t an IP address.', ...at, 'matches', 'neighbors')
+      if (!list(m?.tags).every(isUint32)) problem('number', 'A tag isn\'t a number from 0 to 4294967295.', ...at, 'matches', 'tags')
+      const a = term?.actions
+      for (const leaf of ['localPreference', 'med', 'tag'] as const)
+        if (a?.[leaf] !== undefined && !isUint32(a[leaf])) problem('number', `A policy term's ${leaf === 'med' ? 'MED' : leaf === 'tag' ? 'tag' : 'local preference'} isn't a number from 0 to 4294967295.`, ...at, 'actions', leaf)
+      if (!list(a?.asPathPrepend).every(isAsNumber)) problem('as-number', 'A prepended AS isn\'t an AS number from 1 to 4294967295.', ...at, 'actions', 'asPathPrepend')
+      if (a?.nextHop !== undefined && !isIpAddress(a.nextHop)) problem('ip-address', 'A policy term\'s next hop isn\'t an IP address.', ...at, 'actions', 'nextHop')
+      for (const leaf of ['communityAdd', 'communitySet', 'communityDelete'] as const) {
+        if (!list(a?.[leaf]?.values).every((v) => communityType(v) !== null)) problem('community', 'A community isn\'t in one of the model\'s forms (65000:100, a well-known name, target:…, origin:…, large:…).', ...at, 'actions', leaf, 'values')
+        if (!resolve(a?.[leaf]?.sets, policy.communitySets)) problem('unknown-community-set', 'A policy term names a community set the model doesn\'t have.', ...at, 'actions', leaf, 'sets')
+      }
     }
   }
   return out

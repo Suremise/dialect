@@ -1,7 +1,7 @@
-// modelProblems(), isRouteDistinguisher(), isVlanId() and isAsNumber(): what a model must hold beyond its types
-// (validate.ts).
+// modelProblems(), isRouteDistinguisher(), isVlanId(), isAsNumber() and model 0.5.0's isIpAddress(), parsePrefix(),
+// communityType() and isPositionKey(): what a model must hold beyond its types (validate.ts).
 import { describe, expect, it } from 'vitest'
-import { fieldPath, isAsNumber, isRouteDistinguisher, isVlanId, modelProblems, type Device } from '../src'
+import { communityType, fieldPath, isAsNumber, isIpAddress, isPositionKey, isRouteDistinguisher, isVlanId, modelProblems, parsePrefix, type Device, type PrefixMatchForm, type RegexDialect } from '../src'
 
 describe('isRouteDistinguisher', () => {
   it('takes the three forms: ASN:nn, IP:nn and ASN4:nn, at their bounds', () => {
@@ -187,6 +187,242 @@ describe('modelProblems, model 0.4.0', () => {
       ['model.vlan-id', fieldPath('interfaces', 'e1', 'switching', 'accessVlan')],
       ['model.as-number', fieldPath('networkInstances', 'default', 'bgp', 'localAs')],
       ['model.unknown-bgp-group', fieldPath('networkInstances', 'default', 'bgp', 'neighbors', '10.0.0.2', 'group')]
+    ])
+  })
+})
+
+describe('isIpAddress, parsePrefix, communityType and isPositionKey (model 0.5.0)', () => {
+  it('takes IPv4 and IPv6 addresses, with :: and a final dotted part, and refuses the rest', () => {
+    for (const ok of ['192.0.2.1', '0.0.0.0', '::', '::1', '2001:db8::', '2001:DB8::1', '1:2:3:4:5:6:7:8', '1:2:3:4:5:6:7::', '::ffff:192.0.2.1', '1:2:3:4:5:6:192.0.2.1'])
+      expect(isIpAddress(ok), ok).toBe(true)
+    for (const bad of ['', '192.0.2', '192.0.2.256', '192.0.2.01', ':::', '1::2::3', ':1', '1:2:3:4:5:6:7:8:9', '::1:2:3:4:5:6:7:8', '12345::', 'g::1', '::192.0.2.256', '1:2:3:4:5:6:7:192.0.2.1', ' ::1'])
+      expect(isIpAddress(bad), bad).toBe(false)
+    expect(isIpAddress(1)).toBe(false)
+  })
+
+  it('reads a prefix with no host bits set, and its family and length', () => {
+    expect(parsePrefix('10.0.0.0/8')).toEqual({ family: 'ipv4', length: 8 })
+    expect(parsePrefix('0.0.0.0/0')).toEqual({ family: 'ipv4', length: 0 })
+    expect(parsePrefix('192.0.2.1/32')).toEqual({ family: 'ipv4', length: 32 })
+    expect(parsePrefix('2001:db8::/32')).toEqual({ family: 'ipv6', length: 32 })
+    expect(parsePrefix('::/0')).toEqual({ family: 'ipv6', length: 0 })
+    for (const bad of ['10.0.0.1/8', '10.0.0.0/33', '10.0.0.0', '10.0.0.0/', '10.0.0.0/08', '2001:db8::1/32', '2001:db8::/129', 'x/8', undefined]) expect(parsePrefix(bad), String(bad)).toBeNull()
+  })
+
+  it('says which kind a community is, in the model\'s forms only', () => {
+    for (const [value, type] of [
+      ['65000:100', 'standard'],
+      ['0:0', 'standard'],
+      ['65535:65535', 'standard'],
+      ['no-export', 'standard'],
+      ['graceful-shutdown', 'standard'],
+      ['target:65000:100', 'extended'],
+      ['origin:192.0.2.1:100', 'extended'],
+      ['target:4200000000:1', 'extended'],
+      ['large:65000:1:2', 'large'],
+      ['large:4294967295:0:4294967295', 'large']
+    ] as const)
+      expect(communityType(value), value).toBe(type)
+    for (const bad of ['', '65536:1', '65000', '65000:1:2', 'rt 65000:1', 'target:65000', 'soo:65000:1', 'large:1:2', 'large:4294967296:0:0', 'NO-EXPORT', 'local-AS', 'internet', ' 65000:1'])
+      expect(communityType(bad), bad).toBeNull()
+  })
+
+  it('takes positions from 0 to 4294967294, written plainly', () => {
+    for (const ok of ['0', '1', '10', '65535', '4294967294']) expect(isPositionKey(ok), ok).toBe(true)
+    for (const bad of ['', '01', '-1', '+1', '1.0', '1e3', '4294967295', 'a', ' 1']) expect(isPositionKey(bad), bad).toBe(false)
+  })
+})
+
+describe('modelProblems, model 0.5.0', () => {
+  const CANARY = 'CANARY_SECRET'
+  /** Each problem as [code, field], and none of the messages quoting a value. */
+  const problems = (device: Device, options?: Parameters<typeof modelProblems>[1]) => {
+    const found = modelProblems(device, options)
+    expect(found.every((d) => d.severity === 'error' && !d.message.includes(CANARY))).toBe(true)
+    return found.map((d) => [d.code, d.field])
+  }
+  const at = (...path: string[]) => fieldPath('routingPolicy', ...path)
+  const valid: Device = {
+    routingPolicy: {
+      prefixLists: {
+        ipv4: {
+          LOOPBACKS: { description: 'loopbacks', entries: { '5': { action: 'permit', prefix: '192.0.2.0/24', minLength: 32, maxLength: 32, form: 'ge' }, '10': { action: 'deny', prefix: '0.0.0.0/0', minLength: 0, maxLength: 32, form: 'le' } } },
+          EMPTY: {}
+        },
+        ipv6: { LOOPBACKS: { entries: { '1': { action: 'permit', prefix: '2001:db8::/32', minLength: 64, maxLength: 128, form: 'ge' } } } }
+      },
+      communitySets: {
+        CUSTOMER: { entries: { '1': { action: 'permit', members: ['65000:100', 'no-export'] } } },
+        RT: { entries: { '1': { action: 'permit', members: ['target:65000:1', 'large:65000:1:2'] } } },
+        REGEX: { regexDialect: 'cisco', entries: { '10': { action: 'deny', regexes: ['_65000:9[0-9]_'] }, '20': { action: 'permit', regexes: ['_65000:.*_'] } } }
+      },
+      asPathSets: { FROM_PEER: { regexDialect: 'junos', entries: { '1': { action: 'permit', regex: '65001 .*' } } } },
+      policies: {
+        IN: {
+          fallThrough: 'next-policy',
+          terms: {
+            '1': { name: 'customers', matches: { prefixLists: { ipv4: ['LOOPBACKS'], ipv6: ['LOOPBACKS'] }, prefixListMatch: 'orlonger', communitySets: ['CUSTOMER', 'REGEX'], asPathSets: ['FROM_PEER'], protocols: ['bgp'], neighbors: ['192.0.2.2', '2001:db8::2'], tags: [0, 4294967295], family: 'ipv4' }, actions: { localPreference: 200, med: 0, communityAdd: { values: ['65000:1'], sets: ['RT'] }, communityDelete: { sets: ['REGEX'] }, asPathPrepend: [65000, 65000], nextHop: '192.0.2.1', tag: 7, flow: 'accept' } },
+            '2': { name: 'filters', matches: { routeFilters: { '1': { prefix: '10.0.0.0/8', minLength: 8, maxLength: 32, form: 'orlonger' }, '2': { prefix: '2001:db8::/32', minLength: 33, maxLength: 128, form: 'longer' }, '3': { prefix: '172.16.0.0/12', minLength: 12, maxLength: 24, form: 'upto' }, '4': { prefix: '192.168.0.0/16', minLength: 20, maxLength: 24, form: 'prefix-length-range' }, '5': { prefix: '192.0.2.0/24', minLength: 24, maxLength: 24, form: 'exact' }, '6': { prefix: '198.51.100.0/24', minLength: 25, maxLength: 28, form: 'ge-le' }, '7': { prefix: '203.0.113.0/24', minLength: 24, maxLength: 24 } } }, actions: { communitySet: { values: ['65000:1'] }, nextHopSelf: true, flow: 'next-policy' } },
+            '3': { actions: { flow: 'reject' } }
+          }
+        },
+        EMPTY: { fallThrough: 'reject' }
+      }
+    },
+    networkInstances: { default: { bgp: { groups: { peers: { importPolicies: ['IN'], addressFamilies: { 'ipv4-unicast': { exportPolicies: ['EMPTY', 'IN'] } } } }, neighbors: { '192.0.2.2': { group: 'peers', exportPolicies: ['EMPTY'] } } } } }
+  }
+
+  it('finds nothing wrong in prefix lists, sets and policies that resolve, in the model\'s forms', () => {
+    expect(problems(valid)).toEqual([])
+  })
+
+  it('reports keys that aren\'t positions, wherever the model orders by position', () => {
+    const device: Device = {
+      routingPolicy: {
+        prefixLists: { ipv4: { L: { entries: { '010': { action: 'permit', prefix: '10.0.0.0/8', minLength: 8, maxLength: 8 } } } } },
+        communitySets: { C: { entries: { first: { action: 'permit', members: ['65000:1'] } } } },
+        asPathSets: { A: { regexDialect: 'cisco', entries: { '-1': { action: 'permit', regex: '_65000_' } } } },
+        policies: { P: { terms: { [CANARY]: { actions: { flow: 'accept' } }, '1': { matches: { routeFilters: { '4294967295': { prefix: '10.0.0.0/8', minLength: 8, maxLength: 8 } } } } } } }
+      }
+    }
+    expect(problems(device)).toEqual([
+      ['model.position', at('prefixLists', 'ipv4', 'L', 'entries', '010')],
+      ['model.position', at('communitySets', 'C', 'entries', 'first')],
+      ['model.position', at('asPathSets', 'A', 'entries', '-1')],
+      ['model.position', at('policies', 'P', 'terms', CANARY)],
+      ['model.position', at('policies', 'P', 'terms', '1', 'matches', 'routeFilters', '4294967295')]
+    ])
+  })
+
+  it('reports prefixes not in CIDR form, with host bits, or of the other family, and lengths out of range or against their form', () => {
+    const entry = (prefix: string, minLength: number, maxLength: number, form?: PrefixMatchForm) => ({ action: 'permit' as const, prefix, minLength, maxLength, ...(form ? { form } : {}) })
+    const device: Device = {
+      routingPolicy: {
+        prefixLists: {
+          ipv4: {
+            L: {
+              entries: {
+                '1': entry(CANARY, 8, 8),
+                '2': entry('10.0.0.1/8', 8, 8),
+                '3': entry('2001:db8::/32', 32, 32),
+                '4': entry('10.0.0.0/8', 7, 8),
+                '5': entry('10.0.0.0/8', 8, 33),
+                '6': entry('10.0.0.0/8', 16, 12),
+                '7': entry('10.0.0.0/8', 8, 24, 'orlonger'),
+                '8': entry('10.0.0.0/8', 8, 32, 'ge'),
+                '9': entry('10.0.0.0/8', 8, 8, 'longer'),
+                '10': entry('10.0.0.0/8', 9, 9, 'exact'),
+                '11': entry('10.0.0.0/8', 8, 8.5),
+                '12': entry('10.0.0.0/8', 8, 8, 'bogus' as PrefixMatchForm)
+              }
+            }
+          },
+          ipv6: { L6: { entries: { '1': entry('10.0.0.0/8', 8, 8) } } }
+        }
+      }
+    }
+    const list = (key: string, leaf: string) => at('prefixLists', 'ipv4', 'L', 'entries', key, leaf)
+    expect(problems(device)).toEqual([
+      ['model.prefix', list('1', 'prefix')],
+      ['model.prefix', list('2', 'prefix')],
+      ['model.prefix', list('3', 'prefix')],
+      ['model.prefix-length', list('4', 'minLength')],
+      ['model.prefix-length', list('5', 'minLength')],
+      ['model.prefix-length', list('6', 'minLength')],
+      ['model.prefix-length', list('7', 'form')],
+      ['model.prefix-length', list('8', 'form')],
+      ['model.prefix-length', list('9', 'form')],
+      ['model.prefix-length', list('10', 'form')],
+      ['model.prefix-length', list('11', 'minLength')],
+      ['model.prefix-length', list('12', 'form')],
+      ['model.prefix', at('prefixLists', 'ipv6', 'L6', 'entries', '1', 'prefix')]
+    ])
+  })
+
+  it('reports communities in no model form, regexes with no dialect, numbers out of range, and addresses that aren\'t', () => {
+    const device: Device = {
+      routingPolicy: {
+        communitySets: { C: { entries: { '1': { action: 'permit', members: ['65000:1', CANARY] } } }, R: { entries: { '1': { action: 'permit', regexes: ['_65000_'] } } } },
+        asPathSets: { A: { entries: { '1': { action: 'permit', regex: '_65000_' } } }, EMPTY: {}, PERL: { regexDialect: 'perl' as RegexDialect } },
+        policies: {
+          P: {
+            terms: {
+              '1': {
+                matches: { neighbors: ['192.0.2.2', CANARY], tags: [1, -1] },
+                actions: { localPreference: 4294967296, med: 1.5, tag: -1, asPathPrepend: [65000, 0], nextHop: CANARY, communityAdd: { values: ['rt 65000:1'] }, communitySet: { values: ['65000:1'] }, communityDelete: { values: [CANARY] } }
+              }
+            }
+          }
+        }
+      }
+    }
+    const term = (...path: string[]) => at('policies', 'P', 'terms', '1', ...path)
+    expect(problems(device)).toEqual([
+      ['model.community', at('communitySets', 'C', 'entries', '1', 'members')],
+      ['model.regex-dialect', at('communitySets', 'R', 'regexDialect')],
+      ['model.regex-dialect', at('asPathSets', 'A', 'regexDialect')],
+      ['model.regex-dialect', at('asPathSets', 'PERL', 'regexDialect')],
+      ['model.ip-address', term('matches', 'neighbors')],
+      ['model.number', term('matches', 'tags')],
+      ['model.number', term('actions', 'localPreference')],
+      ['model.number', term('actions', 'med')],
+      ['model.number', term('actions', 'tag')],
+      ['model.as-number', term('actions', 'asPathPrepend')],
+      ['model.ip-address', term('actions', 'nextHop')],
+      ['model.community', term('actions', 'communityAdd', 'values')],
+      ['model.community', term('actions', 'communityDelete', 'values')]
+    ])
+  })
+
+  it('reports a term naming a prefix list, set or community set the model doesn\'t have, by family for prefix lists', () => {
+    const device: Device = {
+      routingPolicy: {
+        prefixLists: { ipv4: { V4: {} }, ipv6: { V6: {} } },
+        communitySets: { C: {} },
+        policies: { P: { terms: { '1': { matches: { prefixLists: { ipv4: ['V4', 'V6'], ipv6: ['V6'] }, communitySets: ['C', CANARY], asPathSets: ['A'] }, actions: { communityAdd: { sets: ['C'] }, communitySet: { sets: [CANARY] }, communityDelete: { sets: ['toString'] } } } } } }
+      }
+    }
+    const term = (...path: string[]) => at('policies', 'P', 'terms', '1', ...path)
+    expect(problems(device)).toEqual([
+      ['model.unknown-prefix-list', term('matches', 'prefixLists', 'ipv4')],
+      ['model.unknown-community-set', term('matches', 'communitySets')],
+      ['model.unknown-as-path-set', term('matches', 'asPathSets')],
+      ['model.unknown-community-set', term('actions', 'communitySet', 'sets')],
+      ['model.unknown-community-set', term('actions', 'communityDelete', 'sets')]
+    ])
+  })
+
+  it('reports a BGP peer\'s or family\'s policy the model doesn\'t have, unless told to leave BGP policy names alone', () => {
+    const bgp = ['networkInstances', 'blue', 'bgp'] as const
+    const device: Device = {
+      routingPolicy: { policies: { IN: {} } },
+      networkInstances: {
+        blue: {
+          type: 'vrf',
+          bgp: {
+            groups: { peers: { importPolicies: ['IN', CANARY], addressFamilies: { 'ipv6-unicast': { exportPolicies: ['OUT'] } } } },
+            neighbors: { '192.0.2.2': { exportPolicies: ['IN'], addressFamilies: { 'ipv4-unicast': { importPolicies: ['IN'], exportPolicies: ['constructor'] } } } }
+          }
+        }
+      }
+    }
+    expect(problems(device)).toEqual([
+      ['model.unknown-policy', fieldPath(...bgp, 'groups', 'peers', 'importPolicies')],
+      ['model.unknown-policy', fieldPath(...bgp, 'groups', 'peers', 'addressFamilies', 'ipv6-unicast', 'exportPolicies')],
+      ['model.unknown-policy', fieldPath(...bgp, 'neighbors', '192.0.2.2', 'addressFamilies', 'ipv4-unicast', 'exportPolicies')]
+    ])
+    // Phase 2's models: policy names with no routing policy at all, as a plugin that doesn't parse it keeps them.
+    expect(problems({ networkInstances: device.networkInstances }, { policyReferences: false })).toEqual([])
+    expect(problems({ networkInstances: device.networkInstances }).map(([code]) => code)).toEqual(Array(5).fill('model.unknown-policy'))
+  })
+
+  it('reads a 0.5 model from JSON or a careless plugin without trusting its types', () => {
+    const loose = JSON.parse('{"routingPolicy":{"prefixLists":{"ipv4":{"L":{"entries":{"1":{"prefix":7,"minLength":"8","maxLength":8}}}}},"communitySets":{"C":{"entries":{"1":{"members":"65000:1"}}}},"policies":{"P":{"terms":{"1":{"matches":{"prefixLists":{"ipv4":"L"},"communitySets":"D"},"actions":{"asPathPrepend":"65000","localPreference":"100"}}}}}}}') as Device
+    expect(problems(loose)).toEqual([
+      ['model.prefix', at('prefixLists', 'ipv4', 'L', 'entries', '1', 'prefix')],
+      ['model.unknown-community-set', at('policies', 'P', 'terms', '1', 'matches', 'communitySets')],
+      ['model.number', at('policies', 'P', 'terms', '1', 'actions', 'localPreference')],
+      ['model.as-number', at('policies', 'P', 'terms', '1', 'actions', 'asPathPrepend')]
     ])
   })
 })
