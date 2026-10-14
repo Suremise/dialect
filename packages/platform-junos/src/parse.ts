@@ -1,6 +1,6 @@
 // Junos text → the shared model, for the phase 1 areas: system (host name, domain name, DNS), interfaces with their
 // units, families and addresses, static routes, routing instances (VRFs and virtual routers: their units, route
-// distinguisher and vrf-target), NTP, syslog and SNMP.
+// distinguisher and vrf-target), NTP, syslog and SNMP, and from model 0.4 VLANs, ELS switch ports and IRB units.
 //
 // The text is read into statements (statements.ts), groups and interface ranges are expanded (expand.ts), and each
 // statement is mapped on its own, as a `set` command says it. A statement is `mapped` only when everything it says went
@@ -15,7 +15,7 @@ import { fieldPath, type Context, type Device, type Diagnostic, type ParseResult
 import { addressKey, isIpv4, isIpv6, parsePrefix, prefixKey } from './addresses'
 import { fromJunos, targetFromJunos } from './communities'
 import { expand, type Expanded } from './expand'
-import { ModelBuilder, type Segments } from './model'
+import { isObject, ModelBuilder, type Obj, type Segments } from './model'
 import { interfaceType, NOT_INTERFACES } from './names'
 import { readConfig, startsWith } from './statements'
 
@@ -51,7 +51,6 @@ const LATER: Readonly<Record<string, string>> = {
   protocols: 'routing protocols come later',
   'policy-options': 'routing policy comes later',
   firewall: 'firewall filters come later',
-  vlans: 'VLANs come later',
   'class-of-service': 'class of service comes later'
 }
 
@@ -189,6 +188,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (r[0] === 'disable' && r.length === 1) return withIface([put(i, [...iface, 'enabled'], false)])
     if (r[0] === 'mtu' && r.length === 2 && isInteger(r[1], 65535)) return withIface([put(i, [...iface, 'mtu'], Number(r[1]))])
     if (r[0] === 'vlan-tagging' && r.length === 1) return withIface([put(i, [...iface, 'vlanTagging'], true)])
+    if (r[0] === 'native-vlan-id' && r.length === 2) return mapNative(name, r[1], i)
     if (r[0] !== 'unit' || !isInteger(r[1])) return unsupported()
 
     const sub = [...iface, 'subinterfaces', String(Number(r[1]))]
@@ -198,7 +198,8 @@ export function parse(text: string, _context: Context): ParseResult {
     if (u[0] === 'description' && u.length === 2) return withSub([put(i, [...sub, 'description'], u[1])])
     if (u[0] === 'disable' && u.length === 1) return withSub([put(i, [...sub, 'enabled'], false)])
     if (u[0] === 'vlan-id' && u.length === 2 && isInteger(u[1], 4094)) return withSub([put(i, [...sub, 'vlanId'], Number(u[1]))])
-    if (u[0] !== 'family' || (u[1] !== 'inet' && u[1] !== 'inet6')) return unsupported(u[0] === 'family' && u[1] === 'ethernet-switching' ? 'switching (family ethernet-switching) comes later, with VLANs' : undefined)
+    if (u[0] === 'family' && u[1] === 'ethernet-switching') return mapSwitching(name, Number(r[1]), u.slice(2), i)
+    if (u[0] !== 'family' || (u[1] !== 'inet' && u[1] !== 'inet6')) return unsupported()
 
     const v6 = u[1] === 'inet6'
     const family = [...sub, v6 ? 'ipv6' : 'ipv4']
@@ -380,6 +381,238 @@ export function parse(text: string, _context: Context): ParseResult {
     return unsupported(c[0] === 'clients' ? "a client restriction this converter can't carry over" : 'a community setting this converter can\'t carry over yet')
   }
 
+  // ---- VLANs and switch ports (ELS)
+  //
+  // The model keys VLANs by ID, and Junos by name: a VLAN's statements and the ports that name it are settled once every
+  // statement is read (each a placeholder until then), when each name has its ID.
+
+  /** Per VLAN name: its statements, and the one that set each single setting last, with its value. */
+  const vlanStates = new Map<string, { readonly statements: number[]; id?: { index: number; value: number }; description?: { index: number; value: string }; l3?: { index: number; value: string } }>()
+  /** Per switch port (an interface's unit 0): its `vlan members` statements, and its `native-vlan-id`. */
+  const ports = new Map<string, { readonly members: { readonly index: number; readonly value: string }[]; native?: { index: number; value: number } }>()
+  const port = (name: string) => {
+    const state = ports.get(name) ?? { members: [] }
+    ports.set(name, state)
+    return state
+  }
+  /**
+   * VLANs with a `vlan-id-list`: none of them is converted. Junos takes a vlan-id or a vlan-id-list, the later replacing
+   * the other, so the one ID such a VLAN has can't be told.
+   */
+  const listed = new Set<string>()
+  /** Ports whose mode non-ELS `port-mode` sets: none of their switching is converted, as their mode can't be told. */
+  const nonEls = new Set<string>()
+  /** A VLAN ID as Junos writes one (`10`), or null when it isn't one from 1 to 4094. */
+  const vlanId = (s: string | undefined): number | null => (isInteger(s, 4094) && Number(s) >= 1 ? Number(s) : null)
+
+  const mapVlan = (w: readonly string[], i: number): Mutable => {
+    const name = w[1]
+    if (name === undefined) return unsupported()
+    const r = w.slice(2)
+    const state = vlanStates.get(name) ?? { statements: [] }
+    vlanStates.set(name, state)
+    const later = (key: 'id' | 'description' | 'l3', value: number | string): Mutable => {
+      if (claim(`vlans\u0000${name}\u0000${key}`, i)) (state as Record<string, unknown>)[key] = { index: i, value }
+      state.statements.push(i)
+      return mapped([])
+    }
+    if (!r.length) {
+      state.statements.push(i)
+      return mapped([])
+    }
+    if (r[0] === 'vlan-id' && r.length === 2) {
+      const id = vlanId(r[1])
+      return id === null ? unsupported('not a VLAN ID from 1 to 4094') : later('id', id)
+    }
+    if (r[0] === 'description' && r.length === 2) return later('description', r[1])
+    if (r[0] === 'l3-interface' && r.length === 2) return later('l3', r[1])
+    if (r[0] === 'vlan-id-list') {
+      listed.add(name)
+      return unsupported('a VLAN with a list of IDs: the model gives a VLAN one ID')
+    }
+    if (r[0] === 'interface') return unsupported("a VLAN's ports named under the VLAN (non-ELS): ELS names them on the interface, which is converted")
+    return unsupported()
+  }
+
+  /** `family ethernet-switching` on unit `unit` of interface `name`: an ELS switch port. */
+  const mapSwitching = (name: string, unit: number, s: readonly string[], i: number): Mutable => {
+    if (unit !== 0) return unsupported('switching on a unit other than 0: the model has one switch port per interface')
+    const at = ['interfaces', name, 'switching']
+    const withPort = (fields: (string | null)[]) => mapped([...ensureInterface(name), container(at), ...fields])
+    if (!s.length) return withPort([])
+    if (s[0] === 'interface-mode' && s.length === 2 && (s[1] === 'access' || s[1] === 'trunk')) return withPort([put(i, [...at, 'mode'], s[1])])
+    if (s[0] === 'port-mode') {
+      nonEls.add(name)
+      return unsupported('non-ELS port-mode: this converter reads ELS switching (interface-mode)')
+    }
+    if (s[0] === 'native-vlan-id') return unsupported('a native VLAN under family ethernet-switching (non-ELS): ELS sets native-vlan-id on the interface')
+    if (s[0] === 'vlan' && s[1] === 'members' && s.length === 3) {
+      const m = s[2]
+      // A member is a VLAN ID, a range of them, `all`, or a VLAN's name, which never starts with a digit.
+      if (m !== 'all' && /^\d/.test(m)) {
+        const range = /^(\d+)-(\d+)$/.exec(m)
+        const valid = range ? vlanId(range[1]) !== null && vlanId(range[2]) !== null && Number(range[1]) < Number(range[2]) : vlanId(m) !== null
+        if (!valid) return unsupported('not a VLAN ID from 1 to 4094, a range of them or a VLAN name')
+      }
+      port(name).members.push({ index: i, value: m })
+      return withPort([])
+    }
+    return unsupported()
+  }
+
+  /** `native-vlan-id` on an interface (ELS): its trunk's untagged VLAN, by ID. */
+  const mapNative = (name: string, value: string, i: number): Mutable => {
+    const id = vlanId(value)
+    if (id === null) return unsupported('not a VLAN ID from 1 to 4094')
+    if (claim(fieldPath('interfaces', name, 'switching', 'nativeVlan'), i)) port(name).native = { index: i, value: id }
+    return mapped([])
+  }
+
+  /** Statement `index`'s placeholder, now settled: a statement already superseded or unsupported keeps that. */
+  const settleTo = (index: number, result: Mutable) => {
+    if (results[index].kind === 'mapped') results[index] = result
+  }
+  /** The lines of `indexes`, in order, for a diagnostic that says where without quoting a name. */
+  const linesOf = (indexes: readonly number[]) => [...new Set(indexes.map((index) => statements[index].line))].sort((a, b) => a - b)
+  const conflict = (code: string, message: string, indexes: readonly number[]) => {
+    const first = statements[indexes[0]]
+    diagnostics.push({ severity: 'error', category: 'semantic', code, message: `${message} (lines ${linesOf(indexes).join(', ')}).`, span: { startLine: first.line, startColumn: 1, endLine: first.line, endColumn: 1 }, statement: first.node })
+  }
+
+  /**
+   * Once every statement is read: each VLAN keyed by its ID, its name, description and routed IRB unit; each switch
+   * port's VLANs by ID; and IRB units that route for no VLAN left out, as the model has an IRB unit only for a VLAN.
+   */
+  function settleVlans() {
+    // Each name's ID. Two VLANs with one ID are neither: Junos refuses that, and which one a port means can't be told.
+    const byId = new Map<number, string[]>()
+    for (const [name, state] of vlanStates) if (state.id && !listed.has(name)) byId.set(state.id.value, [...(byId.get(state.id.value) ?? []), name])
+    const ids = new Map<string, number>()
+    for (const [id, names] of byId) {
+      if (names.length === 1) {
+        ids.set(names[0], id)
+        continue
+      }
+      const all = names.flatMap((name) => vlanStates.get(name)!.statements)
+      for (const index of all) settleTo(index, unsupported('two VLANs have the same vlan-id, which Junos refuses: neither is converted'))
+      conflict('junos.vlan-id-twice', 'Two VLANs have the same vlan-id: Junos accepts a VLAN ID once', all)
+    }
+
+    // Each VLAN with its ID: its name, description and routed unit. One without an ID isn't converted.
+    const routedUnits = new Map<string, number[]>()
+    for (const [name, state] of vlanStates) {
+      const id = ids.get(name)
+      if (id === undefined) {
+        const why = listed.has(name) ? "a VLAN with a vlan-id-list, which replaces its vlan-id or is replaced by it: which ID it has isn't converted" : 'a VLAN with no vlan-id: the model keys VLANs by their ID'
+        if (!state.id || listed.has(name)) for (const index of state.statements) settleTo(index, unsupported(why))
+        continue
+      }
+      const at = ['vlans', String(id)]
+      const vlan = container(at)
+      for (const index of state.statements) settleTo(index, mapped([vlan]))
+      settleTo(state.id!.index, mapped([model.set([...at, 'name'], name)]))
+      if (state.description) settleTo(state.description.index, mapped([model.set([...at, 'description'], state.description.value)]))
+      if (state.l3) {
+        const m = /^irb\.(\d+)$/.exec(state.l3.value)
+        if (!m || !isInteger(m[1])) settleTo(state.l3.index, unsupported('routes for the VLAN on an interface other than an irb unit (non-ELS vlan.N): not converted'))
+        else routedUnits.set(String(Number(m[1])), [...(routedUnits.get(String(Number(m[1]))) ?? []), state.l3.index])
+      }
+    }
+    // An IRB unit routes for one VLAN: one named by two is in neither (Junos refuses it).
+    for (const [unit, indexes] of routedUnits) {
+      if (indexes.length > 1) {
+        for (const index of indexes) settleTo(index, unsupported('two VLANs name this IRB unit as their l3-interface, which Junos refuses: it routes for neither'))
+        conflict('junos.irb-unit-twice', "Two VLANs have the same l3-interface: Junos routes an IRB unit for one VLAN", indexes)
+        continue
+      }
+      const vlan = ids.get(statements[indexes[0]].words[1])!
+      const sub = ['interfaces', 'irb', 'subinterfaces', unit]
+      settleTo(indexes[0], mapped([...ensureInterface('irb'), container(sub), model.set([...sub, 'routedVlan'], vlan)]))
+    }
+
+    // A non-ELS port isn't converted: without its port-mode, a trunk would come out as an access port.
+    const isSwitching = (w: readonly string[], name: string) => w[0] === 'interfaces' && w[1] === name && ((w[2] === 'unit' && isInteger(w[3]) && Number(w[3]) === 0 && w[4] === 'family' && w[5] === 'ethernet-switching') || w[2] === 'native-vlan-id')
+    for (const name of nonEls) {
+      ports.delete(name)
+      model.remove(['interfaces', name, 'switching'])
+      statements.forEach((s, i) => {
+        if (isSwitching(s.words, name) && results[i].kind !== 'unsupported') results[i] = unsupported("the port's mode is non-ELS port-mode, which isn't converted, so none of its switching is")
+      })
+    }
+
+    // Each switch port's VLANs, by ID: every name resolved, a trunk's as its allowed VLANs, an access port's (the
+    // default mode) as its access VLAN.
+    for (const [name, state] of ports) {
+      const at = ['interfaces', name, 'switching']
+      const resolved: { index: number; value: string }[] = []
+      let unresolved = false
+      for (const { index, value } of state.members) {
+        const id = value === 'all' ? '1-4094' : !/^\d/.test(value) ? (ids.has(value) ? String(ids.get(value)) : null) : value.includes('-') ? value.split('-').map(Number).join('-') : String(Number(value))
+        if (id === null || (!id.includes('-') && !byId.has(Number(id))) || (!id.includes('-') && byId.get(Number(id))!.length > 1)) {
+          settleTo(index, unsupported("names a VLAN the configuration doesn't give a vlan-id"))
+          unresolved = true
+        } else resolved.push({ index, value: id })
+      }
+      const trunk = model.get([...at, 'mode']) === 'trunk'
+      const distinct = [...new Set(resolved.map((m) => m.value))]
+      // An access port's one VLAN, only when it names no other: beside a VLAN that isn't converted, which it is in can't be told.
+      if (!trunk && (distinct.length > 1 || distinct.some((v) => v.includes('-')) || (distinct.length && unresolved))) {
+        for (const { index } of resolved) settleTo(index, unsupported('an access port is in one VLAN: Junos refuses more than one, or a range'))
+      } else if (distinct.length) {
+        const field = trunk ? model.set([...at, 'allowedVlans'], distinct) : model.set([...at, 'accessVlan'], Number(distinct[0]))
+        const seen = new Set<string>()
+        for (const { index, value } of resolved) {
+          settleTo(index, seen.has(value) ? ignored('already a VLAN of the port') : mapped([...ensureInterface(name), container(at), field]))
+          seen.add(value)
+        }
+      }
+      if (state.native) {
+        const known = byId.get(state.native.value)?.length === 1
+        settleTo(state.native.index, known ? mapped([...ensureInterface(name), container(at), model.set([...at, 'nativeVlan'], state.native.value)]) : unsupported("names a VLAN the configuration doesn't give a vlan-id"))
+      }
+    }
+
+    // A port none of whose switching statements converted isn't one, and an interface only those configured isn't there.
+    for (const name of new Set([...nonEls, ...ports.keys()])) {
+      const converted = (test: (w: readonly string[]) => boolean) => statements.some((s, i) => test(s.words) && results[i].kind === 'mapped')
+      if (!converted((w) => isSwitching(w, name))) model.remove(['interfaces', name, 'switching'])
+      const left = model.get(['interfaces', name])
+      const typeOnly = isObject(left) && Object.keys(left).every((key) => key === 'type')
+      if (typeOnly && !converted((w) => w[0] === 'interfaces' && w[1] === name)) model.remove(['interfaces', name])
+    }
+    model.removeIfEmpty(['interfaces'])
+
+    // An IRB unit that routes for no VLAN isn't converted (the model's IRB unit routes for a VLAN): its statements are
+    // unsupported, and so is the irb interface's own when none of its units is converted.
+    const irb = model.get(['interfaces', 'irb'])
+    if (!isObject(irb)) return
+    const subs = isObject(irb.subinterfaces) ? irb.subinterfaces : {}
+    const dropped = Object.keys(subs).filter((unit) => !isObject(subs[unit]) || (subs[unit] as Obj).routedVlan === undefined)
+    const whole = dropped.length === Object.keys(subs).length
+    const inUnit = (s: Expanded, unit: string) => s.words[2] === 'unit' && isInteger(s.words[3]) && String(Number(s.words[3])) === unit
+    const left: number[] = []
+    statements.forEach((s, i) => {
+      if (s.words[0] !== 'interfaces' || s.words[1] !== 'irb') return
+      if (!(whole || dropped.some((unit) => inUnit(s, unit)))) return
+      if (results[i].kind !== 'mapped') return
+      results[i] = unsupported('an IRB unit that routes for no VLAN (no vlans … l3-interface names it): not converted')
+      left.push(i)
+    })
+    for (const unit of dropped) {
+      const member = members.get(fieldPath('interfaces', 'irb', 'subinterfaces', unit))
+      for (const index of member?.statements ?? []) {
+        if (results[index].kind !== 'mapped') continue
+        results[index] = unsupported('an IRB unit that routes for no VLAN: not converted')
+        left.push(index)
+      }
+      model.remove(['interfaces', 'irb', 'subinterfaces', unit])
+    }
+    if (whole) model.remove(['interfaces', 'irb'])
+    else model.removeIfEmpty(['interfaces', 'irb', 'subinterfaces'])
+    model.removeIfEmpty(['interfaces'])
+    if (left.length) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'junos.irb-without-vlan', message: `An IRB unit routes for no VLAN, so it isn't converted (lines ${linesOf(left).join(', ')}).` })
+  }
+
   // ---- every statement
 
   const mapStatement = (s: Expanded, i: number): Mutable => {
@@ -397,6 +630,8 @@ export function parse(text: string, _context: Context): ParseResult {
         return mapInstance(w, i)
       case 'snmp':
         return mapSnmp(w, i)
+      case 'vlans':
+        return mapVlan(w, i)
       default:
         return unsupported(Object.hasOwn(LATER, w[0]) ? LATER[w[0]] : undefined)
     }
@@ -485,6 +720,8 @@ export function parse(text: string, _context: Context): ParseResult {
       }
     })
   }
+
+  settleVlans()
 
   return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics, ...diagnostics] }
 }

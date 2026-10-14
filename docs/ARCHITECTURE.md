@@ -656,8 +656,8 @@ The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_P
 B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
 areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.3.0 <1.0.0'`, for model
-  0.3's VRF membership, route distinguishers and route targets), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.4.0 <1.0.0'`, for model
+  0.4's VLANs, switch ports and routed VLANs), with `detect`, `parse`, `render` and the capabilities per area. Its `tools()` has one tool,
   `displaySetTool`: id `display-set`, name "Display set". `run(text)`
   returns the set lines as text, one per line, each ended by a newline (none on an error), and `sourceLines`, the
   statement's source line for each output line (a quoted value with line breaks makes one set line several output
@@ -727,12 +727,11 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   and communities with `authorization` and `clients`. A statement is `mapped` only when everything it says went into
   the model. A later single-valued setting supersedes an earlier one ("superseded by line N"): a statement left with
   only the fields it filled in passing (the interface's type, its unit) is superseded too. Everything else is
-  `unsupported`, with a reason where one helps (`family ethernet-switching`, per-facility syslog severities, NTP
-  keys, `protocols`, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
+  `unsupported`, with a reason where one helps (per-facility syslog severities, NTP keys, `protocols`, `security`). **An SNMP community is converted whole or not at all:** one setting the mapper
   can't carry (a `client-list-name`, `clients … restrict`, a `view`) makes all its statements unsupported and leaves it
   out of the model, so it can't come out answering clients it shouldn't. The interface type comes from the name
-  (`ge-`, `xe-`, `et-` ethernet, `ae` aggregate, `lo` loopback, `irb` vlan, `fxp`/`em`/`me` management, `gr-`/`st`
-  tunnels). Reasons never quote the configuration.
+  (`ge-`, `xe-`, `et-` ethernet, `ae` aggregate, `lo` loopback, `irb` irb-or-svi, the non-ELS `vlan` vlan,
+  `fxp`/`em`/`me` management, `gr-`/`st` tunnels). Reasons never quote the configuration.
 - **Routing instances (#46):** `instance-type vrf` or `virtual-router` is the network instance's `type`;
   `interface ge-0/0/0.0` is that unit's `networkInstance` (Junos binds units, so an interface without its unit is
   `unsupported`; `irb.100` and `lo0.1` are units), and makes sure the instance and the unit exist; `route-distinguisher`
@@ -746,8 +745,26 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   something else there. Which type an instance has is settled as any single setting is (the configuration over a
   group, an earlier group over a later one), so a group's `mac-vrf` under the instance's own `vrf` is superseded and
   the VRF converts.
-- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.3 with a disposition and a
-  later version's fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
+- **VLANs, switch ports and IRB (#60, ELS only):** the model keys VLANs by ID and Junos by name, so a VLAN's
+  statements and the ports naming it settle once every statement is read. `vlans V vlan-id N` is `vlans["N"]` with
+  `name` V, and `description` its description; `l3-interface irb.U` makes irb unit U route for it (`routedVlan`,
+  creating the unit as `routing-instances … interface` does). On unit 0, `family ethernet-switching` is the
+  interface's `switching`: `interface-mode` its `mode`, and `vlan members` (names, IDs, ranges, `all` as `1-4094`) a
+  trunk's `allowedVlans`, each once, or an access port's `accessVlan` (access is Junos's default mode, so a port with
+  no `interface-mode` is one); `native-vlan-id` on the interface is its `nativeVlan`. Where the source can't be read
+  one way, nothing is guessed: **Junos refuses** two VLANs with one ID and two VLANs naming one IRB unit, so each is an
+  error naming the lines, and neither converts; **a VLAN with a `vlan-id-list`** converts not at all (the later of
+  `vlan-id` and `vlan-id-list` replaces the other); one with no ID neither, nor a member that names a VLAN without one;
+  **an access port** naming more than one VLAN, a range or a VLAN that doesn't convert is in none; **a non-ELS port**
+  (`port-mode`, `native-vlan-id` under its family, VLAN ports listed under the VLAN, `l3-interface vlan.N`) converts
+  not at all, so a trunk never comes out an access port; switching on another unit is `unsupported`. A port or
+  interface that only unconverted statements configured is left out of the model. **An IRB unit that routes for no
+  VLAN** (none of `vlans … l3-interface` names it, or only a mac-vrf's) isn't converted: its statements, its routing
+  instance membership too, are `unsupported`, with a `junos.irb-without-vlan` warning naming the lines, and the irb
+  interface goes whole when none of its units routes, so the model's referential check (`model.irb-without-vlan`)
+  holds. Groups and ranges apply as everywhere (R1–R12): a VLAN's ID is a single setting, members add up.
+- **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.3 and 0.4's VLAN, switch
+  port and routed VLAN fields with a disposition, and its OSPF and BGP fields left without one. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
   with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
   `unsupported` with why: a route's description, NTP and syslog source interfaces (Junos uses addresses), a drop beside
@@ -757,6 +774,12 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   target each way: the same both ways is `vrf-target target:X`, else `vrf-target { import …; export …; }`; more than one
   needs vrf-import or vrf-export policies, so it is `unsupported`). A virtual router and the global table have no route
   distinguisher or targets (`unsupported`), and a unit naming an instance the model doesn't have is `unsupported`.
+  `vlans` names each VLAN by the model's `name`, or `vlan<ID>` for one without (or whose name an earlier VLAN took:
+  that `name` is `unsupported`), with its `description`, `vlan-id` and `l3-interface irb.U` from the unit that routes
+  for it (a routed VLAN on an interface not named `irb`, one naming no VLAN, or a second unit for one VLAN is
+  `unsupported`). A switch port is unit 0's `family ethernet-switching` (`interface-mode`, `vlan members` by name,
+  `30-40`, `all`) and `native-vlan-id` on the interface; `vlan members` holds an access port's VLAN or a trunk's, so
+  the other mode's VLANs are `unsupported`, as is a native VLAN off a trunk.
   **A VRF Junos can't commit isn't made whole by guessing:** one without a route distinguisher, or without a route
   target for a side, is written with what it has, and each missing part is a needs-input item
   (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
@@ -778,6 +801,10 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   both forms, `detect()`, nodes standing for several statements, member ranges, inactive statements, keys named like
   `Object.prototype`'s, secrets, SNMP communities and render from another platform's model.
   `tests/inheritance.test.ts`: the group and range inheritance rules, one per test, each citing Juniper's page.
+  `tests/vlans.test.ts`: VLANs, switch ports and IRB beyond the fixtures (`tests/fixtures/conformance/vlans/`): the
+  conflicts Junos refuses, what converts not at all, IRB units without a VLAN, render from another platform's model and
+  names like `Object.prototype`'s. The corpus's expected models include an access, a trunk and an IRB file, and the
+  probes give the VLAN name and the malformed VLAN ID cases.
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)

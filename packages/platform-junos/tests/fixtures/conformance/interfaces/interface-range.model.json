@@ -1,26 +1,38 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.4.0",
   "device": {
     "interfaces": {
       "ge-0/0/0": {
         "description": "access ports",
         "type": "ethernet",
-        "mtu": 1514
+        "mtu": 1514,
+        "switching": {
+          "mode": "access"
+        }
       },
       "ge-0/0/1": {
         "description": "explicit wins",
         "type": "ethernet",
-        "mtu": 1514
+        "mtu": 1514,
+        "switching": {
+          "mode": "access"
+        }
       },
       "ge-0/0/2": {
         "description": "access ports",
         "type": "ethernet",
-        "mtu": 1514
+        "mtu": 1514,
+        "switching": {
+          "mode": "access"
+        }
       },
       "xe-0/0/1": {
         "description": "access ports",
         "type": "ethernet",
-        "mtu": 1514
+        "mtu": 1514,
+        "switching": {
+          "mode": "access"
+        }
       }
     }
   }

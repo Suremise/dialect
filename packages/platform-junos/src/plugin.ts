@@ -51,9 +51,9 @@ export const displaySetTool: JunosTool = {
 export const junos: PlatformPlugin = {
   id: 'junos',
   name: 'Junos',
-  // 0.3.0: its parse fills subinterfaces' networkInstance and VRFs' route distinguishers and targets, which a 0.2 core
-  // doesn't know. Minor versions only add, so every 0.x from there.
-  modelApi: '>=0.3.0 <1.0.0',
+  // 0.4.0: its parse fills VLANs, switch ports and IRB units' routed VLANs, which a 0.3 core doesn't know. Minor
+  // versions only add, so every 0.x from there.
+  modelApi: '>=0.4.0 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'partial', render: 'full' },
@@ -61,7 +61,8 @@ export const junos: PlatformPlugin = {
     'static-routes': { parse: 'partial', render: 'partial' },
     ntp: { parse: 'partial', render: 'partial' },
     syslog: { parse: 'partial', render: 'partial' },
-    snmp: { parse: 'partial', render: 'partial' }
+    snmp: { parse: 'partial', render: 'partial' },
+    vlans: { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,

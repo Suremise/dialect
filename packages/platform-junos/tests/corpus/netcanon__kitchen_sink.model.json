@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.4.0",
   "device": {
     "interfaces": {
       "ge-0/0/0": {
@@ -30,6 +30,13 @@
         "description": "Trunk to access switch",
         "type": "ethernet",
         "mtu": 9100,
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "10",
+            "20"
+          ]
+        },
         "subinterfaces": {
           "100": {
             "vlanId": 100,
@@ -132,7 +139,8 @@
                 }
               }
             },
-            "networkInstance": "TENANT_A"
+            "networkInstance": "TENANT_A",
+            "routedVlan": 100
           },
           "200": {
             "ipv4": {
@@ -141,10 +149,11 @@
                   "prefixLength": 24
                 }
               }
-            }
+            },
+            "routedVlan": 200
           }
         },
-        "type": "vlan"
+        "type": "irb-or-svi"
       },
       "em0": {
         "description": "Management interface (em0)",
@@ -235,6 +244,7 @@
     "networkInstances": {
       "TENANT_A": {
         "type": "vrf",
+        "routeDistinguisher": "172.16.0.1:10000",
         "staticRoutes": {
           "10.99.0.0/16": {
             "nextHops": {
@@ -244,7 +254,6 @@
             }
           }
         },
-        "routeDistinguisher": "172.16.0.1:10000",
         "routeTargets": {
           "import": [
             "65000:10000"
@@ -253,6 +262,9 @@
             "65000:10000"
           ]
         }
+      },
+      "RTR_C": {
+        "type": "virtual-router"
       },
       "default": {
         "staticRoutes": {
@@ -271,9 +283,20 @@
             }
           }
         }
+      }
+    },
+    "vlans": {
+      "10": {
+        "name": "USERS"
       },
-      "RTR_C": {
-        "type": "virtual-router"
+      "20": {
+        "name": "VOICE"
+      },
+      "100": {
+        "name": "TENANT_A_DATA"
+      },
+      "200": {
+        "name": "TRANSIT"
       }
     }
   }

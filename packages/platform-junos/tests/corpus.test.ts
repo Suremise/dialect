@@ -1,6 +1,6 @@
 // The plugin against the repo's corpus (fixtures/public/junos, see fixtures/README.md), referenced by path rather than
 // copied. Two parts:
-// - chosen files, at least one per phase 1 area, through the conformance kit's four checks against an expected model
+// - chosen files, at least one per area it converts, through the conformance kit's four checks against an expected model
 //   (tests/corpus/<file>.model.json, checked by hand against the source);
 // - every Junos file in the corpus, phase 1 or not, hierarchical or set form: it parses without an error, every
 //   statement gets a disposition, every field of its model is rendered or says why not, and render → reparse gives the
@@ -16,7 +16,7 @@ import plugin from '../src'
 const corpus = fileURLToPath(new URL('../../../fixtures/public/junos/', import.meta.url))
 const expected = fileURLToPath(new URL('./corpus/', import.meta.url))
 
-/** Corpus files with an expected model, by phase 1 area. */
+/** Corpus files with an expected model, by area. */
 const CASES: readonly (readonly [area: string, path: string])[] = [
   ['system', 'system/batfish__apply-groups-routing-instances.set'],
   ['dns', 'system/batfish__name-server.set'],
@@ -27,7 +27,11 @@ const CASES: readonly (readonly [area: string, path: string])[] = [
   ['ntp', 'mgmt/batfish__ntp.set'],
   ['syslog', 'mgmt/batfish__juniper-syslog.set'],
   ['snmp', 'mgmt/batfish__unit-tests_junos-snmp-gh-8812.conf'],
-  ['snmp', 'whole/netcanon__kitchen_sink.set']
+  ['snmp', 'whole/netcanon__kitchen_sink.set'],
+  ['vlans', 'vlans/batfish__juniper-vlan-access.set'],
+  ['vlans', 'vlans/batfish__juniper-vlan-all.set'],
+  ['vlans', 'vlans/batfish__interface-vlan.set'],
+  ['vlans', 'interfaces/batfish__irb-interfaces.set']
 ]
 
 const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
@@ -35,8 +39,8 @@ const read = (path: string) => readFileSync(join(corpus, path), 'utf8')
 const OPTIONS = { configTools: ['display-set'] }
 
 describe('corpus files with an expected model', () => {
-  it('cover every phase 1 area', () => {
-    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'static-routes', 'ntp', 'syslog', 'snmp']))
+  it('cover every area the plugin converts', () => {
+    expect(new Set(CASES.map(([area]) => area))).toEqual(new Set(['system', 'dns', 'interfaces', 'static-routes', 'ntp', 'syslog', 'snmp', 'vlans']))
   })
   for (const [area, path] of CASES) {
     describe(`${area}: ${path}`, () => {

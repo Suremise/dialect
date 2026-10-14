@@ -115,8 +115,8 @@ product decisions.
   registry refuses one outside it. Minor versions only add.
 - **Built in at first**, through a static registry each shell imports. Loading plugins at runtime comes later;
   third-party drop-in plugins stay out of v1.
-- **Junos scope:** MX, EX and QFX, routing and switching. Switching is ELS only (`vlans` and `family
-  ethernet-switching`, with VLANs in a later model version), not the older non-ELS syntax. Both the hierarchical and
+- **Junos scope:** MX, EX and QFX, routing and switching. Switching is ELS only (`vlans`, `family
+  ethernet-switching` and IRB, converted from model 0.4), not the older non-ELS syntax, which shows as `unsupported`. Both the hierarchical and
   the set form are read, and `apply-groups` and `interface-range` are expanded before mapping. SRX security zones,
   policies and NAT come later: until then they show as `unsupported` in the ledger, never dropped.
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.

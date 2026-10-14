@@ -1,0 +1,19 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "juniper-vlan-all"
+    },
+    "interfaces": {
+      "et-0/0/0": {
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "1-4094"
+          ]
+        },
+        "type": "ethernet"
+      }
+    }
+  }
+}

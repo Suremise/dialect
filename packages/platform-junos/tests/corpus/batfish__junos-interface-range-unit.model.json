@@ -1,23 +1,7 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.4.0",
   "device": {
     "interfaces": {
-      "ge-0/0/0": {
-        "subinterfaces": {
-          "0": {
-            "description": "RANGE_UNIT"
-          }
-        },
-        "type": "ethernet"
-      },
-      "ge-0/0/1": {
-        "subinterfaces": {
-          "0": {
-            "description": "EXPLICIT"
-          }
-        },
-        "type": "ethernet"
-      },
       "ge-0/0/2": {
         "subinterfaces": {
           "0": {
@@ -26,10 +10,39 @@
           }
         },
         "type": "ethernet"
+      },
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "description": "RANGE_UNIT"
+          }
+        },
+        "type": "ethernet",
+        "switching": {
+          "mode": "access",
+          "accessVlan": 100
+        }
+      },
+      "ge-0/0/1": {
+        "subinterfaces": {
+          "0": {
+            "description": "EXPLICIT"
+          }
+        },
+        "type": "ethernet",
+        "switching": {
+          "mode": "access",
+          "accessVlan": 100
+        }
       }
     },
     "system": {
       "hostname": "junos-interface-range-unit"
+    },
+    "vlans": {
+      "100": {
+        "name": "USERS"
+      }
     }
   }
 }

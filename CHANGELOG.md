@@ -21,6 +21,11 @@
 - **Cisco NX-OS and IOS-XR join convert**, in the app and on the command line: convert from any of Junos, IOS / IOS-XE,
   NX-OS and IOS-XR to any other (`dialect convert --from nxos --to iosxr …`). In the app, a new tab's Convert row has
   the platform to convert from and the one to convert to, and a convert tab can change either.
+- **Junos VLANs, switch ports and IRB convert** (ELS, as on today's EX and QFX): VLANs with their names and
+  descriptions, access and trunk ports with their VLANs and native VLAN, and IRB units with the VLAN each routes for.
+  What Junos itself refuses (two VLANs with one ID, or naming one IRB unit) is an error, and what can't be read one way
+  (a vlan-id-list, the older non-ELS port-mode, an IRB unit that routes for no VLAN) is listed as not converted rather
+  than guessed.
 - **Junos routing instances convert:** VRFs and virtual routers, with their units, route distinguisher and vrf-target
   (one target or an import and export), to and from the model, so their interfaces stay in the right VRF. A unit in two
   instances is an error, as on the device, and instance types Dialect doesn't convert yet (mac-vrf, EVPN) are listed as
