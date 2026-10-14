@@ -2,8 +2,8 @@
 
 Network configs for Dialect's tests: parsers, converters, the hierarchical ↔ set round trip and whole-device runs. Nothing here ships in the app.
 
-- `public/`: **471** published, permissively licensed configs (1.46 MB) for Junos, IOS/IOS-XE, NX-OS and IOS-XR, sorted by platform and area.
-- `originals/`: the untouched copies of public files that had to be changed (6 CRLF files, see [Line endings](#line-endings)).
+- `public/`: **484** published, permissively licensed configs (1.50 MB) for Junos, IOS/IOS-XE, NX-OS and IOS-XR, sorted by platform and area.
+- `originals/`: the untouched sources of public files that had to be changed: 6 CRLF files (see [Line endings](#line-endings)) and, in `originals/topologies/`, 8 CML lab topologies that 13 configs were extracted from (see [Extracted configs](#extracted-configs)).
 - `manifest.json`: one entry per file in `public/` and `originals/`, with its exact provenance.
 - `LICENSES/`: the full license text of every source repository, at the commit the files were taken from.
 - `private-cleaned/`: where the user's own cleaned-up configs will go. It holds only [its README](private-cleaned/README.md), with the cleaning checklist, for now.
@@ -27,34 +27,34 @@ Files per platform and area (a file counts under every area in its `areas`). Gen
 
 | Area | junos | iosxe | nxos | iosxr |
 |---|---:|---:|---:|---:|
-| system | 19 | 13 | 11 | 8 |
-| interfaces | 16 | 10 | 9 | 4 |
-| static-routes | 9 | 4 | 3 | 2 |
-| mgmt | 11 | 7 | 6 | 4 |
-| vlans | 12 | 6 | 4 | 2 |
-| ospf | 12 | 9 | 4 | 7 |
+| system | 19 | 18 | 12 | 8 |
+| interfaces | 16 | 20 | 10 | 5 |
+| static-routes | 9 | 8 | 3 | 3 |
+| mgmt | 11 | 10 | 6 | 4 |
+| vlans | 12 | 8 | 5 | 2 |
+| ospf | 12 | 14 | 5 | 8 |
 | bgp | 20 | 11 | 9 | 10 |
 | policy | 16 | 9 | 6 | 8 |
-| filters | 22 | 16 | 8 | 9 |
-| vrfs | 10 | 4 | 2 | 5 |
+| filters | 22 | 18 | 8 | 9 |
+| vrfs | 10 | 7 | 3 | 6 |
 | isis \* | 3 | 2 | 1 | 3 |
-| eigrp \* | – | 2 | 1 | – |
+| eigrp \* | – | 3 | 1 | – |
 | evpn-vxlan \* | 8 | – | 7 | – |
 | mpls \* | 2 | 1 | – | 2 |
-| nat \* | 6 | 2 | – | – |
+| nat \* | 6 | 5 | – | – |
 | security \* | 16 | 1 | – | – |
 | vpn \* | – | 2 | – | – |
-| ha \* | 2 | 2 | 1 | 1 |
+| ha \* | 2 | 3 | 2 | 1 |
 | qos \* | 1 | 1 | 1 | 1 |
-| whole \* | 20 | 10 | 6 | 8 |
+| whole \* | 20 | 12 | 7 | 9 |
 | pairs \* | 44 | – | – | – |
-| **files** | 223 | 110 | 73 | 65 |
+| **files** | 223 | 121 | 74 | 66 |
 
 Every platform has at least one file in every phase 1 area. **Gaps and thin spots:**
 
-- **Most files are synthetic.** 351 of the 471 are Batfish parser test configs: short, feature-focused and sometimes deliberately odd (invalid references, parser-recovery cases, `show run all` dumps). They test grammar coverage, not realistic devices. Realistic configs are the `whole/` ones and the Aerleon filter outputs.
+- **Most files are synthetic.** 351 of the 484 are Batfish parser test configs: short, feature-focused and sometimes deliberately odd (invalid references, parser-recovery cases, `show run all` dumps). They test grammar coverage, not realistic devices. Realistic configs are the `whole/` ones, the Aerleon filter outputs and the CML lab configs (`cml__*`).
 - **IOS-XR VLANs:** IOS-XR has no VLAN database; the two files are l2vpn bridge-domain configs. **IOS-XR static routes** (2) and **NX-OS VRFs** (2) are thin.
-- **NX-OS whole devices:** 6, of which only one (racc `n9k1`) is a real capture.
+- **NX-OS whole devices:** 7, of which only one (racc `n9k1`) is a real capture; the CML sandbox's `dist-sw01` is a lab build, but a complete one (vPC, HSRP, SVIs).
 - **Not covered:** EIGRP on Junos (it doesn't exist) and IOS-XR; EVPN-VXLAN on IOS/IOS-XE and IOS-XR; NAT and security on NX-OS and IOS-XR; MPLS on NX-OS; IKE/IPsec on Junos except inside the SRX and MNHA whole configs.
 - **Junos form:** 173 set, 49 hierarchical, 1 mixed. Set form dominates because Batfish writes most of its Junos tests that way; the `pairs/` folder has each config in both forms.
 - **IOS vs IOS-XE** aren't separated: most Batfish IOS tests run on both. The racc captures and netcanon files are IOS-XE (CSR1000v, Cat8000v).
@@ -73,15 +73,16 @@ All taken on 2026-10-14 at the commit shown; each license was checked in the rep
 | `racc` | [nickrusso42518/racc](https://github.com/nickrusso42518/racc) | `a1a3f217daf3` | BSD-3-Clause | 5 | Lab `show running-config` captures: CSR1000v/Cat8000v, Nexus 9000v, XRv |
 | `ksator` | [ksator/lab_management](https://github.com/ksator/lab_management) | `37e42ebb74db` | MIT | 5 | Juniper lab device backups (EX4550, QFX10K2, QFX5100, QFX5110, SRX4100) |
 | `tsg8139` | [TsG8139/evpn-vxlan-implementation](https://github.com/TsG8139/evpn-vxlan-implementation) | `ec9918fdd6f0` | MIT | 6 | Junos EVPN-VXLAN fabric configs, one in both forms |
+| `cml` | [CiscoDevNet/cml-community](https://github.com/CiscoDevNet/cml-community) | `0f3c9b3c26a6` | BSD-3-Clause | 13 | Device configs extracted from CML lab topologies (`lab-topologies/`): the DevNet multi-platform sandbox (CSR1000v, IOSvL2, Nexus 9000v, IOS XRv) and CCNA labs (IOSv, IOL-XE, Catalyst 8000v); see [Extracted configs](#extracted-configs) |
 | `jnprmnha` | [JNPRAutomate/mnha-ipsec-and-multiple-routing-instances](https://github.com/JNPRAutomate/mnha-ipsec-and-multiple-routing-instances) | `4392979c661e` | MIT | 5 | Juniper vSRX MNHA lab: full config and feature snippets |
 
-The manifest has the full commit SHAs. None of the Apache-2.0 sources has a NOTICE file at that commit, so `LICENSES/` holds license texts only.
+The manifest has the full commit SHAs. None of the Apache-2.0 sources has a NOTICE file at that commit. cml-community (BSD-3-Clause) has one, kept beside its license as `LICENSES/cml-community.NOTICE.txt`.
 
 ### Looked at and left out
 
 - **netcanon's `tests/fixtures/real/`:** copies of other people's configs with a header added and secrets replaced. Where the upstream is permissive, the file was taken from the upstream itself, unmodified (racc, xrd-tools, lab_management, mnha, evpn-vxlan-implementation); Batfish-derived ones come straight from Batfish. The rest are marked unlicensed ("factual-output precedent") or CC0 user contributions, and were left out.
 - **Capirca:** only policy (`.pol`) inputs and docs, no generated configs. Aerleon is its maintained fork and has the generated outputs, so it is used instead.
-- **CiscoDevNet/cml-community** (BSD-3-Clause): its configs are embedded in CML topology YAML; taking them would mean changing the format. Left for later.
+- **CiscoDevNet/cml-community, the rest:** most CCNA lab nodes hold starter configs (interfaces only, the feature left for the student) or near-copies of each other (the 300-node lab, both halves of each problem/solution pair, the sandbox's second router and switch). The IPsec lab's nodes have no crypto config, the AAA lab's NX-OS node is a shell script, and a few configs are stored as quoted YAML strings, which `verify.mjs` can't check line by line (below).
 - **networktocode/ntc-templates** (Apache-2.0): `show` command output, not configs.
 - **saidvandeklundert/rust:** its Junos config is the same as jcc's `config_17`.
 - **Unlicensed repositories** (e.g. hellt/clabs, akarneliuk/multivendor-network-labs) and **GPL material** (ciscoconfparse2, the Ansible collections): not allowed. **Vendor documentation:** copyrighted, reference only.
@@ -89,21 +90,28 @@ The manifest has the full commit SHAs. None of the Apache-2.0 sources has a NOTI
 ## Provenance rules
 
 1. **License:** only MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause or ISC, checked at the root of the source repository **at the commit taken from**. A file inside a permissive repository that says it comes from somewhere else is judged by its own origin. No GPL/LGPL/AGPL, no unlicensed repositories, no vendor documentation text.
-2. **Exact copies:** files are kept byte-for-byte as published. `fixtures/.gitattributes` turns off line-ending conversion so git can't change them, and the manifest's `sha256` is checked by `verify.mjs`.
-3. **Every file is in the manifest** with: `path`, `platform`, `areas`, `source` (repository URL), `sourcePath`, `commit` (full SHA), `license` (SPDX), `junosForm` (`hierarchical`, `set` or `mixed`; `null` for Cisco), `bytes`, `sha256`, `flags` (scan results, below) and `notes` (synthetic or lab-made, odd features, changes). A converted file has `original`, and its original `convertedTo`.
-4. **The source's license text** is in `LICENSES/<repository>.<SPDX>.txt`, plus its NOTICE file for Apache-2.0 sources that have one.
+2. **Exact copies:** files are kept byte-for-byte as published, except the [extracted configs](#extracted-configs), whose published topology is kept instead. `fixtures/.gitattributes` turns off line-ending conversion so git can't change them, and the manifest's `sha256` is checked by `verify.mjs`.
+3. **Every file is in the manifest** with: `path`, `platform`, `areas`, `source` (repository URL), `sourcePath`, `commit` (full SHA), `license` (SPDX), `junosForm` (`hierarchical`, `set` or `mixed`; `null` for Cisco), `bytes`, `sha256`, `flags` (scan results, below) and `notes` (synthetic or lab-made, odd features, changes). A converted or extracted file has `original`, and its original `convertedTo` (a list for a topology).
+4. **The source's license text** is in `LICENSES/<repository>.<SPDX>.txt`, plus its NOTICE file (`<repository>.NOTICE.txt`) when it has one.
 5. **No near-duplicates:** `verify.mjs` rejects identical files; similar configs (the Batfish example network's devices, Junos and IOS variants) are limited to a few representatives.
 
 ### Line endings
 
 Files are LF. Six were published with CRLF line endings (the racc captures and TsG8139's `srx/leaf01.txt`): `public/` has them converted to LF, and `originals/` keeps the untouched CRLF copy at the same relative path. Tests should use `public/`.
 
+### Extracted configs
+
+CML (Cisco Modeling Labs) keeps each lab as one topology YAML file with every node's startup config inside it (`nodes[].configuration`, a string or a list of `{name, content}` files). The 13 `cml__*` configs were taken out of 8 such topologies: each is one node's configuration, written exactly as a YAML 1.2 parser (js-yaml 4.1.0) returns the value, with nothing added or removed. The topology itself is kept unchanged as `originals/topologies/cml__<lab>.yaml`, with `platform` `null`, no `areas`, and `convertedTo` listing the configs taken from it; each config's `notes` name its node, node definition and field.
+
+`verify.mjs` checks that every line of an extracted config appears in its topology, which holds for block scalars (`|`), the form these labs use. All are lab-made: some are `show running-config` captures (the DevNet sandbox, the CCNA contest), others day-0 command lists with `exit`, `do` or `no shut` lines a router accepts but never shows (`ccnaprep-s2e7`, `ccnaprep-s3e3`, `ccnaprep-s1e7`).
+
 ### Secrets and public addresses
 
 These are public test files, so nothing in them was changed or removed, but flags in each manifest entry say what a scan found:
 
-- `flags.secretLike`: kinds of secret-looking text (`junos-$9$`, `crypt-hash`, `cisco-type7`, `cisco-secret`, `cisco-plain-password`, `snmp-community`, `pre-shared-key`, `ssh-public-key`, `certificate`, `private-key`). 86 files have at least one. They are almost all lab or made-up values; the ones that look like **real hashes from lab devices** are the lab_management backups (`$1$`/`$5$` user hashes), the TsG8139 and MNHA configs (`$9$` keys), the racc captures (`secret 5`/`secret 9`, type 7 strings and self-signed certificates), Batfish's `srx-testbed` and jcc's `config_22`.
-- `flags.publicIPv4`: globally routable IPv4 addresses (outside private, loopback, link-local, multicast, reserved, CGNAT, benchmarking and documentation ranges). 182 files have some, mostly made-up test addresses (`1.1.1.1`, `2.1.1.2`, `200.1.1.x`). The ones that look real: `66.129.255.62` in the lab_management backups, Cisco Umbrella resolvers (`146.112.x.x`) in racc's 2021 CSR capture, `8.8.8.8`/`8.8.4.4` in several, and jcc's `config_22` (316 KB, 428 addresses: a Junos 14.1 provider config that may come from a real network). IPv6 isn't scanned.
+- `flags.secretLike`: kinds of secret-looking text (`junos-$9$`, `crypt-hash`, `cisco-type7`, `cisco-secret`, `cisco-plain-password`, `snmp-community`, `pre-shared-key`, `ssh-public-key`, `certificate`, `private-key`). 90 files have at least one. They are almost all lab or made-up values; the ones that look like **real hashes from lab devices** are the lab_management backups (`$1$`/`$5$` user hashes), the TsG8139 and MNHA configs (`$9$` keys), the racc captures (`secret 5`/`secret 9`, type 7 strings and self-signed certificates), Batfish's `srx-testbed`, jcc's `config_22`, and the CML sandbox's CSR (`secret 9`) and Nexus (`$1$`) user hashes.
+- `flags.publicIPv4`: globally routable IPv4 addresses (outside private, loopback, link-local, multicast, reserved, CGNAT, benchmarking and documentation ranges). 184 files have some, mostly made-up test addresses (`1.1.1.1`, `2.1.1.2`, `200.1.1.x`). The ones that look real: `66.129.255.62` in the lab_management backups, Cisco Umbrella resolvers (`146.112.x.x`) in racc's 2021 CSR capture, `8.8.8.8`/`8.8.4.4` in several, and jcc's `config_22` (316 KB, 428 addresses: a Junos 14.1 provider config that may come from a real network).
+- `flags.publicIPv6`: global unicast IPv6 addresses and prefixes (in `2000::/3`, outside the documentation ranges `2001:db8::/32` and `3fff::/20`, the IETF protocol block `2001::/23`, 6to4 `2002::/16` and the retired 6bone `3ffe::/16`), written in compressed form; ULA, link-local, multicast, loopback and the other non-`2000::/3` ranges never count. 16 files have some (186 distinct values). Most are made up (`2222::1`, `3000::`, `2607::…`, `21f1:8:1e:8fff::11`); the ones that look real: jcc's `config_22` in both forms (159 values: provider and IXP prefixes, its IPv6 counterpart of the IPv4 above), Google's `2001:4860:…` and a `2620:15c:…` host in the Aerleon outputs, and allocated-looking addresses (`2001:620:…`, `2610:18:…`, `2607:f380:…`) in three Batfish unit tests. The scan reads each file as bytes (`batfish__ios-unicode.cfg` as UTF-16LE).
 
 **Never copy these files into user-facing examples or docs.** `private-cleaned/` follows the repository's cleaning rules; `public/` is exempt only because it is unchanged published test data.
 
@@ -111,7 +119,7 @@ These are public test files, so nothing in them was changed or removed, but flag
 
 1. Check the license at the root of the source repository, at the commit you take from. If the file says it comes from somewhere else, check that origin instead.
 2. Copy the file unchanged: read it from git (`git cat-file blob <commit>:<path>`) rather than a checkout that may have converted line endings. Clone into a scratch folder outside this repository, and never run the source's scripts or build tools.
-3. Put it under `public/<platform>/<area>/<source>__<name>.<ext>`. CRLF files: LF copy in `public/`, original in `originals/`.
+3. Put it under `public/<platform>/<area>/<source>__<name>.<ext>`. CRLF files: LF copy in `public/`, original in `originals/`. Configs inside a lab topology: extract one node's configuration as above, and keep the topology in `originals/topologies/`.
 4. Add its manifest entry (all fields above, the full commit SHA, scan flags), and its license to `LICENSES/` if the source is new. Add a row to the sources table.
 5. Run `node fixtures/verify.mjs --coverage` and update the coverage table and gaps above.
 

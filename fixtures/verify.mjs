@@ -15,6 +15,7 @@ const PHASE1 = ['system', 'interfaces', 'static-routes', 'mgmt', 'vlans', 'ospf'
 const LATER = ['isis', 'eigrp', 'evpn-vxlan', 'mpls', 'nat', 'security', 'vpn', 'ha', 'qos']
 const SPECIAL = ['whole', 'pairs']
 const AREAS = new Set([...PHASE1, ...LATER, ...SPECIAL])
+const FLAGS = ['secretLike', 'publicIPv4', 'publicIPv6']
 
 const problems = []
 const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'))
@@ -44,9 +45,28 @@ for (const f of manifest.files) {
   const [top, platform, area] = f.path.split('/')
   if (top === 'public' && data.includes(13)) problems.push(`${where}: CR in a public/ file (convert to LF and keep the original under originals/)`)
   if (top === 'originals' && !f.convertedTo) problems.push(`${where}: originals/ entry without convertedTo`)
-  if (top === 'public' && f.original && !listed.has(f.original)) problems.push(`${where}: original ${f.original} not in manifest`)
-  if (platform !== f.platform || !PLATFORMS.includes(platform)) problems.push(`${where}: platform ${f.platform} vs path`)
-  if (!AREAS.has(area) || f.areas[0] !== area) problems.push(`${where}: area folder ${area} vs areas ${f.areas}`)
+  if (top === 'public' && f.original) {
+    const o = listed.get(f.original)
+    if (!o) problems.push(`${where}: original ${f.original} not in manifest`)
+    else if (![o.convertedTo].flat().includes(f.path)) problems.push(`${where}: ${f.original} doesn't list it in convertedTo`)
+  }
+  // originals/topologies/: lab topology files (CML YAML) that public configs were extracted from, one per node.
+  const topology = top === 'originals' && platform === 'topologies'
+  if (topology) {
+    if (f.platform !== null || f.areas.length) problems.push(`${where}: a topology has platform null and no areas`)
+    if (!Array.isArray(f.convertedTo) || !f.convertedTo.length) problems.push(`${where}: a topology's convertedTo lists the configs taken from it`)
+    const yaml = data.toString('utf8')
+    for (const p of Array.isArray(f.convertedTo) ? f.convertedTo : []) {
+      const c = listed.get(p)
+      if (!c || c.original !== f.path) { problems.push(`${where}: ${p} is not in the manifest with this original`); continue }
+      // Without a YAML parser: every line of the extracted config must appear in the topology, as a block scalar has it.
+      const lost = readFileSync(join(root, p), 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !yaml.includes(l))
+      if (lost.length) problems.push(`${where}: ${p} has lines the topology doesn't, e.g. ${JSON.stringify(lost[0])}`)
+    }
+  } else {
+    if (platform !== f.platform || !PLATFORMS.includes(platform)) problems.push(`${where}: platform ${f.platform} vs path`)
+    if (!AREAS.has(area) || f.areas[0] !== area) problems.push(`${where}: area folder ${area} vs areas ${f.areas}`)
+  }
   for (const a of f.areas) if (!AREAS.has(a)) problems.push(`${where}: unknown area ${a}`)
   if (!ALLOWED_LICENSES.has(f.license)) problems.push(`${where}: license ${f.license} not allowed`)
   if (!/^[0-9a-f]{40}$/.test(f.commit)) problems.push(`${where}: commit is not a full SHA`)
@@ -54,6 +74,7 @@ for (const f of manifest.files) {
   if (!f.sourcePath) problems.push(`${where}: no sourcePath`)
   if ((f.platform === 'junos') !== (f.junosForm != null)) problems.push(`${where}: junosForm must be set for Junos only`)
   if (f.junosForm != null && !['hierarchical', 'set', 'mixed'].includes(f.junosForm)) problems.push(`${where}: junosForm ${f.junosForm}`)
+  for (const k of FLAGS) if (!Array.isArray(f.flags?.[k])) problems.push(`${where}: flags.${k} is not a list`)
 }
 
 // Every source repo needs its license text in LICENSES/.
