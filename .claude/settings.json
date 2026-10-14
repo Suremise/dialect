@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C D:/Development/Workspaces/Scratch/juniper status:*)",
+      "Bash(git -C D:/Development/Workspaces/Scratch/juniper log:*)",
+      "Bash(git -C D:/Development/Workspaces/Scratch/juniper rev-parse:*)",
+      "Bash(git -C D:/Development/Workspaces/Scratch/juniper diff:*)",
+      "Bash(git -C D:/Development/Workspaces/Scratch/juniper branch --show-current)",
+      "Bash(git -C D:/Development/Workspaces/Scratch/juniper merge --no-ff:*)",
+      "Bash(git -C /d/Development/Workspaces/Scratch/juniper status:*)",
+      "Bash(git -C /d/Development/Workspaces/Scratch/juniper log:*)",
+      "Bash(git -C /d/Development/Workspaces/Scratch/juniper rev-parse:*)",
+      "Bash(git -C /d/Development/Workspaces/Scratch/juniper diff:*)",
+      "Bash(git -C /d/Development/Workspaces/Scratch/juniper branch --show-current)",
+      "Bash(git -C /d/Development/Workspaces/Scratch/juniper merge --no-ff:*)"
+    ]
+  }
+}
