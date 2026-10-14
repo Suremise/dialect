@@ -10,7 +10,6 @@
 // 4. the coverage ledger is complete: every statement of the parse and every populated field of the render has a
 //    disposition (core's ledger.ts, which doesn't trust the plugin's own count).
 // An error a step reports fails its check even when its output matches: a plugin that says it failed isn't conformant.
-import { isDeepStrictEqual } from 'node:util'
 import { buildLedger, ledgerProblems, MODEL_VERSION, type Context, type Device, type PlatformPlugin } from '@dialect/core'
 
 /** One fixture, already read (fixtures.ts reads them from disk). */
@@ -34,14 +33,30 @@ export interface CheckResult {
 
 const lf = (text: string) => text.replace(/\r\n?/g, '\n')
 
+const isObject = (v: unknown): v is object => typeof v === 'object' && v !== null && !Array.isArray(v)
+/** A key's own value: a key such as `toString` or `__proto__` missing from `o` is undefined, not Object.prototype's. */
+const own = (o: object, key: string): unknown => (Object.hasOwn(o, key) ? (o as Record<string, unknown>)[key] : undefined)
+
+/**
+ * Whether two models are the same data: the same own keys with the same values. Prototypes don't count, so a model a
+ * plugin builds from null-prototype objects equals the same model read from JSON.
+ */
+function sameData(e: unknown, a: unknown): boolean {
+  if (Array.isArray(e) || Array.isArray(a)) return Array.isArray(e) && Array.isArray(a) && e.length === a.length && e.every((v, i) => sameData(v, a[i]))
+  if (isObject(e) && isObject(a)) {
+    const keys = Object.keys(e)
+    return keys.length === Object.keys(a).length && keys.every((k) => Object.hasOwn(a, k) && sameData(own(e, k), own(a, k)))
+  }
+  return Object.is(e, a)
+}
+
 /** Where two models differ, as paths: `a.b: expected 1, got 2`. At most `limit` lines. */
 export function modelDifferences(expected: unknown, actual: unknown, limit = 20): string[] {
   const out: string[] = []
   const walk = (e: unknown, a: unknown, at: string) => {
-    if (out.length >= limit || isDeepStrictEqual(e, a)) return
-    const isObj = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v)
-    if (isObj(e) && isObj(a)) {
-      for (const k of new Set([...Object.keys(e as object), ...Object.keys(a as object)])) walk((e as Record<string, unknown>)[k], (a as Record<string, unknown>)[k], at ? `${at}.${k}` : k)
+    if (out.length >= limit || sameData(e, a)) return
+    if (isObject(e) && isObject(a)) {
+      for (const k of new Set([...Object.keys(e), ...Object.keys(a)])) walk(own(e, k), own(a, k), at ? `${at}.${k}` : k)
       return
     }
     out.push(`${at || '(model)'}: expected ${JSON.stringify(e)}, got ${JSON.stringify(a)}`)

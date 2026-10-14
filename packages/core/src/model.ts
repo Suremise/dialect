@@ -9,6 +9,10 @@
 //   leaf (`true`). An entry configured with no options is an empty object (`ntp.servers["192.0.2.1"]: {}`): its key is
 //   the configuration, and the ledger counts the empty object as a leaf (paths.ts), so it can't be dropped unnoticed.
 // - **Absent means not configured.** Leave a field out rather than set it to null or a default the source didn't say.
+// - **A key can be any string a configuration holds**, `__proto__`, `constructor` and `toString` included. Code that
+//   builds or reads a keyed map uses null-prototype objects (`Object.create(null)`) or a `Map`, and own-property checks
+//   (`Object.hasOwn`), never `map[key] ??= {}` on a plain object, which follows `Object.prototype` for such a key.
+//   JSON.parse already makes `__proto__` an own property, and the core's walks read own properties only.
 //
 // The model has its own version, MODEL_VERSION, separate from the package's. **Minor = additive only** (new optional
 // fields and new object types); **major = breaking** (renames, changed meanings). That holds in 0.x too, unlike semver's
@@ -16,7 +20,7 @@
 // while the ledger reports any populated field it has never heard of as unrendered.
 
 /** The shared model's version (docs/SPEC.md §4). Bump minor for additions, major for breaking changes. */
-export const MODEL_VERSION = '0.1.0'
+export const MODEL_VERSION = '0.2.0'
 
 /** A map from a collection's natural key to its entries. */
 export type Keyed<T> = Readonly<Record<string, T>>
@@ -33,9 +37,24 @@ export interface Device {
 export interface System {
   readonly hostname?: string
   readonly domainName?: string
+  /** Since model 0.2.0. */
+  readonly dns?: Dns
   readonly ntp?: Ntp
   readonly logging?: Logging
   readonly snmp?: Snmp
+}
+
+/** Name resolution, after OpenConfig `system/dns` (since model 0.2.0). */
+export interface Dns {
+  /** By server address, in the order the source lists them. */
+  readonly servers?: Keyed<DnsServer>
+  /** Domains to search, in order (Junos `domain-search`, IOS `ip domain list`). */
+  readonly search?: readonly string[]
+}
+
+export interface DnsServer {
+  /** The network instance the server is reached through, when not `default` (IOS `ip name-server vrf V`). */
+  readonly networkInstance?: string
 }
 
 export interface Ntp {

@@ -39,15 +39,16 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.1.0)
+## Core contracts (`@dialect/core`, model 0.2.0)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
 ### The shared model (`model.ts`)
 
 `Device` is OpenConfig-shaped, as plain readonly types:
-- `system`: hostname, domain name, `ntp` (servers), `logging` (remote syslog servers) and `snmp` (location, contact,
-  communities);
+- `system`: hostname, domain name, `dns` (servers by address, each with an optional network instance, and the search
+  domains, after OpenConfig `system/dns`), `ntp` (servers), `logging` (remote syslog servers) and `snmp` (location,
+  contact, communities);
 - `interfaces`: type, description, enabled, MTU, VLAN tagging, and `subinterfaces` with a VLAN id and `ipv4`/`ipv6`
   addresses;
 - `networkInstances`: `default` for the global table (VRFs later), each with `staticRoutes` and their next hops.
@@ -62,8 +63,24 @@ Three conventions keep the model walkable by the ledger:
   valued `{}`, so a renderer that drops it is caught like one that drops any other leaf;
 - **absent means not configured**: no nulls, no defaults the source didn't say.
 
+**Any key is safe.** A key is whatever the configuration says, so `__proto__`, `constructor` and `toString` are
+ordinary interface names, VRFs, communities and servers. The core reads own properties only (`Object.entries`,
+`Object.hasOwn`), so they go through JSON, field paths and both ledger checks like any other key, and the conformance
+kit compares models by their own keys, ignoring prototypes. Code that builds a keyed map, in a plugin or a test, uses
+null-prototype objects (`Object.create(null)`) or a `Map`, never `map[key] ??= {}` on a plain object, which follows
+`Object.prototype` for `__proto__`. `tests/safeKeys.test.ts` in core and in the kit check it, including that
+`Object.prototype` is unchanged afterwards.
+
 `MODEL_VERSION` is the model's own semver, separate from the package's. Minor versions only add; major versions
 break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0.1.0 <1.0.0'`, not `^0.1.0`.
+
+| Model | What it added |
+|---|---|
+| 0.1.0 | The phase 1 areas (B2) |
+| 0.2.0 | `system.dns` (`Dns`, `DnsServer`) and the `dns` feature area (#21) |
+
+A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
+renderer, shows in the ledger as unrendered rather than being dropped (the kit's negative tests).
 
 ### Field paths (`paths.ts`)
 
@@ -116,13 +133,13 @@ Spans are for display only: the ledger never uses them, because one line can hol
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.1.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.2.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.1.0", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.2.0", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
