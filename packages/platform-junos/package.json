@@ -10,5 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p . && tsc -p tests"
+  },
+  "dependencies": {
+    "@dialect/core": "0.0.0"
   }
 }

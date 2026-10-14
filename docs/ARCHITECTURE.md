@@ -203,6 +203,14 @@ each workspace's `typecheck` script.
 
 B3's parser and display set, ported from the spike prototype (B4 adds the mapping to and from the model).
 
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.1.0 <1.0.0'`, no
+  capabilities yet). Its `tools()` has one tool, `displaySetTool`: id `display-set`, name "Display set". `run(text)`
+  returns the set lines as text, one per line, each ended by a newline (none on an error). It also returns the parse
+  error or the warnings as diagnostics: `category: 'syntax'`, codes `junos.syntax`, `junos.annotation`,
+  `junos.unknown-tag`, `junos.stray-annotation`, `junos.empty-list`, and a point span at their line and column. The
+  core's `Tool` has no field for what a tool reads and writes, so `JunosTool` adds `input: 'junos-hierarchical'` and
+  `output: 'junos-set'`.
+
 - `tokenizer.ts`: words (quoted strings kept as written, escapes included), braces, brackets, `;` and
   `/* annotations */`; `#` comments to the end of the line. Each token has a 1-based line and column.
 - `tree.ts`: `parseConfig()` builds a generic syntax tree from the curly-brace syntax alone, without the Junos schema.
@@ -216,13 +224,15 @@ B3's parser and display set, ported from the spike prototype (B4 adds the mappin
   subtree, Juniper's documented order. `displaySet()` wraps both: the lines and warnings, or the first error.
 - Tests: the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
   cleaned up by `tests/cleanFixtures.ts` into `tests/fixtures/display-set/` (`tests/displaySetFixtures.test.ts`). The
-  tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
+  plugin in the core's registry, and display set through `registry.tools()` on the same pairs (`tests/plugin.test.ts`).
+  The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)
 
-- `src/cli.ts`: `run(argv, io, version)` parses the arguments, reads the input through `io`, runs the Junos plugin's
-  `displaySet()` and returns the exit code (0 done, 1 a syntax error, 2 a usage error or unreadable input). It never
-  touches `process`, so it can be called directly.
+- `src/cli.ts`: `run(argv, io, version)` parses the arguments, reads the input through `io`, runs display set through
+  the core's registry (`createRegistry([junos]).tools()`, the Junos plugin's `display-set` tool) and returns the exit
+  code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input). Diagnostics print as
+  `name:line:column: severity: message`. It never touches `process`, so it can be called directly.
 - `src/bin.ts`: the entry. It wires `run()` to Node's file system, stdin, stdout and stderr, sets `process.exitCode`,
   and ignores a closed stdout pipe.
 - `vite.config.ts`: `npm run build -w @dialect/cli` bundles `bin.ts` and the workspace packages it imports into one ES
@@ -238,7 +248,9 @@ clipboard access (open, open a dropped file, save, read and write the clipboard)
 even a dropped file is read by the shell, from the drop event's data.
 
 - `src/store.ts`: one zustand store, with the source text and its name, the display set result, the problems (the
-  syntax error or the warnings), the theme choice, and requests to reveal a place in an editor. Display set runs
+  syntax error or the warnings), the theme choice, and requests to reveal a place in an editor. It calls the Junos
+  plugin's `displaySet()` directly rather than the registry's tool: the linked lines need each set line's source line,
+  which the core's `ToolResult` doesn't carry yet (card #23). Display set runs
   synchronously on every change (config_22, 316 KB, parses in tens of milliseconds).
 - `src/App.tsx`: the title bar and its actions (Open, Paste, Copy output, Save output, the theme), the source and output
   panes, the problems panel and the status bar. A file dropped anywhere opens, even on an editor: the drop is handled

@@ -1,6 +1,22 @@
 // The dialect command, without the process: run() takes its arguments, input and output, and returns the exit code, so
 // tests can call it directly. bin.ts is the entry the build turns into dist/dialect.mjs.
-import { displaySet } from '@dialect/platform-junos'
+import { createRegistry, type Diagnostic, type Tool } from '@dialect/core'
+import junos from '@dialect/platform-junos'
+
+// The built-in plugins. Commands find their tools here, as the app will, rather than calling a plugin's code directly.
+const registry = createRegistry([junos])
+
+function tool(pluginId: string, toolId: string): Tool {
+  const found = registry.tools().find((t) => t.plugin.id === pluginId && t.tool.id === toolId)
+  if (!found) throw new Error(`no ${pluginId} ${toolId} tool`)
+  return found.tool
+}
+
+/** `name:line:column: severity: message`, the way compilers print them; without a span, `name: severity: message`. */
+function formatDiagnostic(name: string, d: Diagnostic): string {
+  const where = d.span ? `${name}:${d.span.startLine}:${d.span.startColumn}` : name
+  return `${where}: ${d.severity}: ${d.message}\n`
+}
 
 /** 0: done (warnings allowed). 1: the input has a syntax error. 2: a usage error, or the input couldn't be read. */
 export const EXIT = { ok: 0, parseError: 1, usage: 2 } as const
@@ -56,14 +72,12 @@ async function displaySetCommand(args: string[], io: Io): Promise<number> {
     io.stderr(`dialect: can't read ${name}: ${reason}\n`)
     return EXIT.usage
   }
-  const result = displaySet(src)
-  if (!result.ok) {
-    io.stderr(`${name}:${result.error.line}:${result.error.column}: error: ${result.error.message}\n`)
-    return EXIT.parseError
-  }
-  if (result.lines.length > 0) io.stdout(result.lines.map((line) => line.text).join('\n') + '\n')
-  for (const warning of result.warnings) io.stderr(`${name}:${warning.line}:${warning.column}: warning: ${warning.message}\n`)
-  return EXIT.ok
+  const result = tool('junos', 'display-set').run(src)
+  // An error means the text may be incomplete (core's ToolResult): print none of it.
+  const failed = result.diagnostics.some((d) => d.severity === 'error')
+  if (!failed) io.stdout(result.text)
+  for (const d of result.diagnostics) io.stderr(formatDiagnostic(name, d))
+  return failed ? EXIT.parseError : EXIT.ok
 }
 
 export async function run(argv: string[], io: Io, version: string): Promise<number> {
