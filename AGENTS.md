@@ -40,11 +40,14 @@ No diagnostic, warning, error, log line or ledger reason may contain a secret va
 their hashes (`$1$`, `$5$`, `$6$`, `$9$`, Cisco types 5, 7, 8 and 9), SNMP communities, keys (pre-shared,
 TACACS+/RADIUS, NTP authentication) and certificates' private parts. They go to stderr, logs and screenshots. Say what
 is wrong and where instead: the statement's path and position, e.g. "snmp community (line 12)", never the line's text
-or a word from it. The converted config itself (a render, a tool's output) is the user's config and keeps its values.
+or a word from it. A tool's report (any output that isn't config) is a message too. Only converted config keeps its
+values: a render, and the text of a tool whose output is config (display set).
 
-Every plugin's conformance run checks it (docs/ARCHITECTURE.md, Conformance kit): give a fixture with secrets a
-`<case>.secrets.json` when the kit's patterns would miss them. A leak is fixed, not allowed: the only allowances are
-the temporary ones in `packages/conformance/src/allowances.ts`, each naming the card that removes it.
+Every plugin's conformance run checks it (docs/ARCHITECTURE.md, Conformance kit). A plugin with a tool that outputs
+config names it in `configTools`; every other tool's text is checked like a diagnostic. Give a fixture with secrets a
+`<case>.secrets.json` when the kit's patterns would miss them. A secret stays one wherever else its value appears. A
+leak is fixed, not allowed: the only allowances are the temporary ones in `packages/conformance/src/allowances.ts`,
+each naming the card that removes it.
 
 ## Commands
 

@@ -174,17 +174,22 @@ warnings and info don't.
 
 The secrets check takes the fixture's secrets from its `secrets.json`, or else finds them in the source by pattern
 (`findSecrets()`: crypt-style hashes and Junos `$9$`, IOS typed passwords and keys, SNMP communities, TACACS+/RADIUS
-and NTP keys, Junos's `secret`, `authentication-key`, `encrypted-password` and pre-shared keys). It runs the parse, the
-render of the parse's model and each of the plugin's tools on the fixture and on broken copies of it (cut just after
-a secret; a quote opened after one), since a syntax error is where a message most often quotes its line. It looks in
-diagnostics' messages, needs-input items' messages and suggestions, statement and field dispositions' reasons, and
-thrown errors. It doesn't look in the render's or a tool's text, the config itself, nor in statement labels or field
-paths, which name the config's own structure. A plugin with tools but no parse or render still gets it.
+and NTP keys, Junos's `secret`, `authentication-key`, `encrypted-password` and pre-shared keys). A value found as a
+secret stays one wherever else the source has it (a comment, a VRF of the same name). It runs the parse, the render of
+the parse's model and each of the plugin's tools on the fixture and on broken copies of it (cut just after a secret; a
+quote opened after one), since a syntax error is where a message most often quotes its line. It looks in diagnostics'
+messages, needs-input items' messages and suggestions, statement and field dispositions' reasons, thrown errors, and
+the text of every tool not named in `configTools` (a report). It doesn't look in the render's text or a config tool's,
+the config itself: the core's `Tool` doesn't say what its text is, so the plugin's suite names its config tools
+(`describeConformance(plugin, dir, { configTools: ['display-set'] })`). It doesn't look in statement labels or field
+paths either, which name the config's own structure. A plugin with tools but no parse or render still gets it.
 
 A leak found when the check came in can have a temporary allowance (`SECRET_ALLOWANCES` in `allowances.ts`), keyed by
-plugin, site (`statement reason`, `tool diagnostic`, …) and optionally the diagnostic's code or the tool, naming the
-card that fixes it. `describeConformance()` fails a plugin's allowance that no fixture needs any more, so the fix takes
-the allowance with it.
+plugin, site (`statement reason`, `tool diagnostic`, `tool text`, …) and optionally the diagnostic's code, the tool or
+the fixtures' names, naming the card that fixes it. `describeConformance()` fails a plugin's allowance that none of its
+fixtures needs any more, so the fix takes the allowance with it (one scoped to fixtures of another test file is that
+file's). Today's: IOS-XE's prototype-names test uses one name as an SNMP community and a VRF, and the VRF messages
+name it (#29).
 
 The kit's own tests (`packages/conformance/tests`) use a test-only stub platform, a tiny brace language, to show the
 checks catch careless plugins:

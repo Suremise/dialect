@@ -248,8 +248,17 @@ export function stubPlugin(options: StubOptions = {}): PlatformPlugin {
       }
       return { text: lines.length ? `${lines.join('\n')}\n` : '', dispositions, diagnostics, ...(needsInput.length ? { needsInput } : {}) }
     },
-    // A tool that gives its input back, with a warning for each line with a quote on it.
+    // Two tools: echo gives its input back (config: STUB_CONFIG_TOOLS), with a warning for each line with a quote on
+    // it; report's text is a report on the input, not config.
     tools: () => [
+      {
+        id: 'report',
+        name: 'Report',
+        run: (input: string) => {
+          const quoted = input.split('\n').filter((line) => line.includes('"'))
+          return { text: leaks.has('tool text') ? quoted.map((line) => `a quote in: ${line.trim()}\n`).join('') : `${quoted.length} line(s) with a quote\n`, diagnostics: [] }
+        }
+      },
       {
         id: 'echo',
         name: 'Echo',
@@ -263,5 +272,8 @@ export function stubPlugin(options: StubOptions = {}): PlatformPlugin {
     ]
   }
 }
+
+/** The stub's tools whose text is config, for the secrets check (`configTools`). */
+export const STUB_CONFIG_TOOLS: readonly string[] = ['echo']
 
 export default stubPlugin()

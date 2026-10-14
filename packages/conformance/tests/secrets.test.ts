@@ -1,12 +1,16 @@
 // The secrets check's own tests (src/secrets.ts): which values it takes as secrets, a stub that leaks one in each kind
-// of message failing it, the careful stub passing it, and the temporary allowances (src/allowances.ts).
+// of message failing it, the careful stub passing it, config tools and reports, and the temporary allowances
+// (src/allowances.ts).
 import { describe, expect, it } from 'vitest'
+import type { PlatformPlugin } from '@dialect/core'
 import { checkFixture, checkSecrets, findSecrets, SECRET_ALLOWANCES, type Fixture, type LeakSite, type SecretAllowance } from '../src'
-import { stubPlugin } from './stubPlatform'
+import { STUB_CONFIG_TOOLS, stubPlugin } from './stubPlatform'
 
-const SITES: readonly LeakSite[] = ['parse diagnostic', 'parse needs-input', 'statement reason', 'render diagnostic', 'render needs-input', 'field reason', 'tool diagnostic', 'thrown error']
+const SITES: readonly LeakSite[] = ['parse diagnostic', 'parse needs-input', 'statement reason', 'render diagnostic', 'render needs-input', 'field reason', 'tool diagnostic', 'tool text', 'thrown error']
 
 const secretsCheck = (results: ReturnType<typeof checkFixture>) => results.find((r) => r.check === 'secrets')!
+/** The stub's echo tool gives config, as a plugin's own suite would say of its config tools. */
+const stubOptions = { configTools: STUB_CONFIG_TOOLS }
 
 // Documentation values only (AGENTS.md: no real secrets in the repo).
 const source = 'system {\n    host-name r1;\n    root-authentication {\n        encrypted-password "$9$PLACEHOLDER";\n    }\n    snmp {\n        community PLACEHOLDER-RO {\n            authorization read-only;\n        }\n    }\n}\n'
@@ -66,30 +70,54 @@ describe('findSecrets', () => {
     expect(findSecrets(notSecrets)).toEqual(['$9$PLACEHOLDER', 'PLACEHOLDER-CMAC'])
   })
 
-  it('takes no value the source also uses where it isn\'t a secret, and one that is a secret wherever it is', () => {
-    expect(findSecrets('snmp-server community __proto__ RW\nip route vrf __proto__ 0.0.0.0 0.0.0.0 192.0.2.1')).toEqual([])
-    expect(findSecrets('snmp-server community PLACEHOLDER-RO RO\nsnmp-server community PLACEHOLDER-RO RW')).toEqual(['PLACEHOLDER-RO'])
+  it('keeps a secret whose value the source also has elsewhere (a comment, a VRF of the same name)', () => {
+    expect(findSecrets('snmp-server community PLACEHOLDER-REVIEW RO\n! fixture comment mentions PLACEHOLDER-REVIEW\n')).toEqual(['PLACEHOLDER-REVIEW'])
+    expect(findSecrets('snmp-server community __proto__ RW\nip route vrf __proto__ 0.0.0.0 0.0.0.0 192.0.2.1')).toEqual(['__proto__'])
   })
 })
 
+/** A plugin that warns about every line, quoting it: a leak wherever the secret is on a line. */
+const quoting: PlatformPlugin = {
+  id: 'quoting',
+  name: 'Quoting (tests only)',
+  modelApi: '>=0.1.0 <1.0.0',
+  capabilities: {},
+  parse: (text) => ({ tree: [], model: {}, dispositions: {}, diagnostics: text.split('\n').filter(Boolean).map((line) => ({ severity: 'warning' as const, message: `bad line: ${line}` })) }),
+  render: () => ({ text: '', dispositions: {}, diagnostics: [] })
+}
+
 describe('the secrets check', () => {
   it('passes the careful stub, whose messages name statements and positions, not values', () => {
-    const r = secretsCheck(checkFixture(stubPlugin(), fixture))
+    const r = secretsCheck(checkFixture(stubPlugin(), fixture, stubOptions))
     expect(r).toEqual({ check: 'secrets', status: 'passed', problems: [] })
   })
 
   it('is skipped for a fixture with no secrets', () => {
-    const r = secretsCheck(checkFixture(stubPlugin(), { name: 'system/plain', source: 'system { host-name r1; }', expectedModel: { system: { hostname: 'r1' } } }))
+    const r = secretsCheck(checkFixture(stubPlugin(), { name: 'system/plain', source: 'system { host-name r1; }', expectedModel: { system: { hostname: 'r1' } } }, stubOptions))
     expect(r.status).toBe('skipped')
   })
 
-  it("doesn't count the rendered config or a tool's text, which are the config itself", () => {
+  it("doesn't count the rendered config or a config tool's text, which are the config itself", () => {
     const secret = 'PLACEHOLDER-HOST'
     const plugin = stubPlugin()
     const host = `system { host-name ${secret}; }`
     expect(plugin.render!(plugin.parse!(host, { modelVersion: '0.1.0' }).model, { modelVersion: '0.1.0' }).text).toContain(secret)
-    expect(plugin.tools!()[0].run(host).text).toContain(secret)
-    expect(checkSecrets(plugin, host, [secret], { allowances: [] })).toEqual({ leaks: [], allowed: [] })
+    expect(plugin.tools!().find((t) => t.id === 'echo')!.run(host).text).toContain(secret)
+    expect(checkSecrets(plugin, host, [secret], { allowances: [], configTools: ['echo'] })).toEqual({ leaks: [], allowed: [] })
+  })
+
+  it("counts the text of a tool not named as giving config: a report, or a config tool the suite didn't name", () => {
+    const report = checkSecrets(stubPlugin({ leaks: ['tool text'] }), source, ['$9$PLACEHOLDER'], { allowances: [], configTools: ['echo'] })
+    expect(report.leaks.map((l) => [l.site, l.tool, l.input, l.text])).toEqual([['tool text', 'report', 'fixture', 'a quote in: encrypted-password "$9$PLACEHOLDER";\n']])
+    const unnamed = checkSecrets(stubPlugin(), source, ['PLACEHOLDER-RO'], { allowances: [] })
+    expect(unnamed.leaks.map((l) => [l.site, l.tool])).toEqual([['tool text', 'echo']])
+  })
+
+  it('finds a leak of a secret whose value the source also has elsewhere', () => {
+    const text = 'snmp-server community PLACEHOLDER-REVIEW RO\n! fixture comment mentions PLACEHOLDER-REVIEW\n'
+    const r = secretsCheck(checkFixture(quoting, { name: 'snmp/repeated', source: text, expectedModel: {} }, { allowances: [] }))
+    expect(r.status).toBe('failed')
+    expect(r.problems[0]).toBe('parse diagnostic on the fixture contains the secret "PLACEHOLDER-REVIEW": "bad line: snmp-server community PLACEHOLDER-REVIEW RO"')
   })
 
   // The model side's leaks need a secret in the model: the host name, listed as the fixture's secret.
@@ -97,15 +125,15 @@ describe('the secrets check', () => {
   const leakFixture = (site: LeakSite) => (['render diagnostic', 'render needs-input', 'field reason'].includes(site) ? hostFixture : fixture)
 
   it.each(SITES)('fails a stub that quotes a secret in a %s', (site) => {
-    const r = secretsCheck(checkFixture(stubPlugin({ leaks: [site] }), leakFixture(site), { allowances: [] }))
+    const r = secretsCheck(checkFixture(stubPlugin({ leaks: [site] }), leakFixture(site), { ...stubOptions, allowances: [] }))
     expect(r.status).toBe('failed')
     expect(r.problems.length).toBeGreaterThan(0)
-    const name = site === 'tool diagnostic' ? 'tool echo diagnostic' : site
+    const name = site === 'tool diagnostic' ? 'tool echo diagnostic' : site === 'tool text' ? 'tool report text' : site
     expect(r.problems.every((p) => p.startsWith(name)), r.problems.join('\n')).toBe(true)
   })
 
   it('finds a syntax error that quotes the line only on a broken copy of the fixture', () => {
-    const { leaks } = checkSecrets(stubPlugin({ leaks: ['thrown error'] }), source, findSecrets(source), { allowances: [] })
+    const { leaks } = checkSecrets(stubPlugin({ leaks: ['thrown error'] }), source, findSecrets(source), { ...stubOptions, allowances: [] })
     expect(leaks.map((l) => [l.site, l.input, l.secret, l.text])).toEqual([
       ['thrown error', 'cut after a secret', '$9$PLACEHOLDER', 'stub: unexpected end of text after "encrypted-password $9$PLACEHOLDER"'],
       ['thrown error', 'cut after a secret', 'PLACEHOLDER-RO', 'stub: unexpected end of text after "community PLACEHOLDER-RO"']
@@ -113,7 +141,7 @@ describe('the secrets check', () => {
   })
 
   it('reports where the leak is, its code and the secret, once per kind of message, on the first input it is on', () => {
-    const r = secretsCheck(checkFixture(stubPlugin({ leaks: ['tool diagnostic'] }), fixture, { allowances: [] }))
+    const r = secretsCheck(checkFixture(stubPlugin({ leaks: ['tool diagnostic'] }), fixture, { ...stubOptions, allowances: [] }))
     expect(r.problems).toEqual([
       'tool echo diagnostic (stub.quote) on the fixture contains the secret "$9$PLACEHOLDER": "a quote in: encrypted-password \\"$9$PLACEHOLDER\\";"',
       'tool echo diagnostic (stub.quote) on the fixture with a quote opened after a secret contains the secret "PLACEHOLDER-RO": "a quote in: community PLACEHOLDER-RO \\" {"'
@@ -121,13 +149,13 @@ describe('the secrets check', () => {
   })
 
   it('fails a listed secret that the source doesn\'t have', () => {
-    const r = secretsCheck(checkFixture(stubPlugin(), { ...fixture, secrets: ['PLACEHOLDER-RO', 'PLACEHOLDER-TYPO'] }))
+    const r = secretsCheck(checkFixture(stubPlugin(), { ...fixture, secrets: ['PLACEHOLDER-RO', 'PLACEHOLDER-TYPO'] }, stubOptions))
     expect(r.problems).toEqual(['the secret "PLACEHOLDER-TYPO" isn\'t in the fixture\'s source'])
   })
 
   it('runs for a plugin with tools only, no parse or render', () => {
     const { parse: _p, render: _r, ...toolsOnly } = stubPlugin({ id: 'stub-tools', leaks: ['tool diagnostic'] })
-    const r = secretsCheck(checkFixture(toolsOnly, fixture, { allowances: [] }))
+    const r = secretsCheck(checkFixture(toolsOnly, fixture, { ...stubOptions, allowances: [] }))
     expect(r.status).toBe('failed')
     expect(r.problems[0]).toMatch(/^tool echo diagnostic/)
   })
@@ -138,17 +166,18 @@ describe('temporary allowances', () => {
   const leaky = stubPlugin({ id: 'stub-leaky', leaks: ['statement reason'] })
 
   it('let a named leak through, and say so', () => {
-    const r = secretsCheck(checkFixture(leaky, fixture, { allowances: [allowance] }))
+    const r = secretsCheck(checkFixture(leaky, fixture, { ...stubOptions, allowances: [allowance] }))
     expect(r.status).toBe('passed')
     expect(r.allowed?.map((a) => a.allowance)).toEqual([allowance, allowance])
     expect(r.allowed?.map((a) => a.leak)).toEqual([expect.stringContaining('$9$PLACEHOLDER'), expect.stringContaining('PLACEHOLDER-RO')])
   })
 
-  it('are only for their plugin, site, code and tool', () => {
-    for (const other of [{ ...allowance, plugin: 'stub' }, { ...allowance, site: 'parse diagnostic' as const }, { ...allowance, code: 'stub.other' }, { ...allowance, tool: 'echo' }])
-      expect(secretsCheck(checkFixture(leaky, fixture, { allowances: [other] })).status).toBe('failed')
+  it('are only for their plugin, site, code, tool and fixture', () => {
+    for (const other of [{ ...allowance, plugin: 'stub' }, { ...allowance, site: 'parse diagnostic' as const }, { ...allowance, code: 'stub.other' }, { ...allowance, tool: 'echo' }, { ...allowance, fixtures: ['system/other'] }])
+      expect(secretsCheck(checkFixture(leaky, fixture, { ...stubOptions, allowances: [other] })).status).toBe('failed')
+    expect(secretsCheck(checkFixture(leaky, fixture, { ...stubOptions, allowances: [{ ...allowance, fixtures: ['system/other', 'system/secrets'] }] })).status).toBe('passed')
     const tool = stubPlugin({ id: 'stub-leaky', leaks: ['tool diagnostic'] })
-    expect(secretsCheck(checkFixture(tool, fixture, { allowances: [{ ...allowance, site: 'tool diagnostic', tool: 'echo', code: 'stub.quote' }] })).status).toBe('passed')
+    expect(secretsCheck(checkFixture(tool, fixture, { ...stubOptions, allowances: [{ ...allowance, site: 'tool diagnostic', tool: 'echo', code: 'stub.quote' }] })).status).toBe('passed')
   })
 
   it('each name the card that fixes the leak', () => {
