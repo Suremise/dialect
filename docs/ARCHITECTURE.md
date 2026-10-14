@@ -894,10 +894,12 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `md5 N key`), each interface `enabledBy: 'interface'`. An OSPF interface the model doesn't have, or doesn't convert
   (an IRB unit with no VLAN), is `unsupported` and out of the model, so `model.unknown-interface` holds; `interface
   all`, `ospf3` and OSPF policies are `unsupported`. **An area or interface whose type can't be carried converts not
-  at all:** a `stub` or `nssa` with options (`no-summaries`, `default-metric`…) and an `interface-type` the model has no
-  word for (`nbma`, `p2mp`) take the type as a plain one would, by precedence, and when one ends up the type, every
-  statement of its area or interface is `unsupported` and out of the model, so it never comes out a normal area or a
-  broadcast interface. BGP: `group G` with `type`, `peer-as`,
+  at all:** `stub` and `nssa` replace each other by precedence, and an
+  option (`no-summaries`, `default-metric`…) stays with its type: when the winning type has one in force (a bare
+  `stub` beside `stub no-summaries`, before or after it or over a group's, doesn't take it away; `delete` and
+  `apply-groups-except` do), every statement of the area is `unsupported` and out of the model, so it never comes out
+  a normal area. Likewise an `interface-type` the model has no word for (`nbma`, `p2mp`) that wins over `p2p`: the
+  interface's OSPF statements are all `unsupported`, so it never comes out broadcast. BGP: `group G` with `type`, `peer-as`,
   `description`, `local-address`, `multihop [ttl N]`, `family inet|inet6 unicast`, `import`/`export` (names only, in
   order; an expression is `unsupported`) and `authentication-key`, and `neighbor N` in it with the same settings
   (`group` set); a peer is in the model only once one of its settings converts. **Junos refuses a neighbor in two

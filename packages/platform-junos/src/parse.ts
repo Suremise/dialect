@@ -665,7 +665,9 @@ export function parse(text: string, _context: Context): ParseResult {
   /** `interface-type` statements of a type the model has no word for (`nbma`, `p2mp`), by statement: the interface. */
   const untyped = new Map<number, { readonly at: Segments; readonly key: string }>()
   /** `stub` or `nssa` statements with options (`no-summaries`, `default-metric`…), by statement: their instance and area. */
-  const optioned = new Map<number, { readonly instance: string; readonly area: string }>()
+  const optioned = new Map<number, { readonly instance: string; readonly area: string; readonly type: 'stub' | 'nssa' }>()
+  /** Every `stub` and `nssa` statement, plain or with options, by statement: which of the two it says. */
+  const areaTypes = new Map<number, 'stub' | 'nssa'>()
   /** Each OSPF interface statement: where its interface is in the model, and its reference, checked once interfaces are settled. */
   const ospfRefs: { readonly index: number; readonly at: Segments; readonly ref: string }[] = []
   /** Per instance and neighbor address, the groups that name it and their statements: Junos takes a neighbor in one group. */
@@ -691,11 +693,13 @@ export function parse(text: string, _context: Context): ParseResult {
     const withArea = (fields: (string | null)[]) => mapped([container(at), container(a), ...fields])
     const s = r.slice(2)
     if (!s.length) return withArea([])
+    if (s[0] === 'stub' || s[0] === 'nssa') areaTypes.set(i, s[0])
     if ((s[0] === 'stub' || s[0] === 'nssa') && s.length === 1) return withArea([put(i, [...a, 'type'], s[0])])
     if (s[0] === 'stub' || s[0] === 'nssa') {
-      // It sets the area's type as a plain stub or nssa would, so the ranks decide which the area has: settled below.
+      // It says the area's type as a plain stub or nssa does, so the ranks decide which type the area has; its option
+      // is a child of that type, which a bare `stub` beside it doesn't take away. Settled below.
       claim(fieldPath(...a, 'type'), i)
-      optioned.set(i, { instance, area })
+      optioned.set(i, { instance, area, type: s[0] })
       return unsupported(`${s[0] === 'stub' ? 'a stub' : 'an NSSA'} area's options (no-summaries, default-metric…) come later`)
     }
     if (s[0] === 'authentication-type' && s.length === 2 && (s[1] === 'simple' || s[1] === 'md5')) return withArea([put(i, [...a, 'authentication'], s[1])])
@@ -801,12 +805,17 @@ export function parse(text: string, _context: Context): ParseResult {
       return m !== null && isObject(subs) && Object.hasOwn(subs, String(Number(m[2])))
     }
     // An area whose type, in the end, is a stub or NSSA with options the model can't carry converts not at all: its
-    // interfaces in an area of another type (normal, or a lower-ranked type) would change how the area routes.
-    for (const [index, { instance, area }] of optioned) {
+    // interfaces in an area of another type (normal, or a lower-ranked type) would change how the area routes. Stub and
+    // NSSA replace each other (rank, then order), but an option stays with its type: a bare `stub` beside `stub
+    // no-summaries`, before or after it, or from the configuration over a group's, leaves the option in force.
+    const excluded = new Set<string>()
+    for (const [, { instance, area, type }] of optioned) {
       const at = ['networkInstances', instance, 'ospf', 'areas', area]
-      if (owners.get(fieldPath(...at, 'type')) !== index) continue
+      const owner = owners.get(fieldPath(...at, 'type'))
+      if (owner === undefined || areaTypes.get(owner) !== type || excluded.has(`${instance}\u0000${area}`)) continue
+      excluded.add(`${instance}\u0000${area}`)
       for (const i of areaStatements.get(`${instance}\u0000${area}`) ?? []) {
-        if (i !== index && results[i].kind !== 'unsupported') results[i] = unsupported("the area is a stub or NSSA with options that aren't converted, so none of it is")
+        if (!optioned.has(i) && results[i].kind !== 'unsupported') results[i] = unsupported("the area is a stub or NSSA with options that aren't converted, so none of it is")
       }
       model.remove(at)
       for (let k = at.length - 1; k >= 3; k--) model.removeIfEmpty(at.slice(0, k))

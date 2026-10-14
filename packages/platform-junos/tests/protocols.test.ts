@@ -159,16 +159,27 @@ describe('an OSPF area or interface whose type is not converted', () => {
     expect(Object.values(p.dispositions)[2]).toMatchObject({ reason: "the area is a stub or NSSA with options that aren't converted, so none of it is" })
   })
 
-  it('settles the area type by precedence: options winning over a group, or a plain type winning over them', () => {
-    // The configuration's nssa with options wins over a group's stub: the area isn't a stub, nor converted.
-    const options = parse(set(ge, 'set groups G protocols ospf area 1 stub', 'set apply-groups G', 'set protocols ospf area 1 nssa no-summaries', 'set protocols ospf area 1 interface ge-0/0/0.0'), context)
-    expect(areaOf(options, '0.0.0.1')).toBeUndefined()
-    // The configuration's plain stub wins over a group's stub with options: a stub area, its options superseded.
-    const plain = parse(set(ge, 'set groups G protocols ospf area 1 stub no-summaries', 'set apply-groups G', 'set protocols ospf area 1 stub', 'set protocols ospf area 1 interface ge-0/0/0.0'), context)
-    expect(areaOf(plain, '0.0.0.1')).toEqual({ type: 'stub', interfaces: { 'ge-0/0/0.0': { enabledBy: 'interface' } } })
-    // In set form the later replaces the earlier: stub, then stub with options, is the options.
-    const later = parse(set(ge, 'set protocols ospf area 1 stub', 'set protocols ospf area 1 stub no-summaries', 'set protocols ospf area 1 interface ge-0/0/0.0'), context)
-    expect(areaOf(later, '0.0.0.1')).toBeUndefined()
+  it('keeps an option with its type: a bare stub beside stub no-summaries, before, after or over a group, leaves it in force', () => {
+    const area1 = (...lines: string[]) => areaOf(parse(set(ge, ...lines, 'set protocols ospf area 1 interface ge-0/0/0.0'), context), '0.0.0.1')
+    expect(area1('set protocols ospf area 1 stub', 'set protocols ospf area 1 stub no-summaries')).toBeUndefined()
+    expect(area1('set protocols ospf area 1 stub no-summaries', 'set protocols ospf area 1 stub')).toBeUndefined()
+    // A group's stub with options, and the configuration's own bare stub: the option is still inherited.
+    expect(area1('set groups G protocols ospf area 1 stub no-summaries', 'set apply-groups G', 'set protocols ospf area 1 stub')).toBeUndefined()
+    // The configuration's nssa with options over a group's stub: an NSSA with options, not converted.
+    expect(area1('set groups G protocols ospf area 1 stub', 'set apply-groups G', 'set protocols ospf area 1 nssa no-summaries')).toBeUndefined()
+  })
+
+  it("converts the area when the winning type has no option: the other type's options went with it, or were deleted", () => {
+    const area1 = (...lines: string[]) => areaOf(parse(set(ge, ...lines, 'set protocols ospf area 1 interface ge-0/0/0.0'), context), '0.0.0.1')
+    const stub = { type: 'stub', interfaces: { 'ge-0/0/0.0': { enabledBy: 'interface' } } }
+    // The configuration's stub over a group's nssa with options: a plain stub, the NSSA's option not its.
+    expect(area1('set groups G protocols ospf area 1 nssa no-summaries', 'set apply-groups G', 'set protocols ospf area 1 stub')).toEqual(stub)
+    // In set form, a later stub replaces an nssa and its options.
+    expect(area1('set protocols ospf area 1 nssa no-summaries', 'set protocols ospf area 1 stub')).toEqual(stub)
+    // Deleting the option leaves the stub.
+    expect(area1('set protocols ospf area 1 stub no-summaries', 'set protocols ospf area 1 stub', 'delete protocols ospf area 1 stub no-summaries')).toEqual(stub)
+    // apply-groups-except keeps the group's option off the area.
+    expect(area1('set groups G protocols ospf area 1 stub no-summaries', 'set apply-groups G', 'set protocols ospf area 1 stub', 'set protocols ospf area 1 apply-groups-except G')).toEqual(stub)
   })
 
   it('an interface whose network type is one the model has no word for converts not at all, never as broadcast', () => {
