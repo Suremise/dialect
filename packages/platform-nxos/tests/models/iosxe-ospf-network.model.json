@@ -1,0 +1,31 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "interfaces": {
+      "GigabitEthernet0/0/1": {
+        "type": "ethernet",
+        "subinterfaces": { "0": { "ipv4": { "addresses": { "192.0.2.1": { "prefixLength": 30 } } } } }
+      },
+      "Loopback0": {
+        "type": "loopback",
+        "subinterfaces": { "0": { "ipv4": { "addresses": { "192.0.2.255": { "prefixLength": 32 } } } } }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "processId": "1",
+          "routerId": "192.0.2.255",
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "GigabitEthernet0/0/1": { "enabledBy": "network" },
+                "Loopback0": { "enabledBy": "network", "passive": true }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

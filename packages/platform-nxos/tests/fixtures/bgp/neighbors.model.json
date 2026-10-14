@@ -1,0 +1,86 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "border-1"
+    },
+    "networkInstances": {
+      "CUST": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:10",
+        "bgp": {
+          "localAs": 65000,
+          "routerId": "192.0.2.1",
+          "neighbors": {
+            "203.0.113.2": {
+              "peerAs": 64600,
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            }
+          }
+        }
+      },
+      "default": {
+        "bgp": {
+          "localAs": 65000,
+          "routerId": "192.0.2.1",
+          "groups": {
+            "IBGP": {
+              "peerAs": 65000,
+              "updateSource": "loopback0",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            }
+          },
+          "neighbors": {
+            "192.0.2.2": {
+              "group": "IBGP",
+              "description": "rr-client"
+            },
+            "198.51.100.1": {
+              "peerAs": 64512,
+              "description": "transit",
+              "multihop": {
+                "ttl": 2
+              },
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "TRANSIT-IN"
+                  ],
+                  "exportPolicies": [
+                    "TRANSIT-OUT"
+                  ]
+                }
+              }
+            },
+            "2001:db8::1": {
+              "peerAs": 64513,
+              "addressFamilies": {
+                "ipv6-unicast": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

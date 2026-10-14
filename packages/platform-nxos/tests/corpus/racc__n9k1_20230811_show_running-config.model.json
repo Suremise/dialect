@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.4.0",
   "device": {
     "system": {
       "hostname": "sbx-ao",
@@ -22,6 +22,35 @@
         "sourceInterface": "mgmt0"
       }
     },
+    "vlans": {
+      "1": {},
+      "2": {},
+      "3": {},
+      "4": {},
+      "5": {},
+      "6": {},
+      "7": {},
+      "8": {},
+      "9": {},
+      "100": {
+        "name": "mgmt"
+      },
+      "101": {
+        "name": "LL_VLAN_DEMO1"
+      },
+      "102": {
+        "name": "dev"
+      },
+      "103": {
+        "name": "test"
+      },
+      "104": {
+        "name": "security"
+      },
+      "105": {
+        "name": "iot"
+      }
+    },
     "networkInstances": {
       "management": {
         "type": "vrf",
@@ -34,17 +63,71 @@
             }
           }
         }
+      },
+      "default": {
+        "bgp": {
+          "localAs": 65535,
+          "routerId": "172.16.0.1",
+          "neighbors": {
+            "172.16.0.2": {
+              "peerAs": 65535
+            }
+          }
+        },
+        "ospf": {
+          "processId": "1",
+          "routerId": "172.16.0.1",
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "Vlan100": {
+                  "enabledBy": "interface",
+                  "passive": true
+                },
+                "Vlan101": {
+                  "enabledBy": "interface",
+                  "passive": true
+                },
+                "Vlan102": {
+                  "enabledBy": "interface",
+                  "passive": true
+                },
+                "Vlan103": {
+                  "enabledBy": "interface",
+                  "passive": true
+                },
+                "Vlan104": {
+                  "enabledBy": "interface",
+                  "passive": true
+                },
+                "Vlan105": {
+                  "enabledBy": "interface",
+                  "passive": true
+                },
+                "Ethernet1/5": {
+                  "enabledBy": "interface",
+                  "networkType": "broadcast"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "interfaces": {
       "Vlan1": {
-        "type": "vlan"
-      },
-      "Vlan100": {
-        "type": "vlan",
-        "description": "mgmt svi - DEMO PLEASE DON'T TOUCH",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 1
+          }
+        }
+      },
+      "Vlan100": {
+        "type": "irb-or-svi",
+        "subinterfaces": {
+          "0": {
+            "routedVlan": 100,
             "ipv4": {
               "addresses": {
                 "172.16.100.1": {
@@ -53,13 +136,14 @@
               }
             }
           }
-        }
+        },
+        "description": "mgmt svi - DEMO PLEASE DON'T TOUCH"
       },
       "Vlan101": {
-        "type": "vlan",
-        "description": "prod svi - DEMO PLEASE DON'T TOUCH",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 101,
             "ipv4": {
               "addresses": {
                 "172.16.101.1": {
@@ -68,13 +152,14 @@
               }
             }
           }
-        }
+        },
+        "description": "prod svi - DEMO PLEASE DON'T TOUCH"
       },
       "Vlan102": {
-        "type": "vlan",
-        "description": "dev svi - DEMO PLEASE DON'T TOUCH",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 102,
             "ipv4": {
               "addresses": {
                 "172.16.102.1": {
@@ -83,13 +168,14 @@
               }
             }
           }
-        }
+        },
+        "description": "dev svi - DEMO PLEASE DON'T TOUCH"
       },
       "Vlan103": {
-        "type": "vlan",
-        "description": "test svi - DEMO PLEASE DON'T TOUCH",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 103,
             "ipv4": {
               "addresses": {
                 "172.16.103.1": {
@@ -98,13 +184,14 @@
               }
             }
           }
-        }
+        },
+        "description": "test svi - DEMO PLEASE DON'T TOUCH"
       },
       "Vlan104": {
-        "type": "vlan",
-        "description": "security svi - DEMO PLEASE DON'T TOUCH",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 104,
             "ipv4": {
               "addresses": {
                 "172.16.104.1": {
@@ -113,13 +200,14 @@
               }
             }
           }
-        }
+        },
+        "description": "security svi - DEMO PLEASE DON'T TOUCH"
       },
       "Vlan105": {
-        "type": "vlan",
-        "description": "iot svi - DEMO PLEASE DON'T TOUCH",
+        "type": "irb-or-svi",
         "subinterfaces": {
           "0": {
+            "routedVlan": 105,
             "ipv4": {
               "addresses": {
                 "172.16.105.1": {
@@ -128,16 +216,35 @@
               }
             }
           }
-        }
+        },
+        "description": "iot svi - DEMO PLEASE DON'T TOUCH"
       },
       "port-channel11": {
-        "type": "aggregate"
+        "type": "aggregate",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "100-110"
+          ]
+        }
       },
       "Ethernet1/1": {
-        "type": "ethernet"
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "100-110"
+          ]
+        }
       },
       "Ethernet1/2": {
-        "type": "ethernet"
+        "type": "ethernet",
+        "switching": {
+          "mode": "trunk",
+          "allowedVlans": [
+            "100-110"
+          ]
+        }
       },
       "Ethernet1/3": {
         "type": "ethernet"

@@ -27,10 +27,10 @@ const fixtureSources = every(fixtures).filter((f) => f.endsWith('.cfg') && !f.en
 
 describe('nothing is dropped silently', () => {
   it('unknown statements, and everything inside them, are unsupported with their text kept', () => {
-    const text = ['hostname n1', 'router ospf 1', '  router-id 192.0.2.1', 'interface Ethernet1/1', '  speed 1000', '  hsrp 10', '    ip 192.0.2.254', 'frobnicate now'].join('\n')
+    const text = ['hostname n1', 'router eigrp 1', '  router-id 192.0.2.1', 'interface Ethernet1/1', '  speed 1000', '  hsrp 10', '    ip 192.0.2.254', 'frobnicate now'].join('\n')
     const result = parse(text)
     const d = byText(result)
-    for (const t of ['router ospf 1', 'router-id 192.0.2.1', 'speed 1000', 'hsrp 10', 'ip 192.0.2.254', 'frobnicate now']) expect(d.get(t), t).toMatchObject({ kind: 'unsupported' })
+    for (const t of ['router eigrp 1', 'router-id 192.0.2.1', 'speed 1000', 'hsrp 10', 'ip 192.0.2.254', 'frobnicate now']) expect(d.get(t), t).toMatchObject({ kind: 'unsupported' })
     expect(buildLedger(result).complete).toBe(true)
   })
 
@@ -470,7 +470,10 @@ const NEEDS: readonly (readonly [RegExp, string])[] = [
   [/^interface vlan\d/i, 'interface-vlan'],
   [/^interface tunnel\d/i, 'tunnel'],
   // A VRF's route distinguisher and route targets are BGP's (L3VPN).
-  [/^\s+(rd|route-target) /, 'bgp']
+  [/^\s+(rd|route-target) /, 'bgp'],
+  [/^router bgp /, 'bgp'],
+  [/^router ospf /, 'ospf'],
+  [/^\s+ip (router )?ospf /, 'ospf']
 ]
 function missingFeatures(text: string): string[] {
   const lines = text.split('\n')
@@ -489,6 +492,10 @@ describe('feature lines', () => {
     expect(missingFeatures('feature tunnel\ninterface Tunnel1\n')).toEqual([])
     expect(missingFeatures('vrf context A\n  rd 65000:1\n')).toEqual(['bgp'])
     expect(missingFeatures('vrf context A\n  address-family ipv4 unicast\n    route-target import 65000:1\n')).toEqual(['bgp'])
+    expect(missingFeatures('router bgp 65000\n  neighbor 192.0.2.2 remote-as 65001\n')).toEqual(['bgp'])
+    expect(missingFeatures('interface loopback0\n  ip router ospf 1 area 0.0.0.0\nrouter ospf 1\n')).toEqual(['ospf'])
+    expect(missingFeatures('interface Ethernet1/1\n  ip ospf cost 5\n')).toEqual(['ospf'])
+    expect(missingFeatures('feature bgp\nfeature ospf\nrouter ospf 1\nrouter bgp 65000\n')).toEqual([])
   })
 
   it('a render writes every feature its statements need, before them, from any model', () => {
@@ -534,14 +541,18 @@ describe('feature lines', () => {
     expect(result.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'turns on a feature whose configuration isn\'t converted yet' })
   })
 
-  it('on parse, feature bgp is needed when a VRF\'s route distinguisher or targets are converted; other BGP stays unsupported', () => {
-    const text = ['feature bgp', 'vrf context A', '  rd 65000:1', '  address-family ipv4 unicast', '    route-target both 65000:1', 'router bgp 65000', '  router-id 192.0.2.1'].join('\n')
-    const result = parse(text)
+  it('on parse, feature bgp is needed when BGP or a VRF\'s route distinguisher or targets are converted', () => {
+    const vpn = ['feature bgp', 'vrf context A', '  rd 65000:1', '  address-family ipv4 unicast', '    route-target both 65000:1']
+    const result = parse(vpn.join('\n'))
     expect(result.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'needed by VRF route distinguishers and targets: written whenever one is' })
-    expect([result.dispositions.L6, result.dispositions.L7]).toMatchObject([{ kind: 'unsupported' }, { kind: 'unsupported' }])
     expect(render(result.model).text.split('\n')[0]).toBe('feature bgp')
-    // With only an `rd auto`, nothing needs it.
+    const bgp = parse([...vpn, 'router bgp 65000', '  router-id 192.0.2.1'].join('\n'))
+    expect(bgp.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'needed by BGP: written whenever BGP is' })
+    expect([bgp.dispositions.L6, bgp.dispositions.L7]).toMatchObject([{ kind: 'mapped' }, { kind: 'mapped' }])
+    expect(parse('feature bgp\nrouter bgp 65000').dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'needed by BGP: written whenever BGP is' })
+    // With only an `rd auto`, or BGP that isn't converted, nothing needs it.
     expect(parse('feature bgp\nvrf context A\n  rd auto').dispositions.L1).toMatchObject({ kind: 'unsupported' })
+    expect(parse('feature bgp\nrouter bgp 4294967296').dispositions.L1).toMatchObject({ kind: 'unsupported' })
   })
 
   it('"no feature bgp" leaves out the route distinguishers and targets before it', () => {
@@ -589,7 +600,7 @@ describe('switchport', () => {
     expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'a routed port, as its IP configuration says: written back with it' })
     expect(result.dispositions.L5).toEqual({ kind: 'unsupported', reason: 'a routed port with no IP configuration the model holds: the model can\'t say it' })
     expect(result.dispositions.L7).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 8' })
-    expect(result.dispositions.L8).toEqual({ kind: 'unsupported', reason: 'Layer 2 switching comes later' })
+    expect(result.dispositions.L8).toEqual({ kind: 'ignored-by-design', reason: 'a switch port: written back on every port with no IP configuration' })
   })
 })
 

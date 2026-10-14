@@ -173,18 +173,25 @@ describe('a model document', () => {
   })
 })
 
-describe('model 0.4.0', () => {
-  it('is the core\'s model version, and plugins built for 0.1 to 0.3 still load', () => {
-    expect(MODEL_VERSION).toBe('0.4.0')
-    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0', '>=0.3.0 <1.0.0'])
+describe('model 0.4', () => {
+  it('is the core\'s model version, and plugins built for 0.1 to 0.4.0 still load', () => {
+    expect(MODEL_VERSION).toBe('0.4.1')
+    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0', '>=0.3.0 <1.0.0', '>=0.4.0 <1.0.0'])
       expect(() => createRegistry([{ id: 'old', name: 'Old', modelApi, capabilities: { system: { parse: 'full', render: 'full' } } }]), modelApi).not.toThrow()
   })
 
   it('reads 0.3.0 documents, and a 0.3 core refuses a 0.4 one rather than drop its fields', () => {
     expect(deserializeModel('{"modelVersion":"0.3.0","device":{"networkInstances":{"blue":{"type":"vrf","routeDistinguisher":"65000:1"}}}}').device).toEqual({ networkInstances: { blue: { type: 'vrf', routeDistinguisher: '65000:1' } } })
     const text = serializeModel({ vlans: { '10': { name: 'users' } } })
-    expect(JSON.parse(text).modelVersion).toBe('0.4.0')
-    expect(() => deserializeModel(text, '0.3.0')).toThrow('The model document was made with model 0.4.0, newer than this core\'s 0.3.0.')
+    expect(JSON.parse(text).modelVersion).toBe('0.4.1')
+    expect(() => deserializeModel(text, '0.3.0')).toThrow('The model document was made with model 0.4.1, newer than this core\'s 0.3.0.')
+  })
+
+  it('reads 0.4.0 documents, and a 0.4.0 core refuses a 0.4.1 one rather than drop its eBGP default policy', () => {
+    expect(deserializeModel('{"modelVersion":"0.4.0","device":{"vlans":{"10":{"name":"users"}}}}').device).toEqual({ vlans: { '10': { name: 'users' } } })
+    const text = serializeModel({ networkInstances: { default: { bgp: { localAs: 65000, ebgpDefaultPolicy: { import: 'reject', export: 'reject' } } } } })
+    expect(deserializeModel(text).device.networkInstances?.default.bgp?.ebgpDefaultPolicy).toEqual({ import: 'reject', export: 'reject' })
+    expect(() => deserializeModel(text, '0.4.0')).toThrow('The model document was made with model 0.4.1, newer than this core\'s 0.4.0.')
   })
 
   it('has VLANs, switch ports, routed VLANs, OSPF and BGP as leaves, through JSON and with nothing wrong', () => {

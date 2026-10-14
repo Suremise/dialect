@@ -44,7 +44,7 @@ platform-*  →  core  ←  conformance (dev-only)
 - The shells own file access: the CLI through Node, the desktop app through Tauri's dialog and fs plugins, the web build
   through a file picker and downloads.
 
-## Core contracts (`@dialect/core`, model 0.4.0)
+## Core contracts (`@dialect/core`, model 0.4.1)
 
 Frozen as v0 by B2: a change to these is a change to every plugin and shell, and goes through the model's versioning.
 
@@ -79,11 +79,18 @@ Frozen as v0 by B2: a change to these is a change to every plugin and shell, and
     `neighbors` by address, each with a `peerAs`, `description`, `localAddress` or `updateSource` (an interface
     reference), `multihop` (`{}`, or a `ttl`), `addressFamilies` (`ipv4-unicast`, `ipv6-unicast`), and
     `importPolicies`/`exportPolicies` by name only, on the peer or per address family (policy bodies are phase 3); a
-    neighbor names its `group`, and its own settings win over the group's.
+    neighbor names its `group`, and its own settings win over the group's. Since 0.4.1, `ebgpDefaultPolicy` says what
+    the source platform does with an eBGP peer's routes when no policy applies (`import`, `export`: `accept` on Junos
+    and IOS-XE, `reject` on IOS-XR after RFC 8212). It is the source's default, not configuration, kept with the data
+    as `enabledBy` is: a **parser** sets the side(s) that apply when the instance has an eBGP peer without an import
+    or an export policy; a **renderer** gives it a `not-applicable` disposition and raises a `category: 'semantic'`
+    warning when its own default differs, naming the line, never a peer's address.
 
 **Secrets are flags, never values:** OSPF `authentication` (`simple`, `md5`, `key-chain`, on an area or an interface)
 and a BGP peer's `authentication: true` say the source had a key; the key never reaches the model, so the target asks
-for it (a needs-input item).
+for it (a needs-input item of kind `secret`, whose `field` is the flag's path) and writes it from the answer. **A
+renderer never writes a placeholder key**: unanswered, the key is left out, and the conformance kit's round trip
+excuses that leaf (below).
 
 These are the phase 1 and phase 2 areas; later minor versions add policy bodies and filters (phase 3).
 
@@ -112,6 +119,7 @@ break. That holds in 0.x too, so a plugin built for 0.1 declares `modelApi: '>=0
 | 0.2.0 | `system.dns` (`Dns`, `DnsServer`) and the `dns` feature area (#21) |
 | 0.3.0 | `Subinterface.networkInstance` (VRF membership), `NetworkInstance.routeDistinguisher` and `routeTargets`, and the `virtual-router` type (#44) |
 | 0.4.0 | `Device.vlans`, `Interface.switching`, the `irb-or-svi` type and `Subinterface.routedVlan`, `NetworkInstance.ospf` and `bgp`, and the `vlans`, `ospf` and `bgp` feature areas (#59, phase 2) |
+| 0.4.1 | `Bgp.ebgpDefaultPolicy` (`BgpDefaultPolicy`), the source's default for eBGP peers without a policy (#68) |
 
 A plugin built for an older minor still loads, and a field it has never heard of, such as `system.dns` for a 0.1
 renderer, a subinterface's `networkInstance` for a 0.2 one or any of 0.4's VLAN, switch port, routed VLAN, OSPF and BGP
@@ -223,13 +231,13 @@ the conversion's interfaces every one of them to fill in, suggestions marked `# 
 
 `createRegistry(plugins)` checks each plugin's `modelApi` against `MODEL_VERSION` (semver's `satisfies`) and throws
 `PluginRejectedError` naming both versions: `Plugin "junos" supports model versions >=1.2.0 <2.0.0, but this core's
-model is 0.4.0.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
+model is 0.4.1.` It also rejects an invalid range, a duplicate plugin id and two tools with one id. It lists the
 plugins, the sources (those that parse), the targets (those that render), every tool, and the plugins that detect a
 text, best first.
 
 ### JSON (`serialize.ts`)
 
-`serializeModel(device)` writes `{ "modelVersion": "0.4.0", "device": { … } }`. `deserializeModel()` reads a document
+`serializeModel(device)` writes `{ "modelVersion": "0.4.1", "device": { … } }`. `deserializeModel()` reads a document
 of the same major version and the same or an older minor, and refuses a newer one rather than drop its fields.
 
 ### Platform neutrality
@@ -252,7 +260,13 @@ describeConformance(plugin, new URL('./fixtures', import.meta.url))
 Each fixture goes through five checks (`checkFixture()`):
 1. parse → no error, a model with no `modelProblems()`, and the expected model;
 2. render → no error, and the expected text (skipped when there is none and the render reported no error);
-3. render → reparse → no error, a model with no `modelProblems()`, and the same model;
+3. render → reparse → no error, a model with no `modelProblems()`, and the same model, except a leaf the render left
+   to the user: a populated leaf it didn't write that a `secret` needs-input item (with an id) names as its `field`
+   (`deferredSecrets()`), a key the model flags but never carries (#68), and an object only taking it out left empty
+   (a group whose one leaf was its key), which the reparse may have empty or not (`group G;` or nothing); an object
+   the model has empty still counts. The result lists them (`deferred`), and the
+   suite puts them in the test's name, so none is left out unseen. A leaf dropped without such an item, or left to an
+   item of another kind, still fails;
 4. the coverage ledger is complete for the parse and the render;
 5. no secret in a message (`checkSecrets()` in `secrets.ts`, AGENTS.md's rule), skipped for a fixture with none.
 
@@ -482,8 +496,9 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
 ## NX-OS plugin (`@dialect/platform-nxos`, B12)
 
 The second Cisco platform, built like the IOS / IOS-XE plugin (its code copied, not imported: plugins don't depend on
-each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.3.0 <1.0.0'`, for model 0.3's
-VRF membership, route distinguishers and route targets), with `detect`, `parse` and `render`.
+each other). Its default export is the `PlatformPlugin` (`id: 'nxos'`, `modelApi: '>=0.4.0 <1.0.0'`, for model 0.4's
+VLANs, switch ports, SVIs, OSPF and BGP), with `detect`, `parse`, `render`, and `describeInterface` and
+`nameInterface` for convert's suggested names.
 
 - **The tree (`tree.ts`):** as IOS's, nested by NX-OS's two-space indents; `!Command:` and `!Time:` headers are
   comments. Banners (`banner motd|exec <d>…<d>`) are kept whole as one atomic statement; an unterminated one is an
@@ -534,11 +549,51 @@ VRF membership, route distinguishers and route targets), with `detect`, `parse` 
     own. They are BGP's (L3VPN): `feature bgp` is `ignored-by-design` when a converted route distinguisher or target
     needs it, and `unsupported` otherwise, like the rest of BGP; `no feature bgp` leaves out the ones before it.
   - **`feature` lines:** one a converted statement needs (`interface-vlan` for Vlan interfaces, `tunnel` for Tunnel
-    interfaces, `bgp` for a VRF's route distinguisher and targets; `features.ts`) is `ignored-by-design`, since the render writes it back whenever it is needed. Every
-    other feature turns on a service the model doesn't hold, and is `unsupported`.
-  - **`switchport`:** `no switchport` is `ignored-by-design` on a port with IP configuration (the render writes it back
-    with it) and `unsupported` on one without, which the model can't call routed. `switchport` and its options are
-    `unsupported` (Layer 2 comes later).
+    interfaces, `ospf` for OSPF, `bgp` for BGP and a VRF's route distinguisher and targets; `features.ts`) is
+    `ignored-by-design`, since the render writes it back whenever it is needed. Every other feature turns on a service
+    the model doesn't hold, and is `unsupported`. `no feature ospf` and `no feature bgp` leave out what the feature's
+    configuration before them said, as the device deletes it.
+  - **VLANs:** `vlan 10` and `vlan 4,6-8` define each VLAN of the list (`vlans`, by ID), with `name` for a single VLAN;
+    `no vlan` removes those VLANs (a statement about others too keeps them). VLAN 1 is built in: a port or an SVI that
+    uses it brings `vlans["1"]` into the model, and `no vlan 1` is `unsupported`.
+  - **Switch ports:** `switchport mode access|trunk`, `switchport access vlan`, `switchport trunk native vlan` and
+    `switchport trunk allowed vlan` map to `switching`; the allowed list as written, `all` (`1-4094`), `none` (an empty
+    list), and `add`, `remove` and `except` applied as NX-OS does (from every VLAN when no list came before), as
+    compact ranges. Their `no` forms go back to NX-OS's defaults, which the model leaves out, and `no switchport` clears
+    them, as the device does. A VLAN they name must be defined: one that isn't is `unsupported` with its statement (a
+    range carries whichever of its VLANs exist). Another mode, and a setting on a loopback, a subinterface or a port
+    with IP configuration, are `unsupported`. `switchport` alone is `ignored-by-design` on a port with no IP
+    configuration and `no switchport` on one with some (an address, a VRF, subinterfaces or OSPF; the render writes
+    both back), each `unsupported` otherwise.
+  - **SVIs:** `interface Vlan10` is an `irb-or-svi` interface routing for VLAN 10 on subinterface `0` when VLAN 10 is
+    defined; without it, it stays an interface of type `vlan` with no routed VLAN, as before model 0.4.
+  - **OSPF:** per interface, as NX-OS enables it: `ip router ospf TAG area A` (any area form, dotted in the model) puts
+    the interface in that area of the network instance it is in (`enabledBy: 'interface'`), with `ip ospf cost`,
+    `network point-to-point|broadcast`, `passive-interface`, `hello-interval`, `dead-interval` and `authentication
+    [message-digest|key-chain K]` (flagged; `null` is `unsupported`). The key (`authentication-key`,
+    `message-digest-key`) is `ignored-by-design`: never carried. `router ospf TAG` holds `router-id`, `area A
+    stub|nssa`, `area A authentication [message-digest]` and `passive-interface default` for the global table, and
+    the same under `vrf V` for V. `passive-interface default` maps as `passive` on each of the process's interfaces that
+    doesn't say `no ip ospf passive-interface`. `network` statements are `unsupported`: NX-OS no longer documents them.
+    The model has one process per network instance: the one its interfaces enable first, else the first with settings
+    there; another process's settings and interfaces there are `unsupported`, and one with nothing of its own there is
+    `ignored-by-design`. `vrf member` deletes an interface's OSPF settings with its addresses, as NX-OS deletes its
+    Layer 3 configuration. `no ip router ospf`, `no ip ospf …`, `no router-id`, `no area A …` and `no router ospf TAG`
+    remove what they name; interfaces enabling a removed process are `unsupported`, as what the device keeps isn't
+    certain. Settings on an interface with no converted `ip router ospf` are `unsupported`.
+  - **BGP:** `router bgp ASN` (plain or asdot) is `localAs`, with `router-id`; NX-OS runs one process, so a second AS is
+    `unsupported`. `neighbor X [remote-as N]` and `template peer T` (a group) take `remote-as`, `description`,
+    `update-source`, `ebgp-multihop`, `password` (flagged: `authentication`, never carried), `inherit peer T` (a
+    neighbor's group), `no shutdown` (`ignored-by-design`) and `address-family ipv4|ipv6 unicast` with `route-map NAME
+    in|out` (by name only, with the warning `nxos.route-map-name-only`, which gives the line, not the name). `vrf V`
+    under it is V's BGP, with the process's AS as V's `localAs`. A global `address-family ipv4|ipv6 unicast` is
+    `ignored-by-design` (the render writes it where a peer carries the family); what is inside it, a neighbor range
+    (dynamic peers), `template peer-session|peer-policy` and other families are `unsupported`. `no neighbor`, `no
+    template peer`, `no address-family`, each setting's `no` form and `no router bgp ASN` remove what they name. Once
+    every statement is read, BGP in a VRF the text doesn't define, an update source that names no interface and a
+    template a neighbor's VRF doesn't have (a VRF neighbor inheriting a global template, for now) are `unsupported`.
+  - **A VRF's deletion** (`no vrf context V`) leaves V's OSPF and BGP so far out as `unsupported`, as its interfaces'
+    membership is (#47).
   - **SNMP communities:** a community with any statement not converted, anywhere in the text (an access list in any
     form, `use-ipv4acl … use-ipv6acl …` on one line included; a group other than network-operator or network-admin;
     `no snmp-server community X …` removing part of it), is left out whole, every statement about it `unsupported`,
@@ -549,10 +604,10 @@ VRF membership, route distinguishers and route targets), with `detect`, `parse` 
     corpus file.
   - Keys come from the configuration (`vrf context __proto__`), so the model is built with own properties only, and
     per-name bookkeeping uses `Map`s.
-- **Render (`render.ts`):** every leaf of model 0.3 gets a disposition; a later version's fields get none, for the
+- **Render (`render.ts`):** every leaf of model 0.4 gets a disposition; a later version's fields get none, for the
   ledger to report. The text relies on no switch default: it writes each `feature` a written statement needs before it,
   and `switchport` or `no switchport` on every Ethernet and port-channel interface (`no switchport` with an address or
-  subinterfaces or a VRF). Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
+  subinterfaces, a VRF or OSPF). Each VRF is a `vrf context` with its `rd`, its routes and its route targets under both
   `address-family ipv4 unicast` and `ipv6 unicast` (the model's are the VRF's), after `feature bgp`, and before the
   interfaces; `vrf member V` comes before an interface's addresses, which it would otherwise clear, and `mgmt0` always
   gets `vrf member management`. What NX-OS can't write is `unsupported` with why: a membership in a VRF the model
@@ -562,6 +617,37 @@ VRF membership, route distinguishers and route targets), with `detect`, `parse` 
   a `reject` route, a route's metric, and an SNMP community limited to some clients (left out whole, with a warning
   that doesn't name it). With several addresses and no primary, the first becomes primary, with
   a warning.
+  - **VLANs and switch ports:** each VLAN as `vlan N` with its `name` (a description, or a name with a space or over
+    32 characters, is `unsupported`), before the interfaces; a switch port's settings after its `switchport` line
+    (`none` for an empty allowed list). On a routed port or an interface NX-OS can't switch they are `unsupported`.
+  - **SVIs:** an `irb-or-svi` interface is written only as `Vlan<ID>`, routing for that VLAN, with the subinterface
+    that routes for it (`0`, or another, as Junos's `irb` unit 100 renamed `Vlan100` is) as its own Layer 3. Under any
+    other name it isn't written, with the warning `nxos.svi-name`: the interface map names it. Other subinterfaces of
+    a Vlan interface are `unsupported`.
+  - **OSPF:** each instance's process under `router ospf TAG`, VRFs as `vrf V` in it, with `router-id` and each area's
+    `stub|nssa` and `authentication [message-digest]` (a key chain for an area is `unsupported`); a source with no tag
+    (Junos) is written as `1`, with an info diagnostic. Each OSPF interface gets `ip router ospf TAG area A` and its
+    settings after its addresses, in its own interface's block; one in another network instance than its interface's,
+    or a second area for one interface, is `unsupported`. One the source enabled with `network` statements raises the
+    warning `nxos.ospf-enabled-per-interface`: a later interface in the range doesn't join by itself.
+  - **BGP:** `router bgp` with the local AS (a VRF's own other AS is `unsupported`), `router-id`, the global address
+    family for each family a peer carries, groups as `template peer` (a VRF's groups are `unsupported`: NX-OS's
+    templates are the process's) and neighbors, then each VRF as `vrf V`. A Junos `internal` group writes
+    `remote-as` with the local AS; `localAddress` and multihop with no TTL are `unsupported`. Route maps go per family,
+    one each way: a policy for the whole peer goes into each family it carries (its template's too) unless the family
+    has its own, and a chain of policies is `unsupported`. Warnings: `nxos.route-map-name-only` (a policy written by
+    name), `nxos.ebgp-no-policy` (an eBGP neighbor with no route map: NX-OS exchanges every route, where IOS-XR,
+    following RFC 8212, exchanges none), `nxos.bgp-no-address-family` (it carries no routes).
+  - **Secrets the model only flags** are needs-input items, written when the answer is one NX-OS takes and never made
+    up: an OSPF key per interface (`nxos.ospf-key:<the OSPF interface's path>`; for MD5, `ID KEY`; an area's
+    authentication asks on each interface without its own), a key chain's name (kind `other`), and a BGP password
+    (`nxos.bgp-password:<the peer's path>`), whose field is `unsupported` until answered, since NX-OS's `password`
+    needs one. An answer NX-OS can't take raises `nxos.answer-not-taken`, without repeating it.
+- **Suggested names (`names.ts`):** `describeInterface` says `port-channelN` is aggregate N; `nameInterface`
+  suggests `port-channel` for another platform's aggregate, counted as Cisco does: Junos `aeN` is `port-channel(N+1)`,
+  IOS-XE `Port-channelN` and IOS-XR `Bundle-EtherN` keep N (the user's decision). It takes the describing plugin's id as
+  an optional second argument, which the core's convert doesn't pass yet (#64's comment proposes it): without it,
+  nothing is suggested, rather than guess the numbering.
 - **Detect (`detect.ts`):** counts NX-OS's own signs (`feature`, `vrf context`, `vrf member`, `use-vrf`, prefix-length
   addresses, `switchname`, `version 9.3(3)`, `!Command: show running-config`, RANCID's `cisco-nx`) and discounts IOS's
   (dotted masks, `end`, `service timestamps`, `vrf definition`), IOS-XR's and Junos's. Over the corpus, wherever either
@@ -571,8 +657,13 @@ VRF membership, route distinguishers and route targets), with `detect`, `parse` 
   `tests/corpus/`, and every file of `fixtures/public/nxos` through the kit's checks. `plugin.test.ts` also checks
   every render of the fixtures and the corpus for a missing `feature` line, with its own table of what needs one.
   `tests/probes.ts` is its adapter for the kit's probes (#54): every probe runs, a community limited by an access list
-  in either order beside an open statement and a letter-led malformed next hop among them, but a prototype key as an
-  interface name, which NX-OS can't say.
+  in either order beside an open statement and a letter-led malformed next hop among them, and model 0.4's (a VLAN name
+  and a peer template named by a prototype key, `no neighbor`, `no ip router ospf`, an AS number and a VLAN ID out of
+  range, OSPF and BGP changes in one VRF), but a prototype key as an interface name, which NX-OS can't say.
+  `phase2.test.ts` covers the phase 2 areas beyond their fixtures, and checks that each phase 2 warning comes from a
+  saved source fixture or a saved model from another platform (`tests/models`: `<case>.model.json`, its expected
+  `.rendered.cfg` and `.warnings.json`), for what an NX-OS parse can't produce (an IRB not named `Vlan<ID>`, OSPF
+  enabled by `network` statements).
 
 ## IOS-XR plugin (`@dialect/platform-iosxr`, B13)
 
