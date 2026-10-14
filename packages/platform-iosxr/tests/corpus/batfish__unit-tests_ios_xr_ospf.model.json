@@ -1,0 +1,24 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "ios_xr_ospf"
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "processId": "2",
+          "routerId": "169.232.1.4",
+          "areas": {
+            "0.0.0.0": {
+              "authentication": "md5"
+            },
+            "0.0.0.60": {
+              "authentication": "md5"
+            }
+          }
+        }
+      }
+    }
+  }
+}

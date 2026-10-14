@@ -1,0 +1,41 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "ospf-interface"
+    },
+    "interfaces": {
+      "Bundle-Ether201": {
+        "type": "aggregate",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.0.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "processId": "2",
+          "routerId": "10.10.10.10",
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "Bundle-Ether201": {
+                  "enabledBy": "interface"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

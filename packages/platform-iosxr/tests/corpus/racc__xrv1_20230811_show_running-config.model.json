@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.4.1",
   "device": {
     "system": {
       "hostname": "SANDBOX-XR-CISCO",
@@ -87,6 +87,14 @@
                 "interface": "MgmtEth0/RP0/CPU0/0",
                 "address": "10.10.20.254"
               }
+            }
+          }
+        },
+        "ospf": {
+          "processId": "27",
+          "areas": {
+            "0.0.0.10": {
+              "authentication": "key-chain"
             }
           }
         }

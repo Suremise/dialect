@@ -1,0 +1,120 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "pe1"
+    },
+    "networkInstances": {
+      "CUST": {
+        "type": "vrf",
+        "ospf": {
+          "processId": "CORE",
+          "routerId": "192.0.2.1",
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "GigabitEthernet0/0/0/2": {
+                  "enabledBy": "interface",
+                  "passive": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "default": {
+        "ospf": {
+          "processId": "CORE",
+          "routerId": "192.0.2.1",
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "Loopback0": {
+                  "enabledBy": "interface",
+                  "cost": 10,
+                  "passive": true
+                },
+                "GigabitEthernet0/0/0/0": {
+                  "enabledBy": "interface",
+                  "cost": 10,
+                  "networkType": "point-to-point",
+                  "helloInterval": 5,
+                  "deadInterval": 20
+                }
+              }
+            },
+            "0.0.0.10": {
+              "type": "stub",
+              "authentication": "md5",
+              "interfaces": {
+                "GigabitEthernet0/0/0/1": {
+                  "enabledBy": "interface",
+                  "cost": 100
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "Loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.3": {
+                  "prefixLength": 31
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0/2": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "CUST",
+            "ipv4": {
+              "addresses": {
+                "203.0.113.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

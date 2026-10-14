@@ -1,5 +1,5 @@
 {
-  "modelVersion": "0.3.0",
+  "modelVersion": "0.4.1",
   "device": {
     "system": {
       "hostname": "xr-kitchensink",
@@ -8,6 +8,10 @@
     "networkInstances": {
       "CUSTOMER-A": {
         "type": "vrf",
+        "bgp": {
+          "localAs": 65001
+        },
+        "routeDistinguisher": "65001:100",
         "staticRoutes": {
           "10.99.0.0/16": {
             "nextHops": {
@@ -28,6 +32,10 @@
       },
       "MGMT": {
         "type": "vrf",
+        "bgp": {
+          "localAs": 65001
+        },
+        "routeDistinguisher": "65001:999",
         "routeTargets": {
           "import": [
             "65001:999"
@@ -38,6 +46,10 @@
         }
       },
       "default": {
+        "bgp": {
+          "localAs": 65001,
+          "routerId": "10.255.0.1"
+        },
         "staticRoutes": {
           "0.0.0.0/0": {
             "nextHops": {

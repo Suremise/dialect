@@ -184,7 +184,9 @@ name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP
 or write is listed as not converted, with why. Junos also converts VLANs, switch ports (access and trunk, with a
 native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches; the older non-ELS syntax is listed
 as not converted. Cisco NX-OS also converts VLANs, switch ports (access and trunk), VLAN interfaces, OSPF and BGP; an
-OSPF key or a BGP password is never carried, so converting to NX-OS asks for it.
+OSPF key or a BGP password is never carried, so converting to NX-OS asks for it. Cisco IOS-XR also converts OSPF and
+BGP; converting to IOS-XR asks for an OSPF key or a BGP password the same way, and for a route policy for each eBGP
+neighbor that has none, since IOS-XR exchanges no routes with it without one.
 
 ## The command line
 
