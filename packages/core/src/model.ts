@@ -1,6 +1,6 @@
 // The shared device model: what every platform plugin parses into and renders from (the hub in docs/ARCHITECTURE.md).
 // Shaped like OpenConfig (system, interfaces with subinterfaces and addresses, VLANs, network instances with static
-// routes, OSPF and BGP, routing policy, filters, VRF policies), borrowing its structure and names, not its code, as plain readonly types serialised as JSON (serialize.ts).
+// routes, OSPF and BGP, routing policy, filters, VRF policies, LAGs), borrowing its structure and names, not its code, as plain readonly types serialised as JSON (serialize.ts).
 //
 // Conventions every type here keeps, because the coverage ledger walks the model generically (ledger.ts):
 // - **Collections are maps keyed by their natural key** (an interface's name, an address, a prefix), never arrays of
@@ -20,7 +20,7 @@
 // while the ledger reports any populated field it has never heard of as unrendered.
 
 /** The shared model's version (docs/SPEC.md §4). Bump minor for additions, major for breaking changes. */
-export const MODEL_VERSION = '0.5.3'
+export const MODEL_VERSION = '0.5.4'
 
 /** A map from a collection's natural key to its entries. */
 export type Keyed<T> = Readonly<Record<string, T>>
@@ -128,6 +128,39 @@ export interface Interface {
   readonly subinterfaces?: Keyed<Subinterface>
   /** Its layer 2 settings, when it is a switch port (Junos `family ethernet-switching`, Cisco `switchport`). Since model 0.4.0. */
   readonly switching?: Switching
+  /**
+   * The aggregate (LAG) this interface is a member link of, by the aggregate's interface name: Junos
+   * `ether-options 802.3ad ae0` (or `gigether-options`), Cisco `channel-group 1` (`Port-channel1`), IOS-XR
+   * `bundle id 1` (`Bundle-Ether1`). It names an interface of the model of type `aggregate`, which can't itself be a
+   * member (modelProblems() checks). Since model 0.5.4.
+   */
+  readonly aggregate?: string
+  /** An aggregate's own LAG settings, on an interface of type `aggregate` only (modelProblems() checks). Since model 0.5.4. */
+  readonly aggregation?: Aggregation
+}
+
+/**
+ * How an aggregate's members bundle, after OpenConfig's `lag-type` and `lacp-mode`: with LACP, sending LACPDUs
+ * (`active`) or only answering them (`passive`), or without LACP (`static`). Since model 0.5.4.
+ */
+export type LacpMode = 'active' | 'passive' | 'static'
+
+/** An aggregate's LAG settings, after OpenConfig `aggregation` (since model 0.5.4). */
+export interface Aggregation {
+  /**
+   * Junos `aggregated-ether-options lacp active`, Cisco `channel-group 1 mode active` and `mode on` (`static`), IOS-XR
+   * `bundle id 1 mode active`. Left out, the aggregate runs without LACP, as every platform does when the source says
+   * nothing (Junos with no `lacp`, NX-OS `channel-group 1` with no mode); `static` is the source saying so. Cisco gives
+   * the mode on each member: a parser puts it here when they agree, and leaves the members' modes `unsupported` with a
+   * reason when they don't.
+   */
+  readonly lacp?: LacpMode
+  /**
+   * The fewest members that must be up for the aggregate to be up, a whole number from 1: Junos `minimum-links`,
+   * IOS-XE `port-channel min-links`, NX-OS `lacp min-links`, IOS-XR `bundle minimum-active links`. A renderer whose
+   * platform takes fewer leaves a larger one `unsupported`.
+   */
+  readonly minLinks?: number
 }
 
 /** A switch port's mode: an access port carries one VLAN, untagged; a trunk carries several, tagged. */

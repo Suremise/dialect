@@ -183,6 +183,10 @@ const entries = <T>(map: Readonly<Record<string, T>> | undefined): [string, T][]
  *   (`model.ospf-area`), an OSPF interface or a BGP update source names no interface of the model
  *   (`model.unknown-interface`), a local or peer AS isn't one (`model.as-number`), and a BGP neighbor's group isn't
  *   one of its instance's (`model.unknown-bgp-group`);
+ * - since 0.5.4, LAGs: a member link's `aggregate` names an interface of the model (`model.unknown-aggregate`) of type
+ *   `aggregate` (`model.aggregate-type`), and isn't itself one (`model.aggregate-member`); only an aggregate has
+ *   `aggregation` settings (`model.aggregation-interface`), whose `lacp` is one of the model's modes
+ *   (`model.lacp-mode`) and `minLinks` a whole number from 1 (`model.min-links`);
  * - since 0.5.0, routing policy (routingPolicyProblems()): positions, prefixes and their lengths, communities, regex
  *   dialects and numbers in the model's forms, and every prefix list, community set and AS-path set a term names, and
  *   with `policyReferences` (the default), every policy a BGP peer or family (or since 0.5.2, a VRF) names, exists;
@@ -222,6 +226,21 @@ export function modelProblems(device: Device, { policyReferences = true }: Model
       vlan(sub.routedVlan, at('routedVlan'), 'A routed VLAN')
     }
     if (ifc?.type === 'irb-or-svi' && !routes) problem('irb-without-vlan', 'An irb-or-svi interface routes for no VLAN: none of its subinterfaces has a routedVlan.', fieldPath('interfaces', name, 'type'))
+    // Since 0.5.4: a member link names an aggregate of the model, and only an aggregate has LAG settings.
+    const aggregate = ifc?.aggregate
+    if (aggregate !== undefined) {
+      const at = fieldPath('interfaces', name, 'aggregate')
+      if (typeof aggregate !== 'string' || !Object.hasOwn(device.interfaces!, aggregate)) problem('unknown-aggregate', 'A member link names an aggregate interface the model doesn\'t have.', at)
+      else if (device.interfaces![aggregate]?.type !== 'aggregate') problem('aggregate-type', 'A member link names an interface that isn\'t of type aggregate.', at)
+      else if (ifc.type === 'aggregate') problem('aggregate-member', 'An aggregate interface is a member link of an aggregate.', at)
+    }
+    const aggregation = ifc?.aggregation
+    if (aggregation !== undefined) {
+      const at = (leaf: string) => fieldPath('interfaces', name, 'aggregation', leaf)
+      if (ifc.type !== 'aggregate') problem('aggregation-interface', 'An interface has LAG settings, but isn\'t of type aggregate.', fieldPath('interfaces', name, 'aggregation'))
+      if (aggregation.lacp !== undefined && !['active', 'passive', 'static'].includes(aggregation.lacp)) problem('lacp-mode', 'An aggregate\'s LACP mode isn\'t active, passive or static.', at('lacp'))
+      if (aggregation.minLinks !== undefined && !(Number.isInteger(aggregation.minLinks) && aggregation.minLinks >= 1)) problem('min-links', 'An aggregate\'s minimum links isn\'t a whole number from 1.', at('minLinks'))
+    }
     const switching = ifc?.switching
     if (!switching) continue
     const at = (leaf: string) => fieldPath('interfaces', name, 'switching', leaf)

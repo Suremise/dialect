@@ -9,6 +9,7 @@ import {
   interfaceInputs,
   MODEL_VERSION,
   modelInterfaces,
+  modelProblems,
   parseInterfaceMap,
   populatedLeaves,
   renameInterfaces,
@@ -169,6 +170,14 @@ describe('convert: interface names', () => {
   it('refuses to rename two interfaces to one name', () => {
     expect(() => renameInterfaces(MODEL, { eth0: 'lo0' })).toThrow('Two interfaces would have one name')
     expect(() => renameInterfaces(MODEL, { eth0: 'X', lo0: 'X' })).toThrow('Two interfaces would have one name')
+  })
+
+  it('renames a member link\'s aggregate with the aggregate (model 0.5.4), so the bundle keeps its members', () => {
+    const model: Device = { interfaces: { ae0: { type: 'aggregate', aggregation: { lacp: 'active' } }, 'ge-0/0/0': { aggregate: 'ae0' }, 'ge-0/0/1': { aggregate: 'ae0' } } }
+    const renamed = renameInterfaces(model, { ae0: 'Port-channel1', 'ge-0/0/0': 'GigabitEthernet1/0/1' })
+    expect(renamed.interfaces).toEqual({ 'Port-channel1': { type: 'aggregate', aggregation: { lacp: 'active' } }, 'GigabitEthernet1/0/1': { aggregate: 'Port-channel1' }, 'ge-0/0/1': { aggregate: 'Port-channel1' } })
+    expect(modelProblems(renamed)).toEqual([])
+    expect(renameInterfaces(model, {}).interfaces).toEqual(model.interfaces)
   })
 
   it('renames a key that is __proto__ like any other, leaving Object.prototype alone', () => {
