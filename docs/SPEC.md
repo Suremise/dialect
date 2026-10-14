@@ -128,8 +128,10 @@ product decisions.
   on to the next policy, Cisco rejects) is kept with the model and a target whose fall-through differs says so, and
   where a platform reads the same words another way (Junos matches route filters by longest match) the term isn't
   converted rather than converted wrongly. Junos converts `policy-options` (prefix lists, communities, AS paths and
-  policy-statements) and resolves BGP `import` and `export` to them (#76); `vrf-import` and `vrf-export` wait for a
-  place in the model (#83).
+  policy-statements) and resolves BGP `import` and `export` to them (#76), and a VRF's `vrf-import` and `vrf-export`
+  (#95, model 0.5.2). A VRF's policies keep the platform's meaning: on Junos they replace the route targets, on Cisco
+  a VRF's import and export maps filter after them; where a target can't say the source's meaning, they aren't
+  converted and a warning says so.
 - **Filters and ACLs (phase 3, model 0.5.1)** convert by the same per-term rule: a term whole or not at all, the
   whole filter when leaving one out could change what a later term decides, and a unit applying a filter that isn't
   converted applies nothing. A filter's end is kept with the model (Junos discards silently, a Cisco ACL denies) and

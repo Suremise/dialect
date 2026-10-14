@@ -303,6 +303,8 @@ export function parse(text: string, _context: Context): ParseResult {
    */
   const otherTypeAt = new Map<number, string>()
   const otherTypes = new Set<string>()
+  /** Per instance and side (`R\u0000importPolicies`), its `vrf-import` or `vrf-export` policies in order, with their statements. */
+  const vrfPolicies = new Map<string, { readonly index: number; readonly name: string }[]>()
   /** Per instance, its `vrf-target`, `vrf-target import` and `vrf-target export`: the statement that set each last, and its value. */
   const targets = new Map<string, Map<'both' | 'import' | 'export', { readonly index: number; readonly value: string }>>()
 
@@ -354,7 +356,15 @@ export function parse(text: string, _context: Context): ParseResult {
       return rd ? mapped([put(i, [...at, 'routeDistinguisher'], rd)]) : unsupported('not a route distinguisher in a form the model has (ASN:nn, IP:nn or a 4-byte AS with L)')
     }
     if (r[0] === 'vrf-target') return mapTarget(name, r.slice(1), i)
-    if (r[0] === 'vrf-import' || r[0] === 'vrf-export') return unsupported("a VRF's import and export policies: the model has no place for them yet")
+    if ((r[0] === 'vrf-import' || r[0] === 'vrf-export') && r.length === 2) {
+      // Resolved once the policies are settled, as BGP's are (settleProtocols).
+      const field = r[0] === 'vrf-import' ? 'importPolicies' : 'exportPolicies'
+      const list = vrfPolicies.get(`${name}\u0000${field}`) ?? []
+      if (list.some((ref) => ref.name === r[1])) return ignored('already a policy of the routing instance')
+      list.push({ index: i, name: r[1] })
+      vrfPolicies.set(`${name}\u0000${field}`, list)
+      return mapped([])
+    }
     if (r[0] === 'routing-options') return mapRoutingOptions(name, r.slice(1), i)
     if (r[0] === 'protocols') return mapProtocols(name, r.slice(1), i)
     return unsupported()
@@ -865,6 +875,23 @@ export function parse(text: string, _context: Context): ParseResult {
       if (otherTypes.has(instance)) continue
       const bgp = isObject(model.get(['networkInstances', instance, 'bgp']))
       settleTo(index, bgp ? mapped([model.set(['networkInstances', instance, 'bgp', 'localAs'], value)]) : unsupported('an AS number with no BGP here: the model keeps it with BGP'))
+    }
+
+    // A VRF's vrf-import and vrf-export (model 0.5.2): its own policies, a chain each way, converted whole as a BGP peer's
+    // are. On Junos they replace the vrf-target that way (`vrfPolicyMode: 'replaces-route-targets'`).
+    for (const [key, refs] of vrfPolicies) {
+      const [instance, field] = key.split('\u0000') as [string, 'importPolicies' | 'exportPolicies']
+      const live = refs.filter((ref) => results[ref.index].kind === 'mapped')
+      if (!live.length || otherTypes.has(instance)) continue
+      if (live.some((ref) => !policies.has(ref.name))) {
+        for (const ref of live) results[ref.index] = unsupported("names a policy the configuration doesn't define, or that isn't converted: none of the routing instance's policies that way are, as they run as a chain")
+        continue
+      }
+      const at = ['networkInstances', instance]
+      const list = model.set([...at, field], live.map((ref) => ref.name))
+      const mode = model.set([...at, 'vrfPolicyMode'], 'replaces-route-targets')
+      incidental.add(mode)
+      for (const ref of live) results[ref.index] = mapped([container(at), list, mode])
     }
 
     // Each peer's import and export policies are a chain, converted whole: one that names a policy the configuration
