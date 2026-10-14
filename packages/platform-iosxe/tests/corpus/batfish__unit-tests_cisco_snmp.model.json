@@ -1,0 +1,12 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "cisco_snmp",
+      "snmp": {
+        "contact": "CENIC Core Engineering",
+        "location": "UC Santa Cruz 4900M"
+      }
+    }
+  }
+}

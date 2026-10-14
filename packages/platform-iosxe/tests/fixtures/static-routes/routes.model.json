@@ -1,0 +1,47 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "edge-r3"
+    },
+    "networkInstances": {
+      "default": {
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "nextHops": {
+              "0": { "address": "192.0.2.2" },
+              "1": { "address": "198.51.100.2", "preference": 250 }
+            }
+          },
+          "198.51.100.0/24": {
+            "nextHops": { "0": { "drop": "discard" } }
+          },
+          "203.0.113.0/24": {
+            "description": "to-branch",
+            "nextHops": {
+              "0": { "interface": "GigabitEthernet0/0/1", "address": "192.0.2.6", "preference": 20, "tag": 300 }
+            }
+          },
+          "192.0.2.128/25": {
+            "nextHops": { "0": { "interface": "Loopback0" } }
+          },
+          "::/0": {
+            "nextHops": { "0": { "address": "2001:db8::1" } }
+          },
+          "2001:db8:100::/48": {
+            "nextHops": { "0": { "drop": "discard", "preference": 200 } }
+          }
+        }
+      },
+      "MGMT": {
+        "type": "vrf",
+        "staticRoutes": {
+          "0.0.0.0/0": {
+            "description": "management default",
+            "nextHops": { "0": { "address": "192.0.2.65" } }
+          }
+        }
+      }
+    }
+  }
+}

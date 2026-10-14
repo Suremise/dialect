@@ -1,0 +1,17 @@
+{
+  "modelVersion": "0.1.0",
+  "device": {
+    "system": {
+      "hostname": "edge-r4",
+      "ntp": {
+        "sourceInterface": "Loopback0",
+        "servers": {
+          "192.0.2.123": { "prefer": true },
+          "198.51.100.123": { "version": 3 },
+          "203.0.113.123": { "networkInstance": "MGMT" },
+          "ntp.example.net": {}
+        }
+      }
+    }
+  }
+}
