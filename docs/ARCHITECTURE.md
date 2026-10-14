@@ -680,7 +680,8 @@ The first Cisco platform, IOS and IOS-XE treated as one. Its default export is t
   warning.
   - **Routing policy (#77, `renderPolicy.ts`):** planned before BGP and written after it: `ip as-path access-list`,
     `ip community-list`, `ip prefix-list` and `ipv6 prefix-list` (a prefix list entry's sequence number is its
-    position; its range as `ge` and `le`, its `form` `not-applicable` when it is another platform's), then a
+    position; its range as `ge` and `le`, its `form` `not-applicable` when it is another platform's; a regex that starts
+    or ends with a space in double quotes, which IOS takes off as the parse does), then a
     `route-map` sequence a term. **A list is written whole or not at all**: one IOS can't write in full (a name it
     can't take; an AS-path list not numbered 1 to 500; a numbered community list of the wrong kind; an extended or
     large community set; a community IOS has no word for; literal communities and regexes in one set; several regexes

@@ -30,8 +30,17 @@ export interface PolicyPlan {
 const isAction = (s: unknown): s is 'permit' | 'deny' => s === 'permit' || s === 'deny'
 /** A name IOS reads back as one word. */
 const isWord = (s: string) => /^[^\s"]+$/.test(s)
-/** A regex IOS takes on its line: one line, not empty. */
-const isOneLine = (s: unknown): s is string => typeof s === 'string' && s.trim() === s && s !== '' && !/[\r\n]/.test(s)
+/**
+ * A regex as IOS reads it back from its line, or null when it can't be: written bare, or in double quotes when it starts
+ * or ends with a space (IOS takes the quotes off, as the parse does). One line, not empty; quotes around it are taken
+ * off on reading, so a regex that is itself quoted, or needs quotes and has one inside, can't be written.
+ */
+export function iosRegex(s: unknown): string | null {
+  if (typeof s !== 'string' || s === '' || /[\r\n]/.test(s)) return null
+  if (s.trim() !== s) return s.includes('"') ? null : `"${s}"`
+  return s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? null : s
+}
+const isOneLine = (s: unknown): s is string => iosRegex(s) !== null
 const isUint32 = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 4294967295
 /** A community as IOS writes it, or null for one it has no word for. */
 const iosCommunity = (v: unknown): string | null => (typeof v !== 'string' ? null : Object.hasOwn(IOS_COMMUNITY_NAMES, v) ? IOS_COMMUNITY_NAMES[v] : /^\d+:\d+$/.test(v) && communityType(v) === 'standard' ? v : null)
@@ -64,13 +73,13 @@ export function planRoutingPolicy(rp: RoutingPolicy | undefined, skip: (field: S
           : !entries.length
             ? 'IOS can\'t write an AS-path access list with no entries'
             : entries.some(([, e]) => !isAction(e?.action) || !isOneLine(e?.regex))
-              ? 'an entry IOS can\'t write (a permit or deny and a one-line regex)'
+              ? 'an entry IOS can\'t write (a permit or deny and a one-line regex it reads back the same)'
               : undefined
     if (why) {
       skipAll(set, at, why)
       continue
     }
-    entries.forEach(([key, e], i) => lines.push({ text: `ip as-path access-list ${name} ${e.action} ${e.regex}`, fields: [[...at, 'entries', key, 'action'], [...at, 'entries', key, 'regex'], ...(i === 0 ? [[...at, 'regexDialect']] : [])] }))
+    entries.forEach(([key, e], i) => lines.push({ text: `ip as-path access-list ${name} ${e.action} ${iosRegex(e.regex)}`, fields: [[...at, 'entries', key, 'action'], [...at, 'entries', key, 'regex'], ...(i === 0 ? [[...at, 'regexDialect']] : [])] }))
     written.asPathSets.add(name)
   }
 
@@ -105,7 +114,7 @@ export function planRoutingPolicy(rp: RoutingPolicy | undefined, skip: (field: S
     const head = numbered ? `ip community-list ${name}` : `ip community-list ${expanded ? 'expanded' : 'standard'} ${name}`
     entries.forEach(([key, e], i) =>
       lines.push({
-        text: `${head} ${e.action} ${expanded ? e.regexes![0] : e.members!.map(iosCommunity).join(' ')}`,
+        text: `${head} ${e.action} ${expanded ? iosRegex(e.regexes![0]) : e.members!.map(iosCommunity).join(' ')}`,
         fields: [[...at, 'entries', key, 'action'], [...at, 'entries', key, expanded ? 'regexes' : 'members'], ...(i === 0 ? (['type', 'regexDialect'] as const).filter((leaf) => set[leaf] !== undefined).map((leaf) => [...at, leaf]) : [])]
       })
     )

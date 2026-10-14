@@ -132,6 +132,13 @@ product decisions.
   source names and their lines listed on stderr. Messages give an interface's line, never its name (a name can be a
   secret's value reused); `--write-map` writes the names, with suggestions, to a file the user chose. Two interfaces
   never end up with one name: such answers are refused, never merged.
+- **Routing policy converts term by term** (phase 3): prefix lists, community and AS-path lists, and policies (Junos
+  policy statements, Cisco route maps). A list is converted whole or not at all, and a policy term by term, each whole or
+  not at all; the whole policy is left out when leaving a term out would change what later terms see. Regexes are kept
+  as written and never translated between platforms. Where the target treats a route no term decides differently, it
+  says so: IOS/IOS-XE, whose route maps deny such a route, adds a final permit sequence for a Junos policy that passes
+  it on (BGP's default accepts it), with a semantic warning. A BGP route map the IOS config never defines isn't
+  converted, as IOS then denies every route.
 
 ## 5. Configs and test data
 

@@ -1131,6 +1131,21 @@ describe('routing policy (model 0.5.0)', () => {
     expect(at(result, 'ip prefix-list BAD2 permit 10.0.0.0/8 ge 20 le 16')).toEqual({ kind: 'unsupported', reason: 'not a prefix length range IOS takes (the prefix\'s length < ge ≤ le ≤ the longest)' })
   })
 
+  it('keeps a quoted regex with spaces at its ends as written, and writes it back quoted, for both kinds of list', () => {
+    const text = lines('ip as-path access-list 10 permit " 65000 "', 'ip community-list expanded C permit "65000:1 "', 'ip community-list expanded D permit "_65000:2_"')
+    const result = parse(text)
+    expect(result.model.routingPolicy?.asPathSets?.['10']?.entries?.['1']?.regex).toBe(' 65000 ')
+    expect(result.model.routingPolicy?.communitySets?.C?.entries?.['1']?.regexes).toEqual(['65000:1 '])
+    // Quotes IOS doesn't need are dropped, as IOS drops them.
+    expect(result.model.routingPolicy?.communitySets?.D?.entries?.['1']?.regexes).toEqual(['_65000:2_'])
+    expect(render(result.model).text).toContain('ip as-path access-list 10 permit " 65000 "\nip community-list expanded C permit "65000:1 "\nip community-list expanded D permit _65000:2_\n')
+    expect(roundTrips(text)).toEqual([])
+    // From another platform: a regex IOS would read back otherwise (one that is itself quoted, or needs quotes and has one) isn't written.
+    const foreign = render({ routingPolicy: { asPathSets: { '10': { regexDialect: 'cisco', entries: { '1': { action: 'permit', regex: '"_1_"' } } }, '20': { regexDialect: 'cisco', entries: { '1': { action: 'permit', regex: ' a"b' } } } } } })
+    expect(foreign.text).toBe('end\n')
+    expect(foreign.dispositions['routingPolicy.asPathSets["20"].entries["1"].regex']).toMatchObject({ kind: 'unsupported' })
+  })
+
   it('keeps any name as an own key, and leaves Object.prototype alone', () => {
     const before = Object.getOwnPropertyNames(Object.prototype).sort()
     const text = lines('ip prefix-list __proto__ seq 5 permit 10.0.0.0/8', 'ip community-list standard constructor permit 65000:1', 'route-map toString permit 10', ' match ip address prefix-list __proto__', ' match community constructor')
