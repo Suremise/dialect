@@ -22,6 +22,16 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS / IOS-XE routing policy converts:** prefix lists (IPv4 and IPv6), community lists (standard, expanded and
+  numbered), AS-path access lists and route maps, and BGP neighbors' route maps now carry the policy itself, not only
+  its name. Regexes are kept as written and never translated between platforms. A route map converts sequence by
+  sequence: one that can't (`continue`, an ACL match) is listed, with the whole route map when leaving it out would
+  change what later sequences see. A Junos policy that passes undecided routes to the next policy gets a final permit
+  sequence, with a warning, as an IOS route map denies them.
+- **Every IRB unit converts:** a Junos `irb` with several units is named unit by unit (`irb.100`, `irb.200`), in the
+  Interfaces table and in map files (`irb.100,Vlan100`), and each becomes its own VLAN interface on IOS-XE and NX-OS,
+  suggested as `Vlan100`, `Vlan200`. Before, only one unit could be converted. The other way, Cisco's `Vlan100` is
+  suggested as Junos's `irb.100`, and VLAN interfaces become units of one `irb`.
 - **Junos routing policy converts:** prefix lists, communities (literal, extended and large members, and regular
   expressions, marked as Junos's), AS paths and policy-statements, with their terms' conditions (prefix lists and
   `prefix-list-filter`, route filters, communities, AS paths, protocol, neighbor, tag, family) and actions (accept,

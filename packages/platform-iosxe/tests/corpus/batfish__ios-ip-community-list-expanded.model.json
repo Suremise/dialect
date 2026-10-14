@@ -1,0 +1,36 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "system": {
+      "hostname": "ios-ip-community-list-expanded"
+    },
+    "routingPolicy": {
+      "communitySets": {
+        "cl_test": {
+          "type": "standard",
+          "regexDialect": "cisco",
+          "entries": {
+            "1": {
+              "action": "deny",
+              "regexes": [
+                "_1:1.*2:2_"
+              ]
+            },
+            "2": {
+              "action": "permit",
+              "regexes": [
+                "_1:1_"
+              ]
+            },
+            "3": {
+              "action": "permit",
+              "regexes": [
+                "_2:2_"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
