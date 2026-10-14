@@ -84,6 +84,9 @@ describe('SVIs to IRB units', () => {
     expect(after.model.interfaces?.irb.description).toBeUndefined()
     expect(modelProblems(after.model, { policyReferences: false })).toEqual([])
     expect(after.render?.text).toMatch(/unit 100 \{[^}]*description users;/)
+    // Each VLAN routes on its own unit (#66): vlans … l3-interface irb.N, none merged.
+    expect(after.render?.text).toMatch(/vlan-id 100;\n\s*l3-interface irb\.100;/)
+    expect(after.render?.text).toMatch(/vlan-id 200;\n\s*l3-interface irb\.200;/)
     expect(after.issues.filter((i) => i.kind === 'not-rendered')).toEqual([])
   })
 })
