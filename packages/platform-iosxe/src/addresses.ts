@@ -1,4 +1,17 @@
 // Addresses as IOS writes them: IPv4 with a dotted mask (`10.0.0.1 255.255.255.0`), the model with a prefix length.
+// Also the numbers parse.ts and policy.ts both read: AS numbers and integers in a range.
+
+const INTEGER = /^\d+$/
+
+/** An integer from `min` to `max`, or null. */
+export const inRange = (s: string | undefined, min: number, max: number): number | null => (s !== undefined && INTEGER.test(s) && Number(s) >= min && Number(s) <= max ? Number(s) : null)
+
+/** An AS number in plain form (`65000`, `4200000000`) or asdot (`1.10`), from 1 to 4294967295, or null. */
+export function asNumber(s: string): number | null {
+  const dot = /^(\d+)\.(\d+)$/.exec(s)
+  const n = dot ? (Number(dot[1]) <= 65535 && Number(dot[2]) <= 65535 ? Number(dot[1]) * 65536 + Number(dot[2]) : NaN) : INTEGER.test(s) ? Number(s) : NaN
+  return n >= 1 && n <= 4294967295 ? n : null
+}
 
 const IPV4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
 
