@@ -1,5 +1,6 @@
 // Junos text → the shared model, for the phase 1 areas: system (host name, domain name, DNS), interfaces with their
-// units, families and addresses, static routes (routing instances' too), NTP, syslog and SNMP.
+// units, families and addresses, static routes, routing instances (VRFs and virtual routers: their units, route
+// distinguisher and vrf-target), NTP, syslog and SNMP.
 //
 // The text is read into statements (statements.ts), groups and interface ranges are expanded (expand.ts), and each
 // statement is mapped on its own, as a `set` command says it. A statement is `mapped` only when everything it says went
@@ -10,8 +11,9 @@
 //
 // Reasons and diagnostics never quote the configuration: a value can be a secret (an SNMP community, a key), so they
 // name what a statement is and where.
-import { fieldPath, type Context, type Device, type ParseResult, type StatementDisposition, type SyntaxNode, type SyslogSeverity } from '@dialect/core'
+import { fieldPath, type Context, type Device, type Diagnostic, type ParseResult, type StatementDisposition, type SyntaxNode, type SyslogSeverity } from '@dialect/core'
 import { addressKey, isIpv4, isIpv6, parsePrefix, prefixKey } from './addresses'
+import { fromJunos, targetFromJunos } from './communities'
 import { expand, type Expanded } from './expand'
 import { ModelBuilder, type Segments } from './model'
 import { interfaceType, NOT_INTERFACES } from './names'
@@ -286,13 +288,71 @@ export function parse(text: string, _context: Context): ParseResult {
 
   // ---- routing instances
 
+  /**
+   * Each unit in a routing instance, by its subinterface's field path: the instance, and every statement that put it in
+   * one. A unit named in two instances is in neither (Junos doesn't commit that): an error, not a guess at which.
+   */
+  const members = new Map<string, { readonly sub: Segments; readonly instance: string; readonly statements: number[]; twice: boolean }>()
+  /**
+   * `instance-type` statements of a type this mapper doesn't convert (`mac-vrf`, `evpn`, `forwarding`…), by statement:
+   * their instance. One that is the instance's type in the end (it outranks every other instance-type, as a single
+   * setting does) means none of the instance's statements is converted, as its route distinguisher, targets and units
+   * mean something else there than in a VRF. One a higher-ranked type overrides is superseded like any setting.
+   */
+  const otherTypeAt = new Map<number, string>()
+  const otherTypes = new Set<string>()
+  /** Per instance, its `vrf-target`, `vrf-target import` and `vrf-target export`: the statement that set each last, and its value. */
+  const targets = new Map<string, Map<'both' | 'import' | 'export', { readonly index: number; readonly value: string }>>()
+
+  const mapMember = (instance: string, ref: string, i: number): Mutable => {
+    const m = /^(.+)\.(\d+)$/.exec(ref)
+    if (!m || NOT_INTERFACES.has(m[1]) || !/^[a-z][\w/:-]*$/i.test(m[1]) || !isInteger(m[2])) return unsupported('not an interface unit (ge-0/0/0.0): a routing instance takes units')
+    const sub = ['interfaces', m[1], 'subinterfaces', String(Number(m[2]))]
+    const key = fieldPath(...sub)
+    const member = members.get(key)
+    if (member) {
+      member.statements.push(i)
+      if (member.instance === instance) return ignored('already in the routing instance')
+      member.twice = true
+      return mapped([])
+    }
+    members.set(key, { sub, instance, statements: [i], twice: false })
+    // The instance is there even if nothing else of it is converted: the unit names it.
+    return mapped([...ensureInterface(m[1]), container(sub), container(['networkInstances', instance]), model.set([...sub, 'networkInstance'], instance)])
+  }
+
+  const mapTarget = (instance: string, t: readonly string[], i: number): Mutable => {
+    const side = t.length === 1 ? 'both' : t.length === 2 && (t[0] === 'import' || t[0] === 'export') ? t[0] : null
+    if (!side) return unsupported()
+    const value = targetFromJunos(t[t.length - 1])
+    if (!value) return unsupported(t[t.length - 1] === 'auto' ? "vrf-target auto (route targets from the AS number) isn't converted yet" : 'not a route target in a form the model has (target:ASN:nn or target:IP:nn)')
+    const state = targets.get(instance) ?? new Map()
+    targets.set(instance, state)
+    // Settled once every statement is read (an import or export overrides the plain one): a placeholder until then.
+    if (claim(`${instance}\u0000vrf-target\u0000${side}`, i)) state.set(side, { index: i, value })
+    return mapped([])
+  }
+
   const mapInstance = (w: readonly string[], i: number): Mutable => {
     const name = w[1]
     if (name === undefined || name === 'default' || name === 'master') return unsupported()
     const r = w.slice(2)
     const at = ['networkInstances', name]
     if (!r.length) return mapped([model.ensure(at)])
-    if (r[0] === 'instance-type' && r.length === 2) return r[1] === 'vrf' ? mapped([put(i, [...at, 'type'], 'vrf')]) : unsupported('routing instances other than VRFs come later')
+    if (r[0] === 'instance-type' && r.length === 2) {
+      if (r[1] === 'vrf' || r[1] === 'virtual-router') return mapped([put(i, [...at, 'type'], r[1])])
+      // It takes the type as any instance-type would, so the ranks decide which one the instance has: settled below.
+      claim(fieldPath(...at, 'type'), i)
+      otherTypeAt.set(i, name)
+      return mapped([])
+    }
+    if (r[0] === 'interface' && r.length === 2) return mapMember(name, r[1], i)
+    if (r[0] === 'route-distinguisher' && r.length === 2) {
+      const rd = fromJunos(r[1])
+      return rd ? mapped([put(i, [...at, 'routeDistinguisher'], rd)]) : unsupported('not a route distinguisher in a form the model has (ASN:nn, IP:nn or a 4-byte AS with L)')
+    }
+    if (r[0] === 'vrf-target') return mapTarget(name, r.slice(1), i)
+    if (r[0] === 'vrf-import' || r[0] === 'vrf-export') return unsupported('VRF import and export policies come later, with routing policy')
     if (r[0] === 'routing-options') return mapRoutingOptions(name, r.slice(1), i)
     return unsupported()
   }
@@ -360,6 +420,59 @@ export function parse(text: string, _context: Context): ParseResult {
     }
   }
 
+  // Each instance's route targets, now its every vrf-target statement is known: import and export override the plain one.
+  for (const [instance, state] of targets) {
+    const both = state.get('both')
+    const fields = new Map<number, string[]>()
+    for (const side of ['import', 'export'] as const) {
+      const from = state.get(side) ?? both
+      if (!from) continue
+      fields.set(from.index, [...(fields.get(from.index) ?? []), model.set(['networkInstances', instance, 'routeTargets', side], [from.value])])
+    }
+    for (const { index } of state.values()) results[index] = fields.has(index) ? mapped(fields.get(index)!) : ignored('overridden by vrf-target import and export')
+  }
+
+  // A unit named in two routing instances is in neither: Junos would refuse the configuration.
+  const diagnostics: Diagnostic[] = []
+  for (const member of members.values()) {
+    if (!member.twice) continue
+    model.remove([...member.sub, 'networkInstance'])
+    model.removeIfEmpty(member.sub)
+    model.removeIfEmpty(member.sub.slice(0, -1))
+    for (const index of member.statements) results[index] = unsupported('the unit is in two routing instances, which Junos refuses: it is left in neither')
+    const lines = [...new Set(member.statements.map((index) => statements[index].line))].sort((a, b) => a - b)
+    const first = statements[member.statements[1]]
+    diagnostics.push({
+      severity: 'error',
+      category: 'semantic',
+      code: 'junos.unit-in-two-instances',
+      // Which unit is said by the lines, not its name (a name can be a reused secret).
+      message: `A unit is in two routing instances (lines ${lines.join(', ')}): Junos accepts it in one only.`,
+      span: { startLine: first.line, startColumn: 1, endLine: first.line, endColumn: 1 },
+      statement: first.node
+    })
+  }
+
+  // An instance whose type, in the end, isn't one converted isn't converted at all, nor are its units' memberships.
+  for (const [index, name] of otherTypeAt) {
+    if (owners.get(fieldPath('networkInstances', name, 'type')) !== index) continue
+    results[index] = unsupported('routing instances other than VRFs and virtual routers come later')
+    otherTypes.add(name)
+  }
+  for (const name of otherTypes) {
+    model.remove(['networkInstances', name])
+    model.removeIfEmpty(['networkInstances'])
+    for (const member of members.values()) {
+      if (member.instance !== name) continue
+      model.remove([...member.sub, 'networkInstance'])
+      model.removeIfEmpty(member.sub)
+      model.removeIfEmpty(member.sub.slice(0, -1))
+    }
+    statements.forEach((s, i) => {
+      if (startsWith(s.words, ['routing-instances', name]) && results[i].kind !== 'unsupported') results[i] = unsupported("the routing instance's type isn't converted, so none of it is")
+    })
+  }
+
   // A community with a setting that can't be converted isn't converted at all.
   for (const name of tainted) {
     model.remove(['system', 'snmp', 'communities', name])
@@ -373,7 +486,7 @@ export function parse(text: string, _context: Context): ParseResult {
     })
   }
 
-  return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics] }
+  return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics, ...diagnostics] }
 }
 
 /**

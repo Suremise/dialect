@@ -16,6 +16,11 @@
   keyboard focus shows.
 
 ### Convert
+- **Junos routing instances convert:** VRFs and virtual routers, with their units, route distinguisher and vrf-target
+  (one target or an import and export), to and from the model, so their interfaces stay in the right VRF. A unit in two
+  instances is an error, as on the device, and instance types Dialect doesn't convert yet (mac-vrf, EVPN) are listed as
+  not converted. Writing a VRF to Junos that the source gives without a route distinguisher or route targets asks for
+  them rather than making them up.
 - **Junos to Cisco IOS / IOS-XE** on the command line: `dialect convert --from junos --to iosxe [--map file]
   [--allow-incomplete] <file|->`. What didn't carry over is listed on stderr by line, with the reason, and never quotes
   the config.

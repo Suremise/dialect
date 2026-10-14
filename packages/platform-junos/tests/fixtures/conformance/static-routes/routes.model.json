@@ -1,6 +1,16 @@
 {
-  "modelVersion": "0.2.0",
+  "modelVersion": "0.3.0",
   "device": {
+    "interfaces": {
+      "ge-0/0/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "10": {
+            "networkInstance": "CUST-A"
+          }
+        }
+      }
+    },
     "networkInstances": {
       "default": {
         "staticRoutes": {

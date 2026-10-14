@@ -12,6 +12,7 @@ export { parseConfig, type ConfigNode, type ParsedConfig, type ParseWarning, typ
 export { annotationWarnings, displaySet, flatten, type DisplaySetError, type DisplaySetResult, type SetLine } from './displaySet'
 export { detect } from './detect'
 export { parse } from './parse'
-export { render } from './render'
+export { render, routeDistinguisherInputId, routeTargetInputId } from './render'
+export { fromJunos, targetFromJunos, toJunos } from './communities'
 export { isSetForm, readConfig, type ReadConfig, type Statement } from './statements'
 export { expand, memberRange, type Expanded, type Expansion } from './expand'
