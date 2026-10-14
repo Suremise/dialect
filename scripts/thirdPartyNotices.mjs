@@ -50,7 +50,8 @@ export const SUPPLEMENTS = {}
 export const OTHER = [
   { title: 'NSIS (the installer)', file: 'nsis.md' },
   { title: 'nsis_tauri_utils (the installer\'s plug-in)', file: 'nsis-tauri-utils.md' },
-  { title: 'Microsoft WebView2 loader (in the desktop app)', file: 'webview2-loader.md' }
+  { title: 'Microsoft WebView2 loader (in the desktop app)', file: 'webview2-loader.md' },
+  { title: 'Node.js (the runtime inside the standalone dialect.exe)', file: 'node.md' }
 ]
 
 /**

@@ -126,12 +126,32 @@ describe('the desktop platform', () => {
 })
 
 describe('the Tauri config', () => {
-  it('builds an NSIS installer only, per user, with zlib, the default WebView2 mode and the signing hook', () => {
+  it('builds an NSIS installer only, per user, with zlib, its hooks, the WebView2 bootstrapper inside and the signing hook', () => {
     expect(config.bundle.targets).toEqual(['nsis'])
-    expect(config.bundle.windows.nsis).toEqual({ installMode: 'currentUser', compression: 'zlib', installerIcon: '../../../branding/out/icon.ico', uninstallerIcon: '../../../branding/out/icon.ico' })
-    // The default (downloadBootstrapper): not set.
-    expect(config.bundle.windows.webviewInstallMode).toBeUndefined()
+    expect(config.bundle.windows.nsis).toEqual({ installMode: 'currentUser', compression: 'zlib', installerIcon: '../../../branding/out/icon.ico', uninstallerIcon: '../../../branding/out/icon.ico', installerHooks: 'windows/hooks.nsh' })
+    // Darren's choice C (#89): this installer embeds the bootstrapper; scripts/build-installers.mjs builds the offline one.
+    expect(config.bundle.windows.webviewInstallMode).toEqual({ type: 'embedBootstrapper' })
     expect(config.bundle.windows.signCommand).toBe('node ../scripts/sign.mjs %1')
+  })
+
+  it('installs the standalone dialect command as cli\\dialect.exe, built before the app (the app is dialect.exe)', () => {
+    expect(config.bundle.resources).toEqual({ '../../../packages/cli/dist/dialect.exe': 'cli/dialect.exe' })
+    expect(config.build.beforeBuildCommand).toBe('npm run frontend && npm run build:exe -w @dialect/cli')
+  })
+
+  it("asks to put the command on the user's PATH after installing (yes by default, also silent), and takes it off on uninstall", () => {
+    const hooks = readFileSync(join(tauri, 'windows', 'hooks.nsh'), 'utf8')
+    const macro = (name: string) => hooks.slice(hooks.indexOf(`!macro ${name}`), hooks.indexOf('!macroend', hooks.indexOf(`!macro ${name}`)))
+    expect(macro('NSIS_HOOK_POSTINSTALL')).toMatch(/MessageBox MB_YESNO\|MB_ICONQUESTION ".*PATH.*" \/SD IDYES IDNO \w+/)
+    expect(macro('NSIS_HOOK_POSTINSTALL')).toContain('!insertmacro DIALECT_EDIT_PATH 1')
+    expect(macro('NSIS_HOOK_POSTUNINSTALL')).toContain('!insertmacro DIALECT_EDIT_PATH 0')
+    // The user's PATH (no admin), unexpanded, with the folder passed in an environment variable, never quoted into a command.
+    const edit = macro('DIALECT_EDIT_PATH')
+    expect(edit).toContain("'HKCU:\\Environment'")
+    expect(edit).toContain("GetValue('Path', '', 'DoNotExpandEnvironmentNames')")
+    expect(edit).toContain('-Type ExpandString')
+    expect(edit).toContain('SetEnvironmentVariable(t "DIALECT_CLI_DIR", t "$INSTDIR\\cli")')
+    expect(edit).not.toMatch(/-Command "[^"]*\$INSTDIR/)
   })
 
   it('gives the installer (the setup file and its window) and the uninstaller the Dialect icon', () => {

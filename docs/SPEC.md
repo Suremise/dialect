@@ -61,7 +61,12 @@ product decisions.
   (`apps/desktop/scripts/sign.mjs`) that signs only when `DIALECT_SIGN_COMMAND` is set. A **strict CSP** (nothing remote,
   no inline code, IPC only). Open and save go through the system dialogs, and the app can read and write only the
   files the user picks there; a dropped file is read from the drop itself. Agents build the installer and run the
-  smoke test, but **never run the installer**: Darren installs and tests it himself. The **Dialect icon** is on the
+  smoke test, but **never run the installer**: Darren installs and tests it himself. **Nothing Dialect ships needs a
+  prerequisite** (Darren, #89): the CLI is also a standalone `dialect.exe` (Node's single executable application, its
+  runtime's licenses in the notices), which the installer installs (`cli\dialect.exe`) with an option, on by default,
+  to add it to the user's PATH. **Two installers** (Darren's choice C): the normal one embeds Microsoft's WebView2
+  bootstrapper (`embedBootstrapper`: needs internet only where WebView2 is missing, rare on Windows 10 and 11), the
+  offline one Microsoft's offline WebView2 installer (`offlineInstaller`). The **Dialect icon** is on the
   installer, the window and taskbar, and in the **notification area** (#82): left-click shows the window, the menu has
   Show Dialect, New tab and Quit, and Quit goes through the close guard. **Closing the window quits the app**: no
   minimise-to-tray, as Dialect needn't run in the background (Darren's decision; a setting only if he asks).

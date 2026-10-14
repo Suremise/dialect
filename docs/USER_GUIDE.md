@@ -9,20 +9,26 @@ Juniper Networks or Cisco Systems.
 ## Getting Dialect
 
 - **Desktop app** (Windows): `Dialect_<version>_x64-setup.exe` installs Dialect for you alone, with no admin rights,
-  and adds it to the Start menu; uninstall it from Settings → Apps. It uses WebView2, which is part of Windows 10 and 11
-  (the installer downloads it only if it's missing). Open and Save output use the usual Windows dialogs, and you can
+  and adds it to the Start menu; uninstall it from Settings → Apps. It also installs the `dialect` command (below) and
+  asks whether to add it to your PATH (yes unless you say no), so a new terminal can run `dialect`; uninstalling takes
+  both away. Dialect uses WebView2, which is part of Windows 11 and an up-to-date Windows 10; on a PC without it, the
+  installer installs it, which needs internet. For a PC with no internet, use `Dialect_<version>_x64-offline-setup.exe`
+  instead: the same, with Microsoft's WebView2 installer inside. Open and Save output use the usual Windows dialogs, and you can
   drop a file on the window. The Dialect icon is on the installer, the window and the taskbar, and in the notification
   area while Dialect runs: click it to bring the window back, or right-click it for **Show Dialect**, **New tab** and
   **Quit** (which asks first while output is unsaved, as closing the window does; closing the window quits Dialect).
   The app reads and writes only the files you pick, and reaches no network. Until Dialect
   has a code-signing certificate the installer is unsigned, so Windows SmartScreen may warn about it: choose **More
-  info** → **Run anyway**. Until there's a release, build it from a checkout with `npm run build -w @dialect/desktop`
-  (needs Rust), which writes the installer to `apps/desktop/src-tauri/target/release/bundle/nsis/`.
+  info** → **Run anyway**. Until there's a release, build both installers from a checkout with `npm run
+  build:installers -w @dialect/desktop` (needs Rust), which writes them to
+  `apps/desktop/src-tauri/target/release/bundle/nsis/`.
 - **Web build**: one HTML file, `dialect.html`, opened from disk with no install and no server. Open it in Edge or
   Chrome. Until there's a release, build it from a checkout with `npm run build -w @dialect/web`, which writes
   `apps/web/dist/dialect.html`. The page can't reach the network at all: its content security policy allows only its
   own built-in code.
-- **Command line**: the `dialect` command, on Node 24.
+- **Command line**: the `dialect` command, needing nothing installed: the desktop installer adds it, or download
+  `dialect-cli.exe` on its own (one file; rename it `dialect.exe` to type `dialect`). If you have Node 24, the
+  `dialect.mjs` build runs on it too.
 
 ## Your configs stay on your computer
 
@@ -295,8 +301,10 @@ platforms let neighbor discovery through before the implicit deny, and others do
 
 `dialect display-set` and `dialect convert`: files, stdin and stdout, and exit codes.
 
-The command needs Node 24. Until there's a release, build it from a checkout with `npm run build -w @dialect/cli`,
-which writes one file, `packages/cli/dist/dialect.mjs`, and run that with `node`.
+The command needs nothing installed: `dialect.exe` (installed with the desktop app, or the `dialect-cli.exe`
+download) has its own runtime. Until there's a release, build it from a checkout with `npm run build:exe -w
+@dialect/cli`, which writes `packages/cli/dist/dialect.exe`; or with Node 24, `npm run build -w @dialect/cli` writes
+`packages/cli/dist/dialect.mjs`, which you run with `node`.
 
 ### display-set
 
