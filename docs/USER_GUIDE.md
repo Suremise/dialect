@@ -122,7 +122,8 @@ The output is what `show configuration | display set` prints on the device:
 Convert translates a config from one platform to another: from any of **Junos, Cisco IOS / IOS-XE, Cisco NX-OS and
 Cisco IOS-XR** to any other (see [Supported platforms and features](#supported-platforms-and-features)). Dialect reads
 the source config into a model of what it configures (system, DNS, interfaces with their VRFs, static routes, NTP,
-syslog and SNMP so far) and writes that model in the target platform's syntax.
+syslog, SNMP, VLANs and switch ports, OSPF, BGP, routing policy and access lists, as far as each platform goes) and
+writes that model in the target platform's syntax.
 
 Nothing is dropped silently. Every line of the source is either converted, left out on purpose (with why), or marked
 as not converted, and every setting is either written or marked as one the target can't say (a Junos `reject` route
@@ -194,21 +195,57 @@ Which platforms and which parts of a config each one reads and writes.
 
 Convert goes from any of them to any other, in the app and on the command line. Each converts system settings (host
 name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP, syslog and SNMP; what one can't read
-or write is listed as not converted, with why. Junos also converts VLANs, switch ports (access and trunk, with a
-native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches (the older non-ELS syntax is listed
-as not converted), OSPF and BGP (areas and interfaces, groups and neighbors), and routing policy: prefix lists,
-communities, AS paths and AS-path groups and policy-statements, with the policies BGP and VRFs import and export, and firewall filters (inet
-and inet6) with the units they're applied on. A policy or a filter converts term by
-term: a term Dialect can't convert in full is listed as not converted, whole, and when leaving it out would change
-what a later term does, the whole policy is. Regular expressions are kept as written and never translated to another
-platform's. Keys (OSPF and BGP authentication) are never carried over: Dialect asks you for each one. Cisco NX-OS also converts VLANs,
-switch ports (access and trunk), VLAN interfaces, OSPF and BGP; an OSPF key or a BGP password is never carried, so
-converting to NX-OS asks for it. Cisco IOS-XR also converts OSPF and BGP; converting to IOS-XR asks for an OSPF key or
-a BGP password the same way, and for a route policy for each eBGP neighbor that has none, since IOS-XR exchanges no
-routes with it without one. On both, a VRF's BGP neighbor that inherits a global peer template (NX-OS `inherit peer`)
-or neighbor group (IOS-XR `use neighbor-group`) converts with it. Converting to NX-OS or IOS-XR writes a VRF's group
-as one template for the whole `router bgp` when it is the same as the global group of its name (or, with none, as
-every other VRF's group of that name), and lists one that differs, or that no neighbor of its VRF uses.
+or write is listed as not converted, with why.
+
+**VLANs and switch ports.** Junos converts VLANs (with their names and descriptions), switch ports (access and trunk,
+with a native VLAN) and IRB interfaces, in the ELS syntax of today's EX and QFX switches; the older non-ELS syntax, a
+`vlan-id-list` and an IRB unit that routes for no VLAN are listed as not converted. Cisco IOS / IOS-XE and NX-OS
+convert VLANs and their names, access and trunk switch ports (allowed VLANs with `add`, `remove`, `except`, `all` and
+`none`, a native VLAN) and VLAN interfaces (`interface VlanN`); other switch port modes (`dynamic`, `dot1q-tunnel`,
+private VLANs) are listed as not converted. Neither writes a VLAN description, nor a VLAN name with a space in it.
+Converting to NX-OS writes the `feature` lines the config needs, and a routed VLAN only once you name it `Vlan` and its
+VLAN ID (`Vlan100`), with a warning otherwise. Cisco IOS-XR converts no Layer 2 yet: VLANs, switch ports and routed
+VLAN interfaces are listed as not converted, both ways (VLAN-tagged subinterfaces do convert). IRB units and VLAN
+interfaces are named as [Interface names](#interface-names) says.
+
+**OSPF.** Every platform converts OSPF, one process per routing table (the global one and each VRF's): the router ID,
+areas (stub, NSSA, authentication) and their interfaces (cost, point-to-point or broadcast, passive, hello and dead
+intervals). Cisco IOS / IOS-XE enables OSPF on an interface with `ip ospf … area` or a `network` statement, NX-OS with
+`ip router ospf … area` on the interface, IOS-XR by listing the interface in its area, where it takes the area's and
+the process's settings; Junos lists the interface in its area. A second process in one table, `ospf3` (OSPFv3) and,
+on NX-OS, `network` statements are listed as not converted. Converting a config that enables OSPF with `network`
+statements warns that an interface added later in their ranges won't join: the target enables it on the interfaces
+the config has now (IOS / IOS-XE with an exact `network … 0.0.0.0` for each). A Junos source has no process number or
+name: the target uses `1`.
+
+**BGP.** Every platform converts BGP: the local AS and the router ID, neighbors and their groups (Junos groups, IOS
+peer groups, NX-OS peer templates, IOS-XR neighbor groups), each with its peer AS, description, update source (Junos:
+local address), eBGP multihop, IPv4 and IPv6 unicast, and the route policies it imports and exports, in the global
+table and in VRFs. Other address families, neighbor ranges (dynamic peers), NX-OS session and policy templates and
+IOS-XR session and address family groups are listed as not converted, and so is what a target has no form for: a
+local address on the Cisco platforms (they take an update source interface), an update source on Junos. On NX-OS and
+IOS-XR, a VRF's BGP neighbor that inherits a global peer template (NX-OS `inherit peer`) or neighbor group (IOS-XR
+`use neighbor-group`) converts with it. Converting to NX-OS or IOS-XR writes a VRF's group as one template for the
+whole `router bgp` when it is the same as the global group of its name (or, with none, as every other VRF's group of
+that name), and lists one that differs, or that no neighbor of its VRF uses.
+
+Where the platforms behave differently, a warning says so. An eBGP neighbor with no route policy one way exchanges
+every route that way on Junos, IOS / IOS-XE and NX-OS, and none on IOS-XR (RFC 8212): converting from one to the other
+warns, and converting to IOS-XR leaves such a neighbor needing a route policy, which Dialect never makes up. A BGP
+neighbor with no address family carries no routes on NX-OS and IOS-XR, which warn.
+
+**Keys and passwords are never carried over**, nor written as a placeholder: an OSPF key (or the name of a key chain)
+and a BGP password are left out of the converted config, each listed as needing input. Dialect can't take these
+answers yet, so add them to the converted config yourself before using it. The same goes for a route policy for an
+IOS-XR eBGP neighbor that has none, and for a route distinguisher or route targets that a Junos VRF needs and the
+source doesn't give. On the command line, `convert` gives each one's line (`needs input`) and exits 3 unless you
+give `--allow-incomplete`.
+
+Junos also converts routing policy: prefix lists, communities, AS paths and AS-path groups and policy-statements,
+with the policies BGP and VRFs import and export, and firewall filters (inet and inet6) with the units they're applied
+on. A policy or a filter converts term by term: a term Dialect can't convert in full is listed as not converted,
+whole, and when leaving it out would change what a later term does, the whole policy is. Regular expressions are kept
+as written and never translated to another platform's.
 
 Cisco IOS-XR also converts routing policy in RPL's simple forms: prefix sets, community sets (communities and
 `ios-regex`), AS-path sets (`ios-regex`), and route policies made of flat `if … then … endif` blocks (with an `else`)
@@ -303,7 +340,9 @@ router.conf:74:1: warning: not converted: routing protocols come later
 ```
 
 `--map` gives the interfaces' names on the target (see [Interface names](#interface-names)). While an interface has no
-name, `convert` writes no config: it gives each unnamed interface's line and exits 3. `--allow-incomplete` writes the
+name, `convert` writes no config: it gives each unnamed interface's line and exits 3. It does the same while the
+target needs something Dialect can't take yet (a key, a password, an IOS-XR route policy for an eBGP neighbor; see
+[Supported platforms and features](#supported-platforms-and-features)), giving its line with `needs input`. `--allow-incomplete` writes the
 config anyway, after a warning giving their lines; they keep their Junos names in the output, so it isn't ready for a
 device. Options can also be written `--from=junos`.
 
@@ -325,7 +364,7 @@ it, fill in the rest and give it back with `--map names.csv`; a line with no nam
 | 0 | Done. There may be warnings on stderr. |
 | 1 | The config has a syntax error (on stderr, with its line and column). |
 | 2 | A usage error (an unknown command or option, a missing or extra file, a map file it can't read), or a file can't be read. |
-| 3 | `convert`: interfaces have no name on the target. Give them with `--map`, or use `--allow-incomplete`. |
+| 3 | `convert`: interfaces have no name on the target, or it needs a key, a password or another answer. Give the names with `--map`, or use `--allow-incomplete`. |
 
 `dialect --help` lists the commands, and `dialect --version` prints the version.
 

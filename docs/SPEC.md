@@ -122,6 +122,15 @@ product decisions.
   ethernet-switching` and IRB, converted from model 0.4), not the older non-ELS syntax, which shows as `unsupported`. Both the hierarchical and
   the set form are read, and `apply-groups` and `interface-range` are expanded before mapping. SRX security zones,
   policies and NAT come later: until then they show as `unsupported` in the ledger, never dropped.
+- **Switching, OSPF and BGP (phase 2, model 0.4):** VLANs, access and trunk switch ports and routed VLAN interfaces
+  (Junos ELS and IRB, IOS / IOS-XE and NX-OS `interface VlanN`; IOS-XR's Layer 2 not yet, `unsupported` both ways),
+  OSPFv2 (one process per network instance, areas and their interfaces) and BGP (local AS, groups and neighbors, IPv4
+  and IPv6 unicast, the policies they import and export), in the global table and in VRFs, on every platform. How a
+  platform enables OSPF (`network` statements, per interface) and what it does with an eBGP neighbor that has no
+  policy (accepts, or rejects as IOS-XR does under RFC 8212, model 0.4.1) are kept with the model, and a target that
+  differs warns. **Keys and passwords are never carried**: each is a `secret` needs-input item, written only from an
+  answer, never as a placeholder. The CLI and the app don't take such answers yet: until they do, an unanswered one
+  leaves its line out, and the CLI exits 3 unless `--allow-incomplete`.
 - **Routing policy (phase 3, model 0.5):** prefix lists, community and AS-path sets and policies convert **term by
   term**: a term converts whole or not at all, and when leaving one out could change what a later term sees, the whole
   policy is left out. A regular expression is never translated between dialects, a policy's fall-through (Junos goes
