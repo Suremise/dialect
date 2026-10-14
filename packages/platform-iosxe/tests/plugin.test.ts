@@ -721,7 +721,7 @@ describe('VLANs, switch ports and VLAN interfaces (model 0.4.0)', () => {
     expect(trunk.result.model.interfaces?.Gi1?.switching).toBeUndefined()
 
     const svi = byText(['vlan 10', 'interface Vlan10', ' ip address 192.0.2.1 255.255.255.0', 'no vlan 10'].join('\n'))
-    expect(svi.result.model.interfaces).toEqual({})
+    expect(svi.result.model.interfaces).toBeUndefined()
     expect(svi.at('interface Vlan10')).toEqual({ kind: 'unsupported', reason: 'left out whole: it routes for a VLAN line 4 deletes' })
     expect(svi.at('ip address 192.0.2.1 255.255.255.0')).toEqual({ kind: 'unsupported', reason: 'left out whole: it routes for a VLAN line 4 deletes' })
     for (const r of [access, trunk, svi]) expect(buildLedger(r.result).complete).toBe(true)
@@ -739,6 +739,27 @@ describe('VLANs, switch ports and VLAN interfaces (model 0.4.0)', () => {
     expect(recreated.model.interfaces?.Gi2?.switching).toEqual({ allowedVlans: ['10'] })
     expect(recreated.diagnostics.map((d) => d.code)).toEqual(['iosxe.vlan-created'])
     expect(parse(['vlan 10', 'interface Gi1', ' switchport access vlan 10', 'no vlan 10'].join('\n')).model.interfaces?.Gi1?.switching).toBeUndefined()
+  })
+
+  it('keeps a VLAN an access VLAN created when the port moves on, until "no vlan" deletes it again', () => {
+    const svi = ['interface Vlan10', ' ip address 192.0.2.1 255.255.255.0']
+    for (const next of [' no switchport access vlan', ' switchport access vlan 20', ' no switchport']) {
+      const result = parse(['vlan 10', 'no vlan 10', 'interface Gi1', ' switchport mode access', ' switchport access vlan 10', next, ...svi].join('\n'))
+      expect(result.model.vlans?.['10'], next).toEqual({})
+      expect(result.model.interfaces?.Vlan10?.subinterfaces?.['0']?.ipv4?.addresses, next).toEqual({ '192.0.2.1': { prefixLength: 24 } })
+      expect(result.diagnostics.filter((d) => d.field === 'vlans["10"]'), next).toHaveLength(1)
+    }
+    const again = byText(['vlan 10', 'no vlan 10', 'interface Gi1', ' switchport access vlan 10', ' no switchport access vlan', ...svi, 'no vlan 10'].join('\n'))
+    expect(again.result.model.vlans).toBeUndefined()
+    expect(again.result.model.interfaces?.Vlan10).toBeUndefined()
+    expect(again.at('no vlan 10')).toBeDefined()
+    expect(again.result.diagnostics).toEqual([])
+  })
+
+  it('leaves no empty interfaces behind when the only one is a deleted VLAN\'s interface', () => {
+    const text = ['vlan 10', 'interface Vlan10', ' ip address 192.0.2.1 255.255.255.0', 'no vlan 10'].join('\n')
+    expect(parse(text).model).toEqual({})
+    expect(roundTrips(text)).toEqual([])
   })
 
   it('removes VLANs with "no vlan", but never a default one', () => {

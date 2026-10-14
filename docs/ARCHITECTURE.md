@@ -411,8 +411,9 @@ and `nameInterface`.
     statement using it, with a parse warning, `iosxe.vlan-created`, naming it by `field` only; VLAN 1, which IOS always
     has, gets none. A VLAN `no vlan` deleted (and no later `vlan` defines again) isn't brought back: its ports are
     inactive and its VLAN interface down on the device, which the model can't say, so a switch port using it is left
-    out whole (its `switchport` statements `unsupported`) and so is its VLAN interface, with its addresses. An access
-    VLAN set after the deletion is the exception: IOS creates the VLAN again, for every port using it.
+    out whole (its `switchport` statements `unsupported`) and so is its VLAN interface, with its addresses. A
+    `switchport access vlan` creates a VLAN that doesn't exist, one deleted before too, where it is read, as IOS does:
+    it stays when the port moves on to another VLAN or becomes routed, until a later `no vlan` deletes it again.
 - **Render (`render.ts`):** gives every leaf of model 0.3, and of 0.4's VLANs, switch ports and routed VLANs, a
   disposition (DNS as one `ip name-server` line per server) and leaves the rest (OSPF, BGP, a later version's fields)
   without one, so the ledger reports them. VLANs come first (`vlan N`, ` name X`; VLAN 1, always there, isn't written,

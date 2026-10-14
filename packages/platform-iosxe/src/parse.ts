@@ -261,6 +261,8 @@ export function parse(text: string, _context: Context): ParseResult {
   const switchports = new Map<string, IosNode[]>()
   /** Per interface: the VLANs its trunk allows (none here: every VLAN, IOS's default), and the statements that say so. */
   const trunks = new Map<string, { readonly ids: ReadonlySet<number>; readonly nodes: IosNode[] }>()
+  /** VLANs a `switchport access vlan` created, as IOS does, with no `vlan` statement since: by that statement. */
+  const createdBy = new Map<number, IosNode>()
   /** Per Vlan interface: its `interface VlanN` statement, which says the VLAN it routes for. */
   const svis = new Map<string, IosNode[]>()
 
@@ -334,7 +336,14 @@ export function parse(text: string, _context: Context): ParseResult {
     }
     if (a[0] === 'access' && a[1] === 'vlan' && a.length === 3) {
       const id = vlanId(a[2])
-      return id === null ? unsupported('not a VLAN ID from 1 to 4094') : setting(settings.access, id)
+      if (id === null) return unsupported('not a VLAN ID from 1 to 4094')
+      const d = setting(settings.access, id)
+      // IOS creates an access VLAN that doesn't exist, one `no vlan` deleted too, and it stays when the port moves on.
+      if (model.get(['vlans', String(id)]) !== undefined || d.kind !== 'mapped') return d
+      model.object(['vlans', String(id)])
+      deletions.delete(id)
+      createdBy.set(id, node)
+      return mapped([...d.fields, fieldPath('vlans', String(id))])
     }
     if (a[0] === 'trunk' && a[1] === 'native' && a[2] === 'vlan' && a.length === 4) {
       const id = vlanId(a[3])
@@ -995,6 +1004,7 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const id of ids) {
       model.object(['vlans', String(id)])
       deletions.delete(id)
+      createdBy.delete(id)
     }
     const [only] = ids.size === 1 ? ids : []
     for (const child of node.children) {
@@ -1025,6 +1035,9 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const id of ids) {
       if (DEFAULT_VLANS.has(id)) continue
       deletions.set(id, node)
+      const creator = createdBy.get(id)
+      if (creator) lines.push(line(creator))
+      createdBy.delete(id)
       for (const [n, defined] of vlanStatements) {
         if (!defined.delete(id)) continue
         lines.push(line(n))
@@ -1185,28 +1198,20 @@ export function parse(text: string, _context: Context): ParseResult {
   }
 
   // VLANs a switch port or VLAN interface uses that the text doesn't define (a switch in VTP server mode keeps its VLANs
-  // out of the configuration, and IOS creates an access VLAN a port names): kept as VLANs with no name, mapped by the
-  // first statement that uses them, which a render writes. A warning says so, by field (value-free), except for VLAN 1,
-  // which IOS always has and never writes.
+  // out of the configuration, and IOS creates an access VLAN a port names, as it was read): kept as VLANs with no name,
+  // mapped by the first statement that uses (or created) them, which a render writes. A warning says so, by field
+  // (value-free), except for VLAN 1, which IOS always has and never writes.
   //
-  // A VLAN `no vlan` deleted (and no later `vlan` defined again) is another matter: the device has no such VLAN, its
-  // ports are inactive and its VLAN interface is down, which the model can't say, so they are left out rather than the
-  // VLAN brought back. The exception is an access VLAN set after the deletion, which IOS creates again itself (for
-  // every port that uses it).
-  const uses = new Map<number, IosNode>()
+  // A VLAN `no vlan` deleted (and nothing created or defined again since) is another matter: the device has no such
+  // VLAN, its ports are inactive and its VLAN interface is down, which the model can't say, so they are left out rather
+  // than the VLAN brought back.
+  const uses = new Map<number, IosNode>(createdBy)
   const use = (id: unknown, node: IosNode | undefined) => {
     if (typeof id === 'number' && node && !uses.has(id)) uses.set(id, node)
   }
-  const interfaces = Object.entries((model.root as Device).interfaces ?? {})
-  for (const [name, iface] of interfaces) {
-    const access = iface.switching?.accessVlan
-    const owner = owners.get(fieldPath('interfaces', name, 'switching', 'accessVlan'))
-    const deletion = access === undefined ? undefined : deletions.get(access)
-    if (deletion && owner && line(owner) > line(deletion)) deletions.delete(access!)
-  }
   /** The `no vlan` that deleted VLAN `id`, when it is still gone. */
   const deletedBy = (id: unknown): IosNode | undefined => (typeof id === 'number' ? deletions.get(id) : undefined)
-  for (const [name, iface] of interfaces) {
+  for (const [name, iface] of Object.entries((model.root as Device).interfaces ?? {})) {
     const s = iface.switching
     const owner = (leaf: string) => owners.get(fieldPath('interfaces', name, 'switching', leaf))
     const trunk = trunks.get(name)
@@ -1218,6 +1223,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (routedGone) {
       // The VLAN interface of a deleted VLAN: left out whole, with its addresses.
       model.remove(['interfaces', name])
+      model.removeIfEmpty(['interfaces'])
       const why = unsupported(`left out whole: it routes for a VLAN line ${line(routedGone)} deletes`)
       const all = (n: IosNode): IosNode[] => [n, ...n.children.flatMap(all)]
       for (const n of svi.flatMap(all)) if (n.kind !== 'comment') set(n, why)
@@ -1237,10 +1243,13 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const id of singles) use(id, lastTrunk)
   }
   for (const [id, node] of uses) {
-    if (model.get(['vlans', String(id)]) !== undefined) continue
-    const field = model.set(['vlans', String(id)], {})
-    const d = dispositions[node.id]
-    if (d?.kind === 'mapped') dispositions[node.id] = mapped([...d.fields, field])
+    const field = fieldPath('vlans', String(id))
+    if (!createdBy.has(id)) {
+      if (model.get(['vlans', String(id)]) !== undefined) continue
+      model.set(['vlans', String(id)], {})
+      const d = dispositions[node.id]
+      if (d?.kind === 'mapped') dispositions[node.id] = mapped([...d.fields, field])
+    }
     if (id !== 1) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.vlan-created', message: 'A VLAN a switch port or VLAN interface uses has no "vlan" statement in the text: it is kept with no name, and a render writes it.', field, statement: node.id })
   }
 
