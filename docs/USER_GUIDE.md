@@ -31,7 +31,8 @@ The desktop app and the web build look and work the same: a menu bar at the top,
 you're on below that.
 
 - **One tab per job.** **File → New Tab…** (Ctrl+T), or **+** at the end of the tab strip, asks what you're doing:
-  **Display set (Junos)**, or **Convert: Junos → Cisco IOS / IOS-XE**. Each tab keeps its own source, output,
+  **Display set (Junos)**, or **Convert** from one platform to another (Junos, Cisco IOS / IOS-XE, Cisco NX-OS or
+  Cisco IOS-XR, chosen in the two lists). Each tab keeps its own source, output,
   problems, interface names and undo history, so several configs can be open at once. New platforms and tools appear
   in this list as Dialect gains them.
 - **A tab's title** is its file name and job, such as `phase1.conf → IOS-XE` (`Untitled` until you open a file). A
@@ -115,16 +116,17 @@ The output is what `show configuration | display set` prints on the device:
 
 ## Convert
 
-Convert translates a config from one platform to another: for now, **Junos to Cisco IOS / IOS-XE**. Dialect reads the
-Junos config into a model of what it configures (system, DNS, interfaces, static routes, NTP, syslog and SNMP so far)
-and writes that model as IOS-XE.
+Convert translates a config from one platform to another: from any of **Junos, Cisco IOS / IOS-XE, Cisco NX-OS and
+Cisco IOS-XR** to any other (see [Supported platforms and features](#supported-platforms-and-features)). Dialect reads
+the source config into a model of what it configures (system, DNS, interfaces with their VRFs, static routes, NTP,
+syslog and SNMP so far) and writes that model in the target platform's syntax.
 
 Nothing is dropped silently. Every line of the source is either converted, left out on purpose (with why), or marked
-as not converted, and every setting is either written or marked as one IOS-XE can't say (a `reject` route, say). These
-are listed as warnings, by line, with the reason.
+as not converted, and every setting is either written or marked as one the target can't say (a Junos `reject` route
+on IOS-XE, say). These are listed as warnings, by line, with the reason.
 
-In the app, open a convert tab (**File → New Tab…**, then **Convert: Junos → Cisco IOS / IOS-XE**); the target
-platform can be changed at the top of the tab. Then open, drop or paste a Junos config as in display set. The IOS-XE config appears on the right as you type. Below, the **Problems**
+In the app, open a convert tab (**File → New Tab…**, then **Convert**, with the platform to convert from and the one
+to convert to); both can be changed at the top of the tab. Then open, drop or paste the config as in display set. The target platform's config appears on the right as you type. Below, the **Problems**
 panel lists what didn't carry over. The same lines are marked in the source's gutter, with the reason on hover, and
 clicking a problem shows its line. The **Interfaces** table lists every interface to name (see below). Moving the
 cursor in one pane marks the matching lines in the other. Copy output and Save output work as in display set; a saved
@@ -132,23 +134,24 @@ conversion is named after the source with the target's name (`edge-1.conf` → `
 
 ### Interface names
 
-Junos and IOS name interfaces differently, and only you know how the ports line up on the new device, so Dialect never
-renames an interface on its own. Every interface the config names, as an interface or in a next hop or a source
-interface, needs a name on the target. Dialect suggests one where the name makes it likely (`ge-0/0/0` →
+Each platform names interfaces its own way (Junos `ge-0/0/0`, IOS `GigabitEthernet0/0/0`, NX-OS `Ethernet1/1`, IOS-XR
+`GigabitEthernet0/0/0/0`), and only you know how the ports line up on the new device, so Dialect never renames an
+interface on its own. Every interface the config names, as an interface or in a next hop or a source interface, needs a
+name on the target. Dialect suggests one where the name makes it likely (from Junos to IOS-XE: `ge-0/0/0` →
 `GigabitEthernet0/0/0`, `xe-0/1/0` → `TenGigabitEthernet0/1/0`, `lo0` → `Loopback0`), but a suggestion is only used once
 you take it.
 
 In the app, name them in the **Interfaces** table: type a name, click **Use** to take a row's suggestion, or **Use
-suggestions** to take every one at once. Until an interface has a name, it is marked, keeps its Junos name in the
+suggestions** to take every one at once. Until an interface has a name, it is marked, keeps its source name in the
 output, and the output pane says the conversion is incomplete. **Load map…** reads a map file (below) and **Save
 map** writes your names to one, for next time or for the command line. The names stay while you edit the config; opening
 another config starts with none, since its ports may be different ones.
 
 On the command line, give the names in a map file, with `--map`. A map file is either one `from,to` pair per line
-(`#` starts a comment, and blank lines are fine):
+(`#` starts a comment, and blank lines are fine), here from Junos to IOS-XE:
 
 ```
-# Junos name,IOS-XE name
+# source name,target name
 ge-0/0/0,GigabitEthernet0/0/0
 ge-0/0/1,GigabitEthernet0/0/1
 lo0,Loopback0
@@ -161,13 +164,24 @@ or a JSON object:
 ```
 
 A Junos unit becomes a subinterface (`ge-0/0/1` unit 10 → `GigabitEthernet0/0/1.10`); unit 0 is the interface itself.
-Two interfaces can't end up with one name, counting the Junos names that unnamed interfaces keep: Dialect refuses those
+Two interfaces can't end up with one name, counting the source names that unnamed interfaces keep: Dialect refuses those
 names (an error, with the interfaces' lines) and both stay unnamed, so neither replaces the other. A map that names an
 interface twice is refused whole, in either form.
 
 ## Supported platforms and features
 
 Which platforms and which parts of a config each one reads and writes.
+
+| Platform | `--from` / `--to` | Display set | Convert from and to |
+|---|---|---|---|
+| Junos (MX, EX, QFX) | `junos` | yes | yes |
+| Cisco IOS / IOS-XE | `iosxe` | no | yes |
+| Cisco NX-OS | `nxos` | no | yes |
+| Cisco IOS-XR | `iosxr` | no | yes |
+
+Convert goes from any of them to any other, in the app and on the command line. Each converts system settings (host
+name, domain, DNS), interfaces with their addresses and VRFs, static routes, NTP, syslog and SNMP; what one can't read
+or write is listed as not converted, with why.
 
 ## The command line
 

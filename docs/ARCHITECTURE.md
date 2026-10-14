@@ -730,7 +730,7 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
 ## The command line (`packages/cli`)
 
 - `src/cli.ts`: `run(argv, io, version)` parses the arguments, reads the input through `io`, and runs the command
-  through the core's registry (`createRegistry([junos, iosxe])`): `display-set` as the Junos plugin's tool, `convert`
+  through the core's registry (`createRegistry([junos, iosxe, nxos, iosxr])`): `display-set` as the Junos plugin's tool, `convert`
   through the core's `convert()` with the plugins `--from` and `--to` name and the `--map` file's answers (`--write-map`
   writes every interface to a map file to fill in, through `io.writeFile`). It returns the
   exit code (0 done, 1 an error diagnostic, 2 a usage error or unreadable input, 3 interfaces unnamed without
@@ -767,10 +767,11 @@ The window is a menu bar, a tab strip and the current tab's page (juniper-decisi
   or `{ kind: 'convert', target: 'iosxe' }`), its source and file name, its interface map, what the source gives with
   the job (the output, the linked lines as source/output pairs, the problems, and in convert the interface rows), the
   output as last saved (unsaved while the output differs) and where it was saved. Jobs come from the core's registry
-  (`createRegistry([junos, iosxe])`), as the CLI's do: `jobs()` lists every plugin's tools, then convert from Junos to
-  every target, so a new plugin or tool shows up in the new tab picker unasked. A tool runs generically (its problems
-  from the result's diagnostics, its links from `sourceLines`); convert is the core's `convert()` from Junos to the
-  target (its problems from the ledger's diagnostics and `issues`, its links from `links` and the statements' spans,
+  (`createRegistry([junos, iosxe, nxos, iosxr])`), as the CLI's do: `toolJobs()` lists every plugin's tools, and
+  the picker's Convert row offers every source (`SOURCES`) and every target but the source (`targetsFor()`), so a new
+  plugin or tool shows up unasked. A convert job names its `source` (Junos when left out, as before #50) and its
+  `target`; a tab can change either. A tool runs generically (its problems from the result's diagnostics, its links
+  from `sourceLines`); convert is the core's `convert()` from the source to the target (its problems from the ledger's diagnostics and `issues`, its links from `links` and the statements' spans,
   its rows from `interfaces`). Each runs synchronously on every change (config_22, 316 KB, parses in tens of
   milliseconds). The store's actions act on the tab shown. The interface map is kept while the source is edited and
   dropped when another file opens or the target changes, so no name carries over to other ports unasked.

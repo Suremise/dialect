@@ -621,6 +621,48 @@ describe('tabs and the menu bar in the web build', () => {
     await expect.poll(current, UI_WAIT).toEqual({ tab: 'Untitled → Display set', line: 'set system host-name r1' })
   })
 
+  it("keeps Tab inside the new tab picker, through every control in order, both ways, wrapping at its ends", async () => {
+    await openPage()
+    await menu('File', 'New Tab…')
+    const picker = page.getByRole('dialog', { name: 'New tab' })
+    await picker.waitFor(UI_WAIT)
+    /** The focused control, by its label or text. */
+    const at = (): Promise<string> => page.evaluate(() => { const el = document.activeElement as HTMLElement; return (el.getAttribute('aria-label') ?? el.querySelector('.picker-label')?.textContent ?? el.textContent ?? '').trim() })
+    const order = ['Display set (Junos)', 'Convert from', 'Convert to', 'Convert: Junos → Cisco IOS / IOS-XE', 'Cancel']
+    await expect.poll(at, UI_WAIT).toBe(order[0])
+    for (const next of [...order.slice(1), order[0]]) {
+      await page.keyboard.press('Tab')
+      await expect.poll(at, UI_WAIT).toBe(next)
+    }
+    for (const previous of [order[4], order[3], order[2], order[1], order[0]]) {
+      await page.keyboard.press('Shift+Tab')
+      await expect.poll(at, UI_WAIT).toBe(previous)
+    }
+    // The case the trap missed: back from a list goes to the list before it, not to Cancel.
+    await picker.getByRole('combobox', { name: 'Convert to' }).focus()
+    await page.keyboard.press('Shift+Tab')
+    await expect.poll(at, UI_WAIT).toBe('Convert from')
+  })
+
+  it('converts between any two platforms, chosen in the new tab picker and then in the tab', async () => {
+    await openPage()
+    await menu('File', 'New Tab…')
+    const picker = page.getByRole('dialog', { name: 'New tab' })
+    await picker.getByRole('combobox', { name: 'Convert from' }).selectOption('nxos')
+    await picker.getByRole('combobox', { name: 'Convert to' }).selectOption('iosxr')
+    await picker.getByRole('button', { name: 'Convert: Cisco NX-OS → Cisco IOS-XR' }).click()
+    await expect.poll(() => tabs().then((t) => t.current), UI_WAIT).toBe('Untitled → IOS-XR')
+    expect(await tab().locator('[data-pane=source] .cm-placeholder').innerText()).toBe('Paste a Cisco NX-OS config here, open a file, or drop one anywhere in this window.')
+    await typeSource('hostname n1\n')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('hostname n1')
+    expect(await text('status-result')).toMatch(/^\d+ lines?$/)
+    // The tab's source changes on its own; the target stays.
+    await tab().getByRole('combobox', { name: 'Source platform' }).selectOption('iosxe')
+    expect(await tab().getByRole('combobox', { name: 'Target platform' }).inputValue()).toBe('iosxr')
+    await expect.poll(firstOutputLine, UI_WAIT).toBe('hostname n1')
+    expect(await page.locator('.statusbar .status-item').first().innerText()).toBe('Cisco IOS / IOS-XE → Cisco IOS-XR')
+  })
+
   it('asks before closing a tab with unsaved output, by Ctrl+W, middle-click or ×, and saves first when asked', async () => {
     await openPage()
     await typeSource('system { host-name r1; }')
@@ -714,7 +756,7 @@ describe('tabs and the menu bar in the web build', () => {
     expect(JSON.parse(stored.local['dialect.session']!)).toEqual({
       tabs: [
         { kind: 'conversion', job: { kind: 'tool', tool: 'junos.display-set' }, name: 'config_15.conf' },
-        { kind: 'conversion', job: { kind: 'convert', target: 'iosxe' }, name: 'phase1.conf' },
+        { kind: 'conversion', job: { kind: 'convert', source: 'junos', target: 'iosxe' }, name: 'phase1.conf' },
         { kind: 'docs', page: 'license' }
       ],
       active: 2

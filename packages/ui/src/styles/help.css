@@ -245,3 +245,13 @@
   color: var(--fg-muted);
   font-size: 12px;
 }
+.picker-convert {
+  cursor: default;
+}
+.picker-convert-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}

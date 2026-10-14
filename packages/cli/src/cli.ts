@@ -2,11 +2,13 @@
 // tests can call it directly. bin.ts is the entry the build turns into dist/dialect.mjs.
 import { convert, createRegistry, formatInterfaceMap, interfaceInputs, parseInterfaceMap, type ConversionIssue, type Diagnostic, type InterfaceMap, type PlatformPlugin, type Span, type Tool } from '@dialect/core'
 import iosxe from '@dialect/platform-iosxe'
+import iosxr from '@dialect/platform-iosxr'
 import junos from '@dialect/platform-junos'
+import nxos from '@dialect/platform-nxos'
 
 // The built-in plugins. Commands find their tools and converters here, as the app does, rather than calling a plugin's
 // code directly.
-const registry = createRegistry([junos, iosxe])
+const registry = createRegistry([junos, iosxe, nxos, iosxr])
 
 function tool(pluginId: string, toolId: string): Tool {
   const found = registry.tools().find((t) => t.plugin.id === pluginId && t.tool.id === toolId)

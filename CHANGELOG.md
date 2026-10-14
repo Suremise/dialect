@@ -18,6 +18,9 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco NX-OS and IOS-XR join convert**, in the app and on the command line: convert from any of Junos, IOS / IOS-XE,
+  NX-OS and IOS-XR to any other (`dialect convert --from nxos --to iosxr …`). In the app, a new tab's Convert row has
+  the platform to convert from and the one to convert to, and a convert tab can change either.
 - **Junos routing instances convert:** VRFs and virtual routers, with their units, route distinguisher and vrf-target
   (one target or an import and export), to and from the model, so their interfaces stay in the right VRF. A unit in two
   instances is an error, as on the device, and instance types Dialect doesn't convert yet (mac-vrf, EVPN) are listed as

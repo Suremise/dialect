@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { copyOutput, openFile, paste, reopen, saveOutput } from '../actions'
 import { Editor, type LineMark } from '../editor/Editor'
 import type { Platform } from '../platform'
-import { jobLabel, outputCount, outputName, SOURCE_PLUGIN, TARGETS, targetPlugin, toolOf, useStore, type ConversionTab } from '../store'
+import { convertPlugins, jobLabel, outputCount, outputName, SOURCES, targetsFor, toolOf, useStore, type ConversionTab } from '../store'
 import { CheckIcon, CopyIcon, ErrorIcon, OpenIcon, PasteIcon, SaveIcon, WarningIcon } from './Icons'
 import { InterfaceTable } from './InterfaceTable'
 import { panelDomId, tabDomId } from './TabStrip'
@@ -23,8 +23,8 @@ export function outputSummary(tab: ConversionTab): string {
 /** The job as the status bar and the output pane name it. */
 export function jobTitle(tab: ConversionTab): { output: string; status: string; doing: string } {
   if (tab.job.kind === 'convert') {
-    const target = targetPlugin(tab.job.target)
-    return { output: target.name, status: `${SOURCE_PLUGIN.name} → ${target.name}`, doing: 'conversion' }
+    const { source, target } = convertPlugins(tab.job)
+    return { output: target.name, status: `${source.name} → ${target.name}`, doing: 'conversion' }
   }
   const { plugin, tool } = toolOf(tab.job.tool)
   return { output: tool.name, status: `${plugin.name} → ${tool.name.toLowerCase()}`, doing: tool.name.toLowerCase() }
@@ -32,10 +32,14 @@ export function jobTitle(tab: ConversionTab): { output: string; status: string; 
 
 export function ConversionView({ tab, active, platform, dark }: { tab: ConversionTab; active: boolean; platform: Platform; dark: boolean }) {
   const reveal = useStore((s) => (s.reveal?.tab === tab.id ? s.reveal : null))
-  const { typeSource, setTarget, revealAt } = useStore.getState()
+  const { typeSource, setTarget, setConvertSource, revealAt } = useStore.getState()
   const { id, job, source, sourceName, output, links, problems } = tab
   const converting = job.kind === 'convert'
-  const target = converting ? targetPlugin(job.target) : null
+  const plugins = converting ? convertPlugins(job) : null
+  const target = plugins?.target ?? null
+  // What the source pane reads: convert's source platform, or the tool's own.
+  const reads = plugins?.source ?? (job.kind === 'tool' ? toolOf(job.tool).plugin : null)
+  const fromName = reads?.name ?? 'Junos'
   const titles = jobTitle(tab)
   // Lines linked to the other pane's cursor: output lines → their source statement, and back.
   const [linkedSource, setLinkedSource] = useState<number[]>([])
@@ -83,15 +87,28 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
   return (
     <div className={`conversion${converting ? ' converting' : ''}`} id={panelDomId(id)} role="tabpanel" aria-labelledby={tabDomId(id)} hidden={!active} data-tab={id}>
       <div className="tab-toolbar">
-        <span className="job-label">{converting ? `${SOURCE_PLUGIN.name} →` : jobLabel(job)}</span>
-        {converting && (
-          <select className="target-select" aria-label="Target platform" value={target!.id} onChange={(e) => setTarget(e.target.value)}>
-            {TARGETS.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+        {converting ? (
+          <>
+            <select className="target-select" aria-label="Source platform" value={plugins!.source.id} onChange={(e) => setConvertSource(e.target.value)}>
+              {SOURCES.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <span className="job-label" aria-hidden="true">
+              →
+            </span>
+            <select className="target-select" aria-label="Target platform" value={target!.id} onChange={(e) => setTarget(e.target.value)}>
+              {targetsFor(plugins!.source).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <span className="job-label">{jobLabel(job)}</span>
         )}
         <div className="toolbar" role="toolbar" aria-label="Actions">
           <button className="btn" onClick={() => void openFile(platform, id)} title="Open a config file in this tab">
@@ -123,7 +140,7 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
           <div className="pane-header">
             <span>Source</span>
             <span className="pane-detail" data-testid="source-name">
-              {sourceName ?? (source ? 'Pasted text' : 'Junos, hierarchical')}
+              {sourceName ?? (source ? 'Pasted text' : reads?.id === 'junos' ? 'Junos, hierarchical' : fromName)}
             </span>
           </div>
           <Editor
@@ -132,7 +149,7 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
             label="Source config"
             value={source}
             onChange={(text) => typeSource(id, text)}
-            placeholder="Paste a hierarchical Junos config here, open a file, or drop one anywhere in this window."
+            placeholder={`Paste ${reads?.id === 'junos' ? 'a hierarchical Junos' : `a ${fromName}`} config here, open a file, or drop one anywhere in this window.`}
             marks={sourceMarks}
             reveal={reveal}
             onCursorLine={onSourceCursor}
@@ -174,7 +191,7 @@ export function ConversionView({ tab, active, platform, dark }: { tab: Conversio
             {problems.length === 0 ? (
               <li className="problem-empty">
                 {source.trim() === '' ? (
-                  `Open or paste a Junos config to see its ${titles.doing}.`
+                  `Open or paste a ${fromName} config to see its ${titles.doing}.`
                 ) : (
                   <>
                     <CheckIcon /> No problems.

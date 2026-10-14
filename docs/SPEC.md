@@ -13,7 +13,8 @@ product decisions.
     plugin's parser). The app counts its output in commands (`set`, `deactivate` and `protect` alike); when a quoted
     value's line breaks (a banner) make the output longer than that, it gives the line count too ("2 commands (4
     lines)"). Each output line links to its statement.
-  - **Convert**: Junos ⇄ Cisco (IOS/IOS-XE first; NX-OS and IOS-XR later), through a shared model (§4).
+  - **Convert**: between Junos and the Cisco platforms (IOS/IOS-XE, NX-OS, IOS-XR), any to any, through a shared
+    model (§4).
 - **Three products from one TypeScript core:**
   - the **desktop app** (Tauri 2, Windows, NSIS installer only, no MSI);
   - the **offline web build**, one self-contained HTML file opened from disk, for laptops where installing isn't
@@ -119,6 +120,7 @@ product decisions.
   the set form are read, and `apply-groups` and `interface-range` are expanded before mapping. SRX security zones,
   policies and NAT come later: until then they show as `unsupported` in the ledger, never dropped.
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
+  With all four plugins registered (#50), the CLI and the app convert from any of them to any other.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,
   a source interface), needs a name on the target from the user: in the app's interface table, or a `--map` file on
   the command line (`from,to` lines or a JSON object). A plugin may suggest names (Junos `ge-0/0/0` → IOS
@@ -146,8 +148,9 @@ product decisions.
 
 - **The same in the desktop app and the web build:** an in-app menu bar, a strip of document tabs and the tab shown.
 - **Tabs:** one per conversion or Docs page. A new tab (File → New Tab, Ctrl+T, or "+") asks what the user is doing:
-  each plugin tool (today Display set, Junos) or convert from Junos to each target (today Cisco IOS / IOS-XE), listed
-  from the plugin registry so new platforms and tools appear without UI changes. Each tab keeps its own job, source,
+  each plugin tool (today Display set, Junos) or convert from any platform convert reads to any other it writes
+  (Junos, IOS/IOS-XE, NX-OS, IOS-XR), listed from the plugin registry so new platforms and tools appear without UI
+  changes; a convert tab can change its source and target. Each tab keeps its own job, source,
   file name, output, interface map, problems and editors' undo history. Its title is the file name and job
   ("phase1.conf → IOS-XE", or "Untitled"), with a dot while its output is unsaved and the full path in a tooltip.
   Closing one with unsaved output (×, middle-click, Ctrl+W) asks first: save and close, close without saving, or
