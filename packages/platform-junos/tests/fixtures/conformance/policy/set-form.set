@@ -1,0 +1,21 @@
+set policy-options prefix-list V4 192.0.2.0/24
+set policy-options prefix-list V4 192.0.2.0/24
+set policy-options prefix-list EMPTY
+set policy-options community C members 65000:1
+set policy-options community C members 65000:1
+set policy-options as-path A "^64500$"
+set policy-options as-path A "^64501$"
+set policy-options policy-statement P term T1 from prefix-list V4
+set policy-options policy-statement P term T1 from prefix-list EMPTY
+set policy-options policy-statement P term T1 then reject
+set policy-options policy-statement P term T1 then accept
+set policy-options policy-statement P term T2 from community C
+set policy-options policy-statement P term T2 from as-path A
+set policy-options policy-statement P term T2 then community add C
+set policy-options policy-statement P term T2 then community add C
+set policy-options policy-statement P term T3
+set policy-options policy-statement EMPTY-POLICY
+set policy-options apply-groups SHARED
+set groups SHARED policy-options policy-statement FROM-GROUP term ALL then accept
+set groups SHARED policy-options community GROUP-C members no-export
+set groups SHARED policy-options as-path A "^64999$"

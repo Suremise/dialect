@@ -1,0 +1,5 @@
+set routing-instances V instance-type vrf
+set routing-instances V route-distinguisher 65000:1
+set routing-instances V vrf-target target:65000:1
+set routing-instances V vrf-import V-IN
+set policy-options policy-statement V-IN term T then accept

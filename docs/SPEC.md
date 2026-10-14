@@ -119,6 +119,14 @@ product decisions.
   ethernet-switching` and IRB, converted from model 0.4), not the older non-ELS syntax, which shows as `unsupported`. Both the hierarchical and
   the set form are read, and `apply-groups` and `interface-range` are expanded before mapping. SRX security zones,
   policies and NAT come later: until then they show as `unsupported` in the ledger, never dropped.
+- **Routing policy (phase 3, model 0.5):** prefix lists, community and AS-path sets and policies convert **term by
+  term**: a term converts whole or not at all, and when leaving one out could change what a later term sees, the whole
+  policy is left out. A regular expression is never translated between dialects, a policy's fall-through (Junos goes
+  on to the next policy, Cisco rejects) is kept with the model and a target whose fall-through differs says so, and
+  where a platform reads the same words another way (Junos matches route filters by longest match) the term isn't
+  converted rather than converted wrongly. Junos converts `policy-options` (prefix lists, communities, AS paths and
+  policy-statements) and resolves BGP `import` and `export` to them (#76); `vrf-import` and `vrf-export` wait for a
+  place in the model (#83).
 - **Convert goes Junos → IOS/IOS-XE first** (B9); the reverse follows, from the same plugins, then NX-OS and IOS-XR.
   With all four plugins registered (#50), the CLI and the app convert from any of them to any other.
 - **Interface names never map silently.** Every interface a config names, configured or only referenced (a next hop,

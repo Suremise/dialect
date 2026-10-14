@@ -1,0 +1,4 @@
+set policy-options prefix-list L 10.0.0.0/8
+set policy-options prefix-list L apply-path "interfaces <*> unit <*> family inet address <*>"
+set policy-options policy-statement P term T from prefix-list L
+set policy-options policy-statement P term T then accept

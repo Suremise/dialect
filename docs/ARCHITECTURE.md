@@ -1071,8 +1071,9 @@ The desktop app's **Rust crates** come from `scripts/crateNotices.mjs` (`CRATE_P
 B3's parser and display set, ported from the spike prototype, and B4's mapping to and from the model for the phase 1
 areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX security, policies and NAT are `unsupported`.
 
-- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.4.1 <1.0.0'`, for model
-  0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, and 0.4.1's eBGP default policy), with `detect`, `parse`,
+- `plugin.ts`: the package's default export, the `junos` `PlatformPlugin` (`modelApi: '>=0.5.0 <1.0.0'`, for model
+  0.4's VLANs, switch ports, routed VLANs, OSPF and BGP, 0.4.1's eBGP default policy and 0.5.0's routing policy), with
+  `detect`, `parse`,
   `render`, `nameInterface` (an aggregate another platform describes, Cisco `Port-channelN` or `Bundle-EtherN`, is
   suggested as `ae(N-1)`, as the user decided; nothing else yet) and the capabilities per area. Its `tools()` has one tool,
   `displaySetTool`: id `display-set`, name "Display set". `run(text)`
@@ -1155,7 +1156,8 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   is its `routeDistinguisher` and `vrf-target target:X` both its `routeTargets`, with `vrf-target import` and `export`
   overriding their side (the plain one is `ignored-by-design` when both do). Junos writes a 4-byte AS with `L`
   (`4200000000L:100`): the model writes it plain (`communities.ts`, `fromJunos()` and `toJunos()`); `L` on a 2-byte AS,
-  `vrf-target auto`, `vrf-import` and `vrf-export` policies are `unsupported`. Groups apply as everywhere (R1–R12). **A
+  `vrf-target auto`, `vrf-import` and `vrf-export` policies are `unsupported` (the model has no place for a VRF's
+  policies yet, #83). Groups apply as everywhere (R1–R12). **A
   unit named in two instances is in neither:** Junos refuses that, so it's an error diagnostic naming the lines (not
   the unit), and every statement that named it is `unsupported`. **An instance of another type** (`mac-vrf`, `evpn`,
   `forwarding`…) is converted not at all, as SNMP communities are: its route distinguisher, targets and units mean
@@ -1195,15 +1197,50 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   `apply-groups-except` do), every statement of the area is `unsupported` and out of the model, so it never comes out
   a normal area. Likewise an `interface-type` the model has no word for (`nbma`, `p2mp`) that wins over `p2p`: the
   interface's OSPF statements are all `unsupported`, so it never comes out broadcast. BGP: `group G` with `type`, `peer-as`,
-  `description`, `local-address`, `multihop [ttl N]`, `family inet|inet6 unicast`, `import`/`export` (names only, in
+  `description`, `local-address`, `multihop [ttl N]`, `family inet|inet6 unicast`, `import`/`export` (by name, in
   order; an expression is `unsupported`) and `authentication-key`, and `neighbor N` in it with the same settings
   (`group` set); a peer is in the model only once one of its settings converts. **Junos refuses a neighbor in two
   groups**, so it's an error naming the lines, in neither. `routing-options router-id` is the instance's OSPF's and
   BGP's `routerId`, and `autonomous-system` BGP's `localAs`, each settled once every statement is read (`unsupported`
   where the instance has no such protocol). **Keys are flags, never values:** a statement with one fills only
-  `authentication`. Policies by name raise a `junos.policy-by-name` warning naming the lines: their bodies aren't
-  converted. An instance with an eBGP peer (a group `type external`, or a peer AS other than the local AS) without an
+  `authentication`. **A peer's import or export policies are a chain, converted whole:** one naming a policy the
+  configuration doesn't define, or that isn't converted, leaves that side of the peer out (its statements
+  `unsupported`), and when that peer is a neighbor whose group has the side, the group's goes too, as the neighbor would
+  otherwise take it. An instance with an eBGP peer (a group `type external`, or a peer AS other than the local AS) without an
   import or export policy gets `ebgpDefaultPolicy` `accept` for that side, Junos's default (model 0.4.1).
+- **Routing policy (`policy.ts`, #76):** `policy-options` statements are recorded as they're read and settled once
+  every statement is, as VLANs are. `prefix-list L P` is an entry of `prefixLists.ipv4.L` or `.ipv6.L` by the prefix's
+  family (a list with both is in both; an empty one is IPv4's, `entries: {}`), permit, matching the prefix exactly,
+  with no `form` (the term says how a list matches). `community C members M` is one permit entry of
+  `communitySets.C`: a literal community in the model's form (`communities.ts`, `communityFromJunos()`: Junos's
+  well-known names, `target:`/`origin:` with `L` taken off a 4-byte AS, `large:`), or else, when it has a regex
+  character, a regex kept as written, the set then saying its `type` from how the regex starts (`target:`/`origin:`
+  extended, `large:` large, an AS number and `:` standard; `regexCommunityType()`) and `regexDialect: 'junos'`.
+  `as-path A "R"` is `asPathSets.A`, one permit entry, Junos's dialect; a later one replaces it, as any single setting.
+  **A list or community converts whole or not at all:** a malformed or host-bits prefix, `apply-path`, `invert-match`,
+  a regex whose start doesn't say its kind, or literal members of another kind beside a regex leaves every statement of
+  it `unsupported`, so a term naming it can't match other routes than on the device. `as-path-group` comes later.
+  `policy-statement P` is `policies.P`, `fallThrough: 'next-policy'` (Junos's: on to the next policy, then the
+  protocol's default). Its terms are keyed from 1 in order, named terms by their first statement of the
+  configuration's own (a group's statements come first, expand.ts, so one adding to a term doesn't move it), and the
+  policy's own `from` and `then`, outside any term, last as its unnamed term, as Junos evaluates it. `from`:
+  `prefix-list`, `prefix-list-filter L exact|orlonger|longer` (`prefixListMatch`, one way per term), `route-filter P
+  exact|orlonger|longer|upto /N|prefix-length-range /A-/B` (`routeFilters` by position, with their `form`),
+  `community`, `as-path`, `protocol` (`direct` is `connected`), `neighbor`, `tag`, `family inet|inet6`. `then`: `accept`,
+  `reject`, `next term`, `next policy` (the `flow`), `local-preference`, `metric` (the `med`), `community
+  add|set|delete C` (by `sets`), `as-path-prepend "A B"`, `next-hop A|self` and `tag`; each single setting settles by
+  rank, then order, as everywhere, and a value a list already has is `ignored-by-design`. **The per-term rule:** a term
+  with a statement that isn't converted (a `to` condition, `color`, `preference`, `through`, an `upto` filter of a
+  list…) or that names a list, community or AS path that isn't is `unsupported` whole; so is a term Junos reads another
+  way than the model: route filters and prefix lists together (one list to Junos, both conditions to the model),
+  route filters, or `longer` lists, whose prefixes nest so that Junos's longest match and the model's any match differ
+  (`prefixes.ts`, `longestMatchAgrees()`), community actions of two kinds (Junos applies them in order), and adding or
+  setting a community given by a regex (Junos refuses it). A term left out must be one core's `termSkipSafe()` allows,
+  judged against the terms that convert, its actions as far as they're known (one the model has no word for counts as
+  a change a later term may see); else every statement of the policy is `unsupported`. **Order the converter can't
+  read** leaves a policy out whole too: terms only a group gives beside the configuration's own, and a set-form
+  `insert`, `rename` or `copy` under it (`statements.ts` lists them as `reshaped`), which reorder or rename what the
+  statements say. Lists and communities `rename`d or `copy`d likewise.
 - **Render (`render.ts`):** hierarchical Junos with 4-space indents, every leaf of model 0.4.1 with a disposition. `type` is `not-applicable` (Junos names it), as are `enabled: true` and
   `primary: false` (the defaults). A setting every next hop of a route shares is written once for the route; a hop
   with its own, or with both an address and an interface, is a `qualified-next-hop`. What Junos can't say is
@@ -1239,6 +1276,23 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   (`routeDistinguisherInputId()`, `routeTargetInputId()`), filled from `Context.inputs` when the user answers (an
   answer in another form is left unused, with a warning). A route target answer goes to every side without one Junos
   can write (left out, empty, malformed or more than one); the item is withdrawn only once the answer is written.
+  **Routing policy** is `policy-options` (`renderPolicy.ts`), after the protocols, and BGP's `junos.policy-by-name`
+  warning now says only that a policy it names isn't written (a model with the names alone, from a 0.4 parser, or a
+  policy left out). A Junos prefix list is one for both families, only permits and matches exactly: the model's lists
+  of a name go in one, and a list with a deny or a length range isn't written (its fields `unsupported`), nor a term
+  naming for one family a list the model has for both. A community is one permit entry of members and Junos regexes
+  (`members [ … ]`, regexes always quoted, a 4-byte AS with its `L`): more entries, a deny, a regex of another dialect
+  (never translated) or one whose start says another kind than the set's `type` leave it out whole; a `type` beside
+  literal members only is `not-applicable`. An AS path is one Junos regex (`as-path-group` comes later). A policy's
+  terms are written in order, by name, an unnamed one (a route map's sequence) under its key (`term 10`) unless it's
+  the last, which is the policy's own `from` and `then`; a route filter in its source's form where that is one of
+  Junos's, else from its lengths (Cisco's `ge`/`le` as `upto` or `prefix-length-range`, the `form` then
+  `not-applicable`). **The per-term rule:** a term Junos can't say whole (a list, community or AS path not written,
+  literal communities in an action, community actions of two kinds, route filters with prefix lists, nested route
+  filters or `longer` lists that longest match reads otherwise, both a next hop and `self`) is `unsupported`, field by
+  field, and when `termSkipSafe()` doesn't allow leaving it out, so is every field of its policy. `fallThrough` is
+  `not-applicable`, and `reject` (a route map's implicit deny, RPL's drop) raises `junos.policy-fall-through` naming the
+  policy's line: Junos passes such a route to the next policy, then the protocol's default.
 - `detect.ts`: hierarchical (`system {`, `unit 0 {`, `version …;`) and set-form signs, discounted by IOS's
   (`hostname`, `!`, `interface GigabitEthernet…`).
 - **Tests:** the prototype's self-test cases and jcc's failure cases (`tests/displaySet.test.ts`), and jcc's 22 pairs,
@@ -1261,9 +1315,16 @@ areas, with `detect()`. Junos scope is MX, EX and QFX (SPEC.md §4): SRX securit
   (`tests/fixtures/conformance/ospf/`, `bgp/`): each semantic warning from a saved model of another platform
   (`tests/fixtures/semantic/<code>.model.json` raises `junos.<code>`), keys asked for and written from answers, a
   neighbor in two groups, router IDs and AS numbers with no protocol, render from another platform's model, the
-  aggregate name suggestions, and safe and secret names. The corpus's expected models include an access, a trunk, an
-  IRB, two OSPF and two BGP files, and the probes give every model 0.4 case (VLAN name and BGP group uses, BGP and OSPF
-  negation, malformed AS numbers and VLAN IDs, OSPF and BGP scoping).
+  aggregate name suggestions, and safe and secret names. `tests/policy.test.ts`: routing policy beyond the fixtures
+  (`tests/fixtures/conformance/policy/`, one hierarchical with its render and one in set form with groups, duplicates
+  and superseded settings): the per-term ledger of each negative fixture in `tests/fixtures/conformance/policy-unsupported/`
+  (one per construct that isn't converted, the lines it leaves `unsupported` and the policies left), longest match
+  against any match, groups in `policy-options`, and render from another platform's model (route-map sequences, a
+  rejecting fall-through, Cisco regexes, literal communities, lists Junos can't write) naming nothing. The corpus's
+  expected models include an access, a trunk, an IRB, two OSPF, two BGP and three routing policy files, and the probes
+  give every model 0.4 and 0.5.0 case (VLAN name and BGP group uses, policy names as prototype keys, BGP, OSPF, policy
+  term and prefix list entry negation, malformed AS numbers, VLAN IDs, prefixes and lengths, OSPF and BGP scoping,
+  unknown references and regexes).
   The tests have their own tsconfig with Node's types, so `src` stays platform-neutral.
 
 ## The command line (`packages/cli`)

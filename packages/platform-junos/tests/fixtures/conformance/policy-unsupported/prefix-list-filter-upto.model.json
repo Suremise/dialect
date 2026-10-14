@@ -1,0 +1,27 @@
+{
+  "modelVersion": "0.5.1",
+  "device": {
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "L": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "10.0.0.0/8",
+                "minLength": 8,
+                "maxLength": 8
+              }
+            }
+          }
+        }
+      },
+      "policies": {
+        "P": {
+          "fallThrough": "next-policy"
+        }
+      }
+    }
+  }
+}
+

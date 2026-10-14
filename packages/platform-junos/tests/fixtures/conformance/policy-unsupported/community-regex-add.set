@@ -1,0 +1,2 @@
+set policy-options community R members "^65000:.*$"
+set policy-options policy-statement P term T then community add R
