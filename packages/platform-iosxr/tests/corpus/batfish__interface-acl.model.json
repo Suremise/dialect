@@ -1,0 +1,45 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "interface-acl"
+    },
+    "interfaces": {
+      "Bundle-Ether1": {
+        "type": "aggregate",
+        "subinterfaces": {
+          "0": {
+            "filters": {
+              "ipv4": {
+                "input": "acl-in",
+                "output": "acl-out"
+              },
+              "ipv6": {
+                "input": "acl6-in",
+                "output": "acl6-out"
+              }
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "acl-in": {
+          "implicitAction": "deny"
+        },
+        "acl-out": {
+          "implicitAction": "deny"
+        }
+      },
+      "ipv6": {
+        "acl6-in": {
+          "implicitAction": "deny"
+        },
+        "acl6-out": {
+          "implicitAction": "deny"
+        }
+      }
+    }
+  }
+}

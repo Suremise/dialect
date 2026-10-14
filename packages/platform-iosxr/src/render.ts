@@ -8,6 +8,7 @@ import { fieldPath, isAsNumber, isRouteDistinguisher, populatedLeaves, type Addr
 import { isIpv4, isIpv6, lengthMask } from './addresses'
 import { inRange, MTU, PORT, ROUTE_TAG, VLAN_ID } from './parse'
 import { RPL_NAME } from './policy'
+import { planFilters } from './renderFilters'
 import { planRoutingPolicy } from './renderPolicy'
 
 type Segments = readonly (string | number)[]
@@ -59,6 +60,8 @@ export function render(model: Device, context: Context): RenderResult {
   const close = (indent = '') => emit(`${indent}!`)
   // The routing policy, planned first: a VRF or a BGP peer names a route policy only when it is written.
   const policyPlan = planRoutingPolicy(model.routingPolicy, skip, skipAll)
+  // The access lists (model 0.5.1), planned before the interfaces, which apply one only when it is written.
+  const filterPlan = planFilters(model.filters, skip, skipAll)
   /**
    * How a route policy a VRF or peer names is written: by name when the policy is written, or when the model has no
    * policy of that name at all (a source that keeps policy names alone), with a warning; not when the model's policy
@@ -180,6 +183,13 @@ export function render(model: Device, context: Context): RenderResult {
     }
   }
 
+  // ---- access lists, before the interfaces that apply them
+
+  for (const l of filterPlan.lines) {
+    emit(l.text, ...l.fields)
+    if (l.warning) diagnostics.push({ ...l.warning, span: { startLine: lines.length, startColumn: 1, endLine: lines.length, endColumn: l.text.length + 1 } })
+  }
+
   // ---- interfaces
 
   for (const [name, iface] of Object.entries(model.interfaces ?? {})) renderInterface(name, iface)
@@ -206,6 +216,7 @@ export function render(model: Device, context: Context): RenderResult {
       if (main.enabled !== undefined) skip([...sub, 'enabled'], 'unsupported', 'IOS-XR has one shutdown for the main interface')
       if (main.vlanId !== undefined) skip([...sub, 'vlanId'], 'unsupported', 'IOS-XR has no subinterface 0 to tag')
       if (renderMembership(main, sub)) renderAddresses(main, sub)
+      renderAccessGroups(main, sub)
     }
     if (iface.enabled !== undefined) emit(iface.enabled ? ' no shutdown' : ' shutdown', [...at, 'enabled'])
     close()
@@ -216,6 +227,7 @@ export function render(model: Device, context: Context): RenderResult {
       emit(`interface ${name}.${index}`, ...(isEmpty(sub) ? [subAt] : []))
       if (sub.description !== undefined) emit(` description ${sub.description}`, [...subAt, 'description'])
       if (renderMembership(sub, subAt)) renderAddresses(sub, subAt)
+      renderAccessGroups(sub, subAt)
       if (sub.vlanId !== undefined) {
         if (inRange(sub.vlanId, VLAN_ID)) emit(` encapsulation dot1q ${sub.vlanId}`, [...subAt, 'vlanId'])
         else skip([...subAt, 'vlanId'], 'unsupported', `IOS-XR takes a VLAN ID from ${VLAN_ID.min} to ${VLAN_ID.max}`)
@@ -245,6 +257,25 @@ export function render(model: Device, context: Context): RenderResult {
     skip(field, 'unsupported', reason)
     for (const family of ['ipv4', 'ipv6'] as const) if (sub[family] !== undefined) skipAll(sub[family], [...at, family], `in a VRF IOS-XR can't put the interface in (${reason}): left out rather than put in another table`)
     return false
+  }
+
+  /** A subinterface's filters (model 0.5.1): `ipv4|ipv6 access-group NAME ingress|egress`, for a list written. */
+  function renderAccessGroups(sub: Subinterface, at: Segments) {
+    const filters = sub.filters
+    if (filters === undefined) return
+    emptyContainer(filters, [...at, 'filters'])
+    for (const family of ['ipv4', 'ipv6'] as const) {
+      const directions = filters[family]
+      if (directions === undefined) continue
+      emptyContainer(directions, [...at, 'filters', family])
+      for (const [direction, keyword] of [['input', 'ingress'], ['output', 'egress']] as const) {
+        const name = directions[direction]
+        if (name === undefined) continue
+        const field = [...at, 'filters', family, direction]
+        if (filterPlan.written[family].has(name)) emit(` ${family} access-group ${name} ${keyword}`, field)
+        else skip(field, 'unsupported', 'applies a filter IOS-XR can\'t write as an access list')
+      }
+    }
   }
 
   function renderAddresses(sub: Subinterface, at: Segments) {

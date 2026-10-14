@@ -22,6 +22,11 @@
   keyboard focus shows.
 
 ### Convert
+- **Cisco IOS-XR access lists convert:** `ipv4` and `ipv6 access-list` entries (addresses, contiguous wildcards,
+  protocols, ports, ICMP types, `established`, `fragments`, `dscp`, `log`, `counter`) and the interfaces' `access-group`
+  attachments. An entry that can't be converted leaves its whole access list out unless it is the last, and a
+  non-contiguous wildcard is never approximated. Converting to IOS-XR warns where its implicit deny differs from the
+  source's end (Junos discards silently) or a list relies on it.
 - **Junos VRF policies convert:** a routing instance's `vrf-import` and `vrf-export` policies, in order, are converted
   and written back, and a VRF with a policy for a side needs no route target there. Converting a Cisco VRF's import
   or export map to Junos leaves it out with a warning: a Cisco map filters routes after the route targets, while

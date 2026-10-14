@@ -1,0 +1,44 @@
+{
+  "modelVersion": "0.5.3",
+  "device": {
+    "system": {
+      "hostname": "pe1"
+    },
+    "interfaces": {
+      "GigabitEthernet0/0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "filters": {
+              "ipv4": {
+                "output": "LAST-ONLY"
+              }
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "LAST-ONLY": {
+          "implicitAction": "deny",
+          "terms": {
+            "10": {
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
