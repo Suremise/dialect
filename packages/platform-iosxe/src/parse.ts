@@ -109,6 +109,27 @@ function readVlanList(text: string): Set<number> | null {
   return ids
 }
 
+/** An OSPF area as the model keys it, dotted (`area 10` is `0.0.0.10`), or null. */
+export function ospfArea(s: string): string | null {
+  if (INTEGER.test(s)) {
+    const n = Number(s)
+    return n <= 4294967295 ? [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.') : null
+  }
+  return isIpv4(s) ? s : null
+}
+
+/** An AS number in plain form (`65000`, `4200000000`) or asdot (`1.10`), from 1 to 4294967295, or null. */
+export function asNumber(s: string): number | null {
+  const dot = /^(\d+)\.(\d+)$/.exec(s)
+  const n = dot ? (Number(dot[1]) <= 65535 && Number(dot[2]) <= 65535 ? Number(dot[1]) * 65536 + Number(dot[2]) : NaN) : INTEGER.test(s) ? Number(s) : NaN
+  return n >= 1 && n <= 4294967295 ? n : null
+}
+
+/** An integer from `min` to `max`, or null. */
+const inRange = (s: string | undefined, min: number, max: number): number | null => (s !== undefined && INTEGER.test(s) && Number(s) >= min && Number(s) <= max ? Number(s) : null)
+/** An IPv4 address as a 32-bit number. */
+const ipv4Number = (a: string) => a.split('.').reduce((n, o) => n * 256 + Number(o), 0)
+
 /** VLAN IDs as the model's allowed list: in order, a run of two or more as a range (`20-30`), a single one alone. */
 export function vlanList(ids: ReadonlySet<number>): string[] {
   const sorted = [...ids].sort((a, b) => a - b)
@@ -379,6 +400,73 @@ export function parse(text: string, _context: Context): ParseResult {
     return unsupported()
   }
 
+  // ---- OSPF on an interface: placed once every statement is read, as it depends on the processes and the addresses
+
+  type Setting = { readonly value: string | number; readonly node: IosNode }
+  type OspfInterfaceState = { readonly ctx: InterfaceContext; area?: { readonly process: string; readonly area: string; readonly node: IosNode }; readonly settings: Map<string, Setting> }
+  /** Per interface reference (`Gi1`, `Gi1.10`): its `ip ospf P area A` and its OSPF settings, by the model's leaf. */
+  const ospfInterfaces = new Map<string, OspfInterfaceState>()
+  /** A statement whose disposition the end of the text decides (an OSPF setting: mapped only if OSPF runs there). */
+  const pending = (): StatementDisposition => mapped([])
+  const OSPF_LEAVES: Readonly<Record<string, string>> = { cost: 'cost', network: 'networkType', 'hello-interval': 'helloInterval', 'dead-interval': 'deadInterval', authentication: 'authentication' }
+
+  /**
+   * `ip ospf P area A`, `ip ospf cost|network|hello-interval|dead-interval|authentication …` and their `no` forms. A
+   * later one supersedes an earlier one. Keys (`authentication-key`, `message-digest-key`) are never carried: the
+   * model flags authentication by its type, and a target asks for the key.
+   */
+  const mapInterfaceOspf = (node: IosNode, ctx: InterfaceContext): StatementDisposition => {
+    const lw = node.words.map((x) => x.toLowerCase())
+    const remove = lw[0] === 'no'
+    const a = lw.slice(remove ? 3 : 2)
+    const ref = ctx.isSub ? `${ctx.name}.${ctx.sub}` : ctx.name
+    const state: OspfInterfaceState = ospfInterfaces.get(ref) ?? { ctx, settings: new Map() }
+    ospfInterfaces.set(ref, state)
+    const replace = (leaf: string, value: string | number | null, why: string): StatementDisposition => {
+      if (value === null) return unsupported(why)
+      const previous = state.settings.get(leaf)
+      if (previous) set(previous.node, ignored(`superseded by line ${line(node)}`))
+      state.settings.set(leaf, { value, node })
+      return pending()
+    }
+    if (a[0] === 'authentication-key' || a[0] === 'message-digest-key') return ignored(remove ? 'removes an OSPF key, which is never carried: nothing to convert' : 'an OSPF key: never carried, so a target asks for it')
+    // A process number as `router ospf` takes it, from 1 to 65535 (`01` is 1).
+    const process = INTEGER.test(a[0] ?? '') && a[1] === 'area' ? inRange(a[0], 1, 65535) : null
+    if (INTEGER.test(a[0] ?? '') && a[1] === 'area' && process === null) return unsupported('not an OSPF process number from 1 to 65535')
+    if (!remove) {
+      if (process !== null && a.length === 3) {
+        const area = ospfArea(a[2])
+        if (area === null) return unsupported('not an OSPF area')
+        if (state.area) set(state.area.node, ignored(`superseded by line ${line(node)}`))
+        state.area = { process: String(process), area, node }
+        return pending()
+      }
+      if (a.length === 2 && (a[0] === 'cost' || a[0] === 'hello-interval' || a[0] === 'dead-interval')) return replace(OSPF_LEAVES[a[0]], inRange(a[1], 1, 65535), `not an OSPF ${a[0] === 'cost' ? 'cost' : 'interval'} from 1 to 65535`)
+      if (a[0] === 'network' && a.length === 2 && (a[1] === 'point-to-point' || a[1] === 'broadcast')) return replace('networkType', a[1], '')
+      if (a[0] === 'authentication' && (a.length === 1 || (a.length === 2 && a[1] === 'message-digest') || (a.length === 3 && a[1] === 'key-chain'))) {
+        // A key chain's name goes with its keys: the target asks for them.
+        return replace('authentication', a.length === 1 ? 'simple' : a[1] === 'message-digest' ? 'md5' : 'key-chain', '')
+      }
+      return unsupported()
+    }
+    if (process !== null && a.length <= 3) {
+      const previous = state.area
+      if (!previous || previous.process !== String(process)) return ignored('not in that OSPF process: nothing to convert')
+      state.area = undefined
+      set(previous.node, ignored(`removed by line ${line(node)}`))
+      return ignored(`removes the OSPF area on line ${line(previous.node)}: nothing to convert`)
+    }
+    const leaf = Object.hasOwn(OSPF_LEAVES, a[0] ?? '') ? OSPF_LEAVES[a[0]] : undefined
+    if (leaf && a.length <= 3) {
+      const previous = state.settings.get(leaf)
+      if (!previous) return ignored('not set: nothing to convert')
+      state.settings.delete(leaf)
+      set(previous.node, ignored(`removed by line ${line(node)}`))
+      return ignored(`removes the setting on line ${line(previous.node)}: nothing to convert`)
+    }
+    return unsupported()
+  }
+
   const mapInterfaceChild = (node: IosNode, ctx: InterfaceContext): StatementDisposition => {
     const w = node.words
     const lw = w.map((x) => x.toLowerCase())
@@ -387,6 +475,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const own = ctx.isSub ? sub : iface
 
     if (lw[0] === 'switchport' || (lw[0] === 'no' && lw[1] === 'switchport')) return mapSwitchport(node, ctx)
+    if ((lw[0] === 'ip' && lw[1] === 'ospf') || (lw[0] === 'no' && lw[1] === 'ip' && lw[2] === 'ospf')) return mapInterfaceOspf(node, ctx)
     if (lw[0] === 'description' && w.length > 1) {
       const path = [...own, 'description']
       claim(fieldPath(...path), node)
@@ -1057,6 +1146,380 @@ export function parse(text: string, _context: Context): ParseResult {
     return ignored(`removes the VLANs of ${linesText([...new Set(lines)].sort((a, b) => a - b))}: nothing to convert`)
   }
 
+  // ---- OSPF processes: read here, placed in the model once every statement is read
+
+  type OspfNetwork = { readonly node: IosNode; readonly address: number; readonly wildcard: number; readonly area: string }
+  type OspfProcess = {
+    readonly id: string
+    readonly vrf?: string
+    /** Its `router ospf` statements, and every statement in them, so `no router ospf` can remove them. */
+    readonly nodes: IosNode[]
+    routerId?: Setting
+    readonly networks: OspfNetwork[]
+    passiveDefault?: IosNode
+    /** `passive-interface X`, and `no passive-interface X` under `passive-interface default`, by reference. */
+    readonly passive: Map<string, IosNode>
+    readonly active: Map<string, IosNode>
+    /** Per area: its type and authentication (`area 1 stub`, `area 0 authentication message-digest`). */
+    readonly areas: Map<string, Map<string, Setting>>
+  }
+  const ospfProcesses = new Map<string, OspfProcess>()
+
+  /** `router ospf P [vrf V]` and what is in it. */
+  const mapRouterOspf = (node: IosNode): void => {
+    const w = node.words
+    const lw = w.map((x) => x.toLowerCase())
+    if (inRange(w[2], 1, 65535) === null || !(w.length === 3 || (w.length === 5 && lw[3] === 'vrf'))) return unsupportedTree(node)
+    const id = String(Number(w[2]))
+    const vrf = w.length === 5 ? vrfName(w[4]) : undefined
+    const process: OspfProcess = ospfProcesses.get(id) ?? { id, ...(vrf !== undefined ? { vrf } : {}), nodes: [], networks: [], passive: new Map(), active: new Map(), areas: new Map() }
+    // The same process named again in another VRF: IOS refuses it.
+    if (process.vrf !== vrf) return unsupportedTree(node)
+    ospfProcesses.set(id, process)
+    process.nodes.push(node)
+    set(node, pending())
+    const areaSetting = (area: string, key: string, value: string | undefined, child: IosNode) => {
+      const settings = process.areas.get(area) ?? new Map<string, Setting>()
+      process.areas.set(area, settings)
+      const previous = settings.get(key)
+      if (value === undefined) {
+        settings.delete(key)
+        if (previous) set(previous.node, ignored(`removed by line ${line(child)}`))
+        return set(child, ignored(previous ? `removes the setting on line ${line(previous.node)}: nothing to convert` : 'not set: nothing to convert'))
+      }
+      if (previous) set(previous.node, ignored(`superseded by line ${line(child)}`))
+      settings.set(key, { value, node: child })
+      set(child, pending())
+    }
+    for (const child of node.children) {
+      const cw = child.words
+      const c = cw.map((x) => x.toLowerCase())
+      const remove = c[0] === 'no'
+      const a = c.slice(remove ? 1 : 0)
+      const leaf = child.kind === 'statement' && !child.children.length
+      if (child.kind === 'comment') {
+        set(child, ignored('a comment'))
+        continue
+      }
+      process.nodes.push(child)
+      if (!leaf) unsupportedTree(child)
+      else if (a[0] === 'router-id' && !remove && a.length === 2 && isIpv4(cw[1])) {
+        if (process.routerId) set(process.routerId.node, ignored(`superseded by line ${line(child)}`))
+        process.routerId = { value: cw[1], node: child }
+        set(child, pending())
+      } else if (a[0] === 'router-id' && remove && a.length <= 2) {
+        const previous = process.routerId
+        process.routerId = undefined
+        if (previous) set(previous.node, ignored(`removed by line ${line(child)}`))
+        set(child, ignored(previous ? `removes the router ID on line ${line(previous.node)}: nothing to convert` : 'no router ID to remove: nothing to convert'))
+      } else if (a[0] === 'network' && a.length === 5 && a[3] === 'area') {
+        const [address, wildcard] = [cw[remove ? 2 : 1], cw[remove ? 3 : 2]]
+        const area = ospfArea(a[4])
+        if (!isIpv4(address) || !isIpv4(wildcard) || area === null) {
+          set(child, unsupported(remove ? undefined : 'not a network statement with an address, a wildcard mask and an area'))
+          continue
+        }
+        const network = { node: child, address: ipv4Number(address), wildcard: ipv4Number(wildcard), area }
+        if (!remove) {
+          process.networks.push(network)
+          set(child, pending())
+          continue
+        }
+        const removed = process.networks.filter((n) => n.address === network.address && n.wildcard === network.wildcard && n.area === area)
+        for (const n of removed) set(n.node, ignored(`removed by line ${line(child)}`))
+        process.networks.splice(0, process.networks.length, ...process.networks.filter((n) => !removed.includes(n)))
+        set(child, ignored(removed.length ? `removes the network statement on ${linesText(removed.map((n) => line(n.node)))}: nothing to convert` : 'no such network statement: nothing to convert'))
+      } else if (a[0] === 'passive-interface' && a[1] === 'default' && a.length === 2) {
+        const previous = [...(process.passiveDefault ? [process.passiveDefault] : []), ...process.passive.values(), ...process.active.values()]
+        for (const n of previous) set(n, ignored(`${remove ? 'removed' : 'superseded'} by line ${line(child)}`))
+        process.passive.clear()
+        process.active.clear()
+        process.passiveDefault = remove ? undefined : child
+        set(child, remove ? ignored('makes every interface active again, as the model has them unless passive: nothing to convert') : pending())
+      } else if (a[0] === 'passive-interface' && a.length >= 2) {
+        const n = interfaceName(cw, remove ? 2 : 1)
+        if (!n || (remove ? 2 : 1) + n.used !== cw.length) {
+          set(child, unsupported())
+          continue
+        }
+        const previous = process.passive.get(n.name) ?? process.active.get(n.name)
+        if (previous) set(previous, ignored(`${remove && process.passive.has(n.name) ? 'removed' : 'superseded'} by line ${line(child)}`))
+        process.passive.delete(n.name)
+        process.active.delete(n.name)
+        if (!remove) process.passive.set(n.name, child)
+        else if (process.passiveDefault) process.active.set(n.name, child)
+        set(child, remove ? ignored(process.passiveDefault ? 'keeps the interface active under "passive-interface default", as the model has it by leaving passive out' : 'makes the interface active, as the model has it unless passive: nothing to convert') : pending())
+      } else if (a[0] === 'area' && a.length === 3 && (a[2] === 'stub' || a[2] === 'nssa') && ospfArea(a[1]) !== null) areaSetting(ospfArea(a[1])!, 'type', remove ? undefined : a[2], child)
+      else if (a[0] === 'area' && a[2] === 'authentication' && ospfArea(a[1]) !== null && (a.length === 3 || (a.length === 4 && a[3] === 'message-digest'))) areaSetting(ospfArea(a[1])!, 'authentication', remove ? undefined : a.length === 3 ? 'simple' : 'md5', child)
+      else if (a[0] === 'exit' && a.length === 1 && !remove) set(child, ignored('ends the OSPF configuration mode'))
+      else set(child, unsupported())
+    }
+  }
+
+  /** `no router ospf P`: the process, everything in it, and every interface's `ip ospf P area`, as the device removes them. */
+  const removeRouterOspf = (node: IosNode): StatementDisposition => {
+    const id = inRange(node.words[3], 1, 65535)
+    if (id === null || node.words.length !== 4) return unsupported()
+    const process = ospfProcesses.get(String(id))
+    const why = ignored(`removed by line ${line(node)}`)
+    const lines: number[] = []
+    for (const n of process?.nodes ?? []) {
+      set(n, why)
+      lines.push(line(n))
+    }
+    ospfProcesses.delete(String(id))
+    for (const state of ospfInterfaces.values()) {
+      if (state.area?.process !== String(id)) continue
+      set(state.area.node, why)
+      lines.push(line(state.area.node))
+      state.area = undefined
+    }
+    return ignored(lines.length ? `removes the OSPF process and its interfaces (${linesText(lines.sort((x, y) => x - y))}): nothing to convert` : 'no such OSPF process: nothing to convert')
+  }
+
+  // ---- BGP
+
+  const BGP_FAMILIES: Readonly<Record<string, 'ipv4-unicast' | 'ipv6-unicast'>> = { ipv4: 'ipv4-unicast', ipv6: 'ipv6-unicast' }
+  /** The router's AS (`router bgp ASN`): IOS runs one, and every VRF's BGP is in it. */
+  let bgpAs: number | undefined
+  /** `no bgp default ipv4-unicast`: neighbors carry IPv4 only where `neighbor X activate` says so. */
+  let noDefaultIpv4: IosNode | undefined
+  /** The `router bgp` statements, so `no router bgp` can remove them with everything in them. */
+  const bgpNodes: IosNode[] = []
+  /** Each peer's statements, by `instance|kind|key`, so `no neighbor X` can remove them. */
+  type Peer = { readonly instance: string; readonly kind: 'groups' | 'neighbors'; readonly key: string; readonly nodes: IosNode[]; readonly families: Map<'ipv4-unicast' | 'ipv6-unicast', PeerFamily> }
+  /**
+   * A peer's address family as read: activated (`neighbor X activate`, or by being defined in a VRF's family), taken
+   * out (`no neighbor X activate`), and its route maps. The model's `addressFamilies` is built from it once every
+   * statement is read, as a family is there only when the peer carries it: a route map alone activates nothing.
+   */
+  type PeerFamily = { activate?: IosNode; auto?: IosNode; deactivate?: IosNode; readonly policies: Map<'importPolicies' | 'exportPolicies', { readonly name: string; readonly node: IosNode }> }
+  const peers = new Map<string, Peer>()
+  /** Update sources, checked once every interface is read: a source that isn't one of them is left out. */
+  const updateSources: { readonly path: Segments; readonly node: IosNode }[] = []
+
+  /** A neighbor's key (`192.0.2.2`, an IPv6 address in lower case) or a peer group's name, with its kind. */
+  const peerOf = (instance: string, word: string): Peer => {
+    const v6 = isIpv6(word)
+    const kind = v6 || isIpv4(word) ? 'neighbors' : 'groups'
+    const key = v6 ? word.toLowerCase() : word
+    const id = `${instance}|${kind}|${key}`
+    const peer: Peer = peers.get(id) ?? { instance, kind, key, nodes: [], families: new Map() }
+    peers.set(id, peer)
+    return peer
+  }
+
+  /**
+   * `neighbor X …` in `router bgp` (the global table and IPv4) or in an address family (`vrf V`: that VRF's), and its
+   * `no` forms. `no neighbor X` and `no neighbor X remote-as` remove the peer and everything about it, as the device does.
+   */
+  const mapNeighbor = (node: IosNode, instance: string, family: 'ipv4-unicast' | 'ipv6-unicast'): StatementDisposition => {
+    const w = node.words
+    const lw = w.map((x) => x.toLowerCase())
+    const remove = lw[0] === 'no'
+    const i = remove ? 1 : 0
+    const a = lw.slice(i + 2)
+    if (w[i + 1] === undefined) return unsupported()
+    const peer = peerOf(instance, w[i + 1])
+    const base = ['networkInstances', instance, 'bgp', peer.kind, peer.key]
+    const exists = model.get(base) !== undefined
+    const group = peer.kind === 'groups'
+    const setting = (path: Segments, value: unknown): StatementDisposition => {
+      claim(fieldPath(...path), node, () => model.remove(path))
+      peer.nodes.push(node)
+      return mapped([model.set(path, value)])
+    }
+    const familyState = (): PeerFamily => {
+      const f = peer.families.get(family) ?? { policies: new Map() }
+      peer.families.set(family, f)
+      return f
+    }
+    const direction = a[0] === 'route-map' && a.length === 3 && (a[2] === 'in' || a[2] === 'out') ? (a[2] === 'in' ? 'importPolicies' : 'exportPolicies') : undefined
+
+    if (remove) {
+      if (!exists) return ignored('no such neighbor: nothing to convert')
+      const whole = !a.length || (a[0] === 'remote-as' && a.length <= 2) || (group && a[0] === 'peer-group' && a.length === 1)
+      if (whole) {
+        const why = ignored(`removed by line ${line(node)}`)
+        const removed = [peer, ...(group ? [...peers.values()].filter((p) => p.instance === instance && p.kind === 'neighbors' && model.get(['networkInstances', instance, 'bgp', 'neighbors', p.key, 'group']) === peer.key) : [])]
+        // A peer group's members go with it, as on the device.
+        for (const p of removed) {
+          for (const n of p.nodes) set(n, why)
+          model.remove(['networkInstances', instance, 'bgp', p.kind, p.key])
+          peers.delete(`${instance}|${p.kind}|${p.key}`)
+        }
+        for (const kind of ['groups', 'neighbors']) model.removeIfEmpty(['networkInstances', instance, 'bgp', kind])
+        return ignored(`removes the ${group ? 'peer group' : 'neighbor'} configured on ${linesText([...new Set(removed.flatMap((p) => p.nodes.map(line)))].sort((x, y) => x - y))}: nothing to convert`)
+      }
+      const leaf = a[0] === 'description' ? 'description' : a[0] === 'update-source' ? 'updateSource' : a[0] === 'ebgp-multihop' ? 'multihop' : a[0] === 'password' ? 'authentication' : !group && a[0] === 'peer-group' ? 'group' : undefined
+      if (a[0] === 'activate' && a.length === 1) {
+        // The neighbor leaves the family, and its configuration there goes with it, as on the device. Under `bgp default
+        // ipv4-unicast`, this also keeps it out of IPv4.
+        const f = familyState()
+        const why = ignored(`removed by line ${line(node)}, which takes the neighbor out of the address family`)
+        for (const n of [f.activate, ...[...f.policies.values()].map((p) => p.node)]) if (n) set(n, why)
+        f.activate = undefined
+        f.auto = undefined
+        f.policies.clear()
+        f.deactivate = node
+        peer.nodes.push(node)
+        return ignored('takes the neighbor out of the address family, which the model says by leaving the family out')
+      }
+      if (direction) {
+        const f = familyState()
+        const previous = f.policies.get(direction)
+        if (!previous) return ignored('no such route map: nothing to convert')
+        f.policies.delete(direction)
+        set(previous.node, ignored(`removed by line ${line(node)}`))
+        return ignored(`removes the route map on line ${line(previous.node)}: nothing to convert`)
+      }
+      const path: Segments | undefined = leaf ? [...base, leaf] : undefined
+      if (!path) return unsupported()
+      const previous = owners.get(fieldPath(...path))
+      owners.delete(fieldPath(...path))
+      if (model.get(path) === undefined) return ignored('not set: nothing to convert')
+      model.remove(path)
+      if (previous) set(previous, ignored(`removed by line ${line(node)}`))
+      return ignored(`removes the setting${previous ? ` on line ${line(previous)}` : ''}: nothing to convert`)
+    }
+
+    if (group && a[0] === 'peer-group' && a.length === 1) {
+      peer.nodes.push(node)
+      model.object(base)
+      return mapped([fieldPath(...base)])
+    }
+    // A peer group is defined (`neighbor G peer-group`) before it is used, or IOS refuses the statement.
+    if (group && !exists) return unsupported('names a peer group the configuration doesn\'t define')
+    if (a[0] === 'remote-as' && a.length === 2) {
+      const as = asNumber(a[1])
+      if (as === null) return unsupported('not an AS number from 1 to 4294967295')
+      // A neighbor defined in a VRF's address family carries it.
+      if (instance !== 'default' && !group) {
+        const f = familyState()
+        f.auto = node
+        f.deactivate = undefined
+      }
+      return setting([...base, 'peerAs'], as)
+    }
+    if (!group && a[0] === 'peer-group' && a.length === 2) {
+      const name = w[i + 3]
+      if (model.get(['networkInstances', instance, 'bgp', 'groups', name]) === undefined) return unsupported('names a peer group the configuration doesn\'t define')
+      return setting([...base, 'group'], name)
+    }
+    if (a[0] === 'description' && a.length > 1) return setting([...base, 'description'], node.text.replace(/^\s*(?:\S+\s+){3}/, ''))
+    if (a[0] === 'update-source' && a.length >= 2) {
+      const n = interfaceName(w, i + 3)
+      if (!n || i + 3 + n.used !== w.length) return unsupported()
+      updateSources.push({ path: [...base, 'updateSource'], node })
+      return setting([...base, 'updateSource'], n.name)
+    }
+    if (a[0] === 'ebgp-multihop' && a.length <= 2) {
+      const ttl = a.length === 2 ? inRange(a[1], 1, 255) : undefined
+      if (ttl === null) return unsupported('not a hop count from 1 to 255')
+      model.remove([...base, 'multihop'])
+      return setting([...base, 'multihop'], ttl === undefined ? {} : { ttl })
+    }
+    // The password itself is never carried: the model flags it, and a target asks for it.
+    if (a[0] === 'password' && a.length >= 2) return setting([...base, 'authentication'], true)
+    if (a[0] === 'activate' && a.length === 1) {
+      const f = familyState()
+      peer.nodes.push(node)
+      if (f.activate) return ignored(`already active in the address family (line ${line(f.activate)})`)
+      f.activate = node
+      f.deactivate = undefined
+      return pending()
+    }
+    if (direction) {
+      // IOS has one route map a direction: a later one replaces it. Its body isn't converted (phase 3).
+      const f = familyState()
+      const previous = f.policies.get(direction)
+      if (previous) set(previous.node, ignored(`superseded by line ${line(node)}`))
+      f.policies.set(direction, { name: w[i + 3], node })
+      peer.nodes.push(node)
+      return pending()
+    }
+    return unsupported()
+  }
+
+  /** `router bgp ASN` and what is in it: the global table's BGP, and each VRF's in `address-family ipv4|ipv6 vrf V`. */
+  const mapRouterBgp = (node: IosNode): void => {
+    const as = node.words.length === 3 ? asNumber(node.words[2]) : null
+    // IOS runs one BGP AS: a second is refused.
+    if (as === null || (bgpAs !== undefined && bgpAs !== as)) return unsupportedTree(node)
+    bgpAs = as
+    bgpNodes.push(node)
+    set(node, mapped([model.set(['networkInstances', 'default', 'bgp', 'localAs'], as)]))
+    const routerId = (child: IosNode, instance: string) => {
+      const path = ['networkInstances', instance, 'bgp', 'routerId']
+      claim(fieldPath(...path), child, () => model.remove(path))
+      return mapped([model.set(path, child.words[2])])
+    }
+    const statement = (child: IosNode, instance: string, family: 'ipv4-unicast' | 'ipv6-unicast'): StatementDisposition => {
+      const c = child.words.map((x) => x.toLowerCase())
+      const a = c[0] === 'no' ? c.slice(1) : c
+      if (a[0] === 'neighbor') return mapNeighbor(child, instance, family)
+      if (c[0] === 'bgp' && c[1] === 'router-id' && c.length === 3 && isIpv4(child.words[2])) return routerId(child, instance)
+      return unsupported()
+    }
+    for (const child of node.children) {
+      const cw = child.words
+      const c = cw.map((x) => x.toLowerCase())
+      const leaf = child.kind === 'statement' && !child.children.length
+      if (child.kind === 'comment') set(child, ignored('a comment'))
+      else if (c[0] === 'address-family' && (c[1] === 'ipv4' || c[1] === 'ipv6') && child.kind === 'statement') {
+        const rest = c.slice(c[2] === 'unicast' ? 3 : 2)
+        const family = BGP_FAMILIES[c[1]]
+        const vrf = rest[0] === 'vrf' && rest.length === 2 ? cw[cw.length - 1] : undefined
+        // A VRF's BGP needs the VRF defined, as on the device.
+        if ((rest.length && vrf === undefined) || (vrf !== undefined && !vrfs.get(vrf)?.definitions.length)) {
+          unsupportedTree(child)
+          continue
+        }
+        const instance = vrf ?? 'default'
+        set(child, vrf !== undefined ? mapped([model.set(['networkInstances', instance, 'bgp', 'localAs'], as)]) : ignored('an address family: the model lists the families each neighbor carries'))
+        for (const g of child.children) {
+          const gl = g.words.map((x) => x.toLowerCase())
+          if (g.kind === 'comment') set(g, ignored('a comment'))
+          else if (g.kind !== 'statement' || g.children.length) unsupportedTree(g)
+          else if (gl[0] === 'exit-address-family' && gl.length === 1) set(g, ignored('ends the address family'))
+          else set(g, statement(g, instance, family))
+        }
+      } else if (!leaf) unsupportedTree(child)
+      else if (c[0] === 'no' && c[1] === 'bgp' && c[2] === 'default' && c[3] === 'ipv4-unicast' && c.length === 4) {
+        noDefaultIpv4 = child
+        set(child, ignored('neighbors carry IPv4 where "neighbor … activate" says so, which the model lists for each'))
+      } else if (c[0] === 'bgp' && c[1] === 'default' && c[2] === 'ipv4-unicast' && c.length === 3) {
+        if (noDefaultIpv4) set(noDefaultIpv4, ignored(`superseded by line ${line(child)}`))
+        noDefaultIpv4 = undefined
+        set(child, ignored('IOS\'s default: every neighbor carries IPv4 unless it says otherwise, which the model lists for each'))
+      } else if (c[0] === 'bgp' && c[1] === 'log-neighbor-changes' && c.length === 2) set(child, ignored('logs neighbor changes, as IOS does by default: nothing to convert'))
+      else set(child, statement(child, 'default', 'ipv4-unicast'))
+    }
+  }
+
+  /** `no router bgp ASN`: BGP in every instance, and everything configured for it. */
+  const removeRouterBgp = (node: IosNode): StatementDisposition => {
+    const as = node.words.length === 4 ? asNumber(node.words[3]) : null
+    if (as === null) return unsupported()
+    if (as !== bgpAs) return ignored('no such BGP AS: nothing to convert')
+    const why = ignored(`removed by line ${line(node)}`)
+    const all = (n: IosNode): IosNode[] => [n, ...n.children.flatMap(all)]
+    const removed = bgpNodes.flatMap(all).filter((n) => n.kind !== 'comment')
+    for (const n of removed) set(n, why)
+    for (const [instance] of Object.entries((model.root as Device).networkInstances ?? {})) {
+      model.remove(['networkInstances', instance, 'bgp'])
+      model.removeIfEmpty(['networkInstances', instance])
+    }
+    model.removeIfEmpty(['networkInstances'])
+    // Deleting while iterating a Map is safe: the iteration skips what is gone.
+    for (const key of owners.keys()) if (/\.bgp[.[]/.test(key)) owners.delete(key)
+    peers.clear()
+    bgpNodes.length = 0
+    bgpAs = undefined
+    noDefaultIpv4 = undefined
+    return ignored(`removes BGP and everything in it (${linesText([...new Set(removed.map(line))])}): nothing to convert`)
+  }
+
   // ---- the top level
 
   const mapTop = (node: IosNode): void => {
@@ -1073,6 +1536,10 @@ export function parse(text: string, _context: Context): ParseResult {
     if (lw[0] === 'no' && lw[1] === 'vrf' && lw[2] === 'definition' && !node.children.length) return set(node, removeVrfDefinition(node))
     if (lw[0] === 'no' && lw[1] === 'ip' && lw[2] === 'vrf' && !node.children.length) return set(node, removeVrfDefinition(node))
     if (lw[0] === 'vlan' && /^\d/.test(w[1] ?? '')) return mapVlan(node)
+    if (lw[0] === 'router' && lw[1] === 'ospf') return mapRouterOspf(node)
+    if (lw[0] === 'router' && lw[1] === 'bgp') return mapRouterBgp(node)
+    if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'ospf' && !node.children.length) return set(node, removeRouterOspf(node))
+    if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'bgp' && !node.children.length) return set(node, removeRouterBgp(node))
     if (lw[0] === 'no' && lw[1] === 'vlan' && /^\d/.test(w[2] ?? '') && !node.children.length) return set(node, removeVlans(node))
 
     let d: StatementDisposition = unsupported()
@@ -1251,6 +1718,184 @@ export function parse(text: string, _context: Context): ParseResult {
       if (d?.kind === 'mapped') dispositions[node.id] = mapped([...d.fields, field])
     }
     if (id !== 1) diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.vlan-created', message: 'A VLAN a switch port or VLAN interface uses has no "vlan" statement in the text: it is kept with no name, and a render writes it.', field, statement: node.id })
+  }
+
+  // OSPF, once the interfaces, their addresses and their VRFs are final. Each process goes in its VRF's instance (the
+  // model has one OSPF a VRF: a second process there is left out); an interface is in an area by its own
+  // `ip ospf P area A` (`enabledBy: 'interface'`, which wins), or else by the most specific `network` statement of a
+  // process in its VRF that matches its primary IPv4 address (`enabledBy: 'network'`). `ip ospf P area` with no
+  // `router ospf P` makes the process in the interface's VRF, as IOS does.
+  const device = model.root as Device
+  const vrfOf = (ref: string): string => {
+    const split = splitSubinterface(ref)
+    const sub = split ? device.interfaces?.[split.parent]?.subinterfaces?.[split.index] : device.interfaces?.[ref]?.subinterfaces?.['0']
+    return sub?.networkInstance ?? 'default'
+  }
+  const interfaceExists = (ref: string): boolean => {
+    const split = splitSubinterface(ref)
+    if (!split) return !!device.interfaces && Object.hasOwn(device.interfaces, ref)
+    const subs = device.interfaces && Object.hasOwn(device.interfaces, split.parent) ? device.interfaces[split.parent].subinterfaces : undefined
+    return !!subs && Object.hasOwn(subs, split.index)
+  }
+  for (const [ref, state] of ospfInterfaces) {
+    if (!state.area || ospfProcesses.has(state.area.process) || !interfaceExists(ref)) continue
+    const vrf = vrfOf(ref)
+    ospfProcesses.set(state.area.process, { id: state.area.process, ...(vrf !== 'default' ? { vrf } : {}), nodes: [], networks: [], passive: new Map(), active: new Map(), areas: new Map() })
+  }
+  const processInstance = new Map<string, string>()
+  const instanceProcess = new Map<string, string>()
+  const firstLine = (p: OspfProcess) => (p.nodes.length ? line(p.nodes[0]) : Infinity)
+  for (const process of [...ospfProcesses.values()].sort((x, y) => firstLine(x) - firstLine(y))) {
+    const instance = process.vrf ?? 'default'
+    const why = process.vrf !== undefined && !vrfs.get(process.vrf)?.definitions.length ? 'names a VRF the configuration doesn\'t define' : instanceProcess.has(instance) ? 'a second OSPF process in its VRF: the model has one OSPF a VRF' : undefined
+    if (why) {
+      for (const n of process.nodes) if (dispositions[n.id]?.kind === 'mapped') set(n, unsupported(why))
+      continue
+    }
+    processInstance.set(process.id, instance)
+    instanceProcess.set(instance, process.id)
+  }
+  /** Where each interface runs OSPF: its process, area, and what enabled it. */
+  const enabled = new Map<string, { readonly process: OspfProcess; readonly area: string; readonly by: 'interface' | 'network'; readonly node: IosNode }>()
+  for (const [ref, state] of ospfInterfaces) {
+    if (!state.area) continue
+    const process = ospfProcesses.get(state.area.process)
+    if (!process || !processInstance.has(process.id)) set(state.area.node, unsupported('names an OSPF process that isn\'t converted'))
+    else if (!interfaceExists(ref)) set(state.area.node, unsupported('on an interface the model doesn\'t have'))
+    else if (processInstance.get(process.id) !== vrfOf(ref)) set(state.area.node, unsupported('the interface is in another VRF than the OSPF process'))
+    else enabled.set(ref, { process, area: state.area.area, by: 'interface', node: state.area.node })
+  }
+  for (const [name, iface] of Object.entries(device.interfaces ?? {})) {
+    for (const [index, sub] of Object.entries(iface.subinterfaces ?? {})) {
+      const ref = index === '0' ? name : `${name}.${index}`
+      const addresses = Object.entries(sub.ipv4?.addresses ?? {})
+      const primary = (addresses.find(([, a]) => a.primary) ?? (addresses.length === 1 ? addresses[0] : undefined))?.[0]
+      if (enabled.has(ref) || primary === undefined) continue
+      const address = ipv4Number(primary)
+      let best: { process: OspfProcess; network: OspfNetwork } | undefined
+      for (const process of ospfProcesses.values()) {
+        if (processInstance.get(process.id) !== (sub.networkInstance ?? 'default')) continue
+        for (const network of process.networks) {
+          // A wildcard's set bits are the ones that don't have to match; the fewest such bits is the most specific.
+          const mask = ~network.wildcard >>> 0
+          const bits = (x: number) => x.toString(2).replace(/0/g, '').length
+          if (((address & mask) >>> 0) === ((network.address & mask) >>> 0) && (!best || bits(network.wildcard) < bits(best.network.wildcard))) best = { process, network }
+        }
+      }
+      if (best) enabled.set(ref, { process: best.process, area: best.network.area, by: 'network', node: best.network.node })
+    }
+  }
+  const networkFields = new Map<IosNode, string[]>()
+  const passiveFields = new Map<IosNode, string[]>()
+  for (const [ref, e] of enabled) {
+    const instance = processInstance.get(e.process.id)!
+    const at = ['networkInstances', instance, 'ospf', 'areas', e.area, 'interfaces', ref]
+    const field = model.set([...at, 'enabledBy'], e.by)
+    if (e.by === 'interface') set(e.node, mapped([field]))
+    else networkFields.set(e.node, [...(networkFields.get(e.node) ?? []), field])
+    const passive = e.process.passive.get(ref) ?? (e.process.passiveDefault && !e.process.active.has(ref) ? e.process.passiveDefault : undefined)
+    if (passive) passiveFields.set(passive, [...(passiveFields.get(passive) ?? []), model.set([...at, 'passive'], true)])
+    for (const [leaf, s] of ospfInterfaces.get(ref)?.settings ?? []) set(s.node, mapped([model.set([...at, leaf], s.value)]))
+  }
+  for (const process of ospfProcesses.values()) {
+    const instance = processInstance.get(process.id)
+    if (instance === undefined) continue
+    const at = ['networkInstances', instance, 'ospf']
+    const routerNodes = process.nodes.filter((n) => n.words[0]?.toLowerCase() === 'router')
+    const id = model.set([...at, 'processId'], process.id)
+    for (const n of routerNodes) set(n, mapped([id]))
+    if (process.routerId) set(process.routerId.node, mapped([model.set([...at, 'routerId'], process.routerId.value)]))
+    for (const [area, settings] of process.areas) for (const [key, s] of settings) set(s.node, mapped([model.set([...at, 'areas', area, key], s.value)]))
+    for (const network of process.networks) {
+      const fields = networkFields.get(network.node)
+      set(network.node, fields ? mapped(fields) : unsupported('enables no interface the model has: it keeps OSPF per interface, so a range for interfaces to come isn\'t kept'))
+    }
+    for (const n of [...process.passive.values(), ...(process.passiveDefault ? [process.passiveDefault] : [])]) {
+      const fields = passiveFields.get(n)
+      set(n, fields ? mapped(fields) : ignored('OSPF doesn\'t run on the interface: nothing to convert'))
+    }
+  }
+  // An interface's OSPF settings with OSPF not running on it change nothing.
+  for (const [ref, state] of ospfInterfaces) {
+    if (enabled.has(ref)) continue
+    for (const s of state.settings.values()) set(s.node, ignored('OSPF doesn\'t run on the interface: nothing to convert'))
+  }
+
+  // BGP: an update source that isn't one of the model's interfaces is left out; under `bgp default ipv4-unicast`
+  // (IOS's default), a neighbor of the global table carries IPv4 unless `no neighbor X activate` says otherwise.
+  for (const { path, node } of updateSources) {
+    const value = model.get(path)
+    if (owners.get(fieldPath(...path)) !== node || typeof value !== 'string' || interfaceExists(value)) continue
+    model.remove(path)
+    set(node, unsupported('names an interface the configuration doesn\'t have'))
+  }
+  // Each peer's address families: those it carries (activated, defined in a VRF's family, or a global IPv4 neighbor
+  // under `bgp default ipv4-unicast`, IOS's default, unless taken out), with their route maps. A route map in a family
+  // the peer doesn't carry is left out: the model keeps policies with a family it carries, which would activate it.
+  // IOS stopped activating IPv6 neighbors in IPv4 by default (12.2(33)SRE4), so the default is for IPv4 addresses only.
+  //
+  // A member carries the families its peer group does, too: its own route map there is kept on its own family entry
+  // (a member can customise its inbound policy), which the model reads as the group's family with the member's
+  // setting winning. A VRF's neighbor that carries no family (taken out with `no neighbor X activate`) is left out:
+  // IOS writes a VRF's neighbors in their family, which would activate it.
+  /** The families each peer group carries, by `instance|group`. */
+  const groupFamilies = new Map<string, Set<string>>()
+  const groupsFirst = [...peers.values()].sort((x, y) => Number(x.kind === 'neighbors') - Number(y.kind === 'neighbors'))
+  for (const peer of groupsFirst) {
+    const base = ['networkInstances', peer.instance, 'bgp', peer.kind, peer.key]
+    if (model.get(base) === undefined) continue
+    const implicit = !noDefaultIpv4 && peer.instance === 'default' && peer.kind === 'neighbors' && isIpv4(peer.key)
+    if (implicit && !peer.families.has('ipv4-unicast')) peer.families.set('ipv4-unicast', { policies: new Map() })
+    const group = peer.kind === 'neighbors' ? model.get([...base, 'group']) : undefined
+    const inherited = typeof group === 'string' ? (groupFamilies.get(`${peer.instance}|${group}`) ?? new Set<string>()) : new Set<string>()
+    const carried = new Set<string>()
+    for (const [family, f] of peer.families) {
+      const own = f.activate ?? f.auto ?? (family === 'ipv4-unicast' && implicit && !f.deactivate ? peer.nodes.find((n) => dispositions[n.id]?.kind === 'mapped') : undefined)
+      const fromGroup = !own && !f.deactivate && inherited.has(family)
+      if (!own && !fromGroup) {
+        for (const p of f.policies.values()) set(p.node, unsupported('a route map in an address family the neighbor doesn\'t carry: the model keeps policies only with a family it carries'))
+        continue
+      }
+      carried.add(family)
+      // Inherited with nothing of its own: the group's family says it all.
+      if (fromGroup && !f.policies.size) continue
+      const at = [...base, 'addressFamilies', family]
+      const field = model.set(at, {})
+      if (own) {
+        const d = dispositions[own.id]
+        set(own, mapped([...(d?.kind === 'mapped' ? d.fields : []), field]))
+      }
+      for (const [leaf, p] of f.policies) {
+        const policy = model.set([...at, leaf], [p.name])
+        set(p.node, mapped([...(own ? [] : [field]), policy]))
+        diagnostics.push({ severity: 'warning', category: 'semantic', code: 'iosxe.route-map-name-only', message: 'A route map is kept by name only: its body isn\'t converted, so a target needs a policy of that name.', field: policy, statement: p.node.id })
+      }
+    }
+    if (peer.kind === 'groups') groupFamilies.set(`${peer.instance}|${peer.key}`, carried)
+    else if (peer.instance !== 'default' && !carried.size && !inherited.size) {
+      model.remove(base)
+      model.removeIfEmpty(['networkInstances', peer.instance, 'bgp', 'neighbors'])
+      for (const n of peer.nodes) if (dispositions[n.id]?.kind === 'mapped') set(n, unsupported('a VRF\'s neighbor taken out of its address family: IOS defines it in the family, which would activate it'))
+    }
+  }
+
+  // What IOS does with an eBGP peer's routes when no policy applies (model 0.4.1): it accepts them, both ways. Set for
+  // the side(s) that apply, on an instance with an eBGP peer (its own or its group's peer AS, not the local one) that
+  // carries a family with no route map in that direction (its own, its group's, for the peer or the family).
+  for (const [instance, ni] of Object.entries(device.networkInstances ?? {})) {
+    const bgp = ni.bgp
+    if (!bgp) continue
+    const sides = new Set<'import' | 'export'>()
+    for (const n of Object.values(bgp.neighbors ?? {})) {
+      const group = n.group !== undefined && bgp.groups && Object.hasOwn(bgp.groups, n.group) ? bgp.groups[n.group] : undefined
+      const peerAs = n.peerAs ?? group?.peerAs
+      if (peerAs === undefined || peerAs === bgp.localAs) continue
+      const families = new Set([...Object.keys(n.addressFamilies ?? {}), ...Object.keys(group?.addressFamilies ?? {})]) as Set<'ipv4-unicast' | 'ipv6-unicast'>
+      for (const family of families)
+        for (const [side, leaf] of [['import', 'importPolicies'], ['export', 'exportPolicies']] as const)
+          if (!(n[leaf] ?? group?.[leaf] ?? n.addressFamilies?.[family]?.[leaf] ?? group?.addressFamilies?.[family]?.[leaf])) sides.add(side)
+    }
+    if (sides.size) model.set(['networkInstances', instance, 'bgp', 'ebgpDefaultPolicy'], { ...(sides.has('import') ? { import: 'accept' } : {}), ...(sides.has('export') ? { export: 'accept' } : {}) })
   }
 
   return { tree: nodes, model: model.root as Device, dispositions, diagnostics }

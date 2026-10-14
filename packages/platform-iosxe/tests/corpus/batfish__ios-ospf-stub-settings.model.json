@@ -1,0 +1,154 @@
+{
+  "modelVersion": "0.4.0",
+  "device": {
+    "system": {
+      "hostname": "ios-ospf-stub-settings"
+    },
+    "interfaces": {
+      "Ethernet0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.0.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "Ethernet1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.1.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "Ethernet2": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "Ethernet3": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.3.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "Ethernet4": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.4.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      },
+      "Ethernet5": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "10.0.5.1": {
+                  "prefixLength": 24
+                }
+              }
+            }
+          }
+        },
+        "enabled": true
+      }
+    },
+    "networkInstances": {
+      "default": {
+        "ospf": {
+          "areas": {
+            "0.0.0.0": {
+              "interfaces": {
+                "Ethernet0": {
+                  "enabledBy": "network"
+                }
+              }
+            },
+            "0.0.0.1": {
+              "interfaces": {
+                "Ethernet1": {
+                  "enabledBy": "network"
+                }
+              },
+              "type": "nssa"
+            },
+            "0.0.0.2": {
+              "interfaces": {
+                "Ethernet2": {
+                  "enabledBy": "network"
+                }
+              }
+            },
+            "0.0.0.3": {
+              "interfaces": {
+                "Ethernet3": {
+                  "enabledBy": "network"
+                }
+              },
+              "type": "stub"
+            },
+            "0.0.0.4": {
+              "interfaces": {
+                "Ethernet4": {
+                  "enabledBy": "network"
+                }
+              }
+            },
+            "0.0.0.5": {
+              "interfaces": {
+                "Ethernet5": {
+                  "enabledBy": "network"
+                }
+              }
+            }
+          },
+          "processId": "1"
+        }
+      }
+    }
+  }
+}
+

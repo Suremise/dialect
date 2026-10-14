@@ -1,0 +1,155 @@
+{
+  "modelVersion": "0.4.1",
+  "device": {
+    "system": {
+      "hostname": "edge-r1"
+    },
+    "networkInstances": {
+      "CUST": {
+        "type": "vrf",
+        "routeDistinguisher": "65000:10",
+        "bgp": {
+          "localAs": 65000,
+          "routerId": "10.10.0.1",
+          "neighbors": {
+            "10.10.0.2": {
+              "peerAs": 65100,
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              },
+              "description": "Customer"
+            }
+          },
+          "ebgpDefaultPolicy": {
+            "import": "accept",
+            "export": "accept"
+          }
+        },
+        "routeTargets": {
+          "import": [
+            "65000:10"
+          ],
+          "export": [
+            "65000:10"
+          ]
+        }
+      },
+      "default": {
+        "bgp": {
+          "localAs": 65000,
+          "routerId": "192.0.2.1",
+          "groups": {
+            "IBGP": {
+              "peerAs": 65000,
+              "updateSource": "Loopback0",
+              "description": "Route reflectors",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            }
+          },
+          "neighbors": {
+            "192.0.2.2": {
+              "group": "IBGP",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            },
+            "192.0.2.3": {
+              "group": "IBGP",
+              "addressFamilies": {
+                "ipv4-unicast": {}
+              }
+            },
+            "198.51.100.2": {
+              "peerAs": 65001,
+              "description": "Transit A",
+              "multihop": {
+                "ttl": 2
+              },
+              "addressFamilies": {
+                "ipv4-unicast": {
+                  "importPolicies": [
+                    "TRANSIT-IN"
+                  ],
+                  "exportPolicies": [
+                    "TRANSIT-OUT"
+                  ]
+                }
+              }
+            },
+            "203.0.113.9": {
+              "peerAs": 65002
+            },
+            "2001:db8:1::2": {
+              "peerAs": 65001,
+              "addressFamilies": {
+                "ipv6-unicast": {
+                  "importPolicies": [
+                    "V6-IN"
+                  ]
+                }
+              }
+            }
+          },
+          "ebgpDefaultPolicy": {
+            "export": "accept"
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "Loopback0": {
+        "type": "loopback",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 32
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/0": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "198.51.100.1": {
+                  "prefixLength": 30
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8:1::1": {
+                  "prefixLength": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "GigabitEthernet0/0/1": {
+        "type": "ethernet",
+        "subinterfaces": {
+          "0": {
+            "networkInstance": "CUST",
+            "ipv4": {
+              "addresses": {
+                "10.10.0.1": {
+                  "prefixLength": 30
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

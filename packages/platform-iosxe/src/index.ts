@@ -1,6 +1,6 @@
 // @dialect/platform-iosxe: the IOS / IOS-XE plugin (B8). The indentation-tree parser (tree.ts), mapping into the shared
-// model (parse.ts) and rendering from it (render.ts), for the phase 1 areas, and detect(). Platform-neutral: strings in,
-// strings and plain objects out.
+// model (parse.ts) and rendering from it (render.ts), for the phase 1 areas and phase 2's VLANs, OSPF and BGP, and
+// detect(). Platform-neutral: strings in, strings and plain objects out.
 import type { PlatformPlugin } from '@dialect/core'
 import { detect } from './detect'
 import { nameInterface } from './names'
@@ -16,8 +16,9 @@ export { parseTree, type IosNode, type IosTree, type NodeKind } from './tree'
 const plugin: PlatformPlugin = {
   id: 'iosxe',
   name: 'Cisco IOS / IOS-XE',
-  // 0.4.0: its parse fills VLANs, switch ports and a VLAN interface's routed VLAN, which a 0.3 core doesn't know.
-  modelApi: '>=0.4.0 <1.0.0',
+  // 0.4.1: its parse fills VLANs, switch ports, a VLAN interface's routed VLAN, OSPF and BGP (0.4.0), and BGP's
+  // default for eBGP peers with no policy (0.4.1), which an older core doesn't know.
+  modelApi: '>=0.4.1 <1.0.0',
   capabilities: {
     system: { parse: 'full', render: 'full' },
     dns: { parse: 'full', render: 'full' },
@@ -26,7 +27,9 @@ const plugin: PlatformPlugin = {
     ntp: { parse: 'partial', render: 'full' },
     syslog: { parse: 'partial', render: 'partial' },
     snmp: { parse: 'partial', render: 'partial' },
-    vlans: { parse: 'partial', render: 'partial' }
+    vlans: { parse: 'partial', render: 'partial' },
+    ospf: { parse: 'partial', render: 'partial' },
+    bgp: { parse: 'partial', render: 'partial' }
   },
   detect,
   parse,
