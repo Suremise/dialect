@@ -236,17 +236,17 @@ describe('a model document', () => {
 })
 
 describe('model 0.5', () => {
-  it('is the core\'s model version, and plugins built for 0.1 to 0.5.1 still load', () => {
-    expect(MODEL_VERSION).toBe('0.5.2')
-    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0', '>=0.3.0 <1.0.0', '>=0.4.0 <1.0.0', '>=0.4.1 <1.0.0', '>=0.5.0 <1.0.0', '>=0.5.1 <1.0.0'])
+  it('is the core\'s model version, and plugins built for 0.1 to 0.5.2 still load', () => {
+    expect(MODEL_VERSION).toBe('0.5.3')
+    for (const modelApi of ['>=0.1.0 <1.0.0', '>=0.2.0 <1.0.0', '>=0.3.0 <1.0.0', '>=0.4.0 <1.0.0', '>=0.4.1 <1.0.0', '>=0.5.0 <1.0.0', '>=0.5.1 <1.0.0', '>=0.5.2 <1.0.0'])
       expect(() => createRegistry([{ id: 'old', name: 'Old', modelApi, capabilities: { system: { parse: 'full', render: 'full' } } }]), modelApi).not.toThrow()
   })
 
   it('reads 0.3.0 documents, and a 0.3 core refuses a 0.5 one rather than drop its fields', () => {
     expect(deserializeModel('{"modelVersion":"0.3.0","device":{"networkInstances":{"blue":{"type":"vrf","routeDistinguisher":"65000:1"}}}}').device).toEqual({ networkInstances: { blue: { type: 'vrf', routeDistinguisher: '65000:1' } } })
     const text = serializeModel({ vlans: { '10': { name: 'users' } } })
-    expect(JSON.parse(text).modelVersion).toBe('0.5.2')
-    expect(() => deserializeModel(text, '0.3.0')).toThrow('The model document was made with model 0.5.2, newer than this core\'s 0.3.0.')
+    expect(JSON.parse(text).modelVersion).toBe('0.5.3')
+    expect(() => deserializeModel(text, '0.3.0')).toThrow('The model document was made with model 0.5.3, newer than this core\'s 0.3.0.')
   })
 
   it('reads 0.4.0 and 0.4.1 documents, and a 0.4.1 core refuses a 0.5.0 one rather than drop its routing policy', () => {
@@ -255,7 +255,7 @@ describe('model 0.5', () => {
     expect(deserializeModel(JSON.stringify({ modelVersion: '0.4.1', device: { networkInstances: { default: { bgp } } } })).device.networkInstances?.default.bgp).toEqual(bgp)
     const text = serializeModel({ routingPolicy: { policies: { IN: { fallThrough: 'reject', terms: { '10': { actions: { flow: 'accept' } } } } } } })
     expect(deserializeModel(text).device.routingPolicy?.policies?.IN.terms?.['10'].actions).toEqual({ flow: 'accept' })
-    expect(() => deserializeModel(text, '0.4.1')).toThrow('The model document was made with model 0.5.2, newer than this core\'s 0.4.1.')
+    expect(() => deserializeModel(text, '0.4.1')).toThrow('The model document was made with model 0.5.3, newer than this core\'s 0.4.1.')
   })
 
   it('reads 0.5.0 documents, and a 0.5.0 core refuses a 0.5.1 one rather than drop its filters', () => {
@@ -263,7 +263,7 @@ describe('model 0.5', () => {
     expect(deserializeModel(JSON.stringify({ modelVersion: '0.5.0', device: { routingPolicy: policy } })).device.routingPolicy).toEqual(policy)
     const text = serializeModel({ filters: { ipv4: { F: { implicitAction: 'deny', terms: { '10': { matches: { protocols: [6] }, actions: { action: 'accept' } } } } } } })
     expect(deserializeModel(text).device.filters?.ipv4?.F.implicitAction).toBe('deny')
-    expect(() => deserializeModel(text, '0.5.0')).toThrow('The model document was made with model 0.5.2, newer than this core\'s 0.5.0.')
+    expect(() => deserializeModel(text, '0.5.0')).toThrow('The model document was made with model 0.5.3, newer than this core\'s 0.5.0.')
   })
 
   it('reads 0.5.1 documents, and a 0.5.1 core refuses a 0.5.2 one rather than drop its VRF policies', () => {
@@ -271,7 +271,15 @@ describe('model 0.5', () => {
     expect(deserializeModel(JSON.stringify({ modelVersion: '0.5.1', device: { filters } })).device.filters).toEqual(filters)
     const text = serializeModel({ networkInstances: { blue: { type: 'vrf', importPolicies: ['IN'], vrfPolicyMode: 'after-route-targets' } }, routingPolicy: { policies: { IN: { fallThrough: 'reject' } } } })
     expect(deserializeModel(text).device.networkInstances?.blue.importPolicies).toEqual(['IN'])
-    expect(() => deserializeModel(text, '0.5.1')).toThrow('The model document was made with model 0.5.2, newer than this core\'s 0.5.1.')
+    expect(() => deserializeModel(text, '0.5.1')).toThrow('The model document was made with model 0.5.3, newer than this core\'s 0.5.1.')
+  })
+
+  it('reads 0.5.2 documents, and a 0.5.2 core refuses a 0.5.3 one rather than drop its term descriptions', () => {
+    const vrf = { blue: { type: 'vrf', importPolicies: ['IN'], vrfPolicyMode: 'after-route-targets' } }
+    expect(deserializeModel(JSON.stringify({ modelVersion: '0.5.2', device: { networkInstances: vrf, routingPolicy: { policies: { IN: { fallThrough: 'reject' } } } } })).device.networkInstances).toEqual(vrf)
+    const text = serializeModel({ filters: { ipv4: { F: { implicitAction: 'deny', terms: { '10': { description: 'ssh from the jump hosts', actions: { action: 'accept' } } } } } } })
+    expect(deserializeModel(text).device.filters?.ipv4?.F.terms?.['10'].description).toBe('ssh from the jump hosts')
+    expect(() => deserializeModel(text, '0.5.2')).toThrow('The model document was made with model 0.5.3, newer than this core\'s 0.5.2.')
   })
 
   it('has VLANs, switch ports, routed VLANs, OSPF and BGP as leaves, through JSON and with nothing wrong', () => {

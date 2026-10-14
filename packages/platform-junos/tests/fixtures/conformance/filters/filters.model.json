@@ -1,0 +1,348 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "interfaces": {
+      "ge-0/0/0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "192.0.2.1": {
+                  "prefixLength": 24
+                }
+              }
+            },
+            "ipv6": {
+              "addresses": {
+                "2001:db8::1": {
+                  "prefixLength": 64
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "EDGE-IN",
+                "output": "EDGE-OUT"
+              },
+              "ipv6": {
+                "input": "EDGE6-IN"
+              }
+            }
+          }
+        },
+        "type": "ethernet"
+      },
+      "lo0": {
+        "subinterfaces": {
+          "0": {
+            "ipv4": {
+              "addresses": {
+                "203.0.113.1": {
+                  "prefixLength": 32
+                }
+              }
+            },
+            "filters": {
+              "ipv4": {
+                "input": "PROTECT-RE"
+              }
+            }
+          }
+        },
+        "type": "loopback"
+      }
+    },
+    "routingPolicy": {
+      "prefixLists": {
+        "ipv4": {
+          "MGMT": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "198.51.100.0/24",
+                "minLength": 24,
+                "maxLength": 24
+              }
+            }
+          },
+          "BGP-PEERS": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "192.0.2.2/32",
+                "minLength": 32,
+                "maxLength": 32
+              }
+            }
+          }
+        },
+        "ipv6": {
+          "BGP-PEERS": {
+            "entries": {
+              "1": {
+                "action": "permit",
+                "prefix": "2001:db8::2/128",
+                "minLength": 128,
+                "maxLength": 128
+              }
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "ipv4": {
+        "EDGE-IN": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "BOGONS",
+              "matches": {
+                "sourcePrefixes": [
+                  "0.0.0.0/8",
+                  "10.0.0.0/8",
+                  "127.0.0.0/8"
+                ]
+              },
+              "actions": {
+                "count": "BOGONS",
+                "action": "discard"
+              }
+            },
+            "2": {
+              "name": "WEB",
+              "matches": {
+                "destinationPrefixes": [
+                  "192.0.2.10/32"
+                ],
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "80",
+                  "443"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "3": {
+              "name": "RETURN",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "tcpEstablished": true
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "4": {
+              "name": "PING",
+              "matches": {
+                "protocols": [
+                  1
+                ],
+                "icmpTypes": [
+                  0,
+                  8
+                ],
+                "icmpCodes": [
+                  0
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "5": {
+              "name": "FRAGMENTS",
+              "matches": {
+                "fragment": "non-initial"
+              },
+              "actions": {
+                "log": true,
+                "action": "reject"
+              }
+            },
+            "6": {
+              "name": "LOG-REST",
+              "actions": {
+                "log": true,
+                "action": "next-term"
+              }
+            },
+            "7": {
+              "name": "REST",
+              "actions": {
+                "action": "discard"
+              }
+            }
+          }
+        },
+        "EDGE-OUT": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "VOICE",
+              "matches": {
+                "dscp": [
+                  46,
+                  34
+                ]
+              },
+              "actions": {
+                "count": "VOICE",
+                "action": "accept"
+              }
+            },
+            "2": {
+              "name": "ALL",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        },
+        "PROTECT-RE": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "SSH",
+              "matches": {
+                "sourcePrefixLists": [
+                  "MGMT"
+                ],
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "22"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "2": {
+              "name": "BGP",
+              "matches": {
+                "sourcePrefixLists": [
+                  "BGP-PEERS"
+                ],
+                "protocols": [
+                  6
+                ],
+                "ports": [
+                  "179"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "3": {
+              "name": "SYN-FLOOD",
+              "matches": {
+                "protocols": [
+                  6
+                ],
+                "tcpFlags": {
+                  "set": [
+                    "syn"
+                  ],
+                  "clear": [
+                    "ack"
+                  ]
+                },
+                "fragment": "initial"
+              },
+              "actions": {
+                "count": "SYN",
+                "action": "next-term"
+              }
+            },
+            "4": {
+              "name": "NTP",
+              "matches": {
+                "prefixes": [
+                  "198.51.100.123/32"
+                ],
+                "protocols": [
+                  17
+                ],
+                "sourcePorts": [
+                  "123"
+                ],
+                "destinationPorts": [
+                  "1024-65535"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      },
+      "ipv6": {
+        "EDGE6-IN": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "ND",
+              "matches": {
+                "protocols": [
+                  58
+                ],
+                "icmpTypes": [
+                  133,
+                  134,
+                  135,
+                  136
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "2": {
+              "name": "BGP",
+              "matches": {
+                "sourcePrefixLists": [
+                  "BGP-PEERS"
+                ],
+                "protocols": [
+                  6
+                ],
+                "destinationPorts": [
+                  "179"
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            },
+            "3": {
+              "name": "MARKED",
+              "matches": {
+                "destinationPrefixes": [
+                  "2001:db8:100::/48"
+                ],
+                "dscp": [
+                  46
+                ]
+              },
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

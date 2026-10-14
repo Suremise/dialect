@@ -1,0 +1,32 @@
+{
+  "modelVersion": "0.5.2",
+  "device": {
+    "filters": {
+      "ipv4": {
+        "A": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "T",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        },
+        "B": {
+          "implicitAction": "discard",
+          "terms": {
+            "1": {
+              "name": "T",
+              "actions": {
+                "action": "accept"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

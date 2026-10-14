@@ -1,0 +1,3 @@
+set firewall family inet filter F term A then accept
+set firewall family inet filter F term B then discard
+insert firewall family inet filter F term B before term A

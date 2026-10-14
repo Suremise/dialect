@@ -1,0 +1,22 @@
+set interfaces ge-0/0/1 unit 0 family inet address 192.0.2.5/30
+set interfaces ge-0/0/1 unit 0 family inet filter input-list LEGACY
+set interfaces ge-0/0/1 unit 0 family inet filter input LEGACY
+set interfaces ge-0/0/2 unit 0 family inet filter output LEGACY
+set firewall filter LEGACY term SSH from protocol tcp
+set firewall filter LEGACY term SSH from destination-port ssh
+set firewall filter LEGACY term SSH from destination-port ssh
+set firewall filter LEGACY term SSH then reject
+set firewall filter LEGACY term SSH then accept
+set firewall filter LEGACY term SSH then syslog
+set firewall filter LEGACY term NEW from tcp-initial
+set firewall filter LEGACY term NEW then count NEW-SESSIONS
+set firewall filter LEGACY term ICMP from icmp-type 3-5
+set firewall filter LEGACY term ICMP from icmp-type echo-request
+set firewall filter LEGACY term ICMP then discard
+set firewall filter LEGACY term MARKED from dscp af41
+set firewall filter LEGACY term MARKED from dscp ef
+set firewall filter LEGACY interface-specific
+set firewall family inet6 filter V6 term ALL
+set firewall apply-groups SHARED
+set groups SHARED firewall family inet filter FROM-GROUP term ALL then accept
+set groups SHARED firewall filter LEGACY term SSH then count SSH

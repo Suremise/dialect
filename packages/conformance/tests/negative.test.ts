@@ -448,6 +448,19 @@ describe('a renderer built for model 0.5.1 meeting 0.5.2\'s VRF policies', () =>
   })
 })
 
+describe('a renderer built for model 0.5.2 meeting 0.5.3\'s filter term descriptions', () => {
+  const old = stubPlugin({ modelApi: '>=0.5.2 <1.0.0' })
+  const model: Device = { filters: { ipv4: { F: { implicitAction: 'deny', terms: { '10': { description: 'ssh from the jump hosts', actions: { action: 'accept' } } } } } } }
+
+  it('loads, and the ledger reports the description as unrendered, not dropped', () => {
+    expect(() => createRegistry([old], { modelVersion: '0.5.3' })).not.toThrow()
+    expect(modelProblems(model)).toEqual([])
+    const rendered = old.render!(model, { modelVersion: '0.5.3' })
+    const unrendered = buildLedger(old.parse!('', { modelVersion: '0.5.3' }), rendered, model).target?.unrendered.map((f) => f.path) ?? []
+    expect(unrendered).toContain(fieldPath('filters', 'ipv4', 'F', 'terms', '10', 'description'))
+  })
+})
+
 describe('a BGP policy name that resolves to nothing: checked for a plugin that parses routing policy', () => {
   const model: Device = { networkInstances: { default: { bgp: { neighbors: { '10.0.0.2': { peerAs: 65001, importPolicies: ['IN'] } } } } } }
   const giving = (capabilities: PlatformPlugin['capabilities']): PlatformPlugin => ({ ...stubPlugin(), capabilities, parse: () => ({ tree: [], model, dispositions: {}, diagnostics: [] }) })

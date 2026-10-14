@@ -1,0 +1,1 @@
+set firewall family ethernet-switching filter L2 term T then accept

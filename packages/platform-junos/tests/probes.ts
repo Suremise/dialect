@@ -50,6 +50,10 @@ const dns = lines(
 const terms = ['set policy-options policy-statement P term A from protocol static', 'set policy-options policy-statement P term A then accept', 'set policy-options policy-statement P term B then reject']
 /** A prefix list of two entries, for negating the second. */
 const entries = ['set policy-options prefix-list L 10.0.0.0/8', 'set policy-options prefix-list L 192.0.2.0/24']
+/** A filter of two terms, for negating the second: SSH in, and the rest counted and discarded. */
+const filterTerms = ['set firewall family inet filter F term A from protocol tcp', 'set firewall family inet filter F term A from destination-port ssh', 'set firewall family inet filter F term A then accept', 'set firewall family inet filter F term B then count DROPPED', 'set firewall family inet filter F term B then discard']
+/** The filter applied to a unit, for negating the attachment. */
+const attached = ['set firewall family inet filter F term A then accept', 'set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24', 'set interfaces ge-0/0/0 unit 0 family inet filter input F']
 
 export const probes: ProbeAdapter = {
   prototypeKeys: {
@@ -129,9 +133,23 @@ export const probes: ProbeAdapter = {
       set: lines(...entries),
       negated: lines(...entries, 'delete policy-options prefix-list L 192.0.2.0/24'),
       path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '2']
+    },
+    'filter-term': {
+      set: lines(...filterTerms),
+      negated: lines(...filterTerms, 'delete firewall family inet filter F term B'),
+      path: ['filters', 'ipv4', 'F', 'terms', '2']
+    },
+    'filter-attachment': {
+      set: lines(...attached),
+      negated: lines(...attached, 'delete interfaces ge-0/0/0 unit 0 family inet filter input'),
+      path: ['interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input']
     }
   },
   malformed: {
+    port: { source: lines('set firewall family inet filter F term T from destination-port 70000', 'set firewall family inet filter F term T then accept'), value: '70000', line: 1 },
+    'filter-prefix': { source: lines('set firewall family inet filter F term T from source-address 10.0.0.256/24', 'set firewall family inet filter F term T then accept'), value: '10.0.0.256/24', line: 1 },
+    // Junos takes a mask after the slash; one that isn't contiguous is a wildcard the model never approximates.
+    wildcard: { source: lines('set firewall family inet filter F term T from source-address 10.0.0.0/255.0.255.0', 'set firewall family inet filter F term T then accept'), value: '10.0.0.0/255.0.255.0', line: 1 },
     prefix: { source: lines('set policy-options prefix-list L 10.0.0.256/24'), value: '10.0.0.256/24' },
     'prefix-length': { source: lines('set policy-options prefix-list L 10.0.0.0/33'), value: '10.0.0.0/33' },
     'ipv4-address': { source: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.256/24'), value: '192.0.2.256/24' },
@@ -153,12 +171,14 @@ export const probes: ProbeAdapter = {
     'prefix-list': { source: lines('set policy-options policy-statement P term T from prefix-list MISSING-LIST', 'set policy-options policy-statement P term T then accept'), value: 'MISSING-LIST', line: 1 },
     'community-set': { source: lines('set policy-options policy-statement P term T from community MISSING-COMMUNITY', 'set policy-options policy-statement P term T then accept'), value: 'MISSING-COMMUNITY', line: 1 },
     'as-path-set': { source: lines('set policy-options policy-statement P term T from as-path MISSING-PATH', 'set policy-options policy-statement P term T then accept'), value: 'MISSING-PATH', line: 1 },
-    policy: { source: lines('set routing-options autonomous-system 65000', 'set protocols bgp group G neighbor 192.0.2.2 peer-as 65001', 'set protocols bgp group G import MISSING-POLICY'), value: 'MISSING-POLICY', line: 3 }
+    policy: { source: lines('set routing-options autonomous-system 65000', 'set protocols bgp group G neighbor 192.0.2.2 peer-as 65001', 'set protocols bgp group G import MISSING-POLICY'), value: 'MISSING-POLICY', line: 3 },
+    filter: { source: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24', 'set interfaces ge-0/0/0 unit 0 family inet filter input MISSING-FILTER'), value: 'MISSING-FILTER', line: 2 }
   },
   regex: {
     source: lines('set policy-options as-path PATH ".* 65000 .*"', 'set policy-options community COMM members "^65000:.*$"'),
     regexes: ['.* 65000 .*', '^65000:.*$']
-  }
+  },
+  implicitAction: { source: lines(...filterTerms) }
 }
 
 /** Hierarchical Junos from nested [statement, children] pairs: a string is a leaf (`host-name r1;`). */
@@ -184,6 +204,9 @@ const units: Node[] = [0, 1, 2].map((i) => [`ge-0/0/${i}`, [unit0(`address 192.0
 const ospfIn = (i: number, metric = 'metric 10'): Node => ['protocols', [['ospf', [['area 0.0.0.0', [[`interface ge-0/0/${i}.0`, [metric]]]]]]]]
 const bgpIn = (peerAs = 'peer-as 65001'): Node[] => [['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', [['neighbor 192.0.2.2', [peerAs]]]]]]]]]
 const termA: Node = ['term A', [['from', ['protocol static']], ['then', ['accept']]]]
+/** Filter F of family inet with `terms`; and its term accepting SSH. */
+const inetFilter = (...filterNodes: Node[]): Node => ['firewall', [['family inet', [['filter F', filterNodes]]]]]
+const sshIn: Node = ['term A', [['from', ['protocol tcp', 'destination-port ssh']], ['then', ['accept']]]]
 /** A policy whose one term names `condition`, which nothing defines. */
 const missing = (condition: string): Node => ['policy-options', [['policy-statement P', [['term T', [['from', [condition]], ['then', ['accept']]]]]]]]
 const community = (access: string): Node => ['snmp', [['community PLACEHOLDER', [`authorization ${access}`, ['clients', ['192.0.2.0/24']]]]]]
@@ -261,9 +284,22 @@ export const hierarchicalProbes: ProbeAdapter = {
       set: tree(['policy-options', [['prefix-list L', ['10.0.0.0/8', '192.0.2.0/24']]]]),
       negated: tree(['policy-options', [['prefix-list L', ['10.0.0.0/8']]]]),
       path: ['routingPolicy', 'prefixLists', 'ipv4', 'L', 'entries', '2']
+    },
+    'filter-term': {
+      set: tree(inetFilter(sshIn, ['term B', [['then', ['count DROPPED', 'discard']]]])),
+      negated: tree(inetFilter(sshIn)),
+      path: ['filters', 'ipv4', 'F', 'terms', '2']
+    },
+    'filter-attachment': {
+      set: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24', ['filter', ['input F']])]]]], inetFilter(sshIn)),
+      negated: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24')]]]], inetFilter(sshIn)),
+      path: ['interfaces', 'ge-0/0/0', 'subinterfaces', '0', 'filters', 'ipv4', 'input']
     }
   },
   malformed: {
+    port: { source: tree(inetFilter(['term T', [['from', ['destination-port 70000']], ['then', ['accept']]]])), value: '70000' },
+    'filter-prefix': { source: tree(inetFilter(['term T', [['from', ['source-address 10.0.0.256/24']], ['then', ['accept']]]])), value: '10.0.0.256/24' },
+    wildcard: { source: tree(inetFilter(['term T', [['from', ['source-address 10.0.0.0/255.0.255.0']], ['then', ['accept']]]])), value: '10.0.0.0/255.0.255.0' },
     prefix: { source: tree(['policy-options', [['prefix-list L', ['10.0.0.256/24']]]]), value: '10.0.0.256/24' },
     'prefix-length': { source: tree(['policy-options', [['prefix-list L', ['10.0.0.0/33']]]]), value: '10.0.0.0/33' },
     'ipv4-address': { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.256/24')]]]]), value: '192.0.2.256/24' },
@@ -304,10 +340,12 @@ export const hierarchicalProbes: ProbeAdapter = {
     'prefix-list': { source: tree(missing('prefix-list MISSING-LIST')), value: 'MISSING-LIST' },
     'community-set': { source: tree(missing('community MISSING-COMMUNITY')), value: 'MISSING-COMMUNITY' },
     'as-path-set': { source: tree(missing('as-path MISSING-PATH')), value: 'MISSING-PATH' },
-    policy: { source: tree(['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', ['import MISSING-POLICY', ['neighbor 192.0.2.2', ['peer-as 65001']]]]]]]]), value: 'MISSING-POLICY' }
+    policy: { source: tree(['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', ['import MISSING-POLICY', ['neighbor 192.0.2.2', ['peer-as 65001']]]]]]]]), value: 'MISSING-POLICY' },
+    filter: { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24', ['filter', ['input MISSING-FILTER']])]]]]), value: 'MISSING-FILTER' }
   },
   regex: {
     source: tree(['policy-options', ['community COMM members "^65000:.*$"', 'as-path PATH ".* 65000 .*"']]),
     regexes: ['.* 65000 .*', '^65000:.*$']
-  }
+  },
+  implicitAction: { source: tree(inetFilter(sshIn, ['term B', [['then', ['count DROPPED', 'discard']]]])) }
 }

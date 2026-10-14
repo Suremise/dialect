@@ -27,6 +27,14 @@
   policy itself, not only its name. A set or policy converts whole or not at all: nested `if`, `elseif`, parameters,
   `apply` and the like are listed as not converted. Converting a Junos policy to IOS-XR adds a final `pass`, with a
   warning, and a VRF's import or export policy warns where Junos and IOS-XR treat route targets differently.
+- **Junos firewall filters convert:** `firewall family inet` and `inet6` filters (and the older `firewall filter`),
+  with their terms' conditions (addresses and prefix lists by source, destination or either, protocol and
+  next-header, ports and ranges by number or name, ICMP types and codes, DSCP and traffic class, TCP established,
+  initial and flags, fragments) and actions (accept, discard, reject, next term, count, log), and the filter each
+  unit applies in and out. A term converts whole or not at all, and when leaving one out could change what a later
+  term decides, the whole filter is listed as not converted, with the units applying it. Converting to Junos warns
+  where the filter's end differs (a Cisco ACL's deny) or the filter relies on it. Policers, routing-instance
+  forwarding, input and output lists and filters of other families aren't converted yet.
 - **Cisco NX-OS routing policy converts:** prefix lists (IPv4 and IPv6, with `eq`), standard and expanded community lists
   and AS-path access lists with their sequence numbers, and route maps; BGP neighbors' route maps now carry the policy,
   not only its name. As on IOS-XE, regexes are kept as written, a route map converts sequence by sequence, and a Junos

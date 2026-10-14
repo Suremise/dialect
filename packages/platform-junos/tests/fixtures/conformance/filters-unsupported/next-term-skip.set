@@ -1,0 +1,4 @@
+set firewall family inet filter F term COUNT from packet-length 1500
+set firewall family inet filter F term COUNT then count BIG
+set firewall family inet filter F term COUNT then next term
+set firewall family inet filter F term REST then accept

@@ -19,6 +19,7 @@ import { expand, type Expanded } from './expand'
 import { isObject, ModelBuilder, type Obj, type Segments } from './model'
 import { interfaceType, NOT_INTERFACES } from './names'
 import { ignored, mapped, unsupported, type Mutable } from './dispositions'
+import { filterMapper } from './filters'
 import { policyMapper } from './policy'
 import { readConfig, startsWith } from './statements'
 
@@ -44,7 +45,6 @@ const isInterfaceName = (s: string): boolean => /^[a-z][\w-]*\d[\w/:.-]*$/i.test
 const LATER: Readonly<Record<string, string>> = {
   security: 'SRX security (zones, policies, NAT) comes later',
   applications: 'SRX applications come later, with security policies',
-  firewall: 'firewall filters come later',
   'class-of-service': 'class of service comes later'
 }
 
@@ -96,6 +96,9 @@ export function parse(text: string, _context: Context): ParseResult {
   }
   /** Sets a single-valued leaf for statement `index` unless a higher-ranked statement has it: its path, or null. */
   const policy = policyMapper({ statements, results, model, claim, reshaped: read.reshaped ?? [] })
+  // A unit a filter attachment names is made sure of when the attachment settles (ensureInterface and container are below).
+  const ensureUnit = (name: string, unit: string): string[] => [...ensureInterface(name), container(['interfaces', name, 'subinterfaces', unit])]
+  const filter = filterMapper({ statements, results, model, claim, reshaped: read.reshaped ?? [], ensureUnit })
   const put = (index: number, segments: Segments, value: unknown): string | null => {
     const path = fieldPath(...segments)
     if (!claim(path, index)) return null
@@ -199,6 +202,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const v6 = u[1] === 'inet6'
     const family = [...sub, v6 ? 'ipv6' : 'ipv4']
     const f = u.slice(2)
+    if (f[0] === 'filter') return filter.mapAttachment(name, String(Number(r[1])), v6 ? 'ipv6' : 'ipv4', f.slice(1), i)
     if (!f.length) return withSub([model.ensure(family)])
     if (f[0] === 'mtu' && f.length === 2 && isInteger(f[1], 65535)) return withSub([put(i, [...family, 'mtu'], Number(f[1]))])
     if (f[0] === 'address' && f.length >= 2) {
@@ -933,6 +937,8 @@ export function parse(text: string, _context: Context): ParseResult {
         return mapVlan(w, i)
       case 'policy-options':
         return policy.map(w, i)
+      case 'firewall':
+        return filter.map(w, i)
       default:
         return unsupported(Object.hasOwn(LATER, w[0]) ? LATER[w[0]] : undefined)
     }
@@ -1022,8 +1028,11 @@ export function parse(text: string, _context: Context): ParseResult {
     })
   }
 
+  // Filters before VLANs: an IRB unit that routes for no VLAN takes its filter attachments with it.
+  const settled = policy.settle()
+  filter.settle(settled.lists)
   settleVlans()
-  settleProtocols(policy.settle())
+  settleProtocols(settled.policies)
 
   return { tree: read.tree, model: model.root as Device, dispositions: settle(read.tree, read.dispositions, expansion, statements, results), diagnostics: [...read.diagnostics, ...expansion.diagnostics, ...diagnostics] }
 }

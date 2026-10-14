@@ -20,7 +20,7 @@
 // while the ledger reports any populated field it has never heard of as unrendered.
 
 /** The shared model's version (docs/SPEC.md §4). Bump minor for additions, major for breaking changes. */
-export const MODEL_VERSION = '0.5.2'
+export const MODEL_VERSION = '0.5.3'
 
 /** A map from a collection's natural key to its entries. */
 export type Keyed<T> = Readonly<Record<string, T>>
@@ -683,6 +683,12 @@ export interface Filter {
 export interface FilterTerm {
   /** The Junos term's name. */
   readonly name?: string
+  /**
+   * What the entry is for, as one line of text: a Cisco ACL's `remark` before the entry (several remarks, one after
+   * another, joined by a space). A Cisco renderer writes it back as a `remark` before the entry; Junos keeps no
+   * description per term. Since model 0.5.3.
+   */
+  readonly description?: string
   /** Every condition given must hold (and within a list, any of its entries). None given matches every packet. */
   readonly matches?: FilterMatches
   readonly actions: FilterActions
