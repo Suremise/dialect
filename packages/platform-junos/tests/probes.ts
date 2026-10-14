@@ -19,6 +19,24 @@ const routes = lines(
   ])
 )
 
+/** OSPF on a unit of its own in the global table, VRF A and VRF B, for the OSPF scoping probe. */
+const ospf = lines(
+  ...['', 'A', 'B'].flatMap((vrf, i) => [
+    `set interfaces ge-0/0/${i} unit 0 family inet address 192.0.2.${i + 1}/24`,
+    ...(vrf ? [`set routing-instances ${vrf} instance-type vrf`, `set routing-instances ${vrf} route-distinguisher 65000:${i}`, `set routing-instances ${vrf} vrf-target target:65000:${i}`, `set routing-instances ${vrf} interface ge-0/0/${i}.0`] : []),
+    `set ${vrf ? `routing-instances ${vrf} ` : ''}protocols ospf area 0.0.0.0 interface ge-0/0/${i}.0 metric 10`
+  ])
+)
+
+/** The same BGP neighbor in the global table, VRF A and VRF B, for the BGP scoping probe. */
+const bgp = lines(
+  ...['', 'A', 'B'].flatMap((vrf, i) => [
+    ...(vrf ? [`set routing-instances ${vrf} instance-type vrf`, `set routing-instances ${vrf} route-distinguisher 65000:${i}`, `set routing-instances ${vrf} vrf-target target:65000:${i}`] : []),
+    `set ${vrf ? `routing-instances ${vrf} ` : ''}routing-options autonomous-system 65000`,
+    `set ${vrf ? `routing-instances ${vrf} ` : ''}protocols bgp group G neighbor 192.0.2.2 peer-as 65001`
+  ])
+)
+
 /** Name servers in VRF A, VRF B and the global table. */
 const dns = lines(
   'set routing-instances A instance-type vrf',
@@ -43,9 +61,11 @@ export const probes: ProbeAdapter = {
         `set system domain-search ${key}`,
         `set system name-server 192.0.2.53 routing-instance ${key}`,
         `set vlans ${key} vlan-id 10`,
-        `set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members ${key}`
+        `set interfaces ge-0/0/1 unit 0 family ethernet-switching vlan members ${key}`,
+        `set protocols bgp group ${key} type external`,
+        `set protocols bgp group ${key} neighbor 192.0.2.2 peer-as 65001`
       ),
-    uses: { interface: true, vrf: true, community: true, dns: true, vlan: true }
+    uses: { interface: true, vrf: true, community: true, dns: true, vlan: true, 'bgp-group': true }
   },
   snmpAccess: {
     'read-only': lines('set snmp community PLACEHOLDER authorization read-only', 'set snmp community PLACEHOLDER clients 192.0.2.0/24'),
@@ -76,6 +96,16 @@ export const probes: ProbeAdapter = {
       set: lines('set snmp community PLACEHOLDER authorization read-only'),
       negated: lines('set snmp community PLACEHOLDER authorization read-only', 'delete snmp community PLACEHOLDER'),
       path: ['system', 'snmp', 'communities', 'PLACEHOLDER']
+    },
+    'bgp-neighbor': {
+      set: lines('set routing-options autonomous-system 65000', 'set protocols bgp group G neighbor 192.0.2.2 peer-as 65001', 'set protocols bgp group G neighbor 192.0.2.3 peer-as 65002'),
+      negated: lines('set routing-options autonomous-system 65000', 'set protocols bgp group G neighbor 192.0.2.2 peer-as 65001', 'set protocols bgp group G neighbor 192.0.2.3 peer-as 65002', 'delete protocols bgp group G neighbor 192.0.2.2'),
+      path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2']
+    },
+    'ospf-interface': {
+      set: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24', 'set interfaces lo0 unit 0 family inet address 192.0.2.9/32', 'set protocols ospf area 0.0.0.0 interface ge-0/0/0.0', 'set protocols ospf area 0.0.0.0 interface lo0.0 passive'),
+      negated: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/24', 'set interfaces lo0 unit 0 family inet address 192.0.2.9/32', 'set protocols ospf area 0.0.0.0 interface ge-0/0/0.0', 'set protocols ospf area 0.0.0.0 interface lo0.0 passive', 'delete protocols ospf area 0.0.0.0 interface ge-0/0/0.0'),
+      path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'ge-0/0/0.0']
     }
   },
   malformed: {
@@ -84,10 +114,13 @@ export const probes: ProbeAdapter = {
     // Junos gives a prefix length, not a mask: one too long for the family is the malformed one.
     mask: { source: lines('set interfaces ge-0/0/0 unit 0 family inet address 192.0.2.1/33'), value: '192.0.2.1/33' },
     'next-hop': { source: lines('set routing-options static route 10.0.0.0/8 next-hop 192.0.2.300'), value: '192.0.2.300' },
-    'vlan-id': { source: lines('set vlans V vlan-id 4095'), value: '4095' }
+    'vlan-id': { source: lines('set vlans V vlan-id 4095'), value: '4095' },
+    'as-number': { source: lines('set routing-options autonomous-system 65000', 'set protocols bgp group G neighbor 192.0.2.2 peer-as 4294967296'), value: '4294967296' }
   },
   vrfScoping: {
     delete: { base: routes, changed: routes + lines('delete routing-instances A'), vrf: 'A' },
+    ospf: { base: ospf, changed: ospf + lines('delete routing-instances A protocols ospf area 0.0.0.0 interface ge-0/0/1.0 metric'), vrf: 'A' },
+    bgp: { base: bgp, changed: bgp + lines('delete routing-instances A protocols bgp group G neighbor 192.0.2.2'), vrf: 'A' },
     dns: { base: dns, changed: dns + lines('delete system name-server 192.0.2.53'), vrf: 'A' },
     'static-route': { base: routes, changed: routes + lines('delete routing-instances A routing-options static route 10.0.0.0/8'), vrf: 'A' }
   }
@@ -111,6 +144,10 @@ const tree = (...nodes: Node[]): string => {
 const unit0 = (...family: Node[]): Node => ['unit 0', [['family inet', family]]]
 const vrf = (name: string, rd: number, ...rest: Node[]): Node => [name, ['instance-type vrf', `route-distinguisher 65000:${rd}`, `vrf-target target:65000:${rd}`, ...rest]]
 const route = (...hops: Node[]): Node => ['routing-options', [['static', ['route 10.0.0.0/8 next-hop 192.0.2.1', ...hops]]]]
+/** Three units, ge-0/0/0.0 to ge-0/0/2.0, for OSPF in the global table and VRFs A and B. */
+const units: Node[] = [0, 1, 2].map((i) => [`ge-0/0/${i}`, [unit0(`address 192.0.2.${i + 1}/24`)]])
+const ospfIn = (i: number, metric = 'metric 10'): Node => ['protocols', [['ospf', [['area 0.0.0.0', [[`interface ge-0/0/${i}.0`, [metric]]]]]]]]
+const bgpIn = (peerAs = 'peer-as 65001'): Node[] => [['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', [['neighbor 192.0.2.2', [peerAs]]]]]]]]]
 const community = (access: string): Node => ['snmp', [['community PLACEHOLDER', [`authorization ${access}`, ['clients', ['192.0.2.0/24']]]]]]
 
 /**
@@ -126,9 +163,10 @@ export const hierarchicalProbes: ProbeAdapter = {
         ['routing-instances', [vrf(key, 1, `interface ${key}.0`)]],
         ['snmp', [[`community ${key}`, ['authorization read-only', ['clients', ['192.0.2.0/24']]]]]],
         ['system', [`domain-search ${key}`, ['name-server', [`192.0.2.53 routing-instance ${key}`]]]],
-        ['vlans', [[key, ['vlan-id 10']]]]
+        ['vlans', [[key, ['vlan-id 10']]]],
+        ['protocols', [['bgp', [[`group ${key}`, ['type external', ['neighbor 192.0.2.2', ['peer-as 65001']]]]]]]]
       ),
-    uses: { interface: true, vrf: true, community: true, dns: true, vlan: true }
+    uses: { interface: true, vrf: true, community: true, dns: true, vlan: true, 'bgp-group': true }
   },
   snmpAccess: { 'read-only': tree(community('read-only')), 'read-write': tree(community('read-write')) },
   negation: {
@@ -156,6 +194,16 @@ export const hierarchicalProbes: ProbeAdapter = {
       set: tree(['snmp', ['location lab', ['community PLACEHOLDER', ['authorization read-only']]]]),
       negated: tree(['snmp', ['location lab']]),
       path: ['system', 'snmp', 'communities', 'PLACEHOLDER']
+    },
+    'bgp-neighbor': {
+      set: tree(['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', [['neighbor 192.0.2.2', ['peer-as 65001']], ['neighbor 192.0.2.3', ['peer-as 65002']]]]]]]]),
+      negated: tree(['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', [['neighbor 192.0.2.3', ['peer-as 65002']]]]]]]]),
+      path: ['networkInstances', 'default', 'bgp', 'neighbors', '192.0.2.2']
+    },
+    'ospf-interface': {
+      set: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24')]], ['lo0', [unit0('address 192.0.2.9/32')]]]], ['protocols', [['ospf', [['area 0.0.0.0', ['interface ge-0/0/0.0', ['interface lo0.0', ['passive']]]]]]]]),
+      negated: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/24')]], ['lo0', [unit0('address 192.0.2.9/32')]]]], ['protocols', [['ospf', [['area 0.0.0.0', [['interface lo0.0', ['passive']]]]]]]]),
+      path: ['networkInstances', 'default', 'ospf', 'areas', '0.0.0.0', 'interfaces', 'ge-0/0/0.0']
     }
   },
   malformed: {
@@ -163,7 +211,8 @@ export const hierarchicalProbes: ProbeAdapter = {
     'ipv6-address': { source: tree(['interfaces', [['ge-0/0/0', [['unit 0', [['family inet6', ['address 2001:db8:::1/64']]]]]]]]), value: '2001:db8:::1/64' },
     mask: { source: tree(['interfaces', [['ge-0/0/0', [unit0('address 192.0.2.1/33')]]]]), value: '192.0.2.1/33' },
     'next-hop': { source: tree(['routing-options', [['static', ['route 10.0.0.0/8 next-hop 192.0.2.300']]]]), value: '192.0.2.300' },
-    'vlan-id': { source: tree(['vlans', [['V', ['vlan-id 4095']]]]), value: '4095' }
+    'vlan-id': { source: tree(['vlans', [['V', ['vlan-id 4095']]]]), value: '4095' },
+    'as-number': { source: tree(['routing-options', ['autonomous-system 65000']], ['protocols', [['bgp', [['group G', [['neighbor 192.0.2.2', ['peer-as 4294967296']]]]]]]]), value: '4294967296' }
   },
   vrfScoping: {
     delete: {
@@ -179,6 +228,16 @@ export const hierarchicalProbes: ProbeAdapter = {
     'static-route': {
       base: tree(route(), ['routing-instances', [vrf('A', 1, route()), vrf('B', 2, route())]]),
       changed: tree(route(), ['routing-instances', [vrf('A', 1, ['routing-options', [['static', ['route 10.2.0.0/16 next-hop 192.0.2.1']]]]), vrf('B', 2, route())]]),
+      vrf: 'A'
+    },
+    ospf: {
+      base: tree(['interfaces', units], ospfIn(0), ['routing-instances', [vrf('A', 1, 'interface ge-0/0/1.0', ospfIn(1)), vrf('B', 2, 'interface ge-0/0/2.0', ospfIn(2))]]),
+      changed: tree(['interfaces', units], ospfIn(0), ['routing-instances', [vrf('A', 1, 'interface ge-0/0/1.0', ospfIn(1, 'metric 20')), vrf('B', 2, 'interface ge-0/0/2.0', ospfIn(2))]]),
+      vrf: 'A'
+    },
+    bgp: {
+      base: tree(...bgpIn(), ['routing-instances', [vrf('A', 1, ...bgpIn()), vrf('B', 2, ...bgpIn())]]),
+      changed: tree(...bgpIn(), ['routing-instances', [vrf('A', 1, ...bgpIn('peer-as 65009')), vrf('B', 2, ...bgpIn())]]),
       vrf: 'A'
     }
   }
