@@ -156,7 +156,8 @@ function termOf(path: string): string | null {
  *   of the term reaches the model. A term the parse leaves out whole isn't in the model, so its safety is the parser's
  *   to judge (it knows the term's actions): it can't be checked here.
  * - Render: a term's leaves are all `unsupported` or none is; a term left out whose skip isn't safe leaves every leaf of
- *   its policy or filter `unsupported` (its `fallThrough` or `implicitAction` aside, which may be `not-applicable`).
+ *   its policy or filter `unsupported` (its `fallThrough` or `implicitAction` aside, which may be `not-applicable`),
+ *   and no subinterface's attachment naming such a filter rendered (#103).
  */
 export function termProblems(parsed: ParseResult, rendered?: RenderResult, model: Device = parsed.model): string[] {
   const out: string[] = []
@@ -245,6 +246,16 @@ export function termProblems(parsed: ParseResult, rendered?: RenderResult, model
     const platformDefault = fieldPath(...at, byDefault)
     const converted = populatedLeaves(whole, at).filter((l) => kind(l.path) === 'rendered' || (kind(l.path) === 'not-applicable' && l.path !== platformDefault))
     if (converted.length) out.push(`render left out ${unsafe.join(', ')}, which later terms would see ${sees} differently without, but converted the rest of the ${what}: the whole ${what} is unsupported instead (${converted.map((l) => l.path).join(', ')})`)
+    // #103: a filter left out whole can't be applied either, or the interface would filter by something else.
+    if (what === 'filter') {
+      const [, family, name] = at
+      for (const [ifName, iface] of Object.entries(model.interfaces ?? {}))
+        for (const [unit, sub] of Object.entries(iface?.subinterfaces ?? {}))
+          for (const direction of ['input', 'output'] as const) {
+            const path = fieldPath('interfaces', ifName, 'subinterfaces', unit, 'filters', family, direction)
+            if ((sub?.filters as Record<string, Record<string, string> | undefined> | undefined)?.[family]?.[direction] === name && kind(path) === 'rendered') out.push(`render left out ${unsafe.join(', ')}, so the whole filter is unsupported, but still applied it (${path})`)
+          }
+    }
   }
   return out
 }

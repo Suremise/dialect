@@ -14,6 +14,9 @@ const SEEN_BY: Readonly<Record<string, string>> = { communityAdd: 'communitySets
 
 const own = (o: object | undefined): string[] => (o ? Object.keys(o) : [])
 
+/** The implicit actions a last `discard` term does the same as: each drops the packet. */
+const IMPLICIT_DROPS: ReadonlySet<unknown> = new Set(['discard', 'deny'])
+
 /**
  * Whether leaving term `key` of `policy` out (as `unsupported`, whole) and converting the rest still has every later term
  * see the same routes, the same way: the term decides nothing (its flow is left out or `next-term`) and changes nothing
@@ -50,14 +53,20 @@ export function filterReliesOnImplicitAction(filter: Filter): boolean {
 }
 
 /**
- * Whether leaving term `key` of `filter` out (as `unsupported`, whole) and converting the rest still has every later
- * term see the same packets (since model 0.5.1): the term decides nothing (`next-term`: it only counts or logs). A last
- * term always can be. When it can't be, the whole filter is `unsupported` instead.
+ * Whether leaving term `key` of `filter` out (as `unsupported`, whole) and converting the rest still decides every
+ * packet the same way (since model 0.5.1, #103): the term decides nothing (`next-term`: it only counts or logs), or it
+ * is the last and does what the filter's implicit action does anyway, so the packets it decided get the same end
+ * without it: a `discard`, as both implicit actions drop the packet (Junos's `discard` silently, a Cisco `deny` as the
+ * interface says, as a `deny` entry does). A last term that decides otherwise (an `accept`, or a `reject`, which
+ * answers where they don't) or whose action or the filter's implicit action isn't known can't be: leaving it out
+ * would change what the filter lets through, an only term turning the filter into one that decides everything by its
+ * end. When it can't be, the whole filter is `unsupported` instead, and a subinterface can't apply it either.
  */
 export function filterTermSkipSafe(filter: Filter, key: string): boolean {
   const terms = filter.terms
   if (!terms || !Object.hasOwn(terms, key)) return true
+  const action = terms[key]?.actions?.action
+  if (action === 'next-term') return true
   const keys = Object.keys(terms)
-  if (keys.indexOf(key) === keys.length - 1) return true
-  return terms[key]?.actions?.action === 'next-term'
+  return keys.indexOf(key) === keys.length - 1 && action === 'discard' && IMPLICIT_DROPS.has(filter.implicitAction)
 }

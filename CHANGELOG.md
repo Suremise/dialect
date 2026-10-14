@@ -29,6 +29,9 @@
   keyboard focus shows.
 
 ### Convert
+- **A filter whose last entry can't be converted is no longer turned into one that drops everything:** an entry left
+  out goes alone only when that changes nothing (it only counts, or it is the last and denies, as the filter's end
+  does). Otherwise the whole filter is listed as not converted, and so is every interface that applies it.
 - **Link aggregation converts for Junos and IOS-XR:** which aggregate each member link is in, the LACP mode (active,
   passive or none) and minimum links, from Junos `802.3ad` and `aggregated-ether-options` and IOS-XR `bundle id` and
   `bundle minimum-active links`, both ways. Converting to Junos also writes the `chassis aggregated-devices` line Junos

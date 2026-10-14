@@ -25,13 +25,15 @@ describe('the per-term ledger of each negative fixture', () => {
   const cases: readonly [name: string, lines: number[], filters: Record<string, (string | undefined)[]>, why: string][] = [
     ['policer', [1, 2, 3, 4], {}, 'a term with a policer, which may discard, is left out, so the whole filter is'],
     ['routing-instance', [1, 2, 3], {}, 'a term that forwards in another routing instance decides packets: the whole filter is left out'],
-    ['next-ip', [1], { F: [] }, 'next-ip in the last term: it alone is left out'],
-    ['reject-type', [1], { F: [] }, 'a reject with a particular ICMP message'],
-    ['address-except', [1, 2, 3], { F: [] }, 'an address excepted from the match'],
-    ['match-except', [1, 2], { F: [] }, 'an -except match'],
-    ['address-mask', [1, 2], { F: [] }, 'a mask that isn’t a prefix length, never approximated'],
-    ['address-and-prefix-list', [2, 3, 4], { F: [] }, 'an address and a prefix list of one direction, which Junos takes as one list'],
-    ['unknown-prefix-list', [1, 2], { F: [] }, 'a prefix list nothing defines'],
+    // #103: an only term that accepts (or whose action isn't converted) can't be left out alone, as the filter would
+    // then discard everything by its end: the whole filter is left out.
+    ['next-ip', [1], {}, 'next-ip in the only term: the whole filter is left out'],
+    ['reject-type', [1], {}, 'a reject with a particular ICMP message: the whole filter is left out'],
+    ['address-except', [1, 2, 3], {}, 'an address excepted from the match: the whole filter is left out'],
+    ['match-except', [1, 2], {}, 'an -except match: the whole filter is left out'],
+    ['address-mask', [1, 2], {}, 'a mask that isn’t a prefix length, never approximated: the whole filter is left out'],
+    ['address-and-prefix-list', [2, 3, 4], {}, 'an address and a prefix list of one direction, which Junos takes as one list: the whole filter is left out'],
+    ['unknown-prefix-list', [1, 2], {}, 'a prefix list nothing defines: the whole filter is left out'],
     ['nested-filter', [2, 3], { CHILD: ['T'] }, 'a term that runs another filter decides packets: the whole filter is left out, the one it runs converts'],
     ['next-term-skip', [1, 2, 3], { F: ['REST'] }, 'a term that only counts and goes on (next term) is left out alone'],
     ['no-then-unsafe', [1, 2], {}, 'a term with no then accepts, so leaving it out isn’t safe: the whole filter is left out'],
@@ -52,6 +54,35 @@ describe('the per-term ledger of each negative fixture', () => {
 
   it('input-list: the unit applies no filter that way, as the list it has isn’t converted', () => {
     expect(parse(fixture('input-list'), context).model.interfaces).toBeUndefined()
+  })
+
+  // #103: a last term left out sends what it decided to the filter's end (Junos discards), so it can go alone only
+  // when it discards too; otherwise the whole filter and the units applying it are left out.
+  describe('a last term left out, and the unit applying the filter', () => {
+    const source = (then: string) => set(
+      'set firewall family inet filter F term SSH from protocol tcp',
+      'set firewall family inet filter F term SSH from destination-port 22',
+      'set firewall family inet filter F term SSH then accept',
+      'set firewall family inet filter F term LAST from source-address 10.1.0.0/16 except',
+      `set firewall family inet filter F term LAST then ${then}`,
+      'set interfaces ge-0/0/0 unit 0 family inet filter input F'
+    )
+    it('a discard goes alone: the filter keeps its other terms and is still applied', () => {
+      const p = parse(source('discard'), context)
+      expect(terms(p)).toEqual({ F: ['SSH'] })
+      expect(unsupportedLines(p)).toEqual([4, 5])
+      expect(p.model.interfaces?.['ge-0/0/0'].subinterfaces?.['0'].filters).toEqual({ ipv4: { input: 'F' } })
+    })
+    it.each(['accept', 'reject', 'next-ip 192.0.2.1/32'])('a last %s takes the whole filter and its attachment with it', (then) => {
+      const p = parse(source(then), context)
+      expect(terms(p)).toEqual({})
+      expect(unsupportedLines(p)).toEqual([1, 2, 3, 4, 5, 6])
+      expect(p.model.interfaces).toBeUndefined()
+      expect(modelProblems(p.model)).toEqual([])
+    })
+    it('a next term goes alone, wherever it is: it decides nothing', () => {
+      expect(terms(parse(source('next term'), context))).toEqual({ F: ['SSH'] })
+    })
   })
 })
 

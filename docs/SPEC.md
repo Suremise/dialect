@@ -198,7 +198,10 @@ product decisions.
   and field a reason, from the statement's keywords when it has nothing more particular to say, never a word of the
   configuration. Each plugin's corpus test checks it over the whole corpus (Junos and IOS-XR so far).
 - **Filters convert term by term** too (Junos filters, Cisco access lists): an entry whole or not at all, the whole list
-  left out when leaving an entry out would change what later ones see. A Cisco wildcard becomes a prefix only when it is
+  left out when leaving an entry out would change what later ones see. **A term can be left out alone only when that
+  changes nothing the filter decides** (#103): one that only counts or logs, or the last one when it discards, as the
+  filter's end does. Any other (a last permit, a reject, an action not known) takes the whole filter with it, and every
+  interface applying it, so no filter is written that lets through or drops other packets than the source's. A Cisco wildcard becomes a prefix only when it is
   contiguous; any other is never approximated. A target whose filters end differently (a Cisco implicit deny for a Junos
   silent discard), or a filter relying on its end, gets a semantic warning. A Cisco remark is kept as its entry's
   description.
