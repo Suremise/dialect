@@ -451,7 +451,7 @@ describe('logging', () => {
   it('the same host in another VRF is unsupported: the model keys hosts by address alone', () => {
     const result = parse('logging 192.0.2.50 vrf A\nlogging 192.0.2.50 vrf B')
     expect(result.model.system?.logging?.remoteServers).toEqual({ '192.0.2.50': { networkInstance: 'A' } })
-    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: 'a host of line 1 in another VRF: the model keys syslog hosts by address alone' })
+    expect(result.dispositions.L2).toEqual({ kind: 'unsupported', reason: 'a syslog host of line 1 in another VRF: the model keys syslog hosts by address alone' })
   })
 
   it('"port default" says nothing, and other logging settings are unsupported', () => {
@@ -583,6 +583,118 @@ describe('rendering a model from another platform', () => {
       const rendered = render(parsed.model)
       const notRendered = populatedLeaves(parsed.model).map((l) => l.path).filter((p) => rendered.dispositions[p]?.kind !== 'rendered')
       expect(notRendered.every((p) => /\.type$|\.vlanTagging$/.test(p)), `${file}: ${notRendered.join('\n')}`).toBe(true)
+    }
+  })
+})
+
+describe('review round 1: edits, scopes and ranges', () => {
+  const ntp = (...lines: string[]) => ['ntp', ...lines.map((l) => ` ${l}`)].join('\n')
+  const servers = (text: string) => parse(text).model.system?.ntp?.servers
+
+  it('an NTP server edited to add an authentication key is left out, not kept without it; another server is unaffected', () => {
+    const result = parse(ntp('server 192.0.2.123', 'server 192.0.2.124 prefer', 'server 192.0.2.123 key 1'))
+    expect(result.model.system?.ntp?.servers).toEqual({ '192.0.2.124': { prefer: true } })
+    expect(result.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 4' })
+    expect(result.dispositions.L4).toEqual({ kind: 'unsupported', reason: 'a server with an authentication key, which doesn\'t carry over' })
+    expect(render(result.model).text).not.toContain('192.0.2.123')
+    // A later supported statement replaces it, and a `no` removes it.
+    expect(servers(ntp('server 192.0.2.123 key 1', 'server 192.0.2.123 prefer'))).toEqual({ '192.0.2.123': { prefer: true } })
+    const removed = parse(ntp('server 192.0.2.123 key 1', 'no server 192.0.2.123'))
+    expect(removed.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'removed by line 3' })
+  })
+
+  it('an NTP server is scoped by its VRF: "no server" only in the VRF it names, a second VRF unsupported, block and one-line forms', () => {
+    expect(servers(ntp('server vrf A 192.0.2.123', 'no server vrf B 192.0.2.123'))).toEqual({ '192.0.2.123': { networkInstance: 'A' } })
+    expect(servers(ntp('server vrf A 192.0.2.123', 'no server 192.0.2.123'))).toEqual({ '192.0.2.123': { networkInstance: 'A' } })
+    expect(servers(ntp('server vrf A 192.0.2.123', 'no server vrf A 192.0.2.123'))).toBeUndefined()
+    expect(servers(ntp('server 192.0.2.123', 'no server vrf default 192.0.2.123'))).toBeUndefined()
+    expect(servers(ntp('server vrf default 192.0.2.123', 'no server 192.0.2.123'))).toBeUndefined()
+    expect(servers('ntp server vrf A 192.0.2.123\nno ntp server vrf B 192.0.2.123')).toEqual({ '192.0.2.123': { networkInstance: 'A' } })
+    expect(servers('ntp server vrf A 192.0.2.123\nno ntp server vrf A 192.0.2.123')).toBeUndefined()
+    const both = parse(ntp('server vrf A 192.0.2.123', 'server vrf B 192.0.2.123'))
+    expect(both.model.system?.ntp?.servers).toEqual({ '192.0.2.123': { networkInstance: 'A' } })
+    expect(both.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'an NTP server of line 2 in another VRF: the model keys NTP servers by address alone' })
+  })
+
+  it('a syslog host edited with an option that isn\'t converted is left out too, and scoped by its VRF', () => {
+    const result = parse('logging 192.0.2.50 vrf A severity info\nlogging 192.0.2.50 vrf A severity info discriminator x')
+    expect(result.model).toEqual({})
+    expect(result.dispositions.L1).toEqual({ kind: 'ignored-by-design', reason: 'superseded by line 2' })
+    expect(parse('logging 192.0.2.50 vrf A\nno logging 192.0.2.50 vrf B').model.system?.logging?.remoteServers).toEqual({ '192.0.2.50': { networkInstance: 'A' } })
+  })
+
+  it('an interface address edited to add a route tag is left out, not kept without it', () => {
+    const iface = (...l: string[]) => ['interface Loopback0', ...l.map((x) => ` ${x}`)].join('\n')
+    const primary = parse(iface('ipv4 address 192.0.2.1 255.255.255.255', 'ipv4 address 192.0.2.2 255.255.255.255 secondary', 'ipv4 address 192.0.2.1 255.255.255.255 route-tag 5'))
+    expect(primary.model.interfaces?.Loopback0.subinterfaces).toBeUndefined()
+    expect(primary.dispositions.L2).toEqual({ kind: 'ignored-by-design', reason: 'replaced by line 4' })
+    expect(primary.dispositions.L3).toEqual({ kind: 'unsupported', reason: 'a secondary address beside a primary address that isn\'t converted' })
+    const v6 = parse(iface('ipv6 address 2001:db8::1/64', 'ipv6 address 2001:db8::2/64', 'ipv6 address 2001:db8::1/64 route-tag 5'))
+    expect(v6.model.interfaces?.Loopback0.subinterfaces?.['0'].ipv6?.addresses).toEqual({ '2001:db8::2': { prefixLength: 64 } })
+  })
+
+  describe('removing a static-routing scope clears its routes, converted or not, and no others', () => {
+    const base = ['vrf A', 'router static', ' address-family ipv4 unicast', '  10.0.0.0/8 192.0.2.1', '  10.1.0.0/16 192.0.2.1 track 1', ' address-family ipv6 unicast', '  2001:db8::/32 2001:db8::1', ' vrf A', '  address-family ipv4 unicast', '   10.0.0.0/8 192.0.2.1', ' vrf B', '  address-family ipv4 unicast', '   10.0.0.0/8 192.0.2.1']
+    const v4 = { '10.0.0.0/8': { nextHops: { '0': { address: '192.0.2.1' } } } }
+    const v6 = { '2001:db8::/32': { nextHops: { '0': { address: '2001:db8::1' } } } }
+    const cases: readonly (readonly [what: string, extra: string[], instances: Device['networkInstances'], tracked: 'removed' | 'kept'])[] = [
+      ['no address-family ipv4 unicast', [' no address-family ipv4 unicast'], { A: { type: 'vrf', staticRoutes: v4 }, B: { staticRoutes: v4 }, default: { staticRoutes: v6 } }, 'removed'],
+      ['no vrf A inside router static', [' no vrf A'], { A: { type: 'vrf' }, B: { staticRoutes: v4 }, default: { staticRoutes: { ...v4, ...v6 } } }, 'kept'],
+      ['no address-family inside a vrf of router static', [' vrf B', '  no address-family ipv4 unicast'], { A: { type: 'vrf', staticRoutes: v4 }, default: { staticRoutes: { ...v4, ...v6 } } }, 'kept'],
+      ['no router static', ['no router static'], { A: { type: 'vrf' } }, 'removed']
+    ]
+    for (const [what, extra, instances, tracked] of cases) {
+      it(what, () => {
+        const text = [...base, ...extra].join('\n')
+        const result = parse(text)
+        expect(result.model.networkInstances).toEqual(instances)
+        expect(result.dispositions.L5).toEqual(tracked === 'kept' ? { kind: 'unsupported', reason: 'a route tracked by an object' } : { kind: 'ignored-by-design', reason: `removed by line ${base.length + extra.length}` })
+        expect(buildLedger(result).complete).toBe(true)
+        expect(roundTrips(text)).toEqual([])
+      })
+    }
+  })
+
+  it('a VLAN ID, an MTU or a route tag outside IOS-XR\'s range is unsupported, at both bounds, never mapped as a rounded number', () => {
+    const vlan = (id: string) => parse(`interface Bundle-Ether1.10\n encapsulation dot1q ${id}`)
+    for (const ok of ['1', '4094']) expect(vlan(ok).model.interfaces?.['Bundle-Ether1'].subinterfaces?.['10'].vlanId, ok).toBe(Number(ok))
+    for (const bad of ['0', '4095', '9999999999999999999999']) {
+      const result = vlan(bad)
+      expect(result.model.interfaces?.['Bundle-Ether1'].subinterfaces?.['10'], bad).toEqual({})
+      expect(result.dispositions.L2, bad).toEqual({ kind: 'unsupported', reason: 'a VLAN ID outside 1 to 4094' })
+    }
+    const mtu = (n: string) => parse(`interface Bundle-Ether1\n mtu ${n}`)
+    for (const ok of ['64', '65535']) expect(mtu(ok).model.interfaces?.['Bundle-Ether1'].mtu, ok).toBe(Number(ok))
+    for (const bad of ['63', '65536', '9999999999999999999999']) expect(mtu(bad).dispositions.L2, bad).toEqual({ kind: 'unsupported', reason: 'an MTU outside 64 to 65535' })
+    const tag = (n: string) => parse(`router static\n address-family ipv4 unicast\n  10.0.0.0/8 192.0.2.1 tag ${n}`)
+    expect(tag('4294967295').model.networkInstances?.default.staticRoutes?.['10.0.0.0/8'].nextHops?.['0'].tag).toBe(4294967295)
+    for (const bad of ['0', '4294967296', '9999999999999999999999']) expect(tag(bad).model, bad).toEqual({})
+  })
+
+  it('a render leaves out a VLAN ID, MTU, route tag or port IOS-XR wouldn\'t take, from any model', () => {
+    const result = render({
+      system: { logging: { remoteServers: { '192.0.2.50': { port: 70000 } } } },
+      interfaces: { 'Bundle-Ether1': { mtu: 1e22, subinterfaces: { '10': { vlanId: 4095 }, '11': { vlanId: 1e22 }, '12': { vlanId: 1.5 } } } },
+      networkInstances: { default: { staticRoutes: { '10.0.0.0/8': { nextHops: { '0': { address: '192.0.2.1', tag: 0 } } } } } }
+    })
+    expect(result.text).not.toMatch(/dot1q|mtu|tag|port|e\+/)
+    const unsupportedPaths = Object.entries(result.dispositions).filter(([, d]) => d.kind === 'unsupported').map(([p]) => p).sort()
+    expect(unsupportedPaths).toEqual([
+      'interfaces["Bundle-Ether1"].mtu',
+      'interfaces["Bundle-Ether1"].subinterfaces["10"].vlanId',
+      'interfaces["Bundle-Ether1"].subinterfaces["11"].vlanId',
+      'interfaces["Bundle-Ether1"].subinterfaces["12"].vlanId',
+      'networkInstances.default.staticRoutes["10.0.0.0/8"].nextHops["0"].tag',
+      'system.logging.remoteServers["192.0.2.50"].port'
+    ])
+  })
+
+  it('a banner\'s reason never names its type: a secret can be reused as one', () => {
+    for (const secret of ['prompt-timeout', 'slip-ppp', 'motd']) {
+      const text = `snmp-server community ${secret} RO\nbanner ${secret} #hello#`
+      expect(parse(text).dispositions.L2, secret).toEqual({ kind: 'unsupported', reason: 'a banner, 1 line, kept verbatim' })
+      expect(checkSecrets(plugin, text, [secret], { allowances: [] }).leaks, secret).toEqual([])
+      expect(checkFixture(plugin, { name: secret, source: text, expectedModel: parse(text).model, secrets: [secret] }, { allowances: [] }).filter((r) => r.status === 'failed')).toEqual([])
     }
   })
 })

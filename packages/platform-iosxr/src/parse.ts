@@ -10,7 +10,7 @@
 import { fieldPath, isRouteDistinguisher, type Context, type Device, type Diagnostic, type ParseResult, type StatementDisposition, type SyslogSeverity } from '@dialect/core'
 import { ipv4Prefix, ipv6Prefix, isIpv4, isIpv6, maskLength } from './addresses'
 import { interfaceType, isInterfaceName, splitSubinterface } from './names'
-import { BANNER_TYPES, parseTree, unquote, type XrNode } from './tree'
+import { parseTree, unquote, type XrNode } from './tree'
 
 type Obj = { [key: string]: unknown }
 type Segments = readonly string[]
@@ -96,6 +96,17 @@ const unsupported = (reason?: string): StatementDisposition => (reason ? { kind:
 const ignored = (reason: string): StatementDisposition => ({ kind: 'ignored-by-design', reason })
 
 const INTEGER = /^\d+$/
+
+/** The ranges IOS-XR takes numbers in, so a value it would refuse (or one too long to be exact) is never mapped. */
+export const VLAN_ID = { min: 1, max: 4094 } as const
+export const MTU = { min: 64, max: 65535 } as const
+export const ROUTE_TAG = { min: 1, max: 4294967295 } as const
+export const PORT = { min: 1, max: 65535 } as const
+/** Whether `value` (a word of digits, or a number from a model) is a whole number within `range`. */
+export const inRange = (value: string | number, range: { readonly min: number; readonly max: number }): boolean => {
+  const n = typeof value === 'number' ? value : /^\d{1,10}$/.test(value) ? Number(value) : NaN
+  return Number.isInteger(n) && n >= range.min && n <= range.max
+}
 const SHUTDOWN = /^shut(?:d(?:o(?:w(?:n)?)?)?)?$/
 /**
  * A VRF named on a statement, or undefined for the global table: `vrf default` is the same thing as no VRF, and the
@@ -161,7 +172,9 @@ export function parse(text: string, _context: Context): ParseResult {
    * Per subinterface and family (`name|sub|4`): its addresses, by statement. IPv4 has one primary (or `dhcp`) and
    * secondaries; IPv6 addresses are all alike, kept in `secondaries` with no primary.
    */
-  type Addressing = { readonly ctx: InterfaceContext; readonly family: 4 | 6; primary?: AddressStatement | { readonly node: XrNode; readonly dhcp: true }; secondaries: AddressStatement[] }
+  /** A primary not in the model: from DHCP, or with an option the model can't hold. `what` says which, for reasons. */
+  type UnconvertedPrimary = { readonly node: XrNode; readonly what: string }
+  type Addressing = { readonly ctx: InterfaceContext; readonly family: 4 | 6; primary?: AddressStatement | UnconvertedPrimary; secondaries: AddressStatement[] }
   const addressing = new Map<string, Addressing>()
   const addressingOf = (ctx: InterfaceContext, family: 4 | 6) => {
     const key = `${ctx.name}|${ctx.sub}|${family}`
@@ -220,14 +233,39 @@ export function parse(text: string, _context: Context): ParseResult {
     if (family === 4 && lw[2] === 'dhcp' && w.length === 3) {
       // An address from DHCP replaces the static ones before it, as on the device.
       const lines = clearAddresses(ctx, family, `replaced by the address from DHCP on line ${line(node)}`)
-      addressingOf(ctx, family).primary = { node, dhcp: true }
+      addressingOf(ctx, family).primary = { node, what: 'an address from DHCP' }
       return unsupported(`an address from DHCP${lines.length ? `, replacing the address${lines.length > 1 ? 'es' : ''} on ${linesText(lines)}` : ''}`)
     }
     const secondary = family === 4 && lw[w.length - 1] === 'secondary'
     const args = w.slice(2, secondary ? -1 : undefined)
     const read = readAddress(args, family)
     if (!read) {
-      if (lw.includes('route-tag')) return unsupported('an address with a route tag, which the model can\'t hold')
+      if (lw.includes('route-tag')) {
+        // Still an address of the interface, as on the device: it replaces the primary, or edits the same address.
+        const tagged = lw.indexOf('route-tag')
+        const loose = w.slice(2, tagged)
+        const looseSecondary = family === 4 && loose[loose.length - 1]?.toLowerCase() === 'secondary'
+        const address = readAddress(looseSecondary ? loose.slice(0, -1) : loose, family)?.address
+        if (address !== undefined) {
+          const state = addressingOf(ctx, family)
+          const why = ignored(`replaced by line ${line(node)}`)
+          if (family === 4 && !looseSecondary) {
+            if (state.primary) {
+              if ('address' in state.primary) model.remove([...at, 'addresses', state.primary.address])
+              set(state.primary.node, why)
+            }
+            state.primary = { node, what: 'a primary address that isn\'t converted' }
+          } else {
+            for (const s of state.secondaries.filter((x) => x.address === address)) {
+              model.remove([...at, 'addresses', s.address])
+              set(s.node, why)
+            }
+            state.secondaries = state.secondaries.filter((x) => x.address !== address)
+          }
+          pruneFamily(ctx, family)
+        }
+        return unsupported('an address with a route tag, which the model can\'t hold')
+      }
       if (lw.includes('link-local')) return unsupported('a link-local address, which the model can\'t hold')
       if (lw.includes('eui-64')) return unsupported('an address made from the interface\'s MAC address (EUI-64), which the model can\'t hold')
       return unsupported(family === 4 && args.length === 2 && isIpv4(args[0]) && maskLength(args[1]) === null ? 'not a contiguous mask' : undefined)
@@ -326,6 +364,7 @@ export function parse(text: string, _context: Context): ParseResult {
     }
     if (lw[0] === 'mtu' && w.length === 2 && INTEGER.test(w[1])) {
       if (ctx.isSub) return unsupported('the model has no MTU for a subinterface')
+      if (!inRange(w[1], MTU)) return unsupported(`an MTU outside ${MTU.min} to ${MTU.max}`)
       claim(key('mtu'), node)
       return mapped([model.set([...iface, 'mtu'], Number(w[1]))])
     }
@@ -333,6 +372,7 @@ export function parse(text: string, _context: Context): ParseResult {
     if (lw[0] === 'no' && lw[1] === 'encapsulation' && lw[2] === 'dot1q' && w.length <= 4 && ctx.isSub) return unclaim(fieldPath(...sub, 'vlanId'), node, 'VLAN tag', [...sub, 'vlanId'], sub.length)
     if (lw[0] === 'encapsulation' && lw[1] === 'dot1q' && w.length === 3 && INTEGER.test(w[2])) {
       if (!ctx.isSub) return unsupported('encapsulation dot1q on a main interface')
+      if (!inRange(w[2], VLAN_ID)) return unsupported(`a VLAN ID outside ${VLAN_ID.min} to ${VLAN_ID.max}`)
       claim(fieldPath(...sub, 'vlanId'), node)
       return mapped([model.set([...sub, 'vlanId'], Number(w[2])), model.set([...iface, 'vlanTagging'], true)])
     }
@@ -401,7 +441,7 @@ export function parse(text: string, _context: Context): ParseResult {
     while (i < w.length) {
       const word = w[i]
       const lower = word.toLowerCase()
-      if (lower === 'tag' && INTEGER.test(w[i + 1] ?? '') && hop.tag === undefined) {
+      if (lower === 'tag' && inRange(w[i + 1] ?? '', ROUTE_TAG) && hop.tag === undefined) {
         hop.tag = Number(w[i + 1])
         i += 2
       } else if (lower === 'description' && w[i + 1] !== undefined && description === undefined) {
@@ -434,12 +474,14 @@ export function parse(text: string, _context: Context): ParseResult {
    * Route lines not converted (`… track 2`), by network instance, prefix and next hop: a later line for the same next
    * hop edits them, and `no …` removes them, as on the device.
    */
-  const unconvertedRoutes = new Map<string, XrNode>()
+  const unconvertedRoutes = new Map<string, { readonly node: XrNode; readonly instance: string; readonly prefix: string }>()
+  /** An unconverted route line's key: names and prefixes as a JSON list, so no two run together. */
+  const unconvertedKey = (instance: string, prefix: string, hop: Obj) => JSON.stringify([instance, prefix, hopKey(hop)])
   /** Marks the unconverted line for this next hop (if any) with `why`; whether there was one. */
   const takeUnconverted = (key: string, why: StatementDisposition): boolean => {
-    const node = unconvertedRoutes.get(key)
-    if (!node) return false
-    set(node, why)
+    const entry = unconvertedRoutes.get(key)
+    if (!entry) return false
+    set(entry.node, why)
     unconvertedRoutes.delete(key)
     return true
   }
@@ -451,7 +493,7 @@ export function parse(text: string, _context: Context): ParseResult {
       // Still a next hop of a route, which later lines can edit or remove.
       const loose = readRoute(node.words, 0, v6, true)
       if ('prefix' in loose) {
-        const key = `${instance}|${loose.prefix}|${hopKey(loose.hop)}`
+        const key = unconvertedKey(instance, loose.prefix, loose.hop)
         takeUnconverted(key, ignored(`superseded by line ${line(node)}`))
         const same = routes.get(`${instance}|${loose.prefix}`)?.hops.find((h) => h.key === hopKey(loose.hop))
         if (same) {
@@ -459,12 +501,12 @@ export function parse(text: string, _context: Context): ParseResult {
           const route = routes.get(`${instance}|${loose.prefix}`)!
           route.hops = route.hops.filter((h) => h !== same)
         }
-        unconvertedRoutes.set(key, node)
+        unconvertedRoutes.set(key, { node, instance, prefix: loose.prefix })
       }
       return set(node, unsupported(r.reason))
     }
     if (r.hop.address === undefined && r.hop.interface === undefined && r.hop.drop === undefined) return set(node, unsupported('no next hop'))
-    takeUnconverted(`${instance}|${r.prefix}|${hopKey(r.hop)}`, ignored(`superseded by line ${line(node)}`))
+    takeUnconverted(unconvertedKey(instance, r.prefix, r.hop), ignored(`superseded by line ${line(node)}`))
     const routeKey = `${instance}|${r.prefix}`
     const route = routes.get(routeKey) ?? { instance, prefix: r.prefix, hops: [] }
     routes.set(routeKey, route)
@@ -487,9 +529,9 @@ export function parse(text: string, _context: Context): ParseResult {
     const removed = route?.hops.filter((h) => any || h.key === hopKey(r.hop)) ?? []
     const why = ignored(`removed by line ${line(node)}`)
     const lines = removed.map((h) => line(h.node))
-    for (const [key, n] of unconvertedRoutes) {
-      if (key === `${instance}|${r.prefix}|${hopKey(r.hop)}` || (any && key.startsWith(`${instance}|${r.prefix}|`))) {
-        lines.push(line(n))
+    for (const [key, u] of unconvertedRoutes) {
+      if (key === unconvertedKey(instance, r.prefix, r.hop) || (any && u.instance === instance && u.prefix === r.prefix)) {
+        lines.push(line(u.node))
         takeUnconverted(key, why)
       }
     }
@@ -497,6 +539,35 @@ export function parse(text: string, _context: Context): ParseResult {
     for (const h of removed) set(h.node, why)
     if (route) route.hops = route.hops.filter((h) => !removed.includes(h))
     return ignored(`removes the route on ${linesText(lines.sort((a, b) => a - b))}: nothing to convert`)
+  }
+
+  /**
+   * `no router static`, `no vrf V` inside it, or `no address-family ipv4|ipv6 unicast` (inside it or its `vrf V`): every
+   * route in that scope goes, converted or not, and no other. `instance` and `v6` narrow the scope when given.
+   */
+  const clearRoutes = (node: XrNode, instance?: string, v6?: boolean): StatementDisposition => {
+    const inScope = (r: { instance: string; prefix: string }) => (instance === undefined || r.instance === instance) && (v6 === undefined || r.prefix.includes(':') === v6)
+    const why = ignored(`removed by line ${line(node)}`)
+    const lines: number[] = []
+    for (const [key, r] of routes) {
+      if (!inScope(r)) continue
+      for (const h of r.hops) {
+        set(h.node, why)
+        lines.push(line(h.node))
+      }
+      routes.delete(key)
+    }
+    for (const [key, u] of unconvertedRoutes) {
+      if (!inScope(u)) continue
+      lines.push(line(u.node))
+      takeUnconverted(key, why)
+    }
+    return ignored(lines.length ? `removes the routes on ${linesText(lines.sort((a, b) => a - b))}: nothing to convert` : 'no such routes: nothing to convert')
+  }
+  /** `no address-family ipv4|ipv6 unicast`'s family, or null when it isn't one. */
+  const removedFamily = (words: readonly string[]): boolean | null => {
+    const lw = words.map((x) => x.toLowerCase())
+    return lw[0] === 'no' && lw[1] === 'address-family' && (lw[2] === 'ipv4' || lw[2] === 'ipv6') && lw[3] === 'unicast' && words.length === 4 ? lw[2] === 'ipv6' : null
   }
 
   /** `address-family ipv4|ipv6 unicast` inside `router static` (or its `vrf V`): its routes. */
@@ -519,14 +590,19 @@ export function parse(text: string, _context: Context): ParseResult {
     set(node, mapped([]))
     for (const child of node.children) {
       const lw = child.words.map((x) => x.toLowerCase())
+      const family = child.kind === 'statement' && !child.children.length ? removedFamily(child.words) : null
       if (child.kind === 'comment') set(child, ignored('a comment'))
       else if (lw[0] === 'address-family') mapStaticFamily(child, 'default')
+      else if (family !== null) set(child, clearRoutes(child, 'default', family))
+      else if (lw[0] === 'no' && lw[1] === 'vrf' && child.words.length === 3 && child.kind === 'statement' && !child.children.length) set(child, clearRoutes(child, child.words[2]))
       else if (lw[0] === 'vrf' && child.words.length === 2 && child.kind === 'statement') {
         const instance = child.words[1]
         set(child, mapped([]))
         for (const grandchild of child.children) {
+          const removed = grandchild.kind === 'statement' && !grandchild.children.length ? removedFamily(grandchild.words) : null
           if (grandchild.kind === 'comment') set(grandchild, ignored('a comment'))
           else if (grandchild.words[0]?.toLowerCase() === 'address-family') mapStaticFamily(grandchild, instance)
+          else if (removed !== null) set(grandchild, clearRoutes(grandchild, instance, removed))
           else unsupportedTree(grandchild)
         }
       } else unsupportedTree(child)
@@ -649,7 +725,7 @@ export function parse(text: string, _context: Context): ParseResult {
     const inside = (n: XrNode): XrNode[] => n.children.flatMap((c) => (c.kind === 'comment' ? [] : [c, ...inside(c)]))
     for (const n of [...removed, ...definitions.flatMap(inside)]) set(n, why)
     for (const [key, r] of routes) if (r.instance === instance) routes.delete(key)
-    for (const key of unconvertedRoutes.keys()) if (key.startsWith(`${instance}|`)) takeUnconverted(key, why)
+    for (const [key, u] of unconvertedRoutes) if (u.instance === instance) takeUnconverted(key, why)
     vrfs.delete(instance)
     model.prune(['networkInstances', instance], 0)
     return ignored(`removes the VRF and its routes (${linesText(removed.map(line).sort((a, b) => a - b))}): nothing to convert`)
@@ -727,6 +803,44 @@ export function parse(text: string, _context: Context): ParseResult {
   // ---- NTP, logging, SNMP
 
   /**
+   * Servers IOS-XR keys by address and VRF (NTP servers, syslog hosts), which the model keys by address alone. One
+   * entry per address: the statement that set it, its VRF, and whether it was converted. A later statement for the same
+   * address and VRF replaces it, converted or not (an edit adding an authentication key leaves the server out, rather
+   * than mapped without its key); one for the same address in another VRF is a second server the model can't hold, and
+   * is unsupported; `no …` removes the server only in the VRF it names (no VRF and `default` alike).
+   */
+  const scopedServers = (one: string, noun: string, plural: string, base: Segments) => {
+    const servers = new Map<string, { readonly node: XrNode; readonly vrf: string | undefined }>()
+    return {
+      /** A statement for `address` in `vrf`: `server` is what it says, or null when it isn't converted (`reason`). */
+      add(node: XrNode, address: string, vrf: string | undefined, server: Obj | null, reason?: string): StatementDisposition {
+        const at = [...base, address]
+        const existing = servers.get(address)
+        if (existing && existing.vrf !== vrf) return unsupported(server ? `${one} of line ${line(existing.node)} in another VRF: the model keys ${plural} by address alone` : reason)
+        if (existing) {
+          set(existing.node, ignored(`superseded by line ${line(node)}`))
+          model.prune(at, 0)
+        }
+        servers.set(address, { node, vrf })
+        if (!server) return unsupported(reason)
+        if (vrf !== undefined) server.networkInstance = vrf
+        if (!Object.keys(server).length) return mapped([model.set(at, {})])
+        return mapped(Object.entries(server).map(([k, v]) => model.set([...at, k], v)))
+      },
+      remove(node: XrNode, address: string, vrf: string | undefined): StatementDisposition {
+        const existing = servers.get(address)
+        if (!existing || existing.vrf !== vrf) return ignored(`no such ${noun} in that VRF: nothing to convert`)
+        servers.delete(address)
+        model.prune([...base, address], 0)
+        set(existing.node, ignored(`removed by line ${line(node)}`))
+        return ignored(`removes the ${noun} on line ${line(existing.node)}: nothing to convert`)
+      }
+    }
+  }
+  const ntpServers = scopedServers('an NTP server', 'NTP server', 'NTP servers', ['system', 'ntp', 'servers'])
+  const syslogHosts = scopedServers('a syslog host', 'syslog host', 'syslog hosts', ['system', 'logging', 'remoteServers'])
+
+  /**
    * An NTP command, inside the `ntp` block or after `ntp` on one line: `server [vrf V] A [prefer] [version N]`,
    * `source IF`, and their `no` forms. `words` is the command's own words; `offset` how many came before them.
    */
@@ -750,8 +864,8 @@ export function parse(text: string, _context: Context): ParseResult {
     const address = w[i]
     if (!address || !(isIpv4(address) || isIpv6(address) || HOST.test(address))) return unsupported()
     const key = addressKey(address)
-    const at = ['system', 'ntp', 'servers', key]
-    if (remove) return unclaim(fieldPath(...at), node, 'NTP server', at, 0)
+    // `no server A …` names the server by its VRF and address; anything after them is IOS-XR's to ignore.
+    if (remove) return ntpServers.remove(node, key, vrf)
     const server: Obj = {}
     for (i++; i < w.length; ) {
       if (lw[i] === 'prefer' && server.prefer === undefined) {
@@ -760,13 +874,10 @@ export function parse(text: string, _context: Context): ParseResult {
       } else if (lw[i] === 'version' && /^[1-4]$/.test(w[i + 1] ?? '') && server.version === undefined) {
         server.version = Number(w[i + 1])
         i += 2
-      } else if (lw[i] === 'key') return unsupported('a server with an authentication key, which doesn\'t carry over')
-      else return unsupported(`word ${offset + i + 1} isn't converted yet`)
+      } else if (lw[i] === 'key') return ntpServers.add(node, key, vrf, null, 'a server with an authentication key, which doesn\'t carry over')
+      else return ntpServers.add(node, key, vrf, null, `word ${offset + i + 1} isn't converted yet`)
     }
-    if (vrf !== undefined) server.networkInstance = vrf
-    claim(fieldPath(...at), node, () => model.remove(at))
-    if (!Object.keys(server).length) return mapped([model.set(at, {})])
-    return mapped(Object.entries(server).map(([k, v]) => model.set([...at, k], v)))
+    return ntpServers.add(node, key, vrf, server)
   }
 
   /** The `ntp` block: each command inside it. */
@@ -778,9 +889,6 @@ export function parse(text: string, _context: Context): ParseResult {
       else set(child, mapNtpCommand(child, child.words, 0))
     }
   }
-
-  /** The VRF each syslog host was configured in, with the statement: IOS-XR keys hosts by address and VRF. */
-  const syslogHosts = new Map<string, { node: XrNode; vrf: string | undefined }>()
 
   const mapLogging = (node: XrNode): StatementDisposition => {
     const w = node.words
@@ -794,12 +902,13 @@ export function parse(text: string, _context: Context): ParseResult {
     // A host is an address: a name could be one of the many `logging` keywords.
     if (!w[1] || !(isIpv4(w[1]) || isIpv6(w[1]))) return unsupported()
     const address = addressKey(w[1])
+    // Its VRF, wherever it is on the line: a statement not converted still names the host it edits.
+    const at = lw.indexOf('vrf', 2)
+    const vrf = at > 0 && w[at + 1] !== undefined ? vrfName(w[at + 1]) : undefined
     const server: Obj = {}
-    let vrf: string | undefined
     let vrfGiven = false
     for (let i = 2; i < w.length; ) {
       if (lw[i] === 'vrf' && w[i + 1] !== undefined && !vrfGiven) {
-        vrf = vrfName(w[i + 1])
         vrfGiven = true
         i += 2
       } else if (lw[i] === 'severity' && Object.hasOwn(SEVERITY_WORDS, lw[i + 1] ?? '') && server.severity === undefined) {
@@ -808,20 +917,12 @@ export function parse(text: string, _context: Context): ParseResult {
       } else if (lw[i] === 'port' && lw[i + 1] === 'default' && server.port === undefined) {
         // The default port, 514: nothing to say.
         i += 2
-      } else if (lw[i] === 'port' && INTEGER.test(w[i + 1] ?? '') && Number(w[i + 1]) >= 1 && Number(w[i + 1]) <= 65535 && server.port === undefined) {
+      } else if (lw[i] === 'port' && inRange(w[i + 1] ?? '', PORT) && server.port === undefined) {
         server.port = Number(w[i + 1])
         i += 2
-      } else return unsupported(`word ${i + 1} isn't converted yet`)
+      } else return syslogHosts.add(node, address, vrf, null, `word ${i + 1} isn't converted yet`)
     }
-    if (vrf !== undefined) server.networkInstance = vrf
-    const at = ['system', 'logging', 'remoteServers', address]
-    // The model keys hosts by address alone: the same host in another VRF has nowhere to go.
-    const existing = syslogHosts.get(address)
-    if (existing && existing.vrf !== vrf && owners.get(fieldPath(...at)) === existing.node) return unsupported(`a host of line ${line(existing.node)} in another VRF: the model keys syslog hosts by address alone`)
-    syslogHosts.set(address, { node, vrf })
-    claim(fieldPath(...at), node, () => model.remove(at))
-    if (!Object.keys(server).length) return mapped([model.set(at, {})])
-    return mapped(Object.entries(server).map(([k, v]) => model.set([...at, k], v)))
+    return syslogHosts.add(node, address, vrf, server)
   }
 
   /** `no logging A [vrf V]` and `no logging source-interface`. */
@@ -830,12 +931,8 @@ export function parse(text: string, _context: Context): ParseResult {
     const lw = w.map((x) => x.toLowerCase())
     if (lw[2] === 'source-interface') return unclaim('logging source', node, 'syslog source interface', ['system', 'logging', 'sourceInterface'], 0)
     if (!w[2] || !(isIpv4(w[2]) || isIpv6(w[2]))) return unsupported()
-    const address = addressKey(w[2])
-    const vrf = lw[3] === 'vrf' && w[4] !== undefined ? vrfName(w[4]) : undefined
-    if (syslogHosts.get(address)?.vrf !== vrf) return ignored('no such syslog host in that VRF: nothing to convert')
-    syslogHosts.delete(address)
-    const at = ['system', 'logging', 'remoteServers', address]
-    return unclaim(fieldPath(...at), node, 'syslog host', at, 0)
+    const at = lw.indexOf('vrf', 3)
+    return syslogHosts.remove(node, addressKey(w[2]), at > 0 && w[at + 1] !== undefined ? vrfName(w[at + 1]) : undefined)
   }
 
   /**
@@ -909,8 +1006,8 @@ export function parse(text: string, _context: Context): ParseResult {
     const lines = node.span.endLine - node.span.startLine + 1
     const size = `${lines} line${lines === 1 ? '' : 's'}`
     if (node.kind === 'banner') {
-      const type = BANNER_TYPES.has(node.words[1]?.toLowerCase()) ? node.words[1].toLowerCase() : 'motd'
-      return set(node, unsupported(`a${/^[aeiou]/.test(type) ? 'n' : ''} ${type} banner, ${size}, kept verbatim`))
+      // Its type isn't named: a word of the configuration, it could be a secret's value reused.
+      return set(node, unsupported(`a banner, ${size}, kept verbatim`))
     }
     if (node.kind === 'policy') return set(node, unsupported(`a route policy, ${size}, kept whole: route policies come later`))
     if (node.kind === 'set') return set(node, unsupported(`a set for route policies, ${size}, kept whole: route policies come later`))
@@ -938,6 +1035,7 @@ export function parse(text: string, _context: Context): ParseResult {
     else if (lw[0] === 'snmp-server') d = mapSnmp(node)
     else if (lw[0] === 'no' && lw[1] === 'snmp-server' && lw[2] === 'community') d = removeCommunity(node)
     else if (lw[0] === 'no' && lw[1] === 'vrf') d = removeVrf(node)
+    else if (lw[0] === 'no' && lw[1] === 'router' && lw[2] === 'static' && w.length === 3) d = clearRoutes(node)
     else if (lw[0] === 'end' && w.length === 1) d = ignored('the end of the configuration')
     else if (lw[0] === 'exit' && w.length === 1) d = ignored('leaves a configuration mode: nothing to convert')
     else if (node.text === 'Building configuration...') d = ignored('show running-config\'s header')
@@ -1006,7 +1104,7 @@ export function parse(text: string, _context: Context): ParseResult {
       // The model can mark an address primary but not secondary: without a primary, a secondary would come back as one.
       for (const s of state.secondaries) {
         model.remove([...at, 'addresses', s.address])
-        set(s.node, unsupported(state.primary ? 'a secondary address beside an address from DHCP' : 'a secondary address with no primary address: the model can\'t say an address is secondary'))
+        set(s.node, unsupported(state.primary ? `a secondary address beside ${state.primary.what}` : 'a secondary address with no primary address: the model can\'t say an address is secondary'))
       }
       pruneFamily(state.ctx, state.family)
       continue

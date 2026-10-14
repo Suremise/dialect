@@ -404,8 +404,19 @@ The third Cisco platform, built like the NX-OS plugin (its code copied, not impo
     first, the same route next hop again is an edit, and the `no` forms of every setting it maps remove it
     (`no hostname`, `no domain name|list|[vrf V] name-server` (that VRF only), `no description|mtu|encapsulation
     dot1q|ipv4 address [A M]|ipv6 address A/L|vrf`, `no server|source` in `ntp`, `no logging A [vrf V]|source-interface`,
-    `no snmp-server community|contact|location`, `no vrf X` with its routes). A route line inside `router static` is
-    matched by prefix and next hop alone, so `no P hop …` removes a line that wasn't converted (`… track 2`) too.
+    `no snmp-server community|contact|location`, `no vrf X` with its routes), and so do the scopes of `router static`:
+    `no router static`, and inside it `no vrf V` and `no address-family ipv4|ipv6 unicast` (in a VRF's too) remove
+    every route in that scope and no other. A route line is matched by prefix and next hop alone, so `no P hop …`
+    removes a line that wasn't converted (`… track 2`) too.
+  - **An edit that isn't converted still replaces what it edits.** IOS-XR keys NTP servers and syslog hosts by address
+    and VRF: a later statement for the same server, converted or not, replaces the earlier one, so `server A key 1`
+    after `server A` leaves the server out rather than mapped without its key; a second VRF for the same address is a
+    server the address-keyed model can't hold, and `unsupported`; `no server [vrf V] A` and `no logging A [vrf V]`
+    remove it only in the VRF they name (no VRF and `default` alike). An address edited to add a `route-tag` replaces
+    the primary (or the same IPv4 secondary or IPv6 address) the same way.
+  - **Numbers in IOS-XR's ranges only:** a VLAN ID from 1 to 4094, an MTU from 64 to 65535, a route tag up to
+    4294967295, a port up to 65535; anything else (or a number too long to be exact) is `unsupported`, never mapped
+    rounded, and the render checks a model's the same way.
   - **VRF membership:** `vrf V` on an interface is the subinterface's `networkInstance` (subinterface `0` for a main
     interface), and clears the addresses before it, as on the device; `no vrf` returns it to the global table. A VRF
     the text never defines (`vrf X` at the top), or removes, would name a network instance the model doesn't have: the
@@ -419,7 +430,8 @@ The third Cisco platform, built like the NX-OS plugin (its code copied, not impo
   - **SNMP communities:** one with any statement not converted, anywhere (an access list in any form, `IPv4 ACL`,
     `IPv6 ACL` or a bare ACL; `SystemOwner` or `SDROwner`; `no snmp-server community X …` removing part of it), is left
     out whole. An `encrypted` community doesn't carry over and is `unsupported`.
-  - **No secrets in reasons**, value-free as in the NX-OS plugin; route policies and sets are never named either.
+  - **No secrets in reasons**, value-free as in the NX-OS plugin; route policies and sets are never named, and nor is a
+    banner's type, which could be a secret's value reused.
     Keys come from the configuration, so the model is built with own properties only, and bookkeeping uses `Map`s.
 - **Render (`render.ts`):** `show running-config`'s shape, one-space indents and `!` closing each block. Every leaf of
   model 0.3 gets a disposition; a later version's fields get none. VRFs come first (`vrf X` with its route targets in

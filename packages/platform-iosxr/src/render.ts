@@ -5,6 +5,7 @@
 // renderer claiming them.
 import { fieldPath, isRouteDistinguisher, populatedLeaves, type AddressFamily, type Context, type Device, type Diagnostic, type FieldDisposition, type Interface, type NetworkInstance, type RenderResult, type RouteTargets, type StaticRoute, type Subinterface, type SyslogSeverity } from '@dialect/core'
 import { lengthMask } from './addresses'
+import { inRange, MTU, PORT, ROUTE_TAG, VLAN_ID } from './parse'
 
 type Segments = readonly (string | number)[]
 
@@ -148,7 +149,10 @@ export function render(model: Device, _context: Context): RenderResult {
 
     emit(`interface ${name}`, ...(isEmpty(iface) ? [at] : []))
     if (iface.description !== undefined) emit(` description ${iface.description}`, [...at, 'description'])
-    if (iface.mtu !== undefined) emit(` mtu ${iface.mtu}`, [...at, 'mtu'])
+    if (iface.mtu !== undefined) {
+      if (inRange(iface.mtu, MTU)) emit(` mtu ${iface.mtu}`, [...at, 'mtu'])
+      else skip([...at, 'mtu'], 'unsupported', `IOS-XR takes an MTU from ${MTU.min} to ${MTU.max}`)
+    }
     if (main) {
       const sub = [...at, 'subinterfaces', '0']
       if (isEmpty(main)) skip(sub, 'not-applicable', 'IOS-XR has no subinterface 0 of its own: the main interface is it')
@@ -166,7 +170,10 @@ export function render(model: Device, _context: Context): RenderResult {
       emit(`interface ${name}.${index}`, ...(isEmpty(sub) ? [subAt] : []))
       if (sub.description !== undefined) emit(` description ${sub.description}`, [...subAt, 'description'])
       if (renderMembership(sub, subAt)) renderAddresses(sub, subAt)
-      if (sub.vlanId !== undefined) emit(` encapsulation dot1q ${sub.vlanId}`, [...subAt, 'vlanId'])
+      if (sub.vlanId !== undefined) {
+        if (inRange(sub.vlanId, VLAN_ID)) emit(` encapsulation dot1q ${sub.vlanId}`, [...subAt, 'vlanId'])
+        else skip([...subAt, 'vlanId'], 'unsupported', `IOS-XR takes a VLAN ID from ${VLAN_ID.min} to ${VLAN_ID.max}`)
+      }
       if (sub.enabled !== undefined) emit(sub.enabled ? ' no shutdown' : ' shutdown', [...subAt, 'enabled'])
       close()
     }
@@ -303,8 +310,10 @@ export function render(model: Device, _context: Context): RenderResult {
         } else skip([...h, 'preference'], 'unsupported', 'IOS-XR takes a distance from 1 to 254')
       }
       if (hop.tag !== undefined) {
-        parts.push(`tag ${hop.tag}`)
-        fields.push([...h, 'tag'])
+        if (inRange(hop.tag, ROUTE_TAG)) {
+          parts.push(`tag ${hop.tag}`)
+          fields.push([...h, 'tag'])
+        } else skip([...h, 'tag'], 'unsupported', `IOS-XR takes a route tag from ${ROUTE_TAG.min} to ${ROUTE_TAG.max}`)
       }
       if (route.description !== undefined) {
         parts.push(`description ${word(route.description)}`)
@@ -369,8 +378,10 @@ export function render(model: Device, _context: Context): RenderResult {
           } else skip([...s, 'severity'], 'unsupported', 'not a syslog severity IOS-XR knows')
         }
         if (server.port !== undefined) {
-          line += ` port ${server.port}`
-          fields.push([...s, 'port'])
+          if (inRange(server.port, PORT)) {
+            line += ` port ${server.port}`
+            fields.push([...s, 'port'])
+          } else skip([...s, 'port'], 'unsupported', `IOS-XR takes a port from ${PORT.min} to ${PORT.max}`)
         }
         if (server.facility !== undefined) skip([...s, 'facility'], 'unsupported', 'IOS-XR sets one facility for every host')
         emit(line, ...fields)
