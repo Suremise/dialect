@@ -19,8 +19,8 @@ in [Original comparison (superseded)](#original-comparison-superseded).
 - **Conventions from Hive** (the user's own MIT TypeScript app): its
   TypeScript settings, oxlint, Vitest, Windows CI, generated third-party
   notices (with a license check over all dependencies), line-endings test,
-  one-SVG icon approach (via `tauri icon`, not Hive's LGPL-dependent sharp) and
-  agent docs. See
+  icon pipeline (sharp, allowed as build-only), agent docs, and an About dialog
+  and in-app Docs view. See
   [Conventions adopted from Hive](#conventions-adopted-from-hive).
 - **Licensing:** the whole project is MIT. Every library this report mentions
   is checked in [License check](#license-check).
@@ -327,8 +327,8 @@ marks what I couldn't confirm from a primary source.
 |---|---|---|---|
 | [**netcanon**](https://github.com/netcanon/netcanon) | "Multi-vendor network config translator". Python, with a shared canonical model; every field is labelled supported, lossy or unsupported. Codecs include IOS-XE CLI, NX-OS, IOS-XR and Junos (set form; hierarchical input is converted to set form first, per [CAPABILITIES.md](https://github.com/netcanon/netcanon/blob/HEAD/docs/CAPABILITIES.md)). FastAPI web UI plus a Windows PySide6 shell | MIT; created 2026-05-13, PyPI 0.7.7 (2026-10-08), 11 stars. **Ideas only (decided):** no dependency, fork or wrapper | **The closest thing to Tool 2, and new.** By design its "Tier 3" (firewall rules/ACLs, route-maps/policy, **dynamic routing protocols**, QoS, NAT) is detected and listed but **never rendered**. Its README also says that where a codec doesn't handle a field, "the source-side value is currently dropped without a banner". So it covers our phase 1 but not phases 2–3, which are the valuable part. **Not run hands-on:** `pip install` failed on Windows path length in my scratch folder, so this is from its docs only |
 | [**Batfish**](https://github.com/batfish/batfish) / pybatfish | Java analysis engine. It parses Junos (MX/EX/QFX/SRX…), IOS, IOS-XE, NX-OS, IOS-XR, ASA, Arista and more into a vendor-independent model, then answers reachability and policy questions | Apache-2.0, very active (1.5k stars) | **Parse-only**: there's no config writer, and the model keeps derived semantics rather than the syntax needed to re-render. Good reference for our model (routing policy, ACL semantics) and for the Junos flattener |
-| [**Ansible network resource modules**](https://github.com/ansible-collections/cisco.ios) (`state: parsed` / `state: rendered`) | Offline parse → structured data → render, per resource (interfaces, l3_interfaces, vlans, static_routes, ospfv2, bgp_global, acls, prefix_lists, ntp_global, snmp_server, logging_global, …), for Junos, IOS, NX-OS and IOS-XR | **GPL-3.0**. cisco.ios/nxos/iosxr active. The `junipernetworks.junos` repo is **archived**; the code now lives in [Juniper/ansible-junos-stdlib](https://github.com/Juniper/ansible-junos-stdlib) (`ansible_collections/juniper/device`, still GPL-3.0 per the module headers) | **The data shapes are per vendor, not shared** (e.g. Junos static routes use `next_hop[].forward_router_address`, IOS uses `next_hops[]`), so every resource needs mapping glue. The **Junos side takes and emits XML** (`parsed` expects `<rpc-reply><configuration>…`; `rendered` emits `<nc:routing-options …>`), not set or brace text. There's no users/AAA resource. **GPL-3.0: not allowed** in an MIT project. At most a test oracle run outside the repo, never a dependency |
-| [**ciscoconfparse2**](https://github.com/mpenning/ciscoconfparse2) (and the archived [ciscoconfparse](https://github.com/mpenning/ciscoconfparse)) | Parses indented configs into parent/child line objects for querying. Its Junos support strips braces and re-indents "as IOS would" | **GPL-3.0**; ciscoconfparse archived (last release 2024-11); ciscoconfparse2 0.9.18 | A text-tree query tool with no model and no translation. **GPL-3.0: not allowed** |
+| [**Ansible network resource modules**](https://github.com/ansible-collections/cisco.ios) (`state: parsed` / `state: rendered`) | Offline parse → structured data → render, per resource (interfaces, l3_interfaces, vlans, static_routes, ospfv2, bgp_global, acls, prefix_lists, ntp_global, snmp_server, logging_global, …), for Junos, IOS, NX-OS and IOS-XR | **GPL-3.0**. cisco.ios/nxos/iosxr active. The `junipernetworks.junos` repo is **archived**; the code now lives in [Juniper/ansible-junos-stdlib](https://github.com/Juniper/ansible-junos-stdlib) (`ansible_collections/juniper/device`, still GPL-3.0 per the module headers) | **The data shapes are per vendor, not shared** (e.g. Junos static routes use `next_hop[].forward_router_address`, IOS uses `next_hops[]`), so every resource needs mapping glue. The **Junos side takes and emits XML** (`parsed` expects `<rpc-reply><configuration>…`; `rendered` emits `<nc:routing-options …>`), not set or brace text. There's no users/AAA resource. **GPL-3.0: can't ship or be copied in.** At most a build/test-only oracle, listed as build-only, never a runtime dependency |
+| [**ciscoconfparse2**](https://github.com/mpenning/ciscoconfparse2) (and the archived [ciscoconfparse](https://github.com/mpenning/ciscoconfparse)) | Parses indented configs into parent/child line objects for querying. Its Junos support strips braces and re-indents "as IOS would" | **GPL-3.0**; ciscoconfparse archived (last release 2024-11); ciscoconfparse2 0.9.18 | A text-tree query tool with no model and no translation. **GPL-3.0: can't ship or be copied in** |
 | [**NAPALM**](https://github.com/napalm-automation/napalm) | Uniform API to *live* devices: getters, config merge/replace/compare/rollback | Apache-2.0, active | No translation: candidate config must already be in the device's own syntax ([support matrix](https://napalm.readthedocs.io/en/latest/support/)) |
 | [**napalm-yang**](https://github.com/napalm-automation/napalm-yang) / [yangify](https://github.com/networktocode/yangify) | Native config ⇄ OpenConfig mapping | napalm-yang **archived** (last push 2019-05, README says abandoned); yangify dormant since 2021-09 | The closest past attempt at native → model → native. Dead, with tiny coverage and no IOS-XR |
 | [**OpenConfig**](https://github.com/openconfig/public) + gNMI | Vendor-neutral YANG models served by devices | Apache-2.0, active. Every vendor publishes deviations: Juniper in [Juniper/yang](https://github.com/Juniper/yang), Cisco in [YangModels/yang](https://github.com/YangModels/yang/tree/main/vendor/cisco) | A device API, not an offline text translator; coverage is partial per vendor. **The best shape to borrow for our model** |
@@ -346,7 +346,8 @@ policy and filters. netcanon now covers the simple L1–L3 basics. As decided, w
 use it for ideas only and write our own; at most it's an optional benchmark
 for the phase 1 areas. Batfish, OpenConfig and Aerleon are the design
 references. The GPL-3.0 ones (ciscoconfparse2, the Ansible resource modules)
-are not allowed in this MIT project. Every library's verdict is in
+can't ship or be copied into this MIT project; at most they'd be build/test-only
+tools. Every library's verdict is in
 [License check](#license-check).
 
 ### Approach: a hub model, not pairwise translators
@@ -773,23 +774,43 @@ C++ build tools only for `tauri build`. The C++ tools are under Microsoft's
 proprietary license: a build toolchain, nothing of it is in our repo, and
 what it links into the exe is the normal Windows runtime.
 
-**The Tauri crates themselves aren't all MIT/Apache/BSD/ISC.** I resolved the
-crate graph of a Tauri 2.12.3 app with the dialog and fs plugins
-(`cargo metadata`, Windows x64, 2026-10-14). 249 crates ship in the exe, and
-25 of them have licenses outside the README's list:
-- **MPL-2.0** (weak copyleft per file): `cssparser`, `cssparser-macros`,
-  `dtoa-short`, `selectors` (via tauri-utils' HTML handling) and `option-ext`.
-- **Unicode-3.0**: 18 ICU4X crates (`icu_*`, `zerovec`, `yoke`, `tinystr`…).
-- **Zlib**: `foldhash` and `zlib-rs`.
+**Which Tauri crates are runtime code and which are build-only.** Under the
+license rule, runtime crates must be permissive, MPL-2.0 used unmodified is
+pre-approved, and build-only crates may be under any open-source license. So
+the split matters. Probe, run on 2026-10-14: a throwaway Cargo project, in my
+scratchpad and not in the repo, with this manifest:
 
-None of these are GPL, LGPL or AGPL. MPL-2.0 lets you ship unmodified files in
-a larger work under other terms, but it requires that their source be
-available and their notices kept. Since Tauri was decided on, these come with
-it. Whether the allowlist should be widened (Zlib, Unicode-3.0, and MPL-2.0
-for unmodified third-party crates) is **for the user to decide**: see
-[Open questions](#open-questions-for-the-user). The Tauri CLI's own graph (578
-crates, a build tool) adds `colored` (MPL-2.0), `webpki-roots`
-(CDLA-Permissive-2.0), BSL-1.0, CC0 and Unlicense-or-MIT crates.
+```toml
+[dependencies]
+tauri = "2.12.3"
+tauri-plugin-dialog = "2"   # resolved 2.8.2
+tauri-plugin-fs = "2"       # resolved 2.7.0
+[build-dependencies]
+tauri-build = "2"           # resolved 2.7.2
+```
+
+It was classified with `cargo tree --target x86_64-pc-windows-msvc`. **Runtime**
+means `-e normal,no-proc-macro`: normal dependencies for the Windows target,
+not entering a proc-macro. **Host-only** means everything else reached by
+`-e normal,build`: proc-macros, build scripts and their dependencies. `cargo
+tree` applies resolver 2's separate host and target features, which `cargo
+metadata`'s merged resolve doesn't. Round 2's "249 shipped" count came from
+`cargo metadata` and was wrong: it counted host-only crates such as
+`cssparser-macros` (a proc-macro) as shipped.
+
+| | Crates | Outside MIT/Apache/BSD/ISC |
+|---|---|---|
+| **Target runtime** (compiled for the app; whether each one is actually linked into the exe was not checked: **UNVERIFIED**) | 135 | `option-ext` 0.2.0, MPL-2.0 (via `dirs` ← `tauri`): **pre-approved, unmodified**. 15 ICU4X crates under Unicode-3.0 (`icu_collections`, `icu_locale_core`, `icu_normalizer`, `icu_normalizer_data`, `icu_properties`, `icu_properties_data`, `icu_provider`, `litemap`, `potential_utf`, `tinystr`, `writeable`, `yoke`, `zerofrom`, `zerotrie`, `zerovec`): **allowed as equally permissive** (an MIT-style license with no copyleft) |
+| **Host-only** (proc-macros, build scripts; build-only, any open-source license) | 94 | `cssparser`, `cssparser-macros`, `dtoa-short`, `selectors` (MPL-2.0; via `dom_query` ← `tauri-utils`' HTML handling, reached only through the `tauri-macros` proc-macro); `foldhash` (Zlib); `yoke-derive`, `zerofrom-derive`, `zerovec-derive` (Unicode-3.0). All allowed as build-only |
+
+The proc-macros' generated output is our own material, not theirs: our
+frontend assets (compressed), the CSP hashes, and the capability and config
+data. So nothing of the host-only crates' code ships. These counts are for
+this manifest and lockfile. B7 re-runs the same classification on the real
+`src-tauri` and checks it in CI (cargo-deny's per-dependency-kind settings or
+the same `cargo tree` query). The Tauri CLI itself (578 crates, including
+`colored` MPL-2.0 and `webpki-roots` CDLA-Permissive-2.0) is a build tool and
+doesn't ship.
 
 ### Conventions adopted from Hive
 
@@ -815,30 +836,53 @@ Read on 2026-10-14; nothing there was changed.
 - **CI** (`.github/workflows/ci.yml`): `windows-latest`, Node 24, `npm ci`,
   then typecheck, lint and tests; a newer push cancels the older run;
   `permissions: contents: read`.
-- **Generated `THIRD_PARTY_NOTICES.md`:** copy `scripts/licenses.mjs`,
-  `scripts/thirdPartyNotices.mjs` and `scripts/licenseText.mjs`, with
-  `npm run licenses` to write it, `--check` to check it, and a unit test that
-  fails when the committed file is stale. Adapt it in three ways:
-  - list what ships from each product: the packages bundled into the UI and
-    CLI (Hive's `RENDERER` list becomes one list per product);
-  - add the Tauri shell's **Rust crates**, e.g. from `cargo about` (build-only
-    tool, Apache-2.0), and the NSIS components Tauri's installer ships, kept
-    in `scripts/notices` as Hive does for electron-builder's;
-  - keep a hand-written section for material that isn't a package, such as
-    the jcc fixtures entry card #3 added.
-  Plus a **license allowlist check over everything installed, not only what
-  ships**. That means the whole npm tree, production, dev and optional
-  platform packages alike (`npm ls --all --json` plus each package's
-  `license`), and the whole Cargo graph, normal and build dependencies (with
-  [cargo-deny](https://crates.io/crates/cargo-deny) 0.20.2, MIT OR Apache-2.0,
-  `cargo deny check licenses`). It fails on anything outside the allowlist
-  unless an exception records the package, its license, why, and who decided.
-  It would have caught sharp's LGPL `libvips` (below).
+- **Generated `THIRD_PARTY_NOTICES.md`**, as Hive does it: copy
+  `scripts/licenses.mjs`, `scripts/thirdPartyNotices.mjs` and
+  `scripts/licenseText.mjs`, with `npm run licenses` to write it, `--check` to
+  check it, and `tests/licenses.test.ts` failing when the committed file is
+  stale. Every shipped package gets its link, version, license and full
+  license text. Adapt it for Dialect:
+  - **npm packages that ship**: what's bundled into the UI (the desktop app and
+    the web build) and the CLI. Hive's `RENDERER` list becomes one list per
+    product;
+  - **Rust crates in the Tauri binary: runtime crates only**, by the
+    classification above (no proc-macros, build scripts or their deps), e.g.
+    with [cargo-about](https://crates.io/crates/cargo-about) (a build tool,
+    MIT OR Apache-2.0) or our own script over `cargo tree`;
+  - **the installer's components** (NSIS and its plug-ins), kept in
+    `scripts/notices` as Hive does for electron-builder's;
+  - a hand-written section for material that isn't a package, such as the jcc
+    fixtures entry card #3 added;
+  - **repository links normalised to full `https://` URLs**. Hive's generator
+    passes shorthand `repository` fields through, so its notices have broken
+    links such as `formatjs/formatjs`, `nodeca/argparse` and
+    `git@github.com:formatjs/formatjs`. Dialect's must expand `owner/repo`,
+    `github:owner/repo`, `git@host:owner/repo(.git)`, `git+https://…` and
+    `git://…`, with a unit test for each form.
+
+  The same file is shown in the app's Docs view (card B16).
+- **License check in two categories**, matching the license rule:
+  - **Shipped or copied into the repo:** must be MIT or equally permissive.
+    The allowlist is MIT, Apache-2.0, BSD-2/3-Clause, ISC, 0BSD, MIT-0, Zlib,
+    Unicode-3.0, BSL-1.0, CC0-1.0 and Unlicense, plus **MPL-2.0 when used
+    unmodified** (pre-approved). Anything else fails, unless an exception
+    records the package, its license, why, and who decided. This covers the
+    shipped npm packages above, the Tauri runtime crates, the installer's
+    components, and files copied into the repo (fixtures, ported code).
+  - **Build-only** (never ships): any OSI-approved open-source license,
+    including GPL and LGPL (e.g. sharp's libvips). These are **listed** in a
+    generated build-only section (or file), not just allowed silently. The
+    check fails on no license or a non-open-source license.
+
+  For npm, "shipped" is the per-product bundle lists and everything else in
+  `npm ls --all --json` is build-only. For Cargo, it's the runtime and
+  host-only split above, enforced with
+  [cargo-deny](https://crates.io/crates/cargo-deny) 0.20.2 (MIT OR
+  Apache-2.0) or the same `cargo tree` query.
 - **Line-endings unit test** (`tests/lineEndings.test.ts`): no text file mixes
   endings or has a lone CR. Our `.gitattributes` already forces LF (card #3),
   which this test backs up.
-- **Icon pipeline: adopt the idea (one SVG master, generated sizes), not
-  Hive's tools.** Hive's `scripts/build-icons.mjs` renders with
+- **Icon pipeline** (one SVG master, generated sizes). Hive's `scripts/build-icons.mjs` renders with
   [sharp](https://www.npmjs.com/package/sharp), and sharp's license chain on
   Windows x64 is:
   - `sharp` 0.35.5: Apache-2.0;
@@ -847,19 +891,14 @@ Read on 2026-10-14; nothing there was changed.
   - which contains `@img/sharp-libvips-win32-x64` 1.3.4, the libvips DLLs:
     **LGPL-3.0-or-later**.
 
-  So the sharp pipeline is **not allowed under the current decision**, pending
-  the user's decision on build-only tools (asked through the Assistant).
-  `png-to-ico` 3.0.2 (MIT; its dependencies `pngjs` MIT and `minimist` MIT) is
-  fine on its own.
-  **Permissive alternative: `tauri icon`** (Tauri CLI 2.12.2, MIT OR
-  Apache-2.0; npm's prebuilt `@tauri-apps/cli-win32-x64-msvc` has the same
-  license). Its source says it takes "a squared PNG or SVG file with
-  transparency" and writes every PNG and ICO size the bundler needs. It
-  renders SVG with `resvg`/`usvg` (MIT OR Apache-2.0) and `tiny-skia`
-  (BSD-3-Clause), and writes with `image` and `png` (MIT OR Apache-2.0) and
-  `ico` (MIT). Its whole graph is in the note on Tauri crates above. Its
-  output also covers the web build's favicon. Card #5 should use it rather
-  than sharp, unless the user allows LGPL build tools.
+  Under the license rule this is **allowed as build-only**: sharp and libvips
+  run on the build machine, and only the PNG/ICO files they produce ship. It
+  is listed in the build-only list. `png-to-ico` 3.0.2 (MIT, with `pngjs` and
+  `minimist`, both MIT) completes the pipeline, so card #5 can reuse Hive's
+  script as it is. For the Tauri bundle's own icon set, `tauri icon` (Tauri
+  CLI 2.12.2, MIT OR Apache-2.0) also takes an SVG master and writes every
+  size the bundler needs. It renders with `resvg`/`usvg` (MIT OR Apache-2.0)
+  and `tiny-skia` (BSD-3-Clause). Either works; card #5 picks.
 - **Agent and decision docs:** `AGENTS.md` as the single agent guide, with
   `CLAUDE.md` containing only `@AGENTS.md`. `docs/SPEC.md` is the source of
   truth for product decisions (it takes over the workspace note's decisions)
@@ -951,12 +990,18 @@ app and the web build; only the file open and save calls differ.
 
 ## License check
 
-The whole project is MIT. Allowed: MIT, Apache-2.0, BSD and ISC (Apache-2.0
-also needs its NOTICE text kept). Not allowed: GPL, LGPL, AGPL or no license.
-Licenses that are neither (MPL-2.0, Zlib, Unicode-3.0, CPL, MS-RL and
-others) are marked for the user's decision or avoided. The verdicts apply to
-build and dev tools as well as to what ships; toolchains (Node, npm, Rust, the
-C++ build tools) and the OS's WebView2 are marked as tools.
+The whole project is MIT. The license rule (decided 2026-10-14) has two
+categories:
+- **Shipped, or copied into the repo:** MIT or equally permissive (Apache-2.0
+  with its NOTICE text kept, BSD, ISC, Zlib, Unicode-3.0 and the like).
+  **MPL-2.0 used unmodified is pre-approved.** GPL, LGPL, AGPL, other
+  copyleft (CPL, MS-RL) and no license are not allowed.
+- **Build-only** (never ships): any open-source license, GPL and LGPL
+  included. Listed as **build-only**.
+
+Toolchains (Node, npm, Rust, the C++ build tools) and the OS's WebView2 are
+marked as tools. Verdicts: **OK (ships)**, **OK (build-only)**, **OK (not
+used)** for things we only learn from, and **Not allowed**.
 "Use" says what we'd do with it. Licenses were checked on 2026-10-14 against
 GitHub's license detection, the npm registry, or the files themselves where
 those disagreed.
@@ -975,8 +1020,8 @@ those disagreed.
 | OpenConfig models (openconfig/public) | Apache-2.0 | OK | Model structure and names |
 | YangModels/yang (Cisco and others) | per directory (IETF, Eclipse, vendor terms) | **Check per file first** | Reference only |
 | netcanon | MIT | OK, **ideas only (decided)** | No dependency, fork or wrapper; optional benchmark |
-| Ansible resource modules (cisco.ios etc.; Juniper's in ansible-junos-stdlib) | GPL-3.0 (Juniper's repo is Apache-2.0 overall, but its resource modules' headers say GPL-3.0) | **Not allowed** | At most an outside test oracle |
-| ciscoconfparse / ciscoconfparse2 | GPL-3.0 | **Not allowed** | None |
+| Ansible resource modules (cisco.ios etc.; Juniper's in ansible-junos-stdlib) | GPL-3.0 (Juniper's repo is Apache-2.0 overall, but its resource modules' headers say GPL-3.0) | **Not allowed to ship or copy**; OK (build-only) as a test oracle | At most a test oracle |
+| ciscoconfparse / ciscoconfparse2 | GPL-3.0 | **Not allowed to ship or copy** | None |
 | NAPALM | Apache-2.0 | OK | Not needed (live devices) |
 | napalm-yang (archived), yangify | Apache-2.0 | OK | Past attempts, reference only |
 | Capirca, Aerleon | Apache-2.0 | OK | ACL model reference |
@@ -1001,10 +1046,11 @@ those disagreed.
 | Rust toolchain | MIT OR Apache-2.0 | OK | Builds the Tauri shell |
 | Microsoft C++ build tools | Microsoft proprietary | OK as a toolchain (not in the repo) | Needed by `tauri build` |
 | WebView2 runtime | Microsoft proprietary, part of Windows | OK as a system component; not redistributed with the default bootstrapper (`offlineInstaller`/`fixedVersion` would redistribute it under Microsoft's terms) | Desktop app's webview |
-| **Tauri runtime crates** shipped in the exe (249) | mostly MIT/Apache; also MPL-2.0 (5), Unicode-3.0 (18), Zlib (2) | **MPL-2.0, Unicode-3.0 and Zlib: user decision** (see the stack section) | Desktop app |
-| **Tauri CLI crates** (578, build tool) | as above, plus MPL-2.0 (`colored`), CDLA-Permissive-2.0, BSL-1.0, CC0, Unlicense OR MIT | **User decision**, as above | `tauri build`, `tauri icon` |
-| NSIS 3.13 + `System`/`nsDialogs`/`StartMenu`/`NSISdl` plug-ins | zlib/libpng | OK as zlib/libpng (not on the README list: covered by the same user decision) | Installer |
-| NSIS LZMA compression module | CPL-1.0 with a linking exception | **Avoid:** use `"compression": "zlib"` | Not used |
+| **Tauri runtime crates** (135 resolved for the Windows target; linking into the exe UNVERIFIED) | MIT/Apache/BSD/ISC, plus `option-ext` MPL-2.0 and 15 ICU4X crates Unicode-3.0 | **OK (ships):** MPL-2.0 pre-approved (unmodified), Unicode-3.0 equally permissive | Desktop app |
+| **Tauri host-only crates** (94: proc-macros, build scripts) | as above, plus `cssparser`, `cssparser-macros`, `dtoa-short`, `selectors` MPL-2.0, `foldhash` Zlib, three `*-derive` Unicode-3.0 | **OK (build-only)** | `tauri build` |
+| **Tauri CLI crates** (578) | as above, plus `colored` MPL-2.0, `webpki-roots` CDLA-Permissive-2.0, BSL-1.0, CC0, Unlicense OR MIT | **OK (build-only)** | `tauri build`, `tauri icon` |
+| NSIS 3.13 + `System`/`nsDialogs`/`StartMenu`/`NSISdl` plug-ins | zlib/libpng | **OK (ships)**: equally permissive | Installer |
+| NSIS LZMA compression module | CPL-1.0 with a linking exception | **Not allowed** (would ship in the installer stub): use `"compression": "zlib"` | Not used |
 | nsis_tauri_utils | MIT OR Apache-2.0 | OK | Installer plug-in |
 | WiX Toolset 3 (`WixUtilExtension`) | MS-RL | **Not allowed** (reciprocal) | No MSI |
 | cargo-deny | MIT OR Apache-2.0 | OK | License check (build only) |
@@ -1015,6 +1061,8 @@ those disagreed.
 | ESLint, typescript-eslint | MIT | OK | Not used (no TypeScript 7 support) |
 | Prettier | MIT | OK | Not used (convention) |
 | React, react-dom, zustand | MIT | OK | UI |
+| marked 18.1.1 | MIT | OK (ships) | Renders the Docs view's Markdown |
+| DOMPurify 3.4.17 | MPL-2.0 OR Apache-2.0 | OK (ships), **used under Apache-2.0** (as Hive does) | Sanitises the rendered Markdown |
 | Monaco editor (incl. its Monarch tokenizers) | MIT | OK | Editors |
 | Hive (`D:\Development\HIVE\hive`) | MIT, same copyright holder | OK | Conventions and scripts to copy |
 | Python standard library (the spike prototype only) | PSF-2.0 | Not a dependency: the prototype is our own throwaway code and is deleted after the port | Reference |
@@ -1025,10 +1073,10 @@ those disagreed.
 | semver | ISC | OK | `modelApi` range checks |
 | Playwright | Apache-2.0 | OK | Web build tests |
 | WebdriverIO, @wdio/tauri-service | MIT | OK | Desktop smoke test |
-| sharp 0.35.5 | Apache-2.0 | OK on its own | — |
-| `@img/sharp-win32-x64` 0.35.5 (sharp's native part) | Apache-2.0 AND LGPL-3.0-or-later | **Not allowed** (pending the user's decision on build-only tools) | Not used: `tauri icon` instead |
-| `@img/sharp-libvips-win32-x64` 1.3.4 (libvips DLLs) | LGPL-3.0-or-later | **Not allowed** (same) | Not used |
-| png-to-ico 3.0.2 (+ pngjs, minimist) | MIT | OK | Optional, not needed with `tauri icon` |
+| sharp 0.35.5 | Apache-2.0 | **OK (build-only)** | Icon pipeline (card #5) |
+| `@img/sharp-win32-x64` 0.35.5 (sharp's native part) | Apache-2.0 AND LGPL-3.0-or-later | **OK (build-only)**; never ships | Icon pipeline |
+| `@img/sharp-libvips-win32-x64` 1.3.4 (libvips DLLs) | LGPL-3.0-or-later | **OK (build-only)**; never ships | Icon pipeline |
+| png-to-ico 3.0.2 (+ pngjs, minimist) | MIT | **OK (build-only)** | Icon pipeline |
 | resvg, usvg, image, png | MIT OR Apache-2.0 | OK | Inside `tauri icon` |
 | tiny-skia | BSD-3-Clause | OK | Inside `tauri icon` |
 | ico | MIT | OK | Inside `tauri icon` |
@@ -1089,9 +1137,11 @@ These were open questions in the first version of this report.
 
 1. **Stack:** TypeScript (strict) for the core, the plugins and the UI. Desktop
    app via Tauri 2, plus an offline browser build and a CLI from the same core.
-2. **License:** the whole project is MIT. No GPL, LGPL, AGPL or unlicensed code
-   or dependencies. MIT and Apache-2.0 are fine with attribution, and
-   Apache-2.0 also needs its NOTICE text.
+2. **License:** the whole project is MIT. What ships, or is copied into the
+   repo, must be MIT or equally permissive (Apache-2.0 with its NOTICE text,
+   BSD, ISC…). Build-only tools that never ship may use any open-source
+   license, GPL and LGPL included, and are listed as build-only. **MPL-2.0
+   that ships, used unmodified, is pre-approved** (e.g. Tauri's `option-ext`).
 3. **netcanon:** ideas only. We write our own converter: we don't depend on it,
    fork it or wrap it. It may be used as an optional benchmark.
 4. **Platforms as plugins:** each platform is its own plugin.
@@ -1100,6 +1150,10 @@ These were open questions in the first version of this report.
    and branding. The app says it isn't affiliated with either vendor.
 7. **Build plan:** borrow conventions and code from Hive (see
    [Conventions adopted from Hive](#conventions-adopted-from-hive)).
+8. **About and Docs:** Dialect ships an About dialog and an in-app Docs view
+   like Hive's: User Guide, Release Notes, License and the generated
+   Third-Party Notices (every shipped package with link, version and full
+   license text). See card B16.
 
 ## Open questions for the user
 
@@ -1118,23 +1172,15 @@ These were open questions in the first version of this report.
    signing (and who pays for the certificate), installer vs web build first,
    and whether the CLI is published.
 7. **Third-party plugins:** OK to leave out of v1 as recommended?
-8. **License allowlist beyond MIT/Apache/BSD/ISC.** Tauri, which was decided
-   on, ships MPL-2.0 (5 crates, unmodified), Unicode-3.0 and Zlib crates, and
-   its tools add CDLA-Permissive-2.0, BSL-1.0, CC0 and NSIS's zlib/libpng.
-   Suggested: allow these permissive ones, and MPL-2.0 for unmodified
-   third-party crates with their notices and a source pointer. Also: may
-   build-only tools that never ship be LGPL (sharp's libvips)? Suggested: no,
-   since `tauri icon` covers the icons. The README's contributing rules
-   (card #3) should then be updated to match.
 
 ## Suggested follow-up build cards
 
 Not created on the board; the user picks what gets built. They're numbered
 B1… so they aren't confused with board cards, and listed in a workable order.
 Sizes as above: **S** ≈ 1–2 weeks, **M** ≈ 3–6 weeks, **L** ≈ 2–3 months
-(judgement, not measurement). Card #5 (icons) is already on the board. Under
-the current decision it should use `tauri icon`, not Hive's sharp pipeline
-(see [Conventions adopted from Hive](#conventions-adopted-from-hive)).
+(judgement, not measurement). Card #5 (icons) is already on the board. It can
+reuse Hive's sharp pipeline (allowed as build-only) or `tauri icon` (see
+[Conventions adopted from Hive](#conventions-adopted-from-hive)).
 
 **Core interfaces stable** means B2 is merged and the plugin interface, the
 model's v0 shape and the ledger API haven't changed for a card or two. Cards
@@ -1155,23 +1201,33 @@ Every card's done-when includes: `npm run typecheck`, `npm run lint` and
   `allowScripts`), `tsconfig*.json`, `.oxlintrc.json`, `vitest.config.ts`,
   `.github/workflows/ci.yml`, `scripts/licenses.mjs`,
   `scripts/thirdPartyNotices.mjs`, `scripts/licenseText.mjs`,
-  `scripts/licenseAllowlist.mjs`, `tests/lineEndings.test.ts`,
+  `scripts/licensePolicy.mjs`, `tests/lineEndings.test.ts`,
   `tests/licenses.test.ts`, `tests/tempDir.ts`, `AGENTS.md`, `CLAUDE.md`,
-  `docs/SPEC.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md`, `.gitattributes`
-  (adds `CHANGELOG.md merge=union`), and a stub `package.json` + `src/index.ts`
-  per workspace in the layout above.
+  `docs/SPEC.md`, `docs/ARCHITECTURE.md`, `docs/USER_GUIDE.md` (a first
+  outline), `CHANGELOG.md` (with an **Unreleased** section), `README.md`
+  (contributing rules updated to the two-category license rule),
+  `THIRD_PARTY_NOTICES.md` (now generated), `.gitattributes` (adds
+  `CHANGELOG.md merge=union`), and a stub `package.json` + `src/index.ts` per
+  workspace in the layout above.
 - *Scope:* Hive's TypeScript settings, oxlint `--deny-warnings`, no Prettier,
   Vitest. Windows CI on Node 24 that installs npm 12, then runs `npm ci`,
-  typecheck, lint and tests. Generated notices that keep the hand-written jcc
-  entry. The license allowlist over the whole npm tree (prod, dev, optional)
-  with a recorded-exceptions list. SPEC.md takes over the recorded decisions.
-  No product code.
+  typecheck, lint and tests. The notices generator (npm part) with full
+  license texts, the hand-written jcc entry kept, and repository links
+  normalised to `https://` URLs. The two-category license check: shipped
+  packages against the permissive allowlist (MPL-2.0 unmodified allowed), and
+  build-only packages listed and required to be open source, with a
+  recorded-exceptions list. SPEC.md takes over the recorded decisions. No
+  product code.
 - *Needs:* nothing.
 - *Done when:* the checks pass on the empty skeleton, locally and in CI.
-  `tests/licenses.test.ts` fails on a stale notices file and on a fixture
-  package with a GPL license. The line-endings test fails on a mixed file.
-  With npm 12, a fixture dependency with an unlisted `postinstall` doesn't
-  run it.
+  `tests/licenses.test.ts` fails on a stale notices file, on a shipped fixture
+  package that's GPL, and on a build-only fixture package with no license. It
+  passes with a build-only LGPL fixture, which appears in the build-only
+  list. A repository-URL test covers `owner/repo`, `github:owner/repo`,
+  `git@github.com:owner/repo.git`, `git+https://…` and `git://…`, each giving
+  a full `https://` URL. The line-endings test fails on a mixed file. With
+  npm 12, a fixture dependency with an unlisted `postinstall` doesn't run
+  it.
 
 **B2. Core v0: shared model, coverage ledger, plugin interface, conformance
 kit.** **M**
@@ -1262,14 +1318,38 @@ kit.** **M**
   and fs plugins, scoped to the files the user picks. A strict CSP. An NSIS
   installer only, with `compression: "zlib"` and the default WebView2 mode. A
   `signCommand` hook (signing itself waits for the user's certificate
-  decision). Icons from card #5. `cargo deny check licenses` in CI with the
-  allowlist the user settles (open question 8). A WebdriverIO smoke test.
-- *Needs:* B6, card #5, and an answer to open question 8 (or recorded
-  exceptions).
+  decision). Icons from card #5. The notices generator's Rust part: **runtime
+  crates only**, classified as in the stack section (no proc-macros or build
+  scripts), plus the NSIS components; host-only crates go in the build-only
+  list. The license check for both, in CI. A WebdriverIO smoke test.
+- *Needs:* B6, card #5.
 - *Done when:* the installer installs and runs on a clean Windows 11 VM, and
   display set works there with open and save. The WebdriverIO smoke test
-  passes. The notices list the Rust crates and NSIS components. cargo-deny
-  passes.
+  passes. The notices list the runtime crates (with `option-ext` as MPL-2.0)
+  and the NSIS components, and no proc-macro crate (a test checks that
+  `cssparser-macros` isn't listed). The license check passes.
+
+**B16. About dialog and Docs view.** **S**
+- *Goal:* the app documents itself and its licenses, as Hive does, in both
+  the desktop app and the web build.
+- *Files:* `packages/ui` (About dialog, Docs view, a Help menu or command),
+  `docs/USER_GUIDE.md` (filled in for display set), and a check that the
+  bundled docs are current.
+- *Scope:* modelled on Hive's `DOCS` list (`OtherViews.tsx`, docs imported
+  with Vite's `?raw`) and its `help.about` command and `AboutDialog`. The
+  Docs view has User Guide (`docs/USER_GUIDE.md`), Release Notes
+  (`CHANGELOG.md`), License (`LICENSE`) and Third-Party Notices (the generated
+  `THIRD_PARTY_NOTICES.md`), rendered with marked + DOMPurify. The About
+  dialog shows the version, the build (desktop or web), the WebView2 or
+  browser version where available, the "not affiliated with Juniper Networks
+  or Cisco Systems" line, links into the Docs pages, and Copy. Numbered B16
+  to keep the earlier numbers stable; do it after B7 and before B9.
+- *Needs:* B1 (the generated notices, CHANGELOG, USER_GUIDE), B6, B7.
+- *Done when:* in the web build (Playwright, from `file://` with no network)
+  and the desktop app (smoke test), About opens and shows the version, and
+  each of the four Docs pages renders, with the notices page listing a known
+  shipped package with its version and license text. A test fails when the
+  notices bundled into the UI differ from the committed file.
 
 ### Group D: conversion (needs the core interfaces stable)
 
@@ -1292,7 +1372,7 @@ areas.** **M**
   highlighting), `packages/cli` (`dialect convert --from junos --to iosxe
   [--map file]`), `packages/core` (the interface-map type and its use in the
   ledger's needs-input items).
-- *Needs:* B4, B5, B6, B7, B8.
+- *Needs:* B4, B5, B6, B7, B8 (B16 should be in first).
 - *Done when:* a Junos phase 1 fixture converts to IOS-XE in the CLI, the web
   build (Playwright) and the desktop app (smoke test). Unmapped statements
   show in the source gutter and the warnings panel. An interface map given in
@@ -1385,6 +1465,6 @@ ACLs.** **M–L**
 
 **What can run in parallel:** B1 → B2 run one at a time. After B2, three
 lanes can run in separate worktrees: B3 → B4 (Junos), B8 (IOS-XE), and
-B5, B6 → B7 (shells, which need only B3). B9 joins them. B10 → B11 run in
+B5, B6 → B7 → B16 (shells, which need only B3). B9 joins them. B10 → B11 run in
 order. B12 and B13 can run in parallel with each other and alongside B10/B11,
 taking turns on `packages/core`. B14 can run any time after B3.
