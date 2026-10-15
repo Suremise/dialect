@@ -13,18 +13,16 @@ The local project and folder are called `juniper`; the product is Dialect.
 
 ## Project conventions
 
-Adapted from Hive's (`D:\Development\HIVE\hive`), the quality bar for this repo: borrow its ideas, conventions and code
-freely, but **read it only and never change anything there**.
+Every change to this repo follows these:
 
 - **Commit once a card passes review**, on your own branch, without waiting to be asked. **Never push**, add a remote,
   tag or release unless the user asks. Commits use the GitHub no-reply address in the repo's git config
   (`git config user.email`), never a personal email: never set or pass another email (`git config`, `-c user.email`,
   `--author`, `GIT_AUTHOR_EMAIL`).
-- **Merging into main:** run `git -C D:/Development/Workspaces/Scratch/juniper merge --no-ff <branch>` as a command of
-  its own, the path written out in full (not `$M` or `cd … &&`), so the allow rule in each developer's user-level Claude
-  settings matches it. `.claude/` is machine-local and not in git.
+- **Merging into main:** once a branch's cards have passed review, merge it with `git merge --no-ff <branch>`, so main
+  keeps a merge commit for it. `.claude/` is machine-local and not in git.
 - **Keep to your card's files.** Cards that run in parallel own different packages; a change another lane's package
-  needs goes through the Hive Assistant, not into your card. Work you find that isn't your card's goes on a new card.
+  needs goes on a new card or to the maintainer, not into your card. Work you find that isn't your card's goes on a new card.
 - **Never run Prettier** (`prettier --write` or as a check): the repo has no Prettier config. Match the surrounding
   formatting by hand (long lines, single quotes, no semicolons) and check with `npm run typecheck` and `npm run lint`.
 - **Line endings:** `.gitattributes` checks text out as LF (`.bat`, `.cmd` and `.ps1` as CRLF). Write a file with one
@@ -34,8 +32,8 @@ freely, but **read it only and never change anything there**.
   both stay: after merging main, look for an entry that appears twice in two wordings. Use union for nothing else.
 - **No product code outside its package:** platform-neutral code goes in `packages/core` or a `packages/platform-*`
   plugin, which use no Node or DOM APIs (their tsconfigs give them neither's types). File access lives in the shells.
-- Personal, machine-specific notes belong in `CLAUDE.local.md` (git-ignored), not here. `CLAUDE.md` only imports this
-  file.
+- Personal, machine-specific notes belong in `CLAUDE.local.md` (git-ignored; Claude Code reads it), not here.
+  `CLAUDE.md` only imports this file (`@AGENTS.md`): put shared notes here, so every agent gets them.
 
 ## No secrets in diagnostics
 
@@ -87,8 +85,8 @@ msedgedriver of the runner's WebView2. The repo is public at https://github.com/
 never touches an installed Dialect's data. The app also runs without its tray icon where Windows has no notification
 area.
 
-**npm 12 through npx:** the global npm stays 11, because Hive on the same PC uses it, so run install, ci and test as
-`npx npm@12.2.0 …`. Under npm 11, `npm test` skips the npm 12 install-script checks (`tests/installScripts.test.ts`)
+**npm 12 through npx:** a global npm may be older than the npm 12 the repo pins (and CI uses), so run install, ci and
+test as `npx npm@12.2.0 …`. Under npm 11, `npm test` skips the npm 12 install-script checks (`tests/installScripts.test.ts`)
 with a warning; with `CI` set they run anyway and fail, as CI must use npm 12.
 
 ## Licenses and dependencies

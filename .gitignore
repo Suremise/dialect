@@ -1,5 +1,5 @@
-# Hive and agent tooling: machine-local state, session transcripts and
-# skill copies Hive regenerates from the workspace. Nothing here is shared.
+# Agent tooling: machine-local state, session transcripts and skill copies
+# regenerated from a workspace. Nothing here is shared.
 .hive/
 .agents/
 # Machine-local Claude Code settings (permission rules with local paths).
