@@ -92,6 +92,19 @@ jobs:
       - run: npm run build:installers -w @dialect/desktop
       # Builds the app again without the installer, which after the build above is incremental.
       - run: npm run test:smoke -w @dialect/desktop
+      # When the smoke test fails, whether the app starts on its own: still running after 20 s, or its exit code and what
+      # it wrote to stderr (a panic), and the Application log's errors from the last hour (a crash).
+      - name: Does the app start? (after a failure)
+        if: failure()
+        run: |
+          $exe = 'apps/desktop/src-tauri/target/release/dialect.exe'
+          if (-not (Test-Path $exe)) { Write-Output "$exe wasn't built"; exit 0 }
+          $stderr = Join-Path $env:RUNNER_TEMP 'dialect-stderr.txt'
+          $app = Start-Process -FilePath $exe -PassThru -RedirectStandardError $stderr
+          if ($app.WaitForExit(20000)) { Write-Output "dialect.exe exited with $($app.ExitCode)" } else { Write-Output 'dialect.exe is still running after 20 s'; Stop-Process -Id $app.Id -Force }
+          Get-Content $stderr -ErrorAction SilentlyContinue
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Level = 2; StartTime = (Get-Date).AddHours(-1) } -MaxEvents 20 -ErrorAction SilentlyContinue |
+            Format-List TimeCreated, ProviderName, Message
       # The dialect command needs no Node: run it with every folder holding a node.exe taken off the PATH.
       - name: dialect.exe runs with no Node
         run: |

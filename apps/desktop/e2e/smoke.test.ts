@@ -71,7 +71,12 @@ beforeAll(async () => {
   await vi.waitFor(async () => {
     if (!(await fetch(`http://127.0.0.1:${port}/status`)).ok) throw new Error('tauri-driver is not ready')
   }, UI_WAIT)
-  session = await newSession(`http://127.0.0.1:${port}`, { browserName: 'wry', 'tauri:options': { application: app } })
+  try {
+    session = await newSession(`http://127.0.0.1:${port}`, { browserName: 'wry', 'tauri:options': { application: app } })
+  } catch (error) {
+    // What tauri-driver and msedgedriver said: why the app's WebView2 didn't come up.
+    throw new Error(`${(error as Error).message}\ntauri-driver said: ${driverLog.trim() || 'nothing'}`, { cause: error })
+  }
 }, 600_000)
 
 afterAll(async () => {
