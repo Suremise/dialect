@@ -4,11 +4,14 @@
 // the CSP blocks inline scripts and the network, that the fs plugin reads no file the user hasn't picked and the opener
 // no link but an https one, and last that File → Exit quits. The logic itself is the web build's, tested there.
 //
-// msedgedriver attaches to the app (`debuggerAddress`) rather than starting it: WebView2 ignores the debugging port a
-// driver passes through WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS in an elevated process, as on GitHub's runners
-// (actions/runner-images#14738), so the app is built with its own `--remote-debugging-port=0` in its window's browser
-// arguments, beside wry's defaults, and the test reads the port WebView2 picked from DevToolsActivePort. That build goes
-// to src-tauri/target/e2e, apart from the release build the installers are made from, which never opens a port.
+// msedgedriver attaches to the app (`debuggerAddress`) rather than starting it: on GitHub's runners WebView2 never opened
+// the debugging port a driver passes through WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, as tauri-driver does ("DevToolsActivePort
+// file doesn't exist": a WebView2 regression from runtime 133, actions/runner-images#14738, WebView2Feedback#5415). So
+// the app is built with its own `--remote-debugging-port=0` in its window's browser arguments, beside wry's defaults,
+// and the test reads the port WebView2 picked from DevToolsActivePort. That build goes to src-tauri/target/e2e, apart
+// from the release build the installers are made from, which never opens a port. It has an identifier of its own, so
+// its WebView2 profile is its own app data folder (Tauri always passes WebView2 `%LOCALAPPDATA%\<identifier>`, which
+// wins over WEBVIEW2_USER_DATA_FOLDER), removed before and after: an installed Dialect's tabs and settings stay untouched.
 //
 // Needs Rust (the build) and the msedgedriver that matches the installed WebView2, found through MSEDGEDRIVER (its path)
 // or on PATH. `npm run test:smoke -w @dialect/desktop` builds the app first (incremental after the first build), as the
@@ -28,14 +31,14 @@ const tauriCli = join(dirname(createRequire(import.meta.url).resolve('@tauri-app
 /** The smoke test's own build of the app, apart from the release build (src-tauri/target/release). */
 const targetDir = join(desktop, 'src-tauri', 'target', 'e2e')
 const app = join(targetDir, 'release', 'dialect.exe')
-const tauriConf = JSON.parse(readFileSync(join(desktop, 'src-tauri', 'tauri.conf.json'), 'utf8')) as { identifier: string; app: { windows: Record<string, unknown>[] } }
+const tauriConf = JSON.parse(readFileSync(join(desktop, 'src-tauri', 'tauri.conf.json'), 'utf8')) as { app: { windows: Record<string, unknown>[] } }
 /** wry's own browser arguments, which a window's `additionalBrowserArgs` replaces (tauri-utils' config.rs). */
 const WRY_ARGS = '--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection'
-/**
- * Where WebView2 writes DevToolsActivePort: the app's data folder, as an installed Dialect's. WebView2 shares one browser
- * process per folder, whose arguments win, so close an installed Dialect before running this.
- */
-const activePort = join(process.env.LOCALAPPDATA ?? '', tauriConf.identifier, 'EBWebView', 'DevToolsActivePort')
+/** The test build's identifier, never an installed Dialect's (io.github.suremise.dialect). */
+const E2E_IDENTIFIER = 'io.github.suremise.dialect.smoketest'
+/** The test build's app data folder, its WebView2 profile in EBWebView: the test's own, removed before and after. */
+const appData = join(process.env.LOCALAPPDATA ?? '', E2E_IDENTIFIER)
+const activePort = join(appData, 'EBWebView', 'DevToolsActivePort')
 const FIXTURES = join(__dirname, '../../../packages/platform-junos/tests/fixtures/display-set')
 /** How long the app may take to show what an action leads to: a bound for a hung app, not a wait. */
 const UI_WAIT = { timeout: 15_000, interval: 100 }
@@ -79,28 +82,40 @@ let dialect: ChildProcess | undefined
 let dialectLog = (): string => 'nothing'
 let session: Session | undefined
 
+/** Removes the test build's app data folder, once WebView2's processes, which outlive the app a moment, let go of it. */
+async function removeAppData(): Promise<void> {
+  if (!process.env.LOCALAPPDATA) return
+  await vi.waitFor(() => {
+    rmSync(appData, { recursive: true, force: true })
+    if (existsSync(appData)) throw new Error(`${appData} is still there`)
+  }, START_WAIT)
+}
+
 beforeAll(async () => {
   const native = process.env.MSEDGEDRIVER ?? onPath('msedgedriver.exe')
   if (!native || !existsSync(native)) throw new Error('msedgedriver.exe (matching the installed WebView2) is needed: set MSEDGEDRIVER to its path, or put it on PATH')
 
-  // The app as `npm run build` makes it, without the installer, with its debugging port: incremental once built. The
-  // --config file is merged over tauri.conf.json, whose window list it replaces whole.
+  // The app as `npm run build` makes it, without the installer, with its debugging port, and apart from an installed
+  // Dialect: an identifier of its own (so its app data folder too) and a window title that says what it is. Incremental
+  // once built. The --config file is merged over tauri.conf.json, whose window list it replaces whole.
   const [main, ...others] = tauriConf.app.windows
   const conf = join(targetDir, 'e2e.conf.json')
   mkdirSync(targetDir, { recursive: true })
-  writeFileSync(conf, JSON.stringify({ app: { windows: [{ ...main, additionalBrowserArgs: `${WRY_ARGS} --remote-debugging-port=0` }, ...others] } }))
+  writeFileSync(conf, JSON.stringify({ identifier: E2E_IDENTIFIER, app: { windows: [{ ...main, title: 'Dialect (smoke test)', additionalBrowserArgs: `${WRY_ARGS} --remote-debugging-port=0` }, ...others] } }))
   execFileSync(process.execPath, [tauriCli, 'build', '--no-bundle', '--config', conf], { cwd: desktop, env: { ...childEnv(), CARGO_TARGET_DIR: targetDir }, stdio: 'pipe' })
   expect(existsSync(app), app).toBe(true)
 
-  // The app, then the port its WebView2 picked: DevToolsActivePort's first line, written once it listens.
-  rmSync(activePort, { force: true })
+  // The app with a fresh profile, then the port its WebView2 picked: DevToolsActivePort's first line, written into the
+  // profile once it listens.
+  if (!process.env.LOCALAPPDATA) throw new Error('LOCALAPPDATA is needed: the test build keeps its WebView2 profile there')
+  await removeAppData()
   const started = spawn(app, [], { env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
   dialect = started
   dialectLog = logOf(started)
   const debugPort = await vi.waitFor(() => {
     if (started.exitCode !== null) throw new Error(`dialect.exe exited with ${started.exitCode}: ${dialectLog()}`)
     const port = existsSync(activePort) ? Number(readFileSync(activePort, 'utf8').split(/\r?\n/)[0]) : NaN
-    if (!(port > 0)) throw new Error(`no ${activePort} yet`)
+    if (!(port > 0)) throw new Error(`no ${activePort} yet: WebView2 didn't open its debugging port in the test's profile`)
     return port
   }, START_WAIT)
 
@@ -118,6 +133,7 @@ beforeAll(async () => {
   }
 }, 600_000)
 
+// Also after a failed setup: whatever it started stops, and the profile goes.
 afterAll(async () => {
   // Attached, ending the session leaves the app running: the last test quits it, or this stops it.
   await session?.close().catch(() => {})
@@ -127,7 +143,8 @@ afterAll(async () => {
     child.kill()
     await exited
   }
-})
+  await removeAppData()
+}, 120_000)
 
 const page = (): Session => {
   if (!session) throw new Error(`no WebDriver session (msedgedriver said: ${driverLog()})`)

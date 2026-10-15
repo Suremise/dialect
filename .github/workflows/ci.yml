@@ -89,7 +89,7 @@ jobs:
       # Both installers (Darren's decision on #89): the normal one and the offline one, each with dialect.exe inside.
       - run: npm run build:installers -w @dialect/desktop
       # Builds the app again without the installer, with its debugging port, into src-tauri/target/e2e (the smoke test's
-      # header says why: WebView2 ignores a driver's debugging port in an elevated process, as on these runners).
+      # header says why: WebView2 on these runners never opened the debugging port a driver passes in).
       - run: npm run test:smoke -w @dialect/desktop
       # The dialect command needs no Node: run it with every folder holding a node.exe taken off the PATH.
       - name: dialect.exe runs with no Node

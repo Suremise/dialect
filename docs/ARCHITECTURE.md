@@ -2120,13 +2120,17 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
   event, and the config, capability and tray menu above. WebDriver can't reach the notification area, so the tray is
   checked by hand (the card's manual steps), as are the installers (#89's clean-machine plan: agents never run them).
   `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
-  (`tauri build --no-bundle`) into `src-tauri/target/e2e`, with `--remote-debugging-port=0` added to its window's
-  browser arguments (beside wry's defaults). It starts that app, reads the port WebView2 picked from
-  `%LOCALAPPDATA%io.github.suremise.dialectEBWebViewDevToolsActivePort` (close an installed Dialect first: WebView2
-  shares one browser process per data folder), and attaches Edge WebDriver to it
-  (`debuggerAddress`): WebView2 in an elevated process ignores the port a driver passes through
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which is how tauri-driver works, so that failed on GitHub's runners
-  (actions/runner-images#14738). The release build, which the installers ship, opens no port. The test drops a
+  (`tauri build --no-bundle`) into `src-tauri/target/e2e`, apart from an installed Dialect: its own identifier
+  (`io.github.suremise.dialect.smoketest`), a window titled "Dialect (smoke test)", and `--remote-debugging-port=0`
+  added to its window's browser arguments (beside wry's defaults). Its WebView2 profile is that identifier's app data
+  folder (`%LOCALAPPDATA%\io.github.suremise.dialect.smoketest\EBWebView`: Tauri always passes WebView2 the app data
+  folder, which wins over `WEBVIEW2_USER_DATA_FOLDER`). The test removes that folder, starts the app, reads the port
+  WebView2 picked from the profile's `DevToolsActivePort`, and attaches Edge WebDriver to it (`debuggerAddress`); after,
+  it stops the app and the driver and removes the folder again, after a failed setup too. An installed Dialect's
+  profile (its restored tabs and theme) is never touched. Attaching is needed because on GitHub's runners WebView2 never opened the port a
+  driver passes through `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which is how tauri-driver works ("DevToolsActivePort
+  file doesn't exist": a WebView2 regression from runtime 133, actions/runner-images#14738, WebView2Feedback#5415).
+  The release build, which the installers ship, opens no port. The test drops a
   fixture and checks its display set, opens About and each Docs page in its tab, converts in a tab of its own and
   switches back through the Window menu, then checks that the CSP refuses an inline
   script, a remote image and a fetch (WebDriver's own scripts aren't subject to the CSP, so it checks what the page

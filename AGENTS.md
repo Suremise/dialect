@@ -80,10 +80,11 @@ every push to main and every pull request. A second job, `desktop`, runs `cargo 
 installer (kept as the run's `dialect-installer` artifact, never released) and runs the desktop smoke test, with the
 msedgedriver of the runner's WebView2. The repo is public at https://github.com/Suremise/dialect; CI runs there.
 
-**Only on GitHub's runners** (fixed, keep them so): the runners run jobs elevated, and WebView2 in an elevated process
-ignores a debugging port passed through `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` ("DevToolsActivePort file doesn't
-exist"), so the smoke test builds the app with its own port and attaches msedgedriver to it, not through tauri-driver
-(docs/ARCHITECTURE.md, The desktop app). The app also runs without its tray icon where Windows has no notification
+**Only on GitHub's runners** (fixed, keep them so): WebView2 there never opened a debugging port passed through
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` ("DevToolsActivePort file doesn't exist", a WebView2 regression from runtime
+133), so the smoke test builds the app with its own port and attaches msedgedriver to it, not through tauri-driver
+(docs/ARCHITECTURE.md, The desktop app). That build has its own identifier and a temp WebView2 profile: the smoke test
+never touches an installed Dialect's data. The app also runs without its tray icon where Windows has no notification
 area.
 
 **npm 12 through npx:** the global npm stays 11, because Hive on the same PC uses it, so run install, ci and test as
