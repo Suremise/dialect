@@ -49,7 +49,7 @@ Dialect doesn't update itself or check for new versions yet: look at Releases fo
 ## Building
 
 Needs Node 24 and npm 12. The repo pins npm 12.2.0, whose install scripts are denied by default, but a global npm may
-stay at 11 (Hive, on the same PC, uses it). Run npm 12 through `npx` for installs and tests instead:
+be older (npm 11, say). Run npm 12 through `npx` for installs and tests instead:
 
 ```sh
 npx npm@12.2.0 install    # or ci
