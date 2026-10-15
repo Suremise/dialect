@@ -69,7 +69,7 @@ npm run set-version -- 0.2.0  # set Dialect's version everywhere it's written (n
 npm run screenshots    # remake the README's light and dark screenshots (docs/screenshots)
 npm run release        # build every asset and upload a DRAFT GitHub release (RELEASING.md; -- --dry-run: no upload)
 npm run build -w @dialect/desktop       # the desktop app and its NSIS installer (needs Rust); never run the installer
-npm run test:smoke -w @dialect/desktop  # the desktop smoke test: builds the app, needs tauri-driver and msedgedriver
+npm run test:smoke -w @dialect/desktop  # the desktop smoke test: builds the app (target/e2e), needs msedgedriver
 ```
 
 Rust (stable, through rustup) and the Visual Studio C++ build tools are needed for the desktop app, and cargo for
@@ -77,9 +77,15 @@ Rust (stable, through rustup) and the Visual Studio C++ build tools are needed f
 
 CI (`.github/workflows/ci.yml`, Windows, Node 24 with npm 12) runs typecheck, lint, the tests and the license check on
 every push to main and every pull request. A second job, `desktop`, runs `cargo deny --locked check`, builds the
-installer (kept as the run's `dialect-installer` artifact, never released) and runs the desktop smoke test, with
-tauri-driver and the msedgedriver of the runner's WebView2. The repo has no remote yet, so CI hasn't run: run the checks
-locally.
+installer (kept as the run's `dialect-installer` artifact, never released) and runs the desktop smoke test, with the
+msedgedriver of the runner's WebView2. The repo is public at https://github.com/Suremise/dialect; CI runs there.
+
+**Only on GitHub's runners** (fixed, keep them so): WebView2 there never opened a debugging port passed through
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` ("DevToolsActivePort file doesn't exist", a WebView2 regression from runtime
+133), so the smoke test builds the app with its own port and attaches msedgedriver to it, not through tauri-driver
+(docs/ARCHITECTURE.md, The desktop app). That build has its own identifier and a temp WebView2 profile: the smoke test
+never touches an installed Dialect's data. The app also runs without its tray icon where Windows has no notification
+area.
 
 **npm 12 through npx:** the global npm stays 11, because Hive on the same PC uses it, so run install, ci and test as
 `npx npm@12.2.0 …`. Under npm 11, `npm test` skips the npm 12 install-script checks (`tests/installScripts.test.ts`)

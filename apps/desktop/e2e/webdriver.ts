@@ -1,5 +1,5 @@
 // A W3C WebDriver client of the three calls the smoke test needs: start a session, run a script in the page, end the
-// session. tauri-driver speaks the standard protocol, so plain fetch is enough. WebdriverIO would do the same, but every
+// session. msedgedriver speaks the standard protocol, so plain fetch is enough. WebdriverIO would do the same, but every
 // one of its packages brings @promptbook/utils (CC-BY-4.0, through @wdio/utils and locate-app), which the license
 // rule doesn't allow even as build-only (docs/SPEC.md, License).
 
