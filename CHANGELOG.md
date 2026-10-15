@@ -21,7 +21,8 @@ before applying it to a device.
 - **The Dialect icon everywhere in the desktop app:** on the installer and in Add/Remove Programs, on the window and
   the taskbar, and in the notification area while Dialect runs. Click the tray icon to bring the window back, or
   right-click it for Show Dialect, New tab and Quit. Quit asks first while output is unsaved, as closing the window
-  does, and closing the window still quits Dialect.
+  does, and closing the window still quits Dialect. Where Windows has no notification area, Dialect runs without the
+  tray icon.
 - **Tabs and a menu bar**, the same in the desktop app and the web build. Open several conversions at once, each in
   its own tab (File → New Tab, Ctrl+T, or +, then Display set or Convert), with its own source, output, interface
   names and undo history. A dot marks a tab whose output isn't saved, and closing it asks first. The Docs pages open in
