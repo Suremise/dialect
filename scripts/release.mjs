@@ -63,6 +63,46 @@ export function releaseNotes(template, { version, changes, checksums, notice }) 
 
 export const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
 
+/**
+ * The release `tag` as GitHub has it now: 'missing', 'draft' or 'published'. `gh` runs the GitHub CLI with its
+ * arguments and returns { status, stdout, stderr }. Any other failure (no network, no access) throws.
+ */
+export function releaseState(gh, repo, tag) {
+  const view = gh(['release', 'view', tag, '--repo', repo, '--json', 'isDraft'])
+  if (view.status !== 0) {
+    if (/release not found/i.test(view.stderr ?? '')) return 'missing'
+    throw new Error(`gh release view ${tag} failed: ${(view.stderr ?? '').trim()}`)
+  }
+  return JSON.parse(view.stdout || '{}').isDraft === true ? 'draft' : 'published'
+}
+
+/**
+ * Creates the draft release `tag` naming `commit` with `notes` and `files`, or gives an existing draft these notes and
+ * files. A published release is never touched: its state is read again just before each write (Darren may publish the
+ * draft while the installers build), and an edit never passes --draft, which would turn a published release back into
+ * one. The tag itself is made when Darren publishes. Returns the release's URL.
+ */
+export function uploadDraft(gh, { repo, tag, commit, title, notes, files }) {
+  const run = (args) => {
+    const r = gh(args)
+    if (r.status !== 0) throw new Error(`gh ${args.slice(0, 2).join(' ')} failed: ${(r.stderr ?? '').trim()}`)
+    return r
+  }
+  const refusePublished = () => {
+    const state = releaseState(gh, repo, tag)
+    if (state === 'published') throw new Error(`${tag} is already published: nothing was changed. Set a new version for a new release.`)
+    return state
+  }
+  if (refusePublished() === 'missing') {
+    run(['release', 'create', tag, '--repo', repo, '--draft', '--target', commit, '--title', title, '--notes-file', notes, ...files])
+  } else {
+    run(['release', 'edit', tag, '--repo', repo, '--target', commit, '--title', title, '--notes-file', notes])
+    refusePublished()
+    run(['release', 'upload', tag, '--repo', repo, '--clobber', ...files])
+  }
+  return run(['release', 'view', tag, '--repo', repo, '--json', 'url', '--jq', '.url']).stdout.trim()
+}
+
 function main() {
   const root = fileURLToPath(new URL('..', import.meta.url))
   const dryRun = process.argv.includes('--dry-run')
@@ -71,7 +111,7 @@ function main() {
     process.exit(1)
   }
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
-  const gh = (...args) => spawnSync('gh', args, { cwd: root, encoding: 'utf8' })
+  const gh = (args) => spawnSync('gh', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   const npm = (command) => {
     const r = spawnSync(`npm ${command}`, { cwd: root, stdio: 'inherit', shell: true })
     if (r.status !== 0) fail(`npm ${command} failed`)
@@ -81,7 +121,7 @@ function main() {
   const tag = `v${version}`
 
   // Checks first: nothing is built or uploaded unless they all pass.
-  if (!dryRun && gh('auth', 'status').status !== 0) fail('the GitHub CLI is not signed in. Run: gh auth login')
+  if (!dryRun && gh(['auth', 'status']).status !== 0) fail('the GitHub CLI is not signed in. Run: gh auth login')
   const dirty = git('status', '--porcelain')
   if (dirty) fail(`commit your changes first; a release is built from a clean tree.\n${dirty}`)
   const stray = versions(root).filter((v) => v.version !== version)
@@ -95,8 +135,13 @@ function main() {
   if (!dryRun) {
     git('fetch', 'origin', 'main')
     if (spawnSync('git', ['merge-base', '--is-ancestor', commit, 'origin/main'], { cwd: root }).status !== 0) fail(`${commit} isn't on origin/main: release only what's pushed to main, with CI green on it`)
-    const view = gh('release', 'view', tag, '--repo', REPO, '--json', 'isDraft')
-    if (view.status === 0 && JSON.parse(view.stdout || '{}').isDraft !== true) fail(`${tag} is already published. Set a new version for a new release.`)
+    let state
+    try {
+      state = releaseState(gh, REPO, tag)
+    } catch (error) {
+      fail(error.message)
+    }
+    if (state === 'published') fail(`${tag} is already published. Set a new version for a new release.`)
   }
 
   // Build: the web page, then both installers, whose build makes dialect.exe too (tauri.conf.json's beforeBuildCommand).
@@ -123,20 +168,12 @@ function main() {
     return
   }
 
-  // A draft names its commit; the tag is made when Darren publishes it. An existing draft gets these files and notes.
-  const files = checksums.map(({ name }) => join(stage, name))
-  const run = (...args) => {
-    const r = spawnSync('gh', args, { cwd: root, stdio: 'inherit' })
-    if (r.status !== 0) fail(`gh ${args.slice(0, 2).join(' ')} failed`)
+  try {
+    const url = uploadDraft(gh, { repo: REPO, tag, commit, title: `Dialect ${version}`, notes, files: checksums.map(({ name }) => join(stage, name)) })
+    console.log(`\nDraft ${tag} uploaded: ${url}\nReview it on GitHub and publish it there.`)
+  } catch (error) {
+    fail(error.message)
   }
-  if (gh('release', 'view', tag, '--repo', REPO).status === 0) {
-    run('release', 'edit', tag, '--repo', REPO, '--draft', '--target', commit, '--title', `Dialect ${version}`, '--notes-file', notes)
-    run('release', 'upload', tag, '--repo', REPO, '--clobber', ...files)
-  } else {
-    run('release', 'create', tag, '--repo', REPO, '--draft', '--target', commit, '--title', `Dialect ${version}`, '--notes-file', notes, ...files)
-  }
-  const url = gh('release', 'view', tag, '--repo', REPO, '--json', 'url', '--jq', '.url').stdout.trim()
-  console.log(`\nDraft ${tag} uploaded: ${url}\nReview it on GitHub and publish it there.`)
 }
 
 // Run as a script, not when a test imports it. Windows paths compare without case.

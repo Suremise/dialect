@@ -42,7 +42,9 @@ included, in `dist/release/v<version>/`.
    that isn't the same everywhere, a CHANGELOG without the version's section, stale notices, a commit that isn't on
    `origin/main`, and a version already published. It builds the web page, the CLI and both installers (needs Rust and
    Node 24.19.0, as for `npm run build:installers`), then creates the draft, naming that commit (or updates the draft,
-   replacing its files and notes, if one exists). `npm run release -- --dry-run` does everything but the upload.
+   replacing its files and notes, if one exists). It reads the release's state again just before each change on
+   GitHub, so a draft published while the installers build is left alone. `npm run release -- --dry-run` does
+   everything but the upload.
 4. **Darren reviews the draft** on GitHub: the notes, the files and their SHA-256s (the script prints them). Tick
    **Set as a pre-release** for a beta, then **Publish**. Publishing creates the tag `v<version>` on the commit the
    draft names.
