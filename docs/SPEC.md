@@ -307,6 +307,14 @@ product decisions.
   reviews and publishes it himself. Its assets: both installers (`Dialect_<version>_x64-setup.exe` and
   `Dialect_<version>_x64-offline-setup.exe`), `dialect-cli.exe`, `dialect.html`, `LICENSE` and
   `THIRD_PARTY_NOTICES.md`, with a SHA-256 for each in the notes.
+- **Hosted web build** (#117): the latest **published** release's `dialect.html` is on GitHub Pages,
+  [suremise.github.io/dialect](https://suremise.github.io/dialect/). `.github/workflows/pages.yml` deploys it when a release is published (not a pre-release), or
+  by hand for the latest release's tag. The page is the release's own asset, not a new build, with a notice added at
+  its top by `scripts/pages.mjs`: "Runs entirely in your browser. Your configuration is never uploaded.", a **How?**
+  explanation (the CSP blocks every network connection; download `dialect.html` to use it offline), the version and
+  a link to the release's downloads. The notice is HTML and one stylesheet, no script; the CSP only gains that
+  stylesheet's hash, so a release made before the script (0.1.0) gets the notice with its app untouched. The
+  downloads stay.
 - **No code signing** for now: the release notes say the installers are unsigned (SmartScreen: More info → Run
   anyway). Reconsider if many people use Dialect. **No auto-update** in 0.1.0: users check the releases page (#85).
 - `main` is protected: no force-push or deletion, and a pull request merges only with CI passing (RELEASING.md).

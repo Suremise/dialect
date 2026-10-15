@@ -33,6 +33,10 @@ runtime.
 | `dialect-cli.exe` | The `dialect` command on its own: one file, nothing to install. Rename it `dialect.exe` to type `dialect`. |
 | `dialect.html` | The app as one web page: open it in Edge or Chrome, from any folder or a USB stick, with no network. |
 
+**Use it online:** [suremise.github.io/dialect](https://suremise.github.io/dialect/) is the latest release's `dialect.html`, to use in a browser with nothing
+to download. It runs entirely in your browser: its content security policy blocks every network connection, so your
+configuration is never uploaded.
+
 Until Dialect has a code-signing certificate, Windows SmartScreen may warn about the downloads: choose **More info** →
 **Run anyway**. `THIRD_PARTY_NOTICES.md` comes with each release, and the release notes give each download's SHA-256.
 Dialect doesn't update itself or check for new versions yet: look at Releases for them. The

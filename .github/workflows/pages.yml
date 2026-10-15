@@ -1,0 +1,70 @@
+# Puts the latest published release's dialect.html on GitHub Pages (https://suremise.github.io/dialect/), with the
+# hosted notice added (scripts/pages.mjs): when a release is published, or by hand for a tag that is the latest
+# published release (Actions → Pages → Run workflow), e.g. to deploy one published before this workflow existed.
+#
+# The page is the release's own dialect.html asset, the file its users download, not a new build: the site always
+# matches what was released. No secrets: the build job reads the release with the run's token, and only the deploy job
+# may write to Pages. Each action is pinned to a full commit SHA (its version in the comment), so a moved tag can't
+# change what runs with Pages' write and OIDC permissions.
+name: Pages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release to deploy (e.g. v0.1.0), which must be the latest published one
+        required: true
+
+permissions: {}
+
+# One deploy at a time, in the order they started: a newer release's deploy never runs beside an older one's.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # A pre-release isn't the latest release, so it never replaces the site.
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # The workflow's own commit, for scripts/pages.mjs (which needs no packages): main's when run by hand, so an
+      # earlier release's page gets the notice too.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+      - name: The release's page, with the notice
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          if [ "$TAG" != "$latest" ]; then
+            echo "::error::$TAG isn't the latest published release ($latest): the site shows the latest only"
+            exit 1
+          fi
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern dialect.html --dir "$RUNNER_TEMP/release"
+          node scripts/pages.mjs "$RUNNER_TEMP/release/dialect.html" _site/index.html "${TAG#v}"
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

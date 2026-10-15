@@ -49,11 +49,18 @@ included, in `dist/release/v<version>/`.
    **Set as a pre-release** for a beta, then **Publish**. Publishing creates the tag `v<version>` on the commit the
    draft names.
 
+5. **The website follows.** Publishing (not a pre-release) runs `.github/workflows/pages.yml`, which puts the
+   release's `dialect.html`, with the hosted notice added (`scripts/pages.mjs`), on GitHub Pages:
+   https://suremise.github.io/dialect/. Check its run in Actions. To deploy again by hand (Actions → Pages → Run
+   workflow), give the tag; the workflow refuses one that isn't the latest published release.
+
 ## Notes
 
 - The release is built locally: CI's `desktop` job builds the same installers and `dialect.exe` (kept as the run's
   artifacts for 14 days, never released), so a build that only fails locally, or only on GitHub, shows up there.
 - Don't delete or replace the files of a published release: publish a new version instead.
+- Pages is set to deploy from GitHub Actions, and the `github-pages` environment allows the `v*` tags as well as
+  `main`, so a release's run (on its tag) may deploy.
 - `main` is protected: it can't be force-pushed or deleted, and a pull request merges only once CI's `check` and
   `desktop` jobs pass. Admins aren't held to it, so the usual flow (merge locally, push main) still works: check CI on
   every push of main.
