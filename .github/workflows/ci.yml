@@ -34,8 +34,8 @@ jobs:
       - run: npm run licenses -- --check
 
   # The desktop app: both NSIS installers and the standalone dialect.exe (kept as build artifacts, never released),
-  # cargo-deny on its crates, the smoke test (apps/desktop/e2e), which drives the built app through tauri-driver and Edge
-  # WebDriver, and dialect.exe run with no Node on the PATH.
+  # cargo-deny on its crates, the smoke test (apps/desktop/e2e), which drives the built app through Edge WebDriver
+  # attached to its WebView2, and dialect.exe run with no Node on the PATH.
   desktop:
     runs-on: windows-latest
     defaults:
@@ -59,17 +59,15 @@ jobs:
             apps/desktop/src-tauri/target
           key: cargo-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-
-      # tauri-driver and cargo-deny go in ~/.cargo-tools, apart from ~/.cargo/bin (rustup's), so they cache on their own.
+      # cargo-deny goes in ~/.cargo-tools, apart from ~/.cargo/bin (rustup's), so it caches on its own.
       - uses: actions/cache@v4
         with:
           path: ~/.cargo-tools
-          key: cargo-tools-${{ runner.os }}-tauri-driver-2-cargo-deny-0.20
+          key: cargo-tools-${{ runner.os }}-cargo-deny-0.20
       # cargo install skips a tool whose cached version is still the newest that meets the requirement.
-      - name: Install tauri-driver and cargo-deny
+      - name: Install cargo-deny
         run: |
           $tools = Join-Path $HOME '.cargo-tools'
-          cargo install tauri-driver --locked --version ^2 --root $tools
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo install cargo-deny --locked --version ^0.20 --root $tools
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Join-Path $tools 'bin' | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
@@ -90,21 +88,9 @@ jobs:
           "MSEDGEDRIVER=$(Join-Path $dir 'msedgedriver.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       # Both installers (Darren's decision on #89): the normal one and the offline one, each with dialect.exe inside.
       - run: npm run build:installers -w @dialect/desktop
-      # Builds the app again without the installer, which after the build above is incremental.
+      # Builds the app again without the installer, with its debugging port, into src-tauri/target/e2e (the smoke test's
+      # header says why: WebView2 ignores a driver's debugging port in an elevated process, as on these runners).
       - run: npm run test:smoke -w @dialect/desktop
-      # When the smoke test fails, whether the app starts on its own: still running after 20 s, or its exit code and what
-      # it wrote to stderr (a panic), and the Application log's errors from the last hour (a crash).
-      - name: Does the app start? (after a failure)
-        if: failure()
-        run: |
-          $exe = 'apps/desktop/src-tauri/target/release/dialect.exe'
-          if (-not (Test-Path $exe)) { Write-Output "$exe wasn't built"; exit 0 }
-          $stderr = Join-Path $env:RUNNER_TEMP 'dialect-stderr.txt'
-          $app = Start-Process -FilePath $exe -PassThru -RedirectStandardError $stderr
-          if ($app.WaitForExit(20000)) { Write-Output "dialect.exe exited with $($app.ExitCode)" } else { Write-Output 'dialect.exe is still running after 20 s'; Stop-Process -Id $app.Id -Force }
-          Get-Content $stderr -ErrorAction SilentlyContinue
-          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Level = 2; StartTime = (Get-Date).AddHours(-1) } -MaxEvents 20 -ErrorAction SilentlyContinue |
-            Format-List TimeCreated, ProviderName, Message
       # The dialect command needs no Node: run it with every folder holding a node.exe taken off the PATH.
       - name: dialect.exe runs with no Node
         run: |

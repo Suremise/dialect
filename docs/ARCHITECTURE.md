@@ -2120,18 +2120,24 @@ installer, `src-tauri/target/release/bundle/nsis/Dialect_<version>_x64-setup.exe
   event, and the config, capability and tray menu above. WebDriver can't reach the notification area, so the tray is
   checked by hand (the card's manual steps), as are the installers (#89's clean-machine plan: agents never run them).
   `e2e/smoke.test.ts` (`npm run test:smoke -w @dialect/desktop`, not in `npm test`) builds the app
-  (`tauri build --no-bundle`), starts it from the build output through tauri-driver and Edge WebDriver, drops a
+  (`tauri build --no-bundle`) into `src-tauri/target/e2e`, with `--remote-debugging-port=0` added to its window's
+  browser arguments (beside wry's defaults). It starts that app, reads the port WebView2 picked from
+  `%LOCALAPPDATA%io.github.suremise.dialectEBWebViewDevToolsActivePort` (close an installed Dialect first: WebView2
+  shares one browser process per data folder), and attaches Edge WebDriver to it
+  (`debuggerAddress`): WebView2 in an elevated process ignores the port a driver passes through
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which is how tauri-driver works, so that failed on GitHub's runners
+  (actions/runner-images#14738). The release build, which the installers ship, opens no port. The test drops a
   fixture and checks its display set, opens About and each Docs page in its tab, converts in a tab of its own and
   switches back through the Window menu, then checks that the CSP refuses an inline
   script, a remote image and a fetch (WebDriver's own scripts aren't subject to the CSP, so it checks what the page
   does), that the fs plugin refuses a file nobody picked and that the opener refuses anything but https, and last that
   the window's own close request with unsaved output shows the Exit dialog and stays open on Cancel, and that File →
   Exit (past the unsaved output question) ends the app's process. It talks WebDriver with fetch (`e2e/webdriver.ts`): every WebdriverIO package depends on
-  `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs tauri-driver
-  (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver matching the installed WebView2 (from
+  `@promptbook/utils`, CC-BY-4.0, which the license rule doesn't allow even as build-only. It needs the msedgedriver
+  matching the installed WebView2 (from
   `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`), through `MSEDGEDRIVER` or `PATH`.
 - **CI:** the `desktop` job in `.github/workflows/ci.yml` (`windows-latest`) does the same. It caches cargo's registry
-  and `src-tauri/target`, and keeps tauri-driver and cargo-deny cached in `~/.cargo-tools`. It runs
+  and `src-tauri/target` (both builds), and keeps cargo-deny cached in `~/.cargo-tools`. It runs
   `cargo deny --locked check` in `src-tauri`, then reads the runner's WebView2 version from the registry
   (`HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`, `pv`), downloads
   that msedgedriver and sets `MSEDGEDRIVER`. Then it runs `npm run build` and the smoke test, and uploads the installer

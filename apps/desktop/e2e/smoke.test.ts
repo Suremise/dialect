@@ -1,15 +1,20 @@
-// The desktop app's smoke test: the built app (src-tauri/target/release/dialect.exe, run from the build output, not
-// installed) driven through tauri-driver and Microsoft Edge WebDriver (e2e/webdriver.ts). It drops a fixture on the window,
-// which the desktop Platform reads, and checks the display set output; then About and the Docs tabs, convert in a tab of
-// its own and a switch back through the Window menu, that the CSP blocks inline scripts and the network, that the fs
-// plugin reads no file the user hasn't picked and the opener no link but an https one, and last that File → Exit quits.
-// The logic itself is the web build's, tested there.
+// The desktop app's smoke test: the built app (run from the build output, not installed) driven through Microsoft Edge
+// WebDriver (e2e/webdriver.ts). It drops a fixture on the window, which the desktop Platform reads, and checks the display
+// set output; then About and the Docs tabs, convert in a tab of its own and a switch back through the Window menu, that
+// the CSP blocks inline scripts and the network, that the fs plugin reads no file the user hasn't picked and the opener
+// no link but an https one, and last that File → Exit quits. The logic itself is the web build's, tested there.
 //
-// Needs Rust (the build), tauri-driver (`cargo install tauri-driver --locked --version ^2`) and the msedgedriver that
-// matches the installed WebView2, found through MSEDGEDRIVER (its path) or on PATH. `npm run test:smoke -w
-// @dialect/desktop` builds the app first (incremental after the first build), as the web tests build the page.
+// msedgedriver attaches to the app (`debuggerAddress`) rather than starting it: WebView2 ignores the debugging port a
+// driver passes through WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS in an elevated process, as on GitHub's runners
+// (actions/runner-images#14738), so the app is built with its own `--remote-debugging-port=0` in its window's browser
+// arguments, beside wry's defaults, and the test reads the port WebView2 picked from DevToolsActivePort. That build goes
+// to src-tauri/target/e2e, apart from the release build the installers are made from, which never opens a port.
+//
+// Needs Rust (the build) and the msedgedriver that matches the installed WebView2, found through MSEDGEDRIVER (its path)
+// or on PATH. `npm run test:smoke -w @dialect/desktop` builds the app first (incremental after the first build), as the
+// web tests build the page.
 import { execFileSync, spawn, type ChildProcess } from 'child_process'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { createServer } from 'net'
 import { createRequire } from 'module'
 import { dirname, join } from 'path'
@@ -20,10 +25,22 @@ import { newSession, type Session } from './webdriver'
 const desktop = join(__dirname, '..')
 // The Tauri CLI's own entry (its bin), wherever npm installed it.
 const tauriCli = join(dirname(createRequire(import.meta.url).resolve('@tauri-apps/cli/package.json')), 'tauri.js')
-const app = join(desktop, 'src-tauri', 'target', 'release', 'dialect.exe')
+/** The smoke test's own build of the app, apart from the release build (src-tauri/target/release). */
+const targetDir = join(desktop, 'src-tauri', 'target', 'e2e')
+const app = join(targetDir, 'release', 'dialect.exe')
+const tauriConf = JSON.parse(readFileSync(join(desktop, 'src-tauri', 'tauri.conf.json'), 'utf8')) as { identifier: string; app: { windows: Record<string, unknown>[] } }
+/** wry's own browser arguments, which a window's `additionalBrowserArgs` replaces (tauri-utils' config.rs). */
+const WRY_ARGS = '--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection'
+/**
+ * Where WebView2 writes DevToolsActivePort: the app's data folder, as an installed Dialect's. WebView2 shares one browser
+ * process per folder, whose arguments win, so close an installed Dialect before running this.
+ */
+const activePort = join(process.env.LOCALAPPDATA ?? '', tauriConf.identifier, 'EBWebView', 'DevToolsActivePort')
 const FIXTURES = join(__dirname, '../../../packages/platform-junos/tests/fixtures/display-set')
 /** How long the app may take to show what an action leads to: a bound for a hung app, not a wait. */
 const UI_WAIT = { timeout: 15_000, interval: 100 }
+/** How long WebView2 may take to start and open its debugging port, the first time on a fresh machine too. */
+const START_WAIT = { timeout: 60_000, interval: 250 }
 /** About's notice, word for word (card #42). */
 const NOTICE =
   "© 2026 Darren Marshall. Dialect is independently developed and isn't affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc."
@@ -48,45 +65,72 @@ const freePort = (): Promise<number> =>
     })
   })
 
+/** Collects a child's output, for the error when something fails. */
+function logOf(child: ChildProcess): () => string {
+  let log = ''
+  child.stdout?.on('data', (d) => (log += d))
+  child.stderr?.on('data', (d) => (log += d))
+  return () => log.trim() || 'nothing'
+}
+
 let driver: ChildProcess | undefined
-let driverLog = ''
+let driverLog = (): string => 'nothing'
+let dialect: ChildProcess | undefined
+let dialectLog = (): string => 'nothing'
 let session: Session | undefined
 
 beforeAll(async () => {
   const native = process.env.MSEDGEDRIVER ?? onPath('msedgedriver.exe')
   if (!native || !existsSync(native)) throw new Error('msedgedriver.exe (matching the installed WebView2) is needed: set MSEDGEDRIVER to its path, or put it on PATH')
-  const tauriDriver = onPath('tauri-driver.exe') ?? join(process.env.USERPROFILE ?? '', '.cargo', 'bin', 'tauri-driver.exe')
-  if (!existsSync(tauriDriver)) throw new Error('tauri-driver is needed: cargo install tauri-driver --locked --version ^2')
 
-  // The app as `npm run build` makes it, without the installer: incremental once built.
-  execFileSync(process.execPath, [tauriCli, 'build', '--no-bundle'], { cwd: desktop, env: childEnv(), stdio: 'pipe' })
+  // The app as `npm run build` makes it, without the installer, with its debugging port: incremental once built. The
+  // --config file is merged over tauri.conf.json, whose window list it replaces whole.
+  const [main, ...others] = tauriConf.app.windows
+  const conf = join(targetDir, 'e2e.conf.json')
+  mkdirSync(targetDir, { recursive: true })
+  writeFileSync(conf, JSON.stringify({ app: { windows: [{ ...main, additionalBrowserArgs: `${WRY_ARGS} --remote-debugging-port=0` }, ...others] } }))
+  execFileSync(process.execPath, [tauriCli, 'build', '--no-bundle', '--config', conf], { cwd: desktop, env: { ...childEnv(), CARGO_TARGET_DIR: targetDir }, stdio: 'pipe' })
   expect(existsSync(app), app).toBe(true)
 
+  // The app, then the port its WebView2 picked: DevToolsActivePort's first line, written once it listens.
+  rmSync(activePort, { force: true })
+  const started = spawn(app, [], { env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
+  dialect = started
+  dialectLog = logOf(started)
+  const debugPort = await vi.waitFor(() => {
+    if (started.exitCode !== null) throw new Error(`dialect.exe exited with ${started.exitCode}: ${dialectLog()}`)
+    const port = existsSync(activePort) ? Number(readFileSync(activePort, 'utf8').split(/\r?\n/)[0]) : NaN
+    if (!(port > 0)) throw new Error(`no ${activePort} yet`)
+    return port
+  }, START_WAIT)
+
   const port = await freePort()
-  const nativePort = await freePort()
-  driver = spawn(tauriDriver, ['--port', String(port), '--native-port', String(nativePort), '--native-driver', native], { env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
-  driver.stdout?.on('data', (d) => (driverLog += d))
-  driver.stderr?.on('data', (d) => (driverLog += d))
+  driver = spawn(native, [`--port=${port}`], { env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
+  driverLog = logOf(driver)
   // Ready once it answers.
   await vi.waitFor(async () => {
-    if (!(await fetch(`http://127.0.0.1:${port}/status`)).ok) throw new Error('tauri-driver is not ready')
+    if (!(await fetch(`http://127.0.0.1:${port}/status`)).ok) throw new Error('msedgedriver is not ready')
   }, UI_WAIT)
   try {
-    session = await newSession(`http://127.0.0.1:${port}`, { browserName: 'wry', 'tauri:options': { application: app } })
+    session = await newSession(`http://127.0.0.1:${port}`, { browserName: 'webview2', 'ms:edgeOptions': { debuggerAddress: `127.0.0.1:${debugPort}` } })
   } catch (error) {
-    // What tauri-driver and msedgedriver said: why the app's WebView2 didn't come up.
-    throw new Error(`${(error as Error).message}\ntauri-driver said: ${driverLog.trim() || 'nothing'}`, { cause: error })
+    throw new Error(`${(error as Error).message}\nmsedgedriver said: ${driverLog()}\ndialect.exe said: ${dialectLog()}`, { cause: error })
   }
 }, 600_000)
 
 afterAll(async () => {
+  // Attached, ending the session leaves the app running: the last test quits it, or this stops it.
   await session?.close().catch(() => {})
-  driver?.kill()
-  if (driver && driver.exitCode === null) await new Promise((resolve) => driver!.once('exit', resolve))
+  for (const child of [dialect, driver]) {
+    if (!child || child.exitCode !== null) continue
+    const exited = new Promise((resolve) => child.once('exit', resolve))
+    child.kill()
+    await exited
+  }
 })
 
 const page = (): Session => {
-  if (!session) throw new Error(`no WebDriver session (tauri-driver said: ${driverLog.trim() || 'nothing'})`)
+  if (!session) throw new Error(`no WebDriver session (msedgedriver said: ${driverLog()})`)
   return session
 }
 

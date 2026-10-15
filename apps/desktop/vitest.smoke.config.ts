@@ -1,5 +1,5 @@
-// The desktop smoke test (e2e/), apart from `npm test`: it builds the app with Rust and needs tauri-driver and Edge
-// WebDriver (e2e/smoke.test.ts says how to get them). Run it with `npm run test:smoke -w @dialect/desktop`.
+// The desktop smoke test (e2e/), apart from `npm test`: it builds the app with Rust and needs Edge WebDriver
+// (e2e/smoke.test.ts says how to get it). Run it with `npm run test:smoke -w @dialect/desktop`.
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
