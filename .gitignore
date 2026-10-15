@@ -2,6 +2,8 @@
 # skill copies Hive regenerates from the workspace. Nothing here is shared.
 .hive/
 .agents/
+# Machine-local Claude Code settings (permission rules with local paths).
+.claude/
 
 # Personal, machine-specific agent notes (AGENTS.md).
 CLAUDE.local.md

@@ -21,7 +21,8 @@ freely, but **read it only and never change anything there**.
   (`git config user.email`), never a personal email: never set or pass another email (`git config`, `-c user.email`,
   `--author`, `GIT_AUTHOR_EMAIL`).
 - **Merging into main:** run `git -C D:/Development/Workspaces/Scratch/juniper merge --no-ff <branch>` as a command of
-  its own, the path written out in full (not `$M` or `cd … &&`), so `.claude/settings.json`'s allow rule matches it.
+  its own, the path written out in full (not `$M` or `cd … &&`), so the allow rule in each developer's user-level Claude
+  settings matches it. `.claude/` is machine-local and not in git.
 - **Keep to your card's files.** Cards that run in parallel own different packages; a change another lane's package
   needs goes through the Hive Assistant, not into your card. Work you find that isn't your card's goes on a new card.
 - **Never run Prettier** (`prettier --write` or as a check): the repo has no Prettier config. Match the surrounding
