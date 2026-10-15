@@ -73,7 +73,9 @@ product decisions.
   offline one Microsoft's offline WebView2 installer (`offlineInstaller`). The **Dialect icon** is on the
   installer, the window and taskbar, and in the **notification area** (#82): left-click shows the window, the menu has
   Show Dialect, New tab and Quit, and Quit goes through the close guard. **Closing the window quits the app**: no
-  minimise-to-tray, as Dialect needn't run in the background (Darren's decision; a setting only if he asks).
+  minimise-to-tray, as Dialect needn't run in the background (Darren's decision; a setting only if he asks). Where
+  Windows has no notification area (a CI runner's session, a shell other than Explorer), making the icon fails: the app
+  says so on stderr and runs without it, the window, its menus and File → Exit working as usual.
 - **Versions:** semver 0.x until the model and the plugin API are stable.
 
 ## 3. License

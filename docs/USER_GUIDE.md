@@ -23,6 +23,7 @@ says what changed. Dialect doesn't update itself or check for new versions yet: 
   drop a file on the window. The Dialect icon is on the installer, the window and the taskbar, and in the notification
   area while Dialect runs: click it to bring the window back, or right-click it for **Show Dialect**, **New tab** and
   **Quit** (which asks first while output is unsaved, as closing the window does; closing the window quits Dialect).
+  Where Windows has no notification area, Dialect runs without the tray icon: the window and its menus work as usual.
   The app reads and writes only the files you pick, and reaches no network. Until Dialect
   has a code-signing certificate the installer is unsigned, so Windows SmartScreen may warn about it: choose **More
   info** → **Run anyway**. To build both installers from a checkout instead, run `npm run
