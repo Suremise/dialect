@@ -5,7 +5,7 @@
 //
 // The page updates after an action through React effects, so every check after one polls for the state it expects
 // (expect.poll, bounded by UI_WAIT), never reads it once.
-import { readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from 'playwright-core'
@@ -13,6 +13,8 @@ import { build } from 'vite'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { tempDir } from '../../../tests/tempDir'
 import { version } from '../../../package.json'
+// @ts-expect-error: a plain .mjs module without types
+import { hostedPage, NOTICE as HOSTED_NOTICE, releaseUrl } from '../../../scripts/pages.mjs'
 
 /** About's disclaimer, word for word (card #84). */
 const DISCLAIMER =
@@ -34,6 +36,8 @@ let context: BrowserContext
 let page: Page
 /** Requests for anything but the page itself: there must be none. */
 let blocked: string[]
+/** Every request the page made that reached the network layer, the page's own included. */
+let requests: string[]
 /** Console errors and warnings, page errors and CSP violations: there must be none. */
 let problems: string[]
 let downloads = 0
@@ -61,14 +65,16 @@ afterAll(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true })
 })
 
-async function openPage(colorScheme: 'dark' | 'light' = 'dark'): Promise<void> {
+async function openPage(colorScheme: 'dark' | 'light' = 'dark', url = pageUrl): Promise<void> {
   context = await browser.newContext({ offline: true, colorScheme, acceptDownloads: true, viewport: { width: 1280, height: 760 } })
   blocked = []
+  requests = []
   problems = []
   await context.route('**/*', (route) => {
-    const url = route.request().url()
-    if (url === pageUrl || url.startsWith('data:') || url.startsWith('blob:')) return route.continue()
-    blocked.push(url)
+    const requested = route.request().url()
+    requests.push(requested)
+    if (requested === url || requested.startsWith('data:') || requested.startsWith('blob:')) return route.continue()
+    blocked.push(requested)
     return route.abort()
   })
   await context.addInitScript(() => {
@@ -79,7 +85,7 @@ async function openPage(colorScheme: 'dark' | 'light' = 'dark'): Promise<void> {
     if (m.type() === 'error' || m.type() === 'warning') problems.push(`${m.type()}: ${m.text()}`)
   })
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`))
-  await page.goto(pageUrl)
+  await page.goto(url)
   await tab().locator('[data-pane=source] .cm-content').waitFor(UI_WAIT)
 }
 
@@ -445,6 +451,58 @@ describe('the web build', () => {
     // Every package and crate the committed file lists is on the page.
     const rows = committed.split('\n').filter((l) => /^\| \[?[\w@./-]+/.test(l) && !l.startsWith('| Package') && !l.startsWith('| Crate'))
     expect(await docs.locator('table tbody tr').count()).toBe(rows.length)
+  })
+})
+
+// The page GitHub Pages serves (scripts/pages.mjs, card #117): this build's page with the hosted notice added.
+describe('the hosted page', () => {
+  let hostedUrl: string
+
+  beforeAll(() => {
+    const site = join(dir, 'site')
+    mkdirSync(site, { recursive: true })
+    writeFileSync(join(site, 'index.html'), hostedPage(readFileSync(join(dir, 'dist', 'dialect.html'), 'utf8'), version))
+    hostedUrl = pathToFileURL(join(site, 'index.html')).href
+  })
+
+  const openHosted = (colorScheme: 'dark' | 'light' = 'dark'): Promise<void> => openPage(colorScheme, hostedUrl)
+
+  const notice = (): Locator => page.locator('details.hosted-notice')
+
+  it("keeps the policy, adding only the notice stylesheet's hash to style-src", () => {
+    const policy = (html: string): string => /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? ''
+    const built = policy(readFileSync(join(dir, 'dist', 'dialect.html'), 'utf8'))
+    const hosted = policy(readFileSync(join(dir, 'site', 'index.html'), 'utf8'))
+    expect(hosted.replace(/style-src 'sha256-[A-Za-z0-9+/]+=*' /, 'style-src ')).toBe(built)
+    expect(hosted).not.toBe(built)
+  })
+
+  it('shows the notice, the version and the downloads above the app, and why in its details, making no request', async () => {
+    await openHosted()
+    await expect.poll(() => notice().locator('summary strong').innerText(), UI_WAIT).toBe(HOSTED_NOTICE)
+    expect(await notice().locator('.hosted-version').innerText()).toBe(`Dialect ${version} · Downloads (desktop app, command line)`)
+    expect(await notice().locator('.hosted-version a').getAttribute('href')).toBe(releaseUrl(version))
+    // Above the menu bar, which keeps the rest of the window.
+    const [bar, menuBar] = await Promise.all([notice().boundingBox(), page.getByRole('menubar').boundingBox()])
+    expect(bar!.y).toBe(0)
+    expect(menuBar!.y).toBeGreaterThanOrEqual(bar!.y + bar!.height)
+    expect(await notice().locator('p').first().isVisible()).toBe(false)
+    await notice().getByText('How?').click()
+    await expect.poll(() => notice().locator('p').first().innerText(), UI_WAIT).toMatch(/content security policy blocks every network connection/)
+    // The app below still fills the rest of the window, and works.
+    await openWithPicker(fixture('config_1.conf'))
+    const lineCount = expectedOutput(1).split('\n').length - 1
+    await expect.poll(summary, UI_WAIT).toEqual({ name: 'config_1.conf', output: commands(lineCount), problems: '0 warnings', status: commands(lineCount), saveDisabled: false })
+    expect(await saveOutput()).toEqual({ name: 'config_1.set', text: expectedOutput(1) })
+    // The page itself, and nothing else (the icon and the saved file are data: and blob: URLs, which make no request).
+    expect(requests).toEqual([hostedUrl])
+  })
+
+  it('follows the light theme', async () => {
+    await openHosted('light')
+    await expect.poll(() => notice().evaluate((e) => getComputedStyle(e).backgroundColor), UI_WAIT).toBe('rgb(255, 255, 255)')
+    await menu('View', 'Dark Theme')
+    await expect.poll(() => notice().evaluate((e) => getComputedStyle(e).backgroundColor), UI_WAIT).toBe('rgb(45, 45, 48)')
   })
 })
 

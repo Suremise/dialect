@@ -33,13 +33,20 @@ says what changed. Dialect doesn't update itself or check for new versions yet: 
   Chrome. To build it from a checkout, run `npm run build -w @dialect/web`, which writes
   `apps/web/dist/dialect.html`. The page can't reach the network at all: its content security policy allows only its
   own built-in code.
+- **Online**: the latest release's web build is also at [suremise.github.io/dialect](https://suremise.github.io/dialect/), to use with nothing to
+  download. It's the release's `dialect.html` with a notice at the top: **Runs entirely in your browser. Your
+  configuration is never uploaded.** Click **How?** for why, and the version and the release's downloads are beside
+  it. The page's content security policy is the downloaded file's (plus the notice's styles): it can't fetch, send or
+  load anything, so a config you open or paste stays on your computer. To use it offline, download `dialect.html`
+  from the release.
 - **Command line**: the `dialect` command, needing nothing installed: the desktop installer adds it, or download
   `dialect-cli.exe` on its own (one file; rename it `dialect.exe` to type `dialect`). If you have Node 24, the
   `dialect.mjs` build runs on it too.
 
 ## Your configs stay on your computer
 
-Dialect works offline: it sends nothing anywhere and keeps no logs of your configs.
+Dialect works offline: it sends nothing anywhere and keeps no logs of your configs. That holds for the online page too:
+the website only delivers the page, and what you open, paste or convert never leaves the browser.
 
 ## Tabs and menus
 

@@ -1,5 +1,11 @@
 # Release Notes
 
+## Unreleased
+
+- **Use Dialect online:** the latest release's web page is at [suremise.github.io/dialect](https://suremise.github.io/dialect/), with nothing to download.
+  A notice at its top says it runs entirely in your browser and your configuration is never uploaded (its content
+  security policy blocks every network connection), with the version and a link to the release's downloads.
+
 ## 0.1.0 — 15 October 2026
 
 The first release of Dialect: Junos display set, and conversion between Junos, Cisco IOS / IOS-XE, NX-OS and IOS-XR,

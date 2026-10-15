@@ -2066,6 +2066,17 @@ with no server and no network.
   picker and saving their display set, the output pane, drag and drop, a syntax error and warnings in the problems
   panel, paste and copy, the themes and the linked lines. Every test also fails on a console error or warning, a page
   error, a CSP violation or a blocked request. `DIALECT_SCREENSHOTS=<folder>` also writes light and dark screenshots.
+- **The hosted page** (GitHub Pages, #117): `scripts/pages.mjs` turns a release's `dialect.html` into the site's
+  `index.html`. It adds a `<details>` notice before `#root` (the notice, **How?**, the version and the release's
+  downloads) and one `<style>`, and puts that stylesheet's hash first in `style-src`; the rest of the page and its
+  policy stay byte for byte. It adds no script, and refuses a page where the policy, `style-src`, the title or the
+  root element isn't there exactly once, and a version that isn't `x.y.z`. The stylesheet makes `body` a grid (the
+  notice's row, then the app's) and uses the theme tokens, so it follows the app's theme.
+  `.github/workflows/pages.yml` downloads the release's asset (the file users download, not a new build) with the
+  run's token, runs the script from the workflow's own commit (main's, when run by hand, so 0.1.0 gets the notice too)
+  and deploys with the official Pages actions: `contents: read` to build, `pages: write` and `id-token: write` only to
+  deploy. `tests/pages.test.ts` checks the script; this package's "the hosted page" tests open it from this build in
+  Edge, offline, and checks the notice, the version, the theme and that the page's own request is the only one.
 
 ## The desktop app (`apps/desktop`)
 
