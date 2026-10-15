@@ -78,6 +78,9 @@ Options:
 
 Exit codes: 0 done, 1 the config has a syntax error, 2 usage error or unreadable input,
 3 convert: something asked has no answer (see --map, --answers, --allow-incomplete).
+
+Always review converted configuration before applying it to a device. Dialect reports
+what it couldn't convert, but you are responsible for what you deploy.
 `
 
 function usageError(io: Io, message: string): number {

@@ -1,6 +1,6 @@
 {
   "name": "@dialect/platform-junos",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The Junos platform plugin: tree parser, the display set tool, and mapping to and from the shared model.",
   "license": "MIT",
   "private": true,
@@ -12,10 +12,10 @@
     "typecheck": "tsc -p . && tsc -p tests"
   },
   "dependencies": {
-    "@dialect/core": "0.0.0"
+    "@dialect/core": "0.1.0"
   },
   "devDependencies": {
-    "@dialect/conformance": "0.0.0",
-    "@dialect/platform-iosxe": "0.0.0"
+    "@dialect/conformance": "0.1.0",
+    "@dialect/platform-iosxe": "0.1.0"
   }
 }

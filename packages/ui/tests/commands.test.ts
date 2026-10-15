@@ -1,8 +1,9 @@
 // The command registry without a browser: every menu item's command is there once, with its keys; a key event finds the
 // command it belongs to, leaving the editors their own (Undo, Redo); the web build shows the browser-safe keys first; and
 // Exit is only in a shell that can quit.
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createCommands, eventToKey, formatKey, keysOf, matchKey } from '../src/commands'
+import { RELEASES_URL } from '../src/help/about'
 import type { Platform } from '../src/platform'
 
 const shell = (kind: Platform['kind'], exit?: () => Promise<void>): Platform => ({
@@ -35,6 +36,15 @@ describe('the commands', () => {
     expect(new Set(ids).size).toBe(ids.length)
     const keys = desktop.flatMap((c) => [...(c.keys ?? []), ...(c.webKeys ?? [])].map((k) => k.toUpperCase()))
     expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('open the releases page outside the app, from Help → Releases on GitHub', async () => {
+    const openLink = vi.fn(async () => {})
+    const releases = createCommands({ ...shell('web'), openLink }).find((c) => c.id === 'help.releases')!
+    expect(releases.label).toBe('Releases on GitHub')
+    await releases.run()
+    expect(openLink).toHaveBeenCalledWith(RELEASES_URL)
+    expect(RELEASES_URL).toBe('https://github.com/Suremise/dialect/releases')
   })
 
   it('have Exit only where the shell can quit', () => {

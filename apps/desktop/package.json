@@ -1,6 +1,6 @@
 {
   "name": "@dialect/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The Tauri 2 desktop shell: windows, file dialogs and file access around the shared UI.",
   "license": "MIT",
   "private": true,
@@ -14,7 +14,7 @@
     "typecheck": "tsc -p . && tsc -p tsconfig.node.json"
   },
   "dependencies": {
-    "@dialect/ui": "0.0.0",
+    "@dialect/ui": "0.1.0",
     "@tauri-apps/api": "^2.12.3",
     "@tauri-apps/plugin-dialog": "^2.8.2",
     "@tauri-apps/plugin-fs": "^2.7.0",

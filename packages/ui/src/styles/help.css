@@ -157,6 +157,13 @@
   max-width: 360px;
   color: var(--fg-muted);
 }
+.about-disclaimer {
+  margin: 10px auto 4px;
+  max-width: 380px;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .about-notice {
   margin: 10px auto 4px;
   max-width: 380px;

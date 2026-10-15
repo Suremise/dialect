@@ -493,6 +493,10 @@ describe('dialect usage', () => {
       const run = dialect(args)
       expect(run.status).toBe(0)
       expect(run.stdout).toContain('display-set <file|->')
+      // Darren's disclaimer (#84), as in README.md and About.
+      expect(run.stdout.replace(/\s+/g, ' ')).toContain(
+        "Always review converted configuration before applying it to a device. Dialect reports what it couldn't convert, but you are responsible for what you deploy."
+      )
       expect(run.stderr).toBe('')
     }
     const { version } = JSON.parse(readFileSync(join(cliRoot, 'package.json'), 'utf8')) as { version: string }
