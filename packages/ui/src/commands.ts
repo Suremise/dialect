@@ -1,6 +1,7 @@
 // Every command the menus and the shortcuts run, with its keybinding, in one registry (Hive's commands.ts, smaller).
 // The menu bar lists commands by id; the window's keydown handler finds the command a key combination belongs to.
 import { copyOutput, editHistory, exit, openFile, paste, saveOutput } from './actions'
+import { RELEASES_URL } from './help/about'
 import { DOCS, type DocId } from './help/docs'
 import { useHelp } from './help/state'
 import type { Platform } from './platform'
@@ -79,6 +80,7 @@ export function createCommands(platform: Platform): Command[] {
     doc('help.changelog', 'changelog'),
     doc('help.license', 'license'),
     doc('help.notices', 'notices'),
+    { id: 'help.releases', label: 'Releases on GitHub', tip: 'New versions of Dialect, in your browser', run: () => platform.openLink(RELEASES_URL).catch((e: Error) => state().notify('error', `Couldn't open the link: ${e.message}`)) },
     { id: 'help.about', label: 'About Dialect', run: () => useHelp.getState().setAboutOpen(true) }
   ]
 }

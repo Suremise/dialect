@@ -14,6 +14,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { tempDir } from '../../../tests/tempDir'
 import { version } from '../../../package.json'
 
+/** About's disclaimer, word for word (card #84). */
+const DISCLAIMER =
+  "Always review converted configuration before applying it to a device. Dialect reports what it couldn't convert, but you are responsible for what you deploy."
+
 /** About's notice, word for word (card #42). */
 const NOTICE =
   "© 2026 Darren Marshall. Dialect is independently developed and isn't affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc."
@@ -326,6 +330,7 @@ describe('the web build', () => {
       .poll(() => dialog.getByTestId('about-info').innerText(), UI_WAIT)
       .toMatch(new RegExp(`^Version\\s+${version.replaceAll('.', '\\.')}\\s+Build\\s+Web build\\s+Browser\\s+Microsoft Edge \\d+\\.\\d+\\.\\d+\\.\\d+\\s+OS\\s+Windows 1[01]$`))
     expect(await dialog.getByTestId('about-notice').innerText()).toBe(NOTICE)
+    expect(await dialog.getByTestId('about-disclaimer').innerText()).toBe(DISCLAIMER)
     expect(await dialog.innerText()).toContain('Open source under the MIT License. Includes third-party software.')
     await dialog.getByRole('button', { name: 'Copy' }).click()
     await expect
@@ -333,6 +338,18 @@ describe('the web build', () => {
       .toMatch(new RegExp(`^Dialect ${version.replaceAll('.', '\\.')}\nBuild: Web build\nBrowser: Microsoft Edge [\\d.]+\nOS: Windows 1[01]\n$`))
     await dialog.getByRole('button', { name: 'OK' }).click()
     await expect.poll(() => dialog.count(), UI_WAIT).toBe(0)
+  })
+
+  it('opens the releases page in a browser tab from Help → Releases on GitHub', async () => {
+    await openPage()
+    const releases = 'https://github.com/Suremise/dialect/releases'
+    // The new tab may go online (the page itself can't): answer it here, so nothing reaches the network.
+    await context.route(releases, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Releases</title>' }))
+    const opened = context.waitForEvent('page', UI_WAIT)
+    await menu('Help', 'Releases on GitHub')
+    const browserTab = await opened
+    await expect.poll(() => browserTab.url(), UI_WAIT).toBe(releases)
+    await browserTab.close()
   })
 
   it("opens the Docs pages from About's links and Release Notes", async () => {

@@ -1,10 +1,10 @@
 // Help → About Dialect: the version, the build, the browser engine and the OS, the license links into the Docs, the
-// copyright and the independence notice, and Copy for the version information (modelled on Hive's About dialog).
+// disclaimer, the copyright and the independence notice, and Copy for the version information (modelled on Hive's About dialog).
 import { useEffect, useRef, useState } from 'react'
 import iconUrl from '../../../../branding/icon-small.svg'
 import type { Platform } from '../platform'
 import { useStore } from '../store'
-import { NOTICE, TAGLINE } from './about'
+import { DISCLAIMER, NOTICE, TAGLINE } from './about'
 import type { DocId } from './docs'
 import { engineVersion, osVersion } from './engine'
 import { useHelp } from './state'
@@ -76,6 +76,9 @@ export function AboutDialog({ platform }: { platform: Platform }) {
             third-party software
           </button>
           .
+        </p>
+        <p className="about-disclaimer" data-testid="about-disclaimer">
+          {DISCLAIMER}
         </p>
         <p className="about-notice" data-testid="about-notice">
           {NOTICE}

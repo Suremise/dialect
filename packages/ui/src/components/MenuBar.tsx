@@ -42,7 +42,7 @@ export function MenuBar({ commands, platform }: { commands: readonly Command[]; 
     { label: 'Edit', items: [command('edit.undo'), command('edit.redo'), SEPARATOR, command('edit.copyOutput'), command('edit.paste')] },
     { label: 'View', items: [command('view.theme.system'), command('view.theme.light'), command('view.theme.dark')] },
     { label: 'Window', items: [...tabs.map((t, index): Item => ({ kind: 'tab', id: t.id, index })), ...(tabs.length ? [SEPARATOR] : []), command('window.next'), command('window.previous')] },
-    { label: 'Help', items: [command('help.guide'), command('help.changelog'), command('help.license'), command('help.notices'), SEPARATOR, command('help.about')] }
+    { label: 'Help', items: [command('help.guide'), command('help.changelog'), command('help.license'), command('help.notices'), SEPARATOR, command('help.releases'), command('help.about')] }
   ]
 
   const barButtons = (): HTMLButtonElement[] => [...(barRef.current?.querySelectorAll<HTMLButtonElement>('[data-menubar-item]') ?? [])]

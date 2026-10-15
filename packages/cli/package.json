@@ -1,6 +1,6 @@
 {
   "name": "@dialect/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The dialect command: display set and convert, on files or stdin/stdout. Runs on Node 24.",
   "license": "MIT",
   "private": true,
@@ -17,11 +17,11 @@
     "dialect": "dist/dialect.mjs"
   },
   "dependencies": {
-    "@dialect/core": "0.0.0",
-    "@dialect/platform-iosxe": "0.0.0",
-    "@dialect/platform-iosxr": "0.0.0",
-    "@dialect/platform-junos": "0.0.0",
-    "@dialect/platform-nxos": "0.0.0"
+    "@dialect/core": "0.1.0",
+    "@dialect/platform-iosxe": "0.1.0",
+    "@dialect/platform-iosxr": "0.1.0",
+    "@dialect/platform-junos": "0.1.0",
+    "@dialect/platform-nxos": "0.1.0"
   },
   "devDependencies": {
     "postject": "^1.0.0-alpha.6",

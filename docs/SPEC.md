@@ -256,7 +256,7 @@ product decisions.
 - **Menus:** File (New Tab, Open, Save Output, Save Output As, Close Tab, and Exit in the desktop app only), Edit (Undo,
   Redo, Copy Output, Paste), View (the theme: system, light or dark), Window (each open tab, the current one ticked,
   then Next and Previous Tab: Ctrl+Tab, Ctrl+Shift+Tab, and Ctrl+1–9) and Help (User Guide, Release Notes, License,
-  Third-Party Notices, About Dialect). Every item is a command in one registry with its keybinding, as in Hive. A
+  Third-Party Notices, Releases on GitHub, About Dialect). Every item is a command in one registry with its keybinding, as in Hive. A
   browser keeps Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+1–9 for itself, so the web build also has, and shows, Alt+T, Alt+W,
   Alt+PgDn/PgUp and Alt+1–9.
 - **Keyboard and accessibility:** WAI-ARIA's menubar and tablist patterns: Alt or F10 to the bar, the arrow keys, Home,
@@ -277,13 +277,18 @@ product decisions.
 - About (modelled on Hive's) shows the icon, the name, a one-line description, then the version, the build (desktop or
   web), the WebView2 or browser version and the OS where the browser tells it, with Copy for those rows. "Open source
   under the MIT License. Includes third-party software." links to the License and Third-Party Notices pages, and a
-  Release Notes button opens the release notes. In small print, word for word (README.md's Trademarks section is the
+  Release Notes button opens the release notes. Then Darren's disclaimer (#84), word for word in About, README.md
+  (its Review before applying section, kept so by a test), the user guide and the end of `dialect --help`: "Always
+  review converted configuration before applying it to a device. Dialect reports what it couldn't convert, but you are
+  responsible for what you deploy." In small print, word for word (README.md's Trademarks section is the
   same text, and a test keeps them so): "© 2026 Darren Marshall. Dialect is independently developed and isn't
   affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of
   Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc."
 - Links in the Docs never navigate the app's own page: a link to another bundled document opens it, and an `https://`
   link opens outside the app (the default browser through Tauri's opener plugin, which the desktop app may use for
   `https://` URLs only; a new tab in the web build).
+- **Help → Releases on GitHub** opens https://github.com/Suremise/dialect/releases the same way. There is no updater
+  and no check for new versions in 0.1.0 (#85, on hold).
 
 ## 9. Icon and theme
 
@@ -291,12 +296,27 @@ product decisions.
 - **Its violet palette is Dialect's theme colour** and runs through the whole app, as Hive's amber does. The tokens
   are in `branding/theme-tokens.css` and documented in `branding/README.md`; the UI uses them from B6 onwards.
 
-## 10. Working agreements
+## 10. Releases
+
+- **Public repo** [Suremise/dialect](https://github.com/Suremise/dialect), MIT. Versions are semver 0.x, as Hive's,
+  starting at **0.1.0**; the app's version is separate from the core model's. One version is written everywhere
+  (`npm run set-version`, kept so by `tests/version.test.ts`).
+- **A release is a GitHub Release** made as a **draft** by `npm run release` ([RELEASING.md](../RELEASING.md)); Darren
+  reviews and publishes it himself. Its assets: both installers (`Dialect_<version>_x64-setup.exe` and
+  `Dialect_<version>_x64-offline-setup.exe`), `dialect-cli.exe`, `dialect.html`, `LICENSE` and
+  `THIRD_PARTY_NOTICES.md`, with a SHA-256 for each in the notes.
+- **No code signing** for now: the release notes say the installers are unsigned (SmartScreen: More info → Run
+  anyway). Reconsider if many people use Dialect. **No auto-update** in 0.1.0: users check the releases page (#85).
+- `main` is protected: no force-push or deletion, and a pull request merges only with CI passing (RELEASING.md).
+- The README's screenshots (light and dark) are made by `npm run screenshots` from a fixture with documentation
+  addresses and placeholder names only, so each release can make them again.
+
+## 11. Working agreements
 
 - Agents commit on their own once a card passes review (unlike Hive, without waiting to be asked). No push, remote or
   release unless the user asks.
 
-## 11. Open questions
+## 12. Open questions
 
 From the spike report, still for the user to decide:
 
@@ -305,5 +325,5 @@ From the spike report, still for the user to decide:
 3. ~~Junos families in scope~~: decided, MX/EX/QFX with SRX security as `unsupported` for now (§4).
 4. Reverse display set (set → hierarchical): needed?
 5. Annotations: should display set output include `/* comments */`, or drop them with a warning?
-6. Who gets the app (decides code signing, installer or web build first, and whether the CLI is published)?
+6. ~~Who gets the app~~: decided, a public release on GitHub with every build, unsigned for now (§10).
 7. Third-party plugins: OK to leave out of v1?

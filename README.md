@@ -1,15 +1,30 @@
 # Dialect
 
-Dialect (working name) is a desktop app that translates network configs between vendor "dialects". It starts with Junos `display set` conversion (hierarchical config to `set` commands) and Junos ⇄ Cisco translation, with each platform (Junos, IOS/IOS-XE, NX-OS, IOS-XR, …) built as its own plugin so new vendors can be added without changing the core. It comes as a Tauri desktop app, an offline single-file web build and a command-line tool, all from one TypeScript core.
+Dialect translates network device configs between vendor "dialects", offline. It turns hierarchical Junos config into
+`display set` commands, and converts configs between Junos, Cisco IOS / IOS-XE, NX-OS and IOS-XR: interfaces and
+VLANs, static routes, OSPF and BGP, routing policy and filters, with each platform built as its own plugin. What it
+can't convert is listed, never dropped silently. It comes as a desktop app for Windows, an offline single-file web page
+and a command-line tool, all from one TypeScript core, and nothing ever leaves your computer.
 
-- Product decisions: [docs/SPEC.md](docs/SPEC.md)
-- How the code fits together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- The research behind the design, and the build plan: [docs/spike-desktop-app.md](docs/spike-desktop-app.md)
-- For agents working on the repo: [AGENTS.md](AGENTS.md)
+![A Junos config converted to Cisco IOS-XE in Dialect, in the light theme](docs/screenshots/convert-light.png)
+
+<details>
+<summary>The same in the dark theme</summary>
+
+![A Junos config converted to Cisco IOS-XE in Dialect, in the dark theme](docs/screenshots/convert-dark.png)
+
+</details>
+
+## Review before applying
+
+Always review converted configuration before applying it to a device. Dialect reports what it couldn't convert, but
+you are responsible for what you deploy.
 
 ## Getting Dialect
 
-Each release has four downloads, for Windows (x64). None needs anything else installed: no Node.js, no runtime.
+Download Dialect from **[Releases](https://github.com/Suremise/dialect/releases)** (in the app: Help → Releases on
+GitHub). Each release has four downloads, for Windows (x64). None needs anything else installed: no Node.js, no
+runtime.
 
 | Download | What it is |
 |---|---|
@@ -19,7 +34,17 @@ Each release has four downloads, for Windows (x64). None needs anything else ins
 | `dialect.html` | The app as one web page: open it in Edge or Chrome, from any folder or a USB stick, with no network. |
 
 Until Dialect has a code-signing certificate, Windows SmartScreen may warn about the downloads: choose **More info** →
-**Run anyway**. `THIRD_PARTY_NOTICES.md` comes with each release.
+**Run anyway**. `THIRD_PARTY_NOTICES.md` comes with each release, and the release notes give each download's SHA-256.
+Dialect doesn't update itself or check for new versions yet: look at Releases for them. The
+[user guide](docs/USER_GUIDE.md) (also in the app, F1) says how to use it.
+
+## More about the project
+
+- Product decisions: [docs/SPEC.md](docs/SPEC.md)
+- How the code fits together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- The research behind the design, and the build plan: [docs/spike-desktop-app.md](docs/spike-desktop-app.md)
+- How a release is made: [RELEASING.md](RELEASING.md)
+- For agents working on the repo: [AGENTS.md](AGENTS.md)
 
 ## Building
 

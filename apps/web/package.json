@@ -1,6 +1,6 @@
 {
   "name": "@dialect/web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The offline web build: the UI as one self-contained HTML file, opened from disk.",
   "license": "MIT",
   "private": true,
@@ -10,7 +10,7 @@
     "typecheck": "tsc -p . && tsc -p tsconfig.node.json"
   },
   "dependencies": {
-    "@dialect/ui": "0.0.0",
+    "@dialect/ui": "0.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

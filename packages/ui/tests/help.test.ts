@@ -1,11 +1,11 @@
-// The Docs view's documents and About's engine and OS lines and notice, without a browser. The documents are bundled from the repo's
+// The Docs view's documents and About's engine and OS lines, notice and disclaimer, without a browser. The documents are bundled from the repo's
 // files (?raw): each must be exactly the committed file, so the app never shows stale notices; `npm run licenses --
 // --check` (tests/licenses.test.ts) checks the committed notices against what ships.
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { BUNDLED, DOCS, docForLink } from '../src/help/docs'
-import { NOTICE } from '../src/help/about'
+import { DISCLAIMER, NOTICE } from '../src/help/about'
 import { engineFromUserAgent, osFromUserAgent, windowsName } from '../src/help/engine'
 
 const repo = join(__dirname, '..', '..', '..')
@@ -76,5 +76,13 @@ describe("About's notice", () => {
     const readme = readFileSync(join(repo, 'README.md'), 'utf8').replaceAll('\r\n', '\n')
     const section = /^## Trademarks\n\n([\s\S]*?)\n\n## /m.exec(readme)?.[1]
     expect(section?.replaceAll('\n', ' ')).toBe(NOTICE)
+  })
+})
+
+describe("About's disclaimer", () => {
+  it("is README.md's Review before applying section, word for word", () => {
+    const readme = readFileSync(join(repo, 'README.md'), 'utf8').replaceAll('\r\n', '\n')
+    const section = /^## Review before applying\n\n([\s\S]*?)\n\n## /m.exec(readme)?.[1]
+    expect(section?.replaceAll('\n', ' ')).toBe(DISCLAIMER)
   })
 })

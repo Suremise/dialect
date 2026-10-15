@@ -1,8 +1,16 @@
 # Release Notes
 
-## Unreleased
+## 0.1.0 — 15 October 2026
+
+The first release of Dialect: Junos display set, and conversion between Junos, Cisco IOS / IOS-XE, NX-OS and IOS-XR,
+in a desktop app for Windows, an offline web page and a command-line tool. Always review converted configuration
+before applying it to a device.
 
 ### Getting Dialect
+- **Releases are on GitHub:** [github.com/Suremise/dialect/releases](https://github.com/Suremise/dialect/releases), and
+  Help → Releases on GitHub opens the page. Dialect doesn't update itself or check for new versions yet.
+- **Review before applying:** About and `dialect --help` say it plainly. Dialect reports what it couldn't convert, but
+  you are responsible for what you deploy.
 - **Nothing to install first.** The `dialect` command is now also a standalone `dialect.exe` with its own runtime: no
   Node.js needed. The desktop installer installs it beside the app and asks to add it to your PATH (yes by default);
   uninstalling removes both. It's also a download of its own, `dialect-cli.exe`.

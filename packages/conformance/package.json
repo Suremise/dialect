@@ -1,6 +1,6 @@
 {
   "name": "@dialect/conformance",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Dev-only: the Vitest conformance kit every platform plugin's fixtures run through, with its negative tests.",
   "license": "MIT",
   "private": true,
@@ -12,7 +12,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@dialect/core": "0.0.0"
+    "@dialect/core": "0.1.0"
   },
   "peerDependencies": {
     "vitest": "^5.0.4"

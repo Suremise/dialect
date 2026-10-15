@@ -1,12 +1,18 @@
 # Dialect user guide
 
-Dialect isn't released yet. Sections about what isn't built yet (Convert) say what is coming. This guide is also in
-the app: **Help → User Guide** (F1).
+This guide is also in the app: **Help → User Guide** (F1).
 
 Dialect translates network device configs between vendor "dialects", offline. It isn't affiliated with or endorsed by
 Juniper Networks or Cisco Systems.
 
+**Always review converted configuration before applying it to a device.** Dialect reports what it couldn't convert,
+but you are responsible for what you deploy.
+
 ## Getting Dialect
+
+Download Dialect from its releases page, [github.com/Suremise/dialect/releases](https://github.com/Suremise/dialect/releases)
+(**Help → Releases on GitHub** opens it). Each release has the two installers, `dialect-cli.exe` and `dialect.html`, and
+says what changed. Dialect doesn't update itself or check for new versions yet: look there for them.
 
 - **Desktop app** (Windows): `Dialect_<version>_x64-setup.exe` installs Dialect for you alone, with no admin rights,
   and adds it to the Start menu; uninstall it from Settings → Apps. It also installs the `dialect` command (below) and
@@ -19,11 +25,11 @@ Juniper Networks or Cisco Systems.
   **Quit** (which asks first while output is unsaved, as closing the window does; closing the window quits Dialect).
   The app reads and writes only the files you pick, and reaches no network. Until Dialect
   has a code-signing certificate the installer is unsigned, so Windows SmartScreen may warn about it: choose **More
-  info** → **Run anyway**. Until there's a release, build both installers from a checkout with `npm run
+  info** → **Run anyway**. To build both installers from a checkout instead, run `npm run
   build:installers -w @dialect/desktop` (needs Rust), which writes them to
   `apps/desktop/src-tauri/target/release/bundle/nsis/`.
 - **Web build**: one HTML file, `dialect.html`, opened from disk with no install and no server. Open it in Edge or
-  Chrome. Until there's a release, build it from a checkout with `npm run build -w @dialect/web`, which writes
+  Chrome. To build it from a checkout, run `npm run build -w @dialect/web`, which writes
   `apps/web/dist/dialect.html`. The page can't reach the network at all: its content security policy allows only its
   own built-in code.
 - **Command line**: the `dialect` command, needing nothing installed: the desktop installer adds it, or download
@@ -456,7 +462,8 @@ text: keep it somewhere safe and delete it once the config is done.
 | 2 | A usage error (an unknown command or option, a missing or extra file, a map or answers file it can't read), or a file can't be read. |
 | 3 | `convert`: interfaces have no name on the target, or it needs a key, a password or another answer. Give the names with `--map` and the answers with `--answers`, or use `--allow-incomplete`. |
 
-`dialect --help` lists the commands, and `dialect --version` prints the version.
+`dialect --help` lists the commands (and ends with the reminder to review converted configuration before applying
+it), and `dialect --version` prints the version.
 
 ## About and Docs
 
@@ -468,13 +475,15 @@ The **Help** menu opens one of the Docs pages, each in a tab of its own, or Abou
 - **Third-Party Notices**: the open-source software Dialect includes, each package and Rust crate with its version,
   license and full license text, and the installer's components. Where one is offered under a choice of licenses, its
   entry says which one Dialect uses: MIT where it is offered, otherwise the first one Dialect may ship under.
+- **Releases on GitHub**: Dialect's releases page, in your browser: new versions and their downloads.
 
 A Docs tab lists the other pages beside its own; a page or a link to another of these documents opens that page's tab
 (or shows it, if it's open). Your conversion tabs stay as they were. A web link opens in your browser (the desktop app's
 default browser, or a new tab in the web build): the only time Dialect leads online, and only when you click one.
 
 **About Dialect** shows the version, which build it is (desktop app or web build), the WebView2 or browser version and
-the operating system, with links to the License and the Third-Party Notices. **Copy** copies the version information,
+the operating system, with links to the License and the Third-Party Notices, and the reminder to review converted
+configuration before applying it to a device. **Copy** copies the version information,
 for a bug report, and **Release Notes** opens the release notes. Dialect is independently developed and isn't
 affiliated with, endorsed or sponsored by Juniper Networks or Cisco Systems. Juniper and Junos are trademarks of
 Juniper Networks, Inc.; Cisco, IOS, IOS-XE, NX-OS and IOS-XR are trademarks of Cisco Systems, Inc.

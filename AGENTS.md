@@ -65,6 +65,9 @@ npm run licenses       # regenerate THIRD_PARTY_NOTICES.md and docs/BUILD_ONLY_P
 npm run icons          # regenerate branding/out/ from the SVG masters
 npm run contrast       # check the theme tokens against WCAG AA
 npm run fixtures       # check fixtures/ against its manifest and print the coverage table (npm test runs it too)
+npm run set-version -- 0.2.0  # set Dialect's version everywhere it's written (no argument: list them)
+npm run screenshots    # remake the README's light and dark screenshots (docs/screenshots)
+npm run release        # build every asset and upload a DRAFT GitHub release (RELEASING.md; -- --dry-run: no upload)
 npm run build -w @dialect/desktop       # the desktop app and its NSIS installer (needs Rust); never run the installer
 npm run test:smoke -w @dialect/desktop  # the desktop smoke test: builds the app, needs tauri-driver and msedgedriver
 ```
@@ -129,4 +132,5 @@ only when the package doesn't work without it, and say why on the card.
 | `packages/cli`, `packages/ui`, `apps/web`, `apps/desktop` | The CLI, the shared UI and the two shells (group C) |
 | `scripts/licenses.mjs`, `thirdPartyNotices.mjs`, `licensePolicy.mjs`, `licenseText.mjs`, `notices/` | The generated notices, the build-only list and the license check |
 | `scripts/build-icons.mjs`, `check-contrast.mjs`, `branding/` | The icon pipeline and the theme tokens |
+| `RELEASING.md`, `scripts/release.mjs`, `release-notes.md`, `version.mjs`, `screenshots.mjs` | Releases: the draft GitHub release, its notes, the version everywhere, the README's screenshots |
 | `tests/` | Repo-wide tests: licenses, install scripts, line endings, temp folders |

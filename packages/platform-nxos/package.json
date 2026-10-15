@@ -1,6 +1,6 @@
 {
   "name": "@dialect/platform-nxos",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The NX-OS platform plugin: the indentation-tree parser, and mapping to and from the shared model.",
   "license": "MIT",
   "private": true,
@@ -12,10 +12,10 @@
     "typecheck": "tsc -p . && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@dialect/core": "0.0.0"
+    "@dialect/core": "0.1.0"
   },
   "devDependencies": {
-    "@dialect/conformance": "0.0.0",
-    "@dialect/platform-iosxe": "0.0.0"
+    "@dialect/conformance": "0.1.0",
+    "@dialect/platform-iosxe": "0.1.0"
   }
 }
